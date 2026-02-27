@@ -1,0 +1,47 @@
+### Summary of Contributions
+
+This paper tackles the problem of single image super-resolution (SR) by moving away from the standard empirical risk minimization framework with pixel-wise losses like MSE. The authors argue that such losses lead to perceptually poor, blurry results because they average over the multi-modal distribution of plausible high-resolution (HR) images. Instead, the paper formulates SR as an amortised Maximum a Posteriori (MAP) inference problem, seeking to find the most probable HR image given a low-resolution (LR) input.
+
+The core contributions are:
+1.  **A Principled MAP Framework:** The problem is framed as maximizing the posterior probability of the generated image. This objective is shown to be equivalent to minimizing the cross-entropy between the distribution of generated images and the distribution of true HR images, subject to the constraint that the generated image downsamples correctly to the LR input.
+2.  **Affine Projection Layer:** To enforce the downsampling constraint `x = A*y_hat` exactly, the authors introduce a novel architectural component. This layer projects any network output onto the affine subspace of valid solutions consistent with the LR input. This is an elegant way to hard-code a physical constraint of the problem.
+3.  **Three Methods for MAP Approximation:** The paper explores three distinct methods to minimize the cross-entropy objective, which is intractable to compute directly:
+    *   **AffGAN:** A GAN-based approach where the generator (the SR network with an affine projection) is trained to fool a discriminator. The paper provides a derivation showing this setup minimizes the KL-divergence KL[q_G || p_Y], a close proxy for the cross-entropy objective.
+    *   **AffDG:** A method guided by a pre-trained denoising autoencoder (DAE). It leverages the known connection between optimal denoising and the score function (gradient of the log-probability of data) to perform gradient ascent on the log-prior term.
+    *   **AffLL:** A method guided by a pre-trained, explicit density model (PixelCNN with MCGSM likelihood) to directly approximate the log-prior.
+
+The paper demonstrates through experiments that the affine projection improves training and that the AffGAN approach produces sharp, perceptually convincing results on textures, faces, and natural images, outperforming the other two proposed methods.
+
+### Decision and Key Reasons
+
+**Decision:** Accept
+
+This is a strong and well-written paper that makes several valuable contributions. The primary reasons for acceptance are:
+1.  **Novel and Sound Theoretical Framing:** The paper provides a compelling and principled theoretical framework for perceptual super-resolution by casting it as amortised MAP inference. This provides a solid justification for using generative models like GANs, moving beyond the more heuristic arguments common in the literature at the time.
+2.  **Elegant Architectural Contribution:** The affine projection layer is a significant and novel contribution. It elegantly solves the problem of ensuring consistency between the LR input and the HR output, a weakness of methods that use soft penalties. The demonstration that this layer can even improve performance in a standard MSE setting (Fig. 2) is convincing.
+
+### Supporting Arguments
+
+**Strengths:**
+*   **Clarity and Motivation:** The paper is exceptionally clear. The motivation against MSE is well-illustrated with the Swiss-roll example, immediately making the case for the MAP approach intuitive. The derivation from the MAP objective to the unconstrained cross-entropy minimization is logical and easy to follow.
+*   **Rigorous Exploration:** The authors don't just propose one method; they explore three different ways to approximate the same underlying objective, rooted in GANs, denoising, and explicit density modeling. While only the GAN approach proved successful in practice, this comprehensive exploration adds significant scientific value by demonstrating the practical challenges of the other theoretically-sound paths.
+*   **Instance Noise:** The discussion and motivation for "instance noise" in Appendix C is insightful. It correctly identifies the problem of non-overlapping supports for generator and data distributions as a key source of GAN instability and proposes a sensible solution. While not the central contribution, it adds practical value.
+*   **Connection to Variational Inference:** The appendix (Sec. F) showing that a stochastic version of AffGAN performs amortised variational inference is a fascinating theoretical connection. It elegantly bridges the gap between GANs and VAEs in the context of this specific inverse problem, enriching the paper's theoretical depth.
+*   **Self-Criticism:** The discussion in Section 5.6 regarding the limitations of MAP inference (dependency on representation, atypicality of the mode) is excellent. It demonstrates a deep understanding of the problem space and adds credibility to the work by acknowledging potential conceptual flaws.
+
+**Weaknesses:**
+*   **Empirical Failure of AffDG and AffLL:** A significant weakness is the reported failure of the denoising-guided and density-guided methods, which produced blurry results. The paper is honest about this but could have integrated this finding more centrally. The primary claim is about a framework for amortised MAP inference, but two of the three proposed instantiations do not work well. This somewhat undermines the generality of the proposed framework, suggesting that its success is heavily tied to the specific properties of the GAN objective.
+*   **Qualitative Evaluation:** The evaluation of the main (AffGAN) results is largely qualitative. While this is common for perceptual SR, the paper would be strengthened by including quantitative perceptual metrics that were emerging around that time (e.g., LPIPS) to complement the traditional PSNR/SSIM scores, which are expectedly lower for GAN-based methods.
+*   **Limited Ablation on Instance Noise:** While instance noise is presented as a key trick for stabilizing training on ImageNet, its effect is not rigorously ablated. Its inclusion feels more like an engineering fix than a scientifically validated component of the method.
+
+### Additional Feedback for Improvement
+
+*   The paper could be framed more strongly by presenting the failure of AffDG and AffLL not as a simple weakness, but as a key scientific finding. For instance, the discussion could elaborate on *why* these methods might have failed. Perhaps the gradients from state-of-the-art denoisers or density models are still too noisy or biased to effectively guide a generator in such a high-dimensional space, whereas the adversarial signal from a discriminator provides a more robust, adaptive learning signal. This reframing would turn a weakness into a valuable insight.
+*   The computation of the pseudo-inverse kernel `A+` is an important practical detail. While described in the appendix, a brief mention of its computational cost and stability in the main text would be helpful. Is it a one-time pre-computation? Is it sensitive to the optimization hyperparameters?
+*   While the visual results are good, some artifacts (high-frequency noise) are visible, which the authors acknowledge. A brief discussion on potential methods to mitigate these, perhaps by blending the GAN loss with a pixel-wise or feature-wise loss, would be a welcome addition to the future work section.
+
+### Questions for the Authors
+
+1.  Regarding the failure of the AffDG and AffLL models: Do you believe this is a fundamental limitation of using score/density-based guidance for this task, or is it more a reflection of the capabilities of the specific denoiser/density models used? For instance, could more modern score-based diffusion models, which are essentially trained as powerful denoisers across many noise levels, succeed where AffDG failed?
+2.  The instance noise was crucial for training on ImageNet. Did you perform any ablation studies to quantify its impact on stability or final image quality? How sensitive were the results to the noise level and the annealing schedule?
+3.  The affine projection layer `(I - A+A)` projects the network's "residual" `f_theta(x)` into the null-space of the downsampling operator `A`. Intuitively, this means the network learns to fill in only the high-frequency details lost during downsampling. Did you analyze the spectral properties of the learned residuals to confirm this intuition?

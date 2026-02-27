@@ -1,0 +1,53 @@
+Summary
+The paper proposes “on-the-job learning,” a framework that jointly uses a predictive model and real-time crowdsourcing at test time to maintain high accuracy from the start while reducing cost and latency over time. The setting is formulated as a stochastic game between the system and the crowd. The utility trades off expected accuracy of the model’s MAP prediction with monetary and time penalties. The environment model factorizes over a CRF prior pθ(y|x), a fixed-accuracy crowd response model pR, and a response-time model pT. Because optimal control is intractable, the authors approximate the policy with Monte Carlo Tree Search (MCTS) with progressive widening to handle continuous time. Experiments on NER, sentiment, and image classification claim improved accuracy/cost trade-offs over pure crowd and pure ML baselines. An implementation (LENSE) is released.
+
+Relation to prior work: The paper situates itself among online learning, online active learning, active classification, and crowdsourcing control (e.g., TurKontrol) and explicitly builds on Legion:AR for real-time crowds. The key advertised novelty is a decision-theoretic formulation that operates at test time with structured outputs and asynchronous querying, updating the model online.
+
+Strengths
+- Interesting and impactful problem setting that is practically relevant: maintaining high accuracy from “cold start” via real-time crowd queries while learning to reduce reliance on the crowd.
+- Principled formulation: explicit Bayesian decision-theoretic utility trading off accuracy, time, and cost; allowance for parallel vs sequential queries and asynchronous responses.
+- Addresses structured prediction (CRF) rather than only i.i.d. labels; shows how crowd labels for parts of a structure change marginals.
+- Uses MCTS with progressive widening to address continuous-time and large decision spaces, which is a reasonable choice.
+- Multi-task evaluation and code/data release increase potential reproducibility and utility for the community.
+
+Weaknesses and detailed comments
+Methodological clarity and correctness
+- Training of pθ(y|x) is underspecified. The paper states “learned based on all actual responses using AdaGrad,” but ground truth is never observed. Are responses treated as gold, or do you perform posterior inference over y using pR and optimize a marginal/EM objective? Without a clear noise-aware training objective, the approach risks bias and label leakage. Please formalize the learning criterion and gradients.
+- The crowd model pR is fixed at 70% accuracy uniformly across tasks, labels, and workers. This is a strong and unrealistic assumption; it ignores worker heterogeneity, class-dependent confusion, and temporal drift. Prior work (Dawid–Skene, GLAD, and later Bayesian models) models annotator reliabilities and confusion matrices; TurKontrol also uses worker models. Not incorporating this substantially weakens both the decision-theoretic foundation and empirical performance claims.
+- Utility definition and decision rule: ExpAcc is defined as the expected Accuracy of the MAP decision under p(y|·). If accuracy decomposes tokenwise (F1/sequence-level are non-decomposable), the Bayes action is not necessarily the global MAP. Be explicit about the accuracy metric used inside Eq. (2) and justify the use of MAP under that loss. If you approximate sequence F1 with token accuracy, state it.
+- Latency/cost utility: wM and wT are not specified, nor is the sensitivity analysis. Results can change dramatically with these weights. Please report the chosen values per task and provide sensitivity curves.
+- Action space realism: The system can “make as many queries in a row as it wants.” In practice, concurrency is bounded by budget, UI bandwidth, and crowd availability. If there is a concurrency cap, incorporate it; if not, justify.
+- Algorithmic details of MCTS are incomplete. The pseudocode omits (i) expansion at system nodes; (ii) rollout/default policy for non-terminal playouts; (iii) termination/horizon criteria; (iv) the UCT constant c; and (v) computational budget per decision. As written, MONTECARLOVALUE can recurse indefinitely without defined rollout or termination except at an explicit “return” action.
+- Continuous-time handling: The progressive widening threshold is given, but the sampling of candidate response times conditional on t > tnow and their reuse is not described precisely (proposal distribution, resampling, tie-breaking). This matters for correctness and variance of value estimates.
+
+Evaluation and baselines
+- Tables and figures are referenced but not present in the submission; key quantitative details (dataset sizes/splits, exact numbers, standard deviations) are missing. Without them, claims (e.g., “order of magnitude” cost reduction, “8% F1 improvement”) cannot be verified.
+- Worker simulation procedure: For each label, collect 5 responses and delays beforehand and then sample without replacement during simulation. This induces small, dependent pools and potentially underestimates variance, class-conditional confusion, and long-tail delays. It also couples all methods to the same finite pool, which biases outcomes once the pool is exhausted. Please use larger pools, with-replacement sampling, and/or a fitted worker/latency model with held-out validation.
+- Baselines are weak or mismatched. Missing comparisons to:
+  - Decision-theoretic crowd control methods (e.g., TurKontrol POMDP).
+  - Label aggregation models (Dawid–Skene, GLAD, Bayesian crowd models) with adaptive redundancy.
+  - Budgeted/anytime test-time feature acquisition for classification/sequence tagging beyond the simple threshold heuristic.
+  - A myopic value-of-information policy using your own utility as a stronger heuristic baseline.
+- “Online learning” baseline uses gold labels for past data (an optimistic upper bound) but cannot query at prediction time. Conversely, LENSE uses crowd labels at test time. This is not apples-to-apples; include a baseline that also uses crowd labels but without decision-theoretic planning (e.g., fixed k redundancy, or confidence-triggered queries).
+- Cost accounting appears to exclude retainer overhead and platform fees. Since you pay $1 per worker to join the pool, per-prediction cost should amortize this, otherwise comparisons to per-item majority vote are misleading.
+- Statistical significance and variability are not reported. Provide confidence intervals over multiple runs with different random seeds/workers.
+
+Presentation and minor issues
+- Numerous typos and formatting issues: “comporable,” “burgenoning,” “miscellaneos,” “Retreival,” “one-the-job,” inconsistent capitalization (Faces), footnotes dangling (1,2,5), missing figure/table captions, undefined variables in places, inconsistent notation (e.g., q, s, r vectors).
+- The set of labels for NER is oddly defined (PERSON, LOCATION, RESOURCE, NONE) and the rationale for excluding MISC is only in a footnote. Clarify the dataset mapping and evaluation metric (token vs entity-level F1).
+- Ethical considerations and worker compensation are not discussed; the per-query payments ($0.005) are unusually low and may affect data quality—at least discuss implications.
+
+Pros and cons for acceptance
+Pros:
+- Addresses a meaningful and underexplored deployment setting.
+- Conceptually sound decision-theoretic framing; structured outputs and asynchronous querying are valuable.
+- Code/data release and multi-task scope.
+
+Cons:
+- Incomplete methodological specification (learning with noisy labels, MCTS details, utility/loss alignment).
+- Unrealistic/oversimplified crowd model; lack of stronger baselines and ablations.
+- Evaluation design and reporting are insufficient for NeurIPS standards; missing quantitative details, significance, and cost accounting.
+- Numerous clarity/formatting issues.
+
+Recommendation
+Reject. The problem is important and the high-level idea is promising, but the current submission has substantial methodological gaps, weak/misaligned baselines, and incomplete experimental evidence. Strengthening the learning formulation under label noise, modeling worker/latency heterogeneity, clarifying and completing the planning algorithm, and providing rigorous, transparent evaluations would significantly improve the paper.

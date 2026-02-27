@@ -1,0 +1,563 @@
+{
+  "name" : "b6f0479ae87d244975439c6124592772.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Latent Structured Active Learning",
+    "authors" : [ "Wenjie Luo", "Alexander G. Schwing", "Raquel Urtasun" ],
+    "emails" : [ "wenjie.luo@ttic.edu", "aschwing@inf.ethz.ch", "rurtasun@ttic.edu" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Most real-world applications are structured, i.e., they are composed of multiple random variables which are related. For example, in natural language processing, we might be interested in parsing sentences syntactically. In computer vision, we might want to predict the depth of each pixel, or its semantic category. In computational biology, given a sequence of proteins (e.g., lethal and edema factors, protective antigen) we might want to predict the 3D docking of the anthrax toxin. While individual variables could be considered independently, it has been demonstrated that taking relations into account improves prediction performance significantly.\nPrediction in structured models is typically performed by maximizing a scoring function over the space of all possible outcomes, an NP-hard task for most graphical models. Traditional learning algorithms for structured problems tackle the supervised setting [16, 33, 11], where input-output pairs are given and each structured output is fully labeled. Obtaining fully labeled examples might, however, be very cumbersome as structured models often involve a large number of random variables, e.g., in semantic segmentation, we have to label several million random variables, one for each pixel. Furthermore, obtaining ground truth is sometimes difficult as it potentially requires accessing extra sensors, e.g., laser scanners in the case of stereo. This is even more extreme in the medical domain, where obtaining extra labels is sometimes not even possible, e.g., when tests are not available. Thus, reducing the amount of labeled examples required for learning the scoring function is key for the success of structured prediction in real-world applications.\nThe active learning setting is particularly beneficial as it has the potential to considerably reduce the amount of supervision required to learn a good model, by querying only the most informative examples. In the structured case, active learning can be generalized to query only subparts of the graph for each example, reducing the amount of necessary labeling even further.\nWhile a variety of active learning approaches exists for the case of classification and regression, the structured case has been less popular, perhaps because of its intrinsic computational difficulties as we have to deal with exponentially sized output spaces. Existing approaches typically consider the case where exact inference is possible [7], label the full output space [7, 22], or rely on computationally expensive processes that require inference for each possible outcome of each random variable [34]. The latter is computationally infeasible for most graphical models.\nIn contrast, in this paper we present efficient approximate approaches for general graphical models where exact inference is intractable. In particular, we propose to select which parts to label based on the entropy of the local marginal distributions. Our active learning algorithms exploit recently developed weakly supervised methods for structured prediction [28], showing that we can benefit from unlabeled examples and exploit the marginal distributions computed during learning. Furthermore, computation is re-used at each active learning iteration, improving efficiency significantly. We demonstrate the effectiveness of our approach in the context of 3D room layout estimation from single images, and show that state-of-the-art results are achieved by employing much fewer manual interactions (i.e., labels). In particular, we match the performance of the state-of-the-art in this task [27] while only labeling ∼10% of the random variables. In the remainder of the paper we first review learning methods for structured prediction. We then propose our active learning algorithms, and show our experimental evaluation followed by a discussion on related work and conclusions."
+    }, {
+      "heading" : "2 Maximum Likelihood Structure Prediction",
+      "text" : "We begin by reviewing structured prediction approaches that employ both fully labeled training sets as well as those that handle latent variables. Of particular interest to us are probabilistic formulations since we employ entropies of local probability distributions as our criteria for deciding which parts of the graph to label during each active learning step.\nLet x ∈ X be the input space (e.g., an image or a sentence), and let s ∈ S be the structured labeled space that we are interested in predicting (e.g., an image segmentation or a parse tree). We define φ : X × S → RF to be a mapping from input and label space to an F -dimensional feature space. Here we consider log-linear distributions pw(s|x) describing the probability over a structured label space S given an object x ∈ X as\npw(s|x) ∝ exp ( w>φ(x, s) ) . (1)\nDuring learning, we are interested in estimating the parametersw ∈ RF of the log-linear distribution such that the score w>φ(x, s) is high if s ∈ S is a “good” label for x ∈ X ."
+    }, {
+      "heading" : "2.1 Supervised Setting",
+      "text" : "To define “good,” in the supervised setting we are given a training set D = {(xi, si)Ni=1} containing N pairs, each composed of an input x ∈ X and some fully labeled data s ∈ S . In addition, we are often able to compare the fitness of an estimate ŝ ∈ S for a training sample (x, s) ∈ D via what we refer to as the task-loss function `(x,s)(ŝ). Its purpose is very much like enforcing a distance between the hyperplane defined by the parameters and the respective sample when considering the popular max-margin setting. We incorporate this loss function into the learning process by considering the loss-augmented distribution\np(x,s)(s|w) ∝ exp(w>φ(x, s) + `(x,y)(s)). (2) Intuitively it places more probability mass on those parts of the output space S that have a high loss, forcing the model to adapt to a more difficult setting than the one encountered at inference, where the loss is not present.\nMaximum likelihood learning aims at finding model parameters w which assign highest probability to the training set D. Assuming the data to be independent and identically distributed (i.i.d.), our goal is to minimize the negative log-posterior− ln[p(w) ∏ (x,s)∈D p(x,s)(s|w)] with p(w) ∝ e −‖w‖pp being a prior on the model parameters. The cost function is therefore given by\nC p ‖w‖pp + ∑ (x,y)∈D ( ln ∑ ŝ∈S exp ( w>φ(x, ŝ) + `(x,y)(ŝ) ) − w>φ(x, s) ) , (3)\nwhere we have included a parameter to yield a soft-max function. Although being a convex function, the difficulty arises from the sum over exponentially many label configurations ŝ.\nDifferent algorithms have been proposed to solve this task. While efficient computation over treestructured models is required for convergence guarantees [16], approximations were suggested to achieve convergence even when working with loopy models [11]."
+    }, {
+      "heading" : "2.2 Dealing with Latent Variables",
+      "text" : "In the weakly supervised setting, we are given a training set D = {(xi, yi)Ni=1} containing N pairs, each composed of an input x ∈ X and some partially labeled data y ∈ Y ⊆ S . For every training pair, the label space S = Y×H is divided into two non-intersecting subspaces Y andH. We refer to the missing information h ∈ H as hidden or latent. As before, we incorporate a task-loss function, and define the loss-augmented likelihood of a prediction ŷ ∈ Y when observing the pair (x, y) as\np(x,y)(ŷ|w) ∝ ∑ ĥ∈H p(x,y)(ŷ, ĥ|w) = ∑ ĥ∈H p(x,y)(ŝ|w), (4)\nwith p(x,y)(ŝ|w) defined as in Eq. 2. The minimization of the negative log-posterior results in the difference of two convex terms as follows\nC p ‖w‖pp + ∑ (x,y)∈D  ln∑ ŝ∈S exp ( w>φ(x, ŝ) + `(x,y)(ŝ) ) − ln ∑ ĥ∈H exp ( w>φ(x, y, ĥ) + `c(x,y)(y, ĥ) ) , with the first two terms being the sum of the log-prior and the logarithm of the partition function. For generality we allow different task-loss `, `c while noting that `c ≡ 0 in our experiments. Besides the previously outlined difficulty of exponentially sized product spaces, the cost function is no longer convex. Hence we generally employ expectation maximization (EM) or concave-convex procedure (CCCP) [37] type of approaches, i.e., we linearize the non-convex part at the current iterate before taking a step in the direction of the gradient of a convex function. More specifically, we follow Schwing et al. [28] and upper-bound the concave part via a minimization over a set of dual variables subsequently referred to as q(x,y)(h):\nC p ‖w‖pp + ∑ (x,y) ( ln ∑ ŝ∈S exp ( w>φ(x, ŝ)+`(x,y)(ŝ) ) − H(q(x,y))−Eq(x,y) [w >φ(x, y, ĥ)+`c(x, y, ĥ)] ) .\nTo deal with the exponential complexity we notice that frequently the k-th element of the feature vector decomposes into local terms, i.e., φk(x, s) = ∑ i∈Vk,x φk,i(x, si) + ∑ α∈Ek,x φk,α(x, sα). Vk,x represents the set indexing the unary potentials for the k-th feature of example (x, y). Similarly Ek,x denotes the set of all high-order variable interaction sets α in the k-th feature of example (x, y). All variable indexes which are not observed are subsumed within the set H. Similarly all factors α that contain variable i are summarized within the set N(i).\nWe leverage the decomposition within the features to also approximate the entropy over the joint distribution q(x,y)(h) by local ones ranging over marginals. Furthermore, we approximate the marginal polytope by the local polytope. We deal with the summation over the output space objects ŝ ∈ S in the convex part in a similar manner. To this end we change to the dual space, employ the entropy approximations and transform the resulting surrogate function back to the primal space where we obtain Lagrange multipliers λ which enforce the marginalization constraints. Altogether we obtain an approximate primal program having the following form:\nmin d,λ,w\nf1(w, d, λ) + f2(d) + f3(d) (5) s.t. ∑ hα\\hi d(x,y),α(hα) = d(x,y),i(hi) ∀(x, y), i ∈ H, α ∈ N(i), hi ∈ Si\nd(x,y),i, d(x,y),α ∈ ∆ with ∆ denoting probability simplexes. We refer the reader to [28] for the specific forms of these functions.\nFollowing EM or CCCP, this program is optimized by alternatively minimizing w.r.t. the local beliefs d to solve the latent variable prediction problem, and performing a gradient step w.r.t. the weights as well as block-coordinate descent steps to update the Lagrange multipliers λ. The latter is equivalent to solving a supervised conditional random field problem given the distribution over latent variables inferred in the preceding latent variable prediction step.\nWe augment [28], and return not only the weights but also the local beliefs d which represent the joint distribution q(x,y)(h), i.e., a distribution over the latent space only. We summarize this process in Alg. 1. Note that only a local minimum is obtained as we are solving a non-convex problem.\nAlgorithm 1 latent structured prediction Input: data D, initial weights w repeat\nrepeat //solve latent variable prediction problem mind f2 + f3 s.t. ∀(x, y) d(x,y) ∈ D(x,y) until convergence //message passing update ∀(x, y), i ∈ S λ(x,y),i ← ∇λ(x,y),i(f1 + f2) = 0 //gradient step with step size η w ← w − η∇w(f1 + f2)\nuntil convergence Output: weights w, beliefs d"
+    }, {
+      "heading" : "3 Active Learning",
+      "text" : "In the previous section, we defined the maximum likelihood estimators for learning in the supervised and weakly supervised setting. We now derive our active learning approaches. In the active learning setting, we assume a given training set DS = {(xi, yi)NLi=1} containing NL pairs, each composed by an input x ∈ X and some partially labeled data y ∈ Y ⊆ S . As before, for every training pair, we divide the label space S = Y × H into two non-intersecting subspaces Y and H, and refer to the missing information h ∈ H as hidden or latent. Additionally, we are given a set of unlabeled examples DU = {(xi)Nui=1}. We are interested in answering the following question: which part of the graph for which example should we labeled in order to learn the best model with the least amount of supervision? Towards this goal, we derive iterative algorithms which select the random variables to be labeled based on the local entropies. This is intuitive, as entropy is a surrogate for uncertainty and useful for the considered application since the cost of labeling a random variable is independent of the selection.\nHere, our algorithms iteratively query the labels of the random variables of highest uncertainty, update the model parameters w and again ask for the next most uncertain set of variables.\nTowards this goal, we need to compute the entropies of the marginal distributions over each latent variable, as well as the entropy over each random variable of the unlabeled examples. This is in general NP-hard, as we are interested in dealing with graphical models with general potentials and connectivity. In this paper we derive two active learning algorithms, each with a different trade-off between accuracy and computational complexity.\nSeparate active: Our first algorithm utilizes the labeled and weakly labeled examples to learn at each iteration. Once the parameters are learned it performs inference over the unlabeled and partially labeled examples to query for the next random variable to label. Thus, it requires a separate inference step for each active learning iteration. As shown in our experiments, this can be done efficiently using convex belief propagation [10, 26]. The corresponding algorithm is summarized in Alg. 2.\nJoint active: Our second active learning algorithm takes advantage of unlabeled examples during learning and no extra effort is required to compute the most informative random variable. Note that this contrasts active learning algorithms which typically do not exploit unlabeled data during learning and require very expensive computations in order to select the next example or random variable to be labeled. Let D1 = DS ∪ DU be the set of all training examples containing both fully labeled, partially labeled and unlabeled examples. At each iteration we obtain Dt by querying the label of a random variable not being labeled in Dt−1. Thus, at each iteration, we learn using a weakly supervised structured prediction task that solves\nC p ‖wt‖pp + ∑ (x,y)∈Dt  ln∑ ŝ∈S exp ( w>t φ(x, ŝ)+`(x,y)(ŝ) ) − ln ∑ ĥ∈Ht exp ( w>t φ(x, y, ĥ)+` c (x,y)(y, ĥ) ) ,\nAlgorithm 2 Separate active Input: data DS , DU , initial weights w repeat\n(w, dS)← Alg. 1(DS , w) dU ← Inference(DU ) i∗ ← arg maxiH(di) DS ← DS ∪{(xi∗ , yi∗)}, DU ← DU \\xi∗\nuntil sufficiently certain Output: weights w\nAlgorithm 3 Joint active Input: data DS , DU , initial weights w repeat\n(w, d)← Alg. 1(DS ∪ DU , w) i∗ ← arg maxiH(di) DS ← DS ∪{(xi∗ , yi∗)}, DU ← DU \\xi∗\nuntil sufficiently certain Output: weights w\nwith wt the weights for the t-th iteration. We resort to the approximated problem given in Eq. 5 to solve this optimization task. The entropies are readily computable in close form, as the local beliefs d are computed during learning. Thus, no extra inference step is necessary. The local entropies are then given by H(di) = − ∑|Hi| hi=1\ndi(hi) log di(hi), and we query the variable that has the highest entropy, i.e., the highest uncertainty. Note that this computation is linear in the number of unlabeled random variables and linear in the number of states. We summarize our approach in Alg. 3. Note that this algorithm is more expensive than the previous one as learning employs the fully, weakly and unlabeled examples. This is particularly the case when the pool of unlabeled examples is large. However, as shown in our experimental evaluation, it can dramatically reduce the amount of labeling required to learn a good model.\nBatch mode: The two previously defined active learning approaches are computationally expensive as for each sequential active learning step, a new model has to be learned and inference has to be performed over all latent variables. We also investigate batch algorithms which label k random variables at each step of the algorithm. Towards this goal, we simply label the top k most uncertain variables. Note that this is an approximation of what the sequential algorithm will do, as the estimates of the parameters and the entropies are not updated when selecting the i-th variable.\nRe-using computation: Warm starting the learning algorithm after each active learning query is important in order to reduce the number of iterations required for convergence. Since (almost) the same samples are involved at each step, we can extract a lot of information from previous iterations. To this end we re-use both the weights w as well as the messages λ and beliefs. More specifically, for Alg. 2 we first perform inference on only newly selected examples to update the corresponding messages λ. Only afterwards and together with Lagrange multipliers from the other training images and the current weights, we perform the next iteration and another active step. On the other hand, since we take advantage of all the unlabeled data during the joint active learning algorithm (Alg. 3), we already know the Lagrange multipliers λ for every image. Without any further updates we directly start a new active step. In our experimental evaluation we show that this choice results in dramatic speed ups when compared to randomly initializing the weights and messages during every active learning iteration. Note that the joint approach (Alg. 3) requires a larger number of iterations to converge as it employs large amounts of unlabeled data. After a few iterations, convergence for the following active learning steps improves significantly requiring about as much time as the separate approach (Alg. 2) does."
+    }, {
+      "heading" : "4 Experimental Evaluation",
+      "text" : "We demonstrate the performance of our algorithms on the task of predicting the 3D layout of rooms from a single image. Existing approaches formulate the task as a structured prediction problem focusing on estimating the 3D box which best describes the layout. Taking advantage of the Manhattan world assumption (i.e., the existence of three dominant vanishing points which are orthonormal), and given the vanishing points, the problem can be formulated as inference in a pairwise graphical model composed of four random variables [27]. As shown in Fig. 1, these variables represent the angles encoding the rays that originate from the respective vanishing points. Following existing approaches [12, 17], we employ F = 55 features based on geometric context (GC) [13] and orientation maps (OM) [18] as image cues. Our features φ count for each face in the cuboid (given a particular configuration of the layout) the number of pixels with a certain label for OM and the probability that such label exists for GC and the task-loss ` denotes the pixel-wise prediction error.\nPerformance is measured as the percentage of pixels that have been correctly labeled as, left-wall, right-wall, front-wall, ceiling or floor. Unless otherwise stated all experiments are performed by averaging over 20 runs of the algorithm, where the initial seed of 10 fully labeled images is selected at random.\nActive learning: We begin our experimentation by comparing the two proposed active learning algorithms, i.e., separate (Alg. 2) and joint (Alg. 3). As shown in Fig. 2(a), both active learning algorithms achieve much lower test error than an algorithm that selects which variables to label at random. Also, note that the joint algorithm takes advantage of unlabeled data and achieves good performance after labeling only a few variables, improving significantly over the separate algorithm.\nBatch active learning: Fig. 2 shows the performances of both active learning algorithms when labeling a batch of k random variables before re-learning. Note that even with a batch of k = 12 random variables, our algorithms quickly outperform random selection, as illustrated in Fig. 2(d).\nImage vs random variable: Instead of labeling a random variable at a time, we also experiment with an algorithm that labels the four variables of an image at once. Note that this setting is equivalent to labeling four random variables per image. As shown in Fig. 3(a), labeling the full image requires more labeling to achieve the same test error performance when compared to labeling random variables from possibly different examples.\nImportance of : Fig. 3(b) and (c) show the performance of our active learning algorithms as a function of . Note that this parameter is fairly important. In particular, when = 1, the entropy of most random variables is too large to be discriminative. This is illustrated in Fig. 3(d) where we observe a fairly uniform distribution over the states of a randomly chosen variable for = 1. Our active learning algorithm thus prefers smaller values of . We hypothesize that this is due to the fact that we have a small number of random variables each having a large number of states. Our initial tests show that in other applications where the number of states is smaller (e.g., segmentation) larger values of perform better. An automatic selection of is subject of our future research.\nComplexity Separate vs. Joint: In Fig. 4(a) we illustrate the number of CCCP iterations as a function of the number of queried examples for both active learning algorithms. We observe that the joint algorithm requires more computation initially. But after the first few active steps, i.e., after having converged to a good solution, its computation requirements reduce drastically. Here we use = 0.01 for both algorithms.\nReusing computation: Fig. 4(b) and (c) show the number of finished active learning iterations as a function of time for the joint and separate algorithm respectively. Note that by reusing computation, a much larger number of active learning iterations finishes when given a specific time budget."
+    }, {
+      "heading" : "5 Related Work",
+      "text" : "Active learning approaches consider two different scenarios. In stream-based methods [5], samples are considered successively and a decision is made to discard or eventually pick the currently investigated sample. In contrast, pool-based methods [20] have access to a large set of unlabeled data. Clearly our proposed approach has a pool-based flavor. Over the years many different strategies have been proposed in the context of active learning algorithms to decide which example to label next. While we follow the uncertainty sampling scheme [20, 19] using an entropy measure, sampling schemes based on expected model change [29] have also been proposed. Other alternatives are expected error reduction [24], variance reduction [4, 6], least-confident measure [7] or margin-based measures [25].\nAn alternative way to classify active learning algorithms is related to the information revealed after querying for a label. In the multi-armed bandit model [1, 2] the algorithm chooses an action/sample and observes the utility of only that action. Alternatively when learning with expert advice, utilities for all possible actions are revealed [3]. Between both of the aforementioned extremes sits the coactive learning setting [30] where a subset of rewards for all possible actions is revealed by the user. Our approach resembles the multi-armed bandit setting since we only get to know the result of the newly queried sample.\nActive learning approaches have been proposed in the context of Neural Networks [6], Support Vector Machines [32], Gaussian processes [14], CRFs [7] and structured max-margin formulations [22]. Contrasting many of the previously proposed approaches we consider active learning as an extension of a latent structured prediction setting, i.e., we extend the double-loop algorithm by yet another layer. Importantly, our active learning algorithm follows the recent ideas to unify CRFs and structured SVMs. It employs convex approximations and is amenable to general graphical models with arbitrary topology and energy functions.\nThe first application of active learning in computer vision was developed by Kapoor et al. [14] to perform object recognition with minimal supervision. In the context of structured models [8] proposed to use conditional entropies to decide which image to label next in a segmentation task. In [36] the set of frames to label in a video sequence is selected based on the cost of labeling each frame and the cost of correcting errors. Unlike our approach, [8, 36] labeled full images (not sets of random variables). As shown in our experiments this requires more manual interactions than our approach. GrabCut [23] popularized the use of “active learning” for figure ground segmentation, where the question of what to labeled next is answered by a human via an interactive segmentation system. Siddiquie et al. [31] propose to label that variable which most reduces the entropy of the entire “system,” i.e., all the data, by taking into account correlations between variables using a Bethe entropy approximation. In [15], the next region to be labeled is selected based on a surrogate of uncertainty (i.e., min marginals) which is computed efficiently via dynamic graph cuts. This, however, is only suitable for problems that can be solved via graph cuts (e.g., binary labeling problems with sub modular energies). In contrast, in this paper we are interested in the general setting of arbitrary energies and connectivities. Entropy was used as an active learning criteria for tree-structured models [21], where marginal probabilities can be computed exactly.\nIn the context of video segmentation, Fathi et al. [9] frame active learning as a semi-supervised learning problem over a graph. They utilized the entropy as a metric for selecting which superpixel to label within their graph regularization approach. In the context of holistic approaches, Vijayanarasimhan et al. [35] investigated the problem of which task to label. Towards this goal they derived a multi-label multiple-instance approach, which takes into account the task effort (i.e., the expected time to perform each labeling). Vezhnevets et al. [34] resort to the expected change as the criteria to select which parts to label in the graphical model. Unfortunately, computing this measure is computationally expensive, and their approach is only feasible for graphical models where inference can be solved via graph cuts."
+    }, {
+      "heading" : "6 Conclusions",
+      "text" : "We have proposed active learning algorithms in the context of structure models which utilized local entropies in order to decide which subset of the output space for which example to label. We have demonstrated the effectiveness of our approach in the problem of 3D room layout prediction given a single image, and we showed that state-of-the-art performance can be obtained while only employing ∼10% of the labelings. We will release the source code upon acceptance as well as scripts to reproduce all experiments in the paper. In the future, we plan to apply our algorithms in the context of holistic models in order to investigate which tasks are more informative for visual parsing."
+    } ],
+    "references" : [ {
+      "title" : "Finite-time analysis of the multi-armed bandit problem",
+      "author" : [ "P. Auer", "N. Cesa-Bianchi", "P. Fischer" ],
+      "venue" : "Machine Learning,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : "1",
+      "year" : 2002
+    }, {
+      "title" : "The non-stochastic multi-armed bandit problem",
+      "author" : [ "P. Auer", "N. Cesa-Bianchi", "Y. Freund", "R. Schapire" ],
+      "venue" : "SIAM J. on Computing,",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 2002
+    }, {
+      "title" : "Prediction, Learning and Games",
+      "author" : [ "N. Cesa-Bianchi", "G. Lugosi" ],
+      "venue" : null,
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 2006
+    }, {
+      "title" : "Improving generalization with active learning",
+      "author" : [ "D. Cohn", "L. Atlas", "R. Ladner" ],
+      "venue" : "Machine Learning,",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : "4",
+      "year" : 1994
+    }, {
+      "title" : "Training connectionist networks with queries and selective sampling",
+      "author" : [ "D. Cohn", "L. Atlas", "R. Ladner", "M. El-Sharkawi", "R. Marks II", "M. Aggoune", "D. Park" ],
+      "venue" : "In Proc. NIPS,",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : "5",
+      "year" : 1990
+    }, {
+      "title" : "Active learning with statistical models",
+      "author" : [ "D. Cohn", "Z. Ghahramani", "M.I. Jordan" ],
+      "venue" : "J. of Artificial Intelligence Research,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : "6",
+      "year" : 1996
+    }, {
+      "title" : "Reducing labeling effort for structured prediction tasks",
+      "author" : [ "A. Culotta", "A. McCallum" ],
+      "venue" : "In Proc. AAAI,",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : "7",
+      "year" : 2005
+    }, {
+      "title" : "Learning to Segment from a Few Well-Selected Training Images",
+      "author" : [ "A. Farhangfar", "R. Greiner", "C. Szepesvari" ],
+      "venue" : "In Proc. ICML,",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : "8",
+      "year" : 2009
+    }, {
+      "title" : "Combining Self Training and Active Learning for Video Segmentation",
+      "author" : [ "A. Fathi", "M.F. Balcan", "X. Ren", "J.M. Rehg" ],
+      "venue" : "In Proc. BMVC,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 2011
+    }, {
+      "title" : "Norm-Product Belief Propagation: Primal-Dual Message-Passing for LP- Relaxation and Approximate-Inference",
+      "author" : [ "T. Hazan", "A. Shashua" ],
+      "venue" : "Trans. Information Theory,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : "10",
+      "year" : 2010
+    }, {
+      "title" : "A Primal-Dual Message-Passing Algorithm for Approximated Large Scale Structured Prediction",
+      "author" : [ "T. Hazan", "R. Urtasun" ],
+      "venue" : "In Proc. NIPS,",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 2010
+    }, {
+      "title" : "Recovering the Spatial Layout of Cluttered Rooms",
+      "author" : [ "V. Hedau", "D. Hoiem", "D.A. Forsyth" ],
+      "venue" : "In Proc. ICCV,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 2009
+    }, {
+      "title" : "Recovering Surface Layout from an Image",
+      "author" : [ "D. Hoiem", "A.A. Efros", "M. Hebert" ],
+      "venue" : null,
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 2007
+    }, {
+      "title" : "Active Learning with Gaussian Processes for Object Categorization",
+      "author" : [ "A. Kapoor", "K. Grauman", "R. Urtasun", "T. Darrell" ],
+      "venue" : "In Proc. ICCV,",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 2007
+    }, {
+      "title" : "Measuring Uncertainty in Graph Cut Solutions -Efficiently Computing Min-marginal Energies using Dynamic Graph Cuts",
+      "author" : [ "P. Kohli", "P. Torr" ],
+      "venue" : "In Proc. ECCV,",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : "15",
+      "year" : 2006
+    }, {
+      "title" : "Conditional random fields: Probabilistic models for segmenting and labeling sequence data",
+      "author" : [ "J. Lafferty", "A. McCallum", "F. Pereira" ],
+      "venue" : "In Proc. ICML,",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : "16",
+      "year" : 2001
+    }, {
+      "title" : "Estimating Spatial Layout of Rooms using Volumetric Reasoning about Objects and Surfaces",
+      "author" : [ "D.C. Lee", "A. Gupta", "M. Hebert", "T. Kanade" ],
+      "venue" : "In Proc. NIPS,",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : "17",
+      "year" : 2010
+    }, {
+      "title" : "Geometric Reasoning for Single Image Structure Recovery",
+      "author" : [ "D.C. Lee", "M. Hebert", "T. Kanade" ],
+      "venue" : "In Proc. CVPR,",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : "18",
+      "year" : 2009
+    }, {
+      "title" : "Heterogeneous uncertainty sampling for supervised learning",
+      "author" : [ "D. Lewis", "J. Catlett" ],
+      "venue" : "In Proc. ICML,",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : "19",
+      "year" : 1994
+    }, {
+      "title" : "A sequential algorithm for training text classifiers",
+      "author" : [ "D. Lewis", "W. Gale" ],
+      "venue" : "In Proc. Research and Development in Info. Retrieval,",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : "20",
+      "year" : 1994
+    }, {
+      "title" : "Learning Structured Prediction Models for Interactive Image Labeling",
+      "author" : [ "T. Mensink", "J. Verbeek", "G. Csurka" ],
+      "venue" : "In Proc. CVPR,",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : "21",
+      "year" : 2011
+    }, {
+      "title" : "Margin-based Active Learning for Structured Output Spaces",
+      "author" : [ "D. Roth", "K. Small" ],
+      "venue" : "In Proc. ECML,",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : "22",
+      "year" : 2006
+    }, {
+      "title" : "GrabCut Interactive Foreground Extraction using Iterated Graph Cuts",
+      "author" : [ "C. Rother", "V. Kolmogorov", "A. Blake" ],
+      "venue" : "In Proc. SIGGRAPH,",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : "23",
+      "year" : 2004
+    }, {
+      "title" : "Toward optimal active learning through sampling estimation of error reduction",
+      "author" : [ "N. Roy", "A. McCallum" ],
+      "venue" : "In Proc. ICML,",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : "24",
+      "year" : 2001
+    }, {
+      "title" : "Active hidden Markov models for information extraction",
+      "author" : [ "T. Scheffer", "C. Decomain", "S. Wrobel" ],
+      "venue" : "In Proc. Int’l Conf. Advances in Intelligent Data Analysis,",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : "25",
+      "year" : 2001
+    }, {
+      "title" : "Distributed Message Passing for Large Scale Graphical Models",
+      "author" : [ "A.G. Schwing", "T. Hazan", "M. Pollefeys", "R. Urtasun" ],
+      "venue" : "In Proc. CVPR,",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : "26",
+      "year" : 2011
+    }, {
+      "title" : "Efficient Structured Prediction for 3D Indoor Scene Understanding",
+      "author" : [ "A.G. Schwing", "T. Hazan", "M. Pollefeys", "R. Urtasun" ],
+      "venue" : "In Proc. CVPR,",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : "27",
+      "year" : 2012
+    }, {
+      "title" : "Efficient Structured Prediction with Latent Variables for General Graphical Models",
+      "author" : [ "A.G. Schwing", "T. Hazan", "M. Pollefeys", "R. Urtasun" ],
+      "venue" : "In Proc. ICML,",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : "28",
+      "year" : 2012
+    }, {
+      "title" : "Multiple-instance active learning",
+      "author" : [ "B. Settles", "M. Craven", "S. Ray" ],
+      "venue" : "In Proc. NIPS,",
+      "citeRegEx" : "29",
+      "shortCiteRegEx" : "29",
+      "year" : 2008
+    }, {
+      "title" : "Online Structured Prediction via Coactive Learning",
+      "author" : [ "P. Shivaswamy", "T. Joachims" ],
+      "venue" : "In Proc. ICML,",
+      "citeRegEx" : "30",
+      "shortCiteRegEx" : "30",
+      "year" : 2012
+    }, {
+      "title" : "Beyond Active Noun Tagging: Modeling Contextual Interactions for Multi- Class Active Learning",
+      "author" : [ "B. Siddiquie", "A. Gupta" ],
+      "venue" : "In Proc. CVPR,",
+      "citeRegEx" : "31",
+      "shortCiteRegEx" : "31",
+      "year" : 2010
+    }, {
+      "title" : "Support vector machine active learning with applications to text classification",
+      "author" : [ "S. Tong", "D. Koller" ],
+      "venue" : null,
+      "citeRegEx" : "32",
+      "shortCiteRegEx" : "32",
+      "year" : 2001
+    }, {
+      "title" : "Large Margin Methods for Structured and Interdependent Output Variables",
+      "author" : [ "I. Tsochantaridis", "T. Joachims", "T. Hofmann", "Y. Altun" ],
+      "venue" : null,
+      "citeRegEx" : "33",
+      "shortCiteRegEx" : "33",
+      "year" : 2005
+    }, {
+      "title" : "Active Learning for Semantic Segmentation with Expected Change",
+      "author" : [ "A. Vezhnevets", "V. Ferrari", "J.M. Buhmann" ],
+      "venue" : "In Proc. CVPR,",
+      "citeRegEx" : "34",
+      "shortCiteRegEx" : "34",
+      "year" : 2012
+    }, {
+      "title" : "Cost-Sensitive Active Visual Category Learning",
+      "author" : [ "S. Vijayanarasimhan", "K. Grauman" ],
+      "venue" : null,
+      "citeRegEx" : "35",
+      "shortCiteRegEx" : "35",
+      "year" : 2010
+    }, {
+      "title" : "Active Frame Selection for Label Propagation in Videos",
+      "author" : [ "S. Vijayanarasimhan", "K. Grauman" ],
+      "venue" : "In Proc. ECCV,",
+      "citeRegEx" : "36",
+      "shortCiteRegEx" : "36",
+      "year" : 2012
+    }, {
+      "title" : "The Concave-Convex Procedure",
+      "author" : [ "A.L. Yuille", "A. Rangarajan" ],
+      "venue" : "Neural Computation,",
+      "citeRegEx" : "37",
+      "shortCiteRegEx" : "37",
+      "year" : 2003
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 15,
+      "context" : "Traditional learning algorithms for structured problems tackle the supervised setting [16, 33, 11], where input-output pairs are given and each structured output is fully labeled.",
+      "startOffset" : 86,
+      "endOffset" : 98
+    }, {
+      "referenceID" : 32,
+      "context" : "Traditional learning algorithms for structured problems tackle the supervised setting [16, 33, 11], where input-output pairs are given and each structured output is fully labeled.",
+      "startOffset" : 86,
+      "endOffset" : 98
+    }, {
+      "referenceID" : 10,
+      "context" : "Traditional learning algorithms for structured problems tackle the supervised setting [16, 33, 11], where input-output pairs are given and each structured output is fully labeled.",
+      "startOffset" : 86,
+      "endOffset" : 98
+    }, {
+      "referenceID" : 6,
+      "context" : "Existing approaches typically consider the case where exact inference is possible [7], label the full output space [7, 22], or rely on computationally expensive processes that require inference for each possible outcome of each random variable [34].",
+      "startOffset" : 82,
+      "endOffset" : 85
+    }, {
+      "referenceID" : 6,
+      "context" : "Existing approaches typically consider the case where exact inference is possible [7], label the full output space [7, 22], or rely on computationally expensive processes that require inference for each possible outcome of each random variable [34].",
+      "startOffset" : 115,
+      "endOffset" : 122
+    }, {
+      "referenceID" : 21,
+      "context" : "Existing approaches typically consider the case where exact inference is possible [7], label the full output space [7, 22], or rely on computationally expensive processes that require inference for each possible outcome of each random variable [34].",
+      "startOffset" : 115,
+      "endOffset" : 122
+    }, {
+      "referenceID" : 33,
+      "context" : "Existing approaches typically consider the case where exact inference is possible [7], label the full output space [7, 22], or rely on computationally expensive processes that require inference for each possible outcome of each random variable [34].",
+      "startOffset" : 244,
+      "endOffset" : 248
+    }, {
+      "referenceID" : 27,
+      "context" : "Our active learning algorithms exploit recently developed weakly supervised methods for structured prediction [28], showing that we can benefit from unlabeled examples and exploit the marginal distributions computed during learning.",
+      "startOffset" : 110,
+      "endOffset" : 114
+    }, {
+      "referenceID" : 26,
+      "context" : "In particular, we match the performance of the state-of-the-art in this task [27] while only labeling ∼10% of the random variables.",
+      "startOffset" : 77,
+      "endOffset" : 81
+    }, {
+      "referenceID" : 15,
+      "context" : "While efficient computation over treestructured models is required for convergence guarantees [16], approximations were suggested to achieve convergence even when working with loopy models [11].",
+      "startOffset" : 94,
+      "endOffset" : 98
+    }, {
+      "referenceID" : 10,
+      "context" : "While efficient computation over treestructured models is required for convergence guarantees [16], approximations were suggested to achieve convergence even when working with loopy models [11].",
+      "startOffset" : 189,
+      "endOffset" : 193
+    }, {
+      "referenceID" : 36,
+      "context" : "Hence we generally employ expectation maximization (EM) or concave-convex procedure (CCCP) [37] type of approaches, i.",
+      "startOffset" : 91,
+      "endOffset" : 95
+    }, {
+      "referenceID" : 27,
+      "context" : "[28] and upper-bound the concave part via a minimization over a set of dual variables subsequently referred to as q(x,y)(h):",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 27,
+      "context" : "We refer the reader to [28] for the specific forms of these functions.",
+      "startOffset" : 23,
+      "endOffset" : 27
+    }, {
+      "referenceID" : 27,
+      "context" : "We augment [28], and return not only the weights but also the local beliefs d which represent the joint distribution q(x,y)(h), i.",
+      "startOffset" : 11,
+      "endOffset" : 15
+    }, {
+      "referenceID" : 9,
+      "context" : "As shown in our experiments, this can be done efficiently using convex belief propagation [10, 26].",
+      "startOffset" : 90,
+      "endOffset" : 98
+    }, {
+      "referenceID" : 25,
+      "context" : "As shown in our experiments, this can be done efficiently using convex belief propagation [10, 26].",
+      "startOffset" : 90,
+      "endOffset" : 98
+    }, {
+      "referenceID" : 26,
+      "context" : ", the existence of three dominant vanishing points which are orthonormal), and given the vanishing points, the problem can be formulated as inference in a pairwise graphical model composed of four random variables [27].",
+      "startOffset" : 214,
+      "endOffset" : 218
+    }, {
+      "referenceID" : 11,
+      "context" : "Following existing approaches [12, 17], we employ F = 55 features based on geometric context (GC) [13] and orientation maps (OM) [18] as image cues.",
+      "startOffset" : 30,
+      "endOffset" : 38
+    }, {
+      "referenceID" : 16,
+      "context" : "Following existing approaches [12, 17], we employ F = 55 features based on geometric context (GC) [13] and orientation maps (OM) [18] as image cues.",
+      "startOffset" : 30,
+      "endOffset" : 38
+    }, {
+      "referenceID" : 12,
+      "context" : "Following existing approaches [12, 17], we employ F = 55 features based on geometric context (GC) [13] and orientation maps (OM) [18] as image cues.",
+      "startOffset" : 98,
+      "endOffset" : 102
+    }, {
+      "referenceID" : 17,
+      "context" : "Following existing approaches [12, 17], we employ F = 55 features based on geometric context (GC) [13] and orientation maps (OM) [18] as image cues.",
+      "startOffset" : 129,
+      "endOffset" : 133
+    }, {
+      "referenceID" : 4,
+      "context" : "In stream-based methods [5], samples are considered successively and a decision is made to discard or eventually pick the currently investigated sample.",
+      "startOffset" : 24,
+      "endOffset" : 27
+    }, {
+      "referenceID" : 19,
+      "context" : "In contrast, pool-based methods [20] have access to a large set of unlabeled data.",
+      "startOffset" : 32,
+      "endOffset" : 36
+    }, {
+      "referenceID" : 19,
+      "context" : "While we follow the uncertainty sampling scheme [20, 19] using an entropy measure, sampling schemes based on expected model change [29] have also been proposed.",
+      "startOffset" : 48,
+      "endOffset" : 56
+    }, {
+      "referenceID" : 18,
+      "context" : "While we follow the uncertainty sampling scheme [20, 19] using an entropy measure, sampling schemes based on expected model change [29] have also been proposed.",
+      "startOffset" : 48,
+      "endOffset" : 56
+    }, {
+      "referenceID" : 28,
+      "context" : "While we follow the uncertainty sampling scheme [20, 19] using an entropy measure, sampling schemes based on expected model change [29] have also been proposed.",
+      "startOffset" : 131,
+      "endOffset" : 135
+    }, {
+      "referenceID" : 23,
+      "context" : "Other alternatives are expected error reduction [24], variance reduction [4, 6], least-confident measure [7] or margin-based measures [25].",
+      "startOffset" : 48,
+      "endOffset" : 52
+    }, {
+      "referenceID" : 3,
+      "context" : "Other alternatives are expected error reduction [24], variance reduction [4, 6], least-confident measure [7] or margin-based measures [25].",
+      "startOffset" : 73,
+      "endOffset" : 79
+    }, {
+      "referenceID" : 5,
+      "context" : "Other alternatives are expected error reduction [24], variance reduction [4, 6], least-confident measure [7] or margin-based measures [25].",
+      "startOffset" : 73,
+      "endOffset" : 79
+    }, {
+      "referenceID" : 6,
+      "context" : "Other alternatives are expected error reduction [24], variance reduction [4, 6], least-confident measure [7] or margin-based measures [25].",
+      "startOffset" : 105,
+      "endOffset" : 108
+    }, {
+      "referenceID" : 24,
+      "context" : "Other alternatives are expected error reduction [24], variance reduction [4, 6], least-confident measure [7] or margin-based measures [25].",
+      "startOffset" : 134,
+      "endOffset" : 138
+    }, {
+      "referenceID" : 0,
+      "context" : "In the multi-armed bandit model [1, 2] the algorithm chooses an action/sample and observes the utility of only that action.",
+      "startOffset" : 32,
+      "endOffset" : 38
+    }, {
+      "referenceID" : 1,
+      "context" : "In the multi-armed bandit model [1, 2] the algorithm chooses an action/sample and observes the utility of only that action.",
+      "startOffset" : 32,
+      "endOffset" : 38
+    }, {
+      "referenceID" : 2,
+      "context" : "Alternatively when learning with expert advice, utilities for all possible actions are revealed [3].",
+      "startOffset" : 96,
+      "endOffset" : 99
+    }, {
+      "referenceID" : 29,
+      "context" : "Between both of the aforementioned extremes sits the coactive learning setting [30] where a subset of rewards for all possible actions is revealed by the user.",
+      "startOffset" : 79,
+      "endOffset" : 83
+    }, {
+      "referenceID" : 5,
+      "context" : "Active learning approaches have been proposed in the context of Neural Networks [6], Support Vector Machines [32], Gaussian processes [14], CRFs [7] and structured max-margin formulations [22].",
+      "startOffset" : 80,
+      "endOffset" : 83
+    }, {
+      "referenceID" : 31,
+      "context" : "Active learning approaches have been proposed in the context of Neural Networks [6], Support Vector Machines [32], Gaussian processes [14], CRFs [7] and structured max-margin formulations [22].",
+      "startOffset" : 109,
+      "endOffset" : 113
+    }, {
+      "referenceID" : 13,
+      "context" : "Active learning approaches have been proposed in the context of Neural Networks [6], Support Vector Machines [32], Gaussian processes [14], CRFs [7] and structured max-margin formulations [22].",
+      "startOffset" : 134,
+      "endOffset" : 138
+    }, {
+      "referenceID" : 6,
+      "context" : "Active learning approaches have been proposed in the context of Neural Networks [6], Support Vector Machines [32], Gaussian processes [14], CRFs [7] and structured max-margin formulations [22].",
+      "startOffset" : 145,
+      "endOffset" : 148
+    }, {
+      "referenceID" : 21,
+      "context" : "Active learning approaches have been proposed in the context of Neural Networks [6], Support Vector Machines [32], Gaussian processes [14], CRFs [7] and structured max-margin formulations [22].",
+      "startOffset" : 188,
+      "endOffset" : 192
+    }, {
+      "referenceID" : 13,
+      "context" : "[14] to perform object recognition with minimal supervision.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 7,
+      "context" : "In the context of structured models [8] proposed to use conditional entropies to decide which image to label next in a segmentation task.",
+      "startOffset" : 36,
+      "endOffset" : 39
+    }, {
+      "referenceID" : 35,
+      "context" : "In [36] the set of frames to label in a video sequence is selected based on the cost of labeling each frame and the cost of correcting errors.",
+      "startOffset" : 3,
+      "endOffset" : 7
+    }, {
+      "referenceID" : 7,
+      "context" : "Unlike our approach, [8, 36] labeled full images (not sets of random variables).",
+      "startOffset" : 21,
+      "endOffset" : 28
+    }, {
+      "referenceID" : 35,
+      "context" : "Unlike our approach, [8, 36] labeled full images (not sets of random variables).",
+      "startOffset" : 21,
+      "endOffset" : 28
+    }, {
+      "referenceID" : 22,
+      "context" : "GrabCut [23] popularized the use of “active learning” for figure ground segmentation, where the question of what to labeled next is answered by a human via an interactive segmentation system.",
+      "startOffset" : 8,
+      "endOffset" : 12
+    }, {
+      "referenceID" : 30,
+      "context" : "[31] propose to label that variable which most reduces the entropy of the entire “system,” i.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 14,
+      "context" : "In [15], the next region to be labeled is selected based on a surrogate of uncertainty (i.",
+      "startOffset" : 3,
+      "endOffset" : 7
+    }, {
+      "referenceID" : 20,
+      "context" : "Entropy was used as an active learning criteria for tree-structured models [21], where marginal probabilities can be computed exactly.",
+      "startOffset" : 75,
+      "endOffset" : 79
+    }, {
+      "referenceID" : 8,
+      "context" : "[9] frame active learning as a semi-supervised learning problem over a graph.",
+      "startOffset" : 0,
+      "endOffset" : 3
+    }, {
+      "referenceID" : 34,
+      "context" : "[35] investigated the problem of which task to label.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 33,
+      "context" : "[34] resort to the expected change as the criteria to select which parts to label in the graphical model.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    } ],
+    "year" : 2013,
+    "abstractText" : "In this paper we present active learning algorithms in the context of structured prediction problems. To reduce the amount of labeling necessary to learn good models, our algorithms operate with weakly labeled data and we query additional examples based on entropies of local marginals, which are a good surrogate for uncertainty. We demonstrate the effectiveness of our approach in the task of 3D layout prediction from single images, and show that good models are learned when labeling only a handful of random variables. In particular, the same performance as using the full training set can be obtained while only labeling ∼10% of the random variables.",
+    "creator" : null
+  }
+}

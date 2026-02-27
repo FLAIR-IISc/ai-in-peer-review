@@ -1,0 +1,41 @@
+### Paper Summary
+
+This paper frames the problem of single-image super-resolution (SR) as amortised Maximum a Posteriori (MAP) inference. The authors argue that conventional methods based on empirical risk minimization with MSE loss lead to perceptually poor, blurry results because they average over the many plausible high-resolution solutions. In contrast, a MAP estimate seeks the mode of the posterior distribution, which by definition lies in a high-probability region of the natural image prior, leading to more plausible results.
+
+The paper's core contributions are:
+1.  **An Affine Projection Layer:** A novel network architecture component that enforces the constraint that the downsampled output must exactly match the low-resolution input. This is achieved by projecting the output of an arbitrary network onto the affine subspace of valid solutions. This elegant "hard constraint" approach contrasts with previous methods that use soft penalties.
+2.  **Reframing SR as Cross-Entropy Minimization:** The authors show that by using the affine projection layer, the amortised MAP objective is equivalent to minimizing the cross-entropy `H[q_G, p_Y]` between the distribution of the model's outputs (`q_G`) and the true high-resolution data distribution (`p_Y`). This turns the supervised SR problem into an unsupervised generative modeling task, where paired data is no longer strictly necessary.
+3.  **Three Methods for Cross-Entropy Minimization:** The paper proposes and evaluates three different methods to approximate this objective:
+    *   **AffGAN:** An approach using Generative Adversarial Networks (GANs) where the generator incorporates the affine projection. A specific GAN update rule is used to approximate KL-divergence minimization. The paper also introduces "instance noise" to stabilize GAN training.
+    *   **AffDG:** A method guided by a pre-trained Denoising Autoencoder (DAE). It leverages the fact that the output of an optimal denoiser can estimate the score (gradient of the log-probability) of the data distribution, which can be backpropagated through the SR network.
+    *   **AffLL:** A method guided by a pre-trained, explicit density model (a PixelCNN variant). The SR network is trained to maximize the log-likelihood of its outputs under this pre-trained model.
+
+### Decision and Key Reasons
+
+**Decision:** Accept
+
+**Key Reasons:**
+1.  **Novel and Principled Formulation:** The paper provides a clean, theoretically well-motivated framework for perceptual super-resolution. The introduction of the affine projection layer is a significant conceptual contribution that elegantly enforces data consistency, moving beyond the ad-hoc soft penalties used in prior work. The subsequent derivation showing the equivalence to cross-entropy minimization provides strong theoretical grounding for using generative models in this context.
+2.  **Strong and Well-Designed Empirical Validation:** The experiments are thoughtfully designed to validate the paper's core claims. The 2D Swiss-roll toy problem provides a clear and intuitive demonstration of the proposed methods' ability to approximate MAP inference. Crucially, the experiments on real images convincingly show that the AffGAN method produces perceptually superior results compared to MSE-based methods and that the affine projection itself is beneficial, even improving standard MSE training.
+
+### Supporting Arguments
+
+The paper's main strength lies in its principled approach. The standard way to enforce consistency in SR is to add a term like `||x - Ay||^2` to the loss function. The authors correctly identify this as a soft constraint. Their proposed affine projection `g(x) = (I - A+A)f(x) + A+x` is a much more elegant solution. It builds the constraint directly into the model architecture, guaranteeing that for any underlying network `f(x)`, the output `g(x)` will be consistent with the input `x` (i.e., `Ag(x) = x`). This turns the constrained optimization problem of Equation (6) into the unconstrained problem of Equation (8), which then beautifully simplifies to minimizing the cross-entropy between the generated and real data distributions. This theoretical narrative is clear, compelling, and novel.
+
+The empirical results strongly support this formulation.
+*   **Section 5.1 (Swiss-roll):** This is an excellent toy experiment. It clearly shows that AffGAN and AffDG find solutions near the mode (high-probability regions), while MSE/MAE find solutions in low-probability regions, perfectly illustrating the paper's initial motivation. Table 1 quantitatively confirms that the proposed methods achieve lower cross-entropy, validating the objective.
+*   **Section 5.2 (MSE Proof-of-Concept):** This is a critical experiment. One might worry that the affine projection restricts the network's capacity. This experiment shows the opposite: not only does it not hurt performance, it actually leads to faster convergence and better final MSE/SSIM scores. This demonstrates that the architectural prior is highly effective and beneficial in its own right.
+*   **Sections 5.3-5.5 (Qualitative Results):** The visual results, particularly for the grass texture and CelebA faces, are convincing. The AffGAN model produces sharp, detailed textures that are perceptually far superior to the blurry MSE results. While not perfect (e.g., the high-frequency noise mentioned), they demonstrate the power of the approach. The authors' transparency about the failure cases of AffDG and AffLL, and the interesting "snake-to-water" hallucination, adds to the scientific rigor of the paper.
+
+Finally, the discussion in Section 5.6 on the limitations of MAP inference and the connection to variational inference in Appendix F shows a deep understanding of the problem space and adds significant value to the paper.
+
+### Additional Feedback for Improvement
+
+1.  **Analysis of AffDG/AffLL Failure:** The paper states that the denoiser-guided (AffDG) and likelihood-guided (AffLL) models produced blurry results and were abandoned after the grass texture experiment. The discussion in Appendix E is helpful, but it would strengthen the main paper to include a more concise intuition about *why* these methods might have failed. Is it purely an optimization challenge (e.g., noisy or vanishing gradients from the pre-trained models), or is there a more fundamental reason why the GAN-based objective is better suited for this high-dimensional perceptual task?
+2.  **Instance Noise Ablation:** The instance noise trick proposed in Section 3.2.1 is interesting and related to other recent work on stabilizing GANs. While the authors state it was necessary for the ImageNet experiments, a more direct ablation study (e.g., on CelebA) showing training curves with and without instance noise would make its contribution clearer and more impactful.
+3.  **Computational Details of Pseudo-Inverse:** The paper mentions that the pseudo-inverse `A+` is computed numerically. It would be useful to briefly comment on the computational cost of this pre-computation step and how sensitive the final SR performance is to the accuracy of this `A+` approximation. For instance, how does it compare to simply using a standard transposed convolution for the upsampling part of the projection?
+
+### Questions for Authors
+
+1.  Regarding the failure of the AffDG and AffLL methods, could you elaborate on your hypothesis for their poor performance on image data? Do you believe the score/density estimates from the DAE/PixelCNN were too inaccurate to provide a useful training signal, or is the optimization landscape they create simply too difficult for the generator to navigate compared to the adversarial loss?
+2.  The numerical optimization of the pseudo-inverse `A+` is a key part of the affine projection. Have you compared this optimized deconvolution kernel to a simpler, non-optimized transposed convolution (i.e., where `A+` is the transpose of `A`)? How much of the performance gain in Section 5.2 is attributable to using a more accurate pseudo-inverse versus simply having the affine projection structure?

@@ -1,0 +1,51 @@
+Summary and contributions
+The paper proposes lda2vec, a hybrid model that augments the SGNS (word2vec) objective with document-level topic mixtures. Each document vector is a convex combination of K learnable topic vectors; the context vector used to predict targets is the sum of the pivot word vector and the document vector. Document–topic proportions are constrained via a softmax and encouraged to be sparse by adding a Dirichlet log-likelihood term to the loss. The model is trained end-to-end with negative sampling and Adam. The authors claim that this yields interpretable topics (via nearest neighbors to topic vectors) while preserving word-embedding properties (e.g., analogies). They evaluate on 20 Newsgroups using topic coherence and qualitatively on a large Hacker News comments corpus.
+
+In my view, the main contributions are:
+1) Method: A simple, differentiable objective that integrates SGNS with a sparse mixture-of-topics document representation, aligning words, topics, and documents in a common embedding space.
+2) Practicality: An implementation in an auto-diff framework with GPU support, and demonstration of scalability to a medium-large corpus with phrase tokenization.
+3) Empirical illustration: Qualitative topics and analogies; limited quantitative coherence results on 20 Newsgroups.
+
+Strengths
+- Conceptually clean hybridization: The design choice to form the context as wj + dj, with dj constrained to lie in the span of topic vectors, is elegant. It preserves the additive compositionality that often works well in embeddings while providing a mechanism to interpret documents via sparse topic proportions. This is an intuitive bridge between doc2vec-style conditioning and LDA-style interpretability.
+
+- Interpretability via shared space: Because topics, words, and documents live in the same vector space, interpreting a topic by nearest words is straightforward. This is operationally attractive compared to some neural topic models where topic-word distributions are indirect. The examples on 20NG and HN are coherent and recognizable.
+
+- Sparse document mixtures: The explicit Dirichlet regularization on document-topic proportions is a simple and effective way to drive sparsity without complex inference. The objective is easy to optimize within standard SGNS training loops and avoids bespoke variational inference.
+
+- Ease of implementation and scalability: Leveraging negative sampling and auto-diff makes the approach accessible. Handling 75M tokens and 110k types on HN with phrase tokenization indicates the method can scale reasonably.
+
+- Empirical signals that embeddings remain useful: The HN analogies and nearest neighbor examples suggest the model maintains corpus-specific semantic regularities while adding doc/topic structure.
+
+Weaknesses
+- Limited novelty relative to prior work: The method sits close to doc2vec (DM) with a document vector added to the pivot representation, and to topical word embedding approaches (e.g., Topical Word Embeddings, Gaussian LDA, Topic2Vec) that also embed topics and words jointly or condition embeddings on topics. The paper does not compare against, or even thoroughly discuss, these lines of work, making it hard to assess incremental novelty.
+
+- Inadequate quantitative evaluation and missing baselines: On 20NG, coherence scores are reported without comparisons to standard LDA, CTM, GloVe/SGNS+LDA post-hoc pipelines, doc2vec, or neural topic models (e.g., NVDM). There is no document-level downstream task (e.g., newsgroup classification using learned p_jk, retrieval) to demonstrate utility of the learned representations. On HN, only qualitative topics are shown; the authors could compute coherence using an in-domain PMI/NPMI (if Palmetto is incompatible) or report topic diversity metrics. For analogies, no accuracy is reported relative to a plain SGNS baseline trained on the same corpus.
+
+- Clarity and technical inconsistencies: Two critical specification issues need correction/clarification:
+  • The paper states “we set α = n−1” to encourage sparsity; for n ≥ 2 this implies α > 1, which discourages sparsity. I suspect the intent was α = 1/n or α < 1. This must be clarified and ablated.
+  • The text says the softmax maps “latent vectors initialized in R300 onto the simplex defined by pjk.” The softmax should be over K topics (R^K), not the embedding dimension (e.g., 300).
+These issues raise concerns about reproducibility and correctness of the implementation as described.
+
+- Lack of ablations and sensitivity analyses: The model couples several design choices (summing word and doc vectors, sparsity weight λ, dropout on w and d, negative sampling β). The paper does not disentangle their effects. For example, what happens if you remove the Dirichlet term, or if you use a dense simplex prior (α ≥ 1)? How sensitive are coherence and topic sparsity to λ and K? Does dropout materially affect interpretability?
+
+- Not a probabilistic topic model, yet claims of “Dirichlet-optimized”: The objective includes a Dirichlet term but does not define a coherent generative model for words given topics and documents; therefore, likelihood/perplexity cannot be computed. This distinction should be acknowledged explicitly, and claims calibrated accordingly.
+
+- Topic identifiability and diversity: Topics are free vectors not tied to word distributions; without constraints, topics can become redundant or collapse toward frequent-word directions. No metrics (e.g., topic diversity, pairwise overlap of top words) or mechanisms (e.g., orthogonality regularization) are provided to mitigate or analyze this.
+
+Questions to authors
+- Please clarify the concentration parameter: is α truly set to n−1, or was 1/n intended? Provide results across a range of α and λ, and report the induced sparsity (e.g., average entropy of p_j, number of dominant topics per doc).
+
+- What are the baseline coherence scores for standard LDA (same preprocessing, same K) and for doc2vec+K-means or TWE/Gaussian LDA on 20NG? Without these, it is hard to judge the claimed “high” coherences.
+
+- Can you report a downstream document task (e.g., newsgroup classification using p_j as features) and compare against LDA and doc2vec? This would test whether the learned proportions are useful beyond qualitative inspection.
+
+- How are top words for a topic computed exactly (cosine similarity vs dot product, with/without normalization)? Are topic vectors normalized during training?
+
+- On HN, could you compute in-domain coherence (e.g., NPMI from the HN corpus) and topic diversity to complement qualitative examples?
+
+- Do you observe topic redundancy or collapse? Any regularization (e.g., decorrelation) tried to encourage topic diversity?
+
+- Training details: hardware, wall-clock time, memory footprint for HN; effect of initializing word vectors randomly vs pretrained on 20NG.
+
+Overall, this is a promising and practical idea with appealing qualitative results, but the paper falls short on rigorous evaluation, clarity on key technical details, and positioning relative to closely related work. Strengthening these areas would substantially improve the contribution.

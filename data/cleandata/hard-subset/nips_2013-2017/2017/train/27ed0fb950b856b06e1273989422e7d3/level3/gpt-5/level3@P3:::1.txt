@@ -1,0 +1,63 @@
+Summary and relation to prior work
+The paper proposes Deep Dynamic Poisson Factorization (DDPFA) for sequential count matrices. The generative model is Poisson with factorization X ≈ ΦΘT and additional shrinkage terms Λ, Ψ. Temporal dependence is introduced via a multi-layer latent hierarchy H(0:N), where θt is conditioned on a local temporal window of h(0), and h(n) is conditioned on a window of the layer above. The authors describe “implicit” conditional distributions parameterized by neural networks and perform a two-stage inference: (i) mean-field variational updates for Gamma-Poisson conjugate parts; (ii) gradient-based training of the neural nets via an autoencoder-like loss. Experiments compare to PGDS, LSTM, and PFA on four synthetic and five real datasets (ICEWS, NIPS, EBOLA, International Disasters, Sheep).
+
+This work relates to Poisson/gamma factorization and NB-process models for counts (e.g., Blei/Carin/Charlin; PGDS), deep Poisson topic models (Gan et al.), deep exponential families, and recurrent Poisson factorization for recommendation. The ambition is to combine deep latent structure with temporal dependence beyond first-order Markov transitions used by prior dynamic PF models.
+
+Strengths
+- Addresses an important setting: modeling long-range temporal dependence in high-dimensional sparse counts.
+- Attempts to combine the interpretability and conjugacy of PF with neural networks to capture nonlinear temporal patterns.
+- Uses multiple real datasets of different scales and domains.
+- Includes qualitative analysis of factors on ICEWS to argue interpretability.
+
+Main weaknesses and requests for clarification
+Modeling and equations
+- Eq. 4 is not a true RNN. h(n)t depends only on a window of h(n+1), not on h(n)t−1. This removes same-layer temporal recurrence and pushes all dynamics to the top-down path. Please justify this design choice: What computational or statistical benefits does it provide (e.g., preserving conditional conjugacy for h(n), reducing vanishing/exploding gradients, or enabling parallel updates)? Provide an ablation that reinstates within-layer recurrence h(n)t|h(n)t−1 (or an RNN cell) to show whether your simplified structure is sufficient.
+- Missing parameterizations in Section 2. The paper alternates between saying distributions are “implicit” and then giving explicit Gamma forms (Eqs. 9–10). Please spell out the exact parameterizations:
+  - In Eq. 3, specify p(θt|h(0)t−c:t) = ∏k Gamma(θtk; shape αθtk(h(0)t−c:t), rate βθ) or similar, with βθ defined.
+  - In Eq. 4, specify p(h(n)t|h(n+1)t−c:t) = ∏k Gamma(h(n)tk; αh(n)tk(h(n+1)t−c:t), βh), and for the top layer the precise conditioning window and parameters.
+  - Clarify how Λ and Ψ are incorporated in the Poisson rate and whether they are absorbed into Θ during learning or kept explicit. Define all priors with shapes and rates.
+- “Implicit” vs. explicit distributions. Eqs. 9–10 are explicit Gamma conditionals with closed-form shapes/rates; calling them “implicit” is misleading. If “implicit” means “parameters are outputs of neural nets,” please say “amortized parameterization of Gamma conditionals.”
+- Probability Autoencoder objective (Section 3, lines ~133–155). Eq. 15 is not a valid likelihood/objective (an intractable integral of a product of conditionals without normalization). The subsequent surrogates (Eqs. 16–18) are ad hoc L2 reconstruction losses and do not optimize the ELBO. A more principled approach is to optimize a single ELBO:
+  ELBO = E_q[log p(X|Θ,Φ,Λ,Ψ) + log p(Θ|H(0)) + ∑n log p(H(n)|parents) + priors − log q(·)]
+with the neural nets used to amortize α-parameters in p(Θ|H(0)) and p(H(n)|·) and to define the variational factors q. If you prefer a two-stage scheme, please (i) write the exact ELBO you maximize; (ii) justify L2 terms as surrogates for expected log likelihood under Poisson/Gamma; (iii) clarify what is the “loss function” in Eq. 15 and how gradients relate to maximizing predictive likelihood.
+- Clarify multinomial augmentation (Eq. 7). Please check indices and normalization: the denominator should be ∑k θtk φvk λk ψv; also ψv appears twice in the numerator in Eq. 7 as “φv” and “ψv”? Please correct typos and ensure consistency.
+- Prior over Φ. You state Dirichlet is “often used,” but then argue for Gamma due to Ψ. Please clarify how you avoid scale non-identifiability among Φ, Θ, Λ, Ψ (e.g., by rate tying, column normalization, or priors with ARD).
+- The “fanatical data and disaster data” sentence (Intro lines 30–31) is unclear. If you mean data with bursty spikes/rare catastrophic events, please rewrite and explain why fixed decay temporal processes (e.g., kernel-based temporal Dirichlet processes) may be inadequate.
+
+Evaluation
+- Metrics. MSE/PMSE on raw counts is not appropriate for PF; Poisson models should be evaluated by predictive log-likelihood or held-out perplexity (for NIPS), and, when using Bernoulli-Poisson links, by log-likelihood/AUC/NDCG for binary data. Please report held-out predictive log-likelihood at least, with uncertainty.
+- Capacity. K is very small (K=3 or 10). Dynamic PF typically uses K≈50–200 on corpora like NIPS. Please run larger K (e.g., 50, 100) and show sensitivity. If overfitting is a concern, use ARD or a nonparametric shrinkage prior to prune.
+- Comparisons. Consider adding deep PF baselines (e.g., deep exponential families with Poisson likelihood, deep PFA via RBM/SBN), and recurrent PF for recommendation when appropriate.
+- Fig. 3 discussion (lines 224–232). The narrative about long-time activation and weak strength is not clearly tied to Fig. 3; explicitly annotate the events/time periods and show factor loadings on representative features to support the interpretation.
+- Runtime/reproducibility. Please report training time, convergence criteria, and whether code and hyperparameters will be released.
+
+Presentation and organization
+- Move derivations (Eqs. 11–14) to the supplement and keep the main text focused on model and objective. Include a clean algorithm box summarizing the two-stage procedure.
+- Fig. 4 caption is unreadable; rewrite a complete, self-contained caption; enlarge font and axes.
+- Writing quality. The manuscript needs substantial editing: reduce passive voice (especially in the abstract), fix grammar and typos, and standardize notation. Examples:
+  - “named as” → “called”; “recommend systems” → “recommender systems”; “factorize” → “factorization”; “Natrually” → “Naturally”; “distrbution/strcuture/dimenisions” → “distribution/structure/dimensions”.
+  - Hyphenation: “high-dimensional”; “long-time” → “long-range (temporal)”.
+  - Misuse of “Dirichlet”: use “Dirichlet prior over normalized columns of Φ” if applicable; otherwise explain the choice of Gamma and identifiability.
+  - Figure labels (Fig. 1) and several incomplete sentences in Section 3 need correction.
+  - Define all symbols on first use and keep consistent superscripts/subscripts (“shp/rte”).
+- Clarify that Eqs. 9–10 are Gamma conditionals with shapes from ffeed/fback and constant rates (state values), and provide those constants.
+
+Quality, originality, significance
+- Quality: The core idea is interesting, but the current objective is not well-founded, several key distributions are underspecified, and the evaluation metrics are inappropriate. Technical soundness needs improvement.
+- Originality: Combining PF with a deep, windowed top-down temporal parameterization is a novel twist, though related to deep exponential families and dynamic PF.
+- Significance: Potentially useful if clarified and properly evaluated; current experiments (small K, MSE) limit the conclusions.
+- Clarity: Below bar; extensive revision needed.
+
+Pros for acceptance
+- Timely problem (temporal count modeling); potentially interpretable factors.
+- Attempt to bridge deep nets and conjugate PF with scalable VI.
+- Multi-dataset evaluation; some qualitative insights.
+
+Cons for acceptance
+- Objective function is ad hoc; ELBO not clearly optimized.
+- Key equations/parameterizations missing or inconsistent; “implicit” terminology misleading.
+- Inappropriate metrics; underpowered models (small K).
+- Writing and figure issues impede comprehension.
+
+Recommendation
+Promising idea but not yet conference-ready. I recommend rejection in its current form. With a principled ELBO-based training objective, complete and consistent model specification, stronger and appropriate evaluations (predictive log-likelihood, larger K, additional baselines), and substantial writing/figure revisions, this work could become a solid contribution.

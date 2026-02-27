@@ -1,0 +1,133 @@
+Deep Character-Level Neural Machine Translation By Learning Morphology
+
+ABSTRACT
+Neural machine translation aims to build a single large neural network trained to maximize translation performance. The encoder-decoder architecture with an attention mechanism achieves translation performance comparable to existing phrase-based systems. However, large vocabulary size presents a bottleneck in both training and performance improvement. In this paper, we propose a novel architecture that learns morphology using two recurrent networks and a hierarchical decoder translating at the character level. This results in a deep character-level model consisting of six recurrent networks. Such a deep model offers two key advantages: it avoids the large vocabulary issue and is more efficient to train than word-based or conventional character-based models. Our model achieves a higher BLEU score than a bpe-based model after training for one epoch on En-Fr and En-Cs translation tasks. Moreover, the final BLEU score of our model is comparable to state-of-the-art systems. Further analyses demonstrate that our model is able to learn morphological structure.
+
+1 Introduction
+Neural machine translation (NMT) attempts to build a single large neural network that reads a sentence and outputs a translation (Sutskever et al., 2014). Most extant NMT models belong to the word-level encoder-decoder family (Sutskever et al., 2014; Cho et al., 2014). Recently, Bahdanau et al. (2015) proposed a model with an attention mechanism which automatically learns alignments and greatly improves performance. However, a large vocabulary often seems necessary to improve word-level NMT performance (Sutskever et al., 2014; Cho et al., 2015).
+Chung et al. (2016b) identify three reasons for the widespread adoption of word-level modeling: (i) the word as a basic linguistic unit, (ii) data sparsity, and (iii) the vanishing gradient problem in character-level modeling. However, language is an evolving system, and it is impossible to cover all words. The out-of-vocabulary (OOV) problem is a critical issue impacting NMT performance. While larger vocabularies generally improve performance (Sutskever et al., 2014; Cho et al., 2015), training becomes more difficult, and the vocabulary often includes many similar words sharing a root but differing in morphology.
+Several approaches address the OOV issue. For example, Gulcehre et al. (2016), Luong et al. (2015), and Cho et al. (2015) propose learning alignment information for target unknown words, followed by dictionary lookup or copy mechanisms. However, as Luong and Manning (2016) point out, these approaches ignore important linguistic properties like monolinguality and cross-linguality. Thus, Luong and Manning (2016) propose a hybrid neural machine translation model leveraging both words and characters to achieve open vocabulary NMT.
+Directly modeling characters is conceptually elegant. However, character-level translation models often fail to achieve competitive results compared to word-based models as sequence length increases. They also require more memory and computation, particularly for the attention component. For example, Ling et al. (2015a) proposed a compositional character-to-word (C2W) model for machine translation (Ling et al., 2015b), utilizing a hierarchical decoder previously explored by Serban et al. (2015). However, they found training character-level models slow and difficult, requiring layer-wise training and supervision for the attention component. RNNs often struggle to distinguish words with similar morphologies but differing meanings.
+To address these issues, we introduce a novel architecture exploiting word structure, built on two recurrent neural networks: one for learning representations of preceding characters and another for learning the weight of this representation for the whole word. Unlike subword-level models based on byte pair encoding (BPE) (Sennrich et al., 2016), we learn subword units automatically. Compared with CNN word encoders (Kim et al., 2016; Lee et al., 2016), our model generates more meaningful word representations. To decode at the character level, we devise a hierarchical decoder that sets the state of the second-level RNN (character-level decoder) to the output of the first-level RNN (word-level decoder), which then generates a character sequence until generating a delimiter. This allows us to maintain encoding lengths comparable to word-based models while eliminating the need for a large vocabulary, and enables efficient training of the deep model with six recurrent networks, leading to improved performance.
+In summary, we propose a hierarchical architecture (character→ subword→ word→ source sentence → target word → target character) to train a deep character-level neural machine translator. We demonstrate that the model achieves high translation performance, comparable to state-of-the-art NMT models on En-Fr, En-Cs and Cs-En translation tasks. Experiments and analyses support the claim that our model learns morphology.
+
+2 Neural Machine Translation
+Neural machine translation is often implemented as an encoder-decoder architecture. The encoder usually uses a recurrent neural network (RNN) or a bidirectional recurrent neural network (BiRNN) (Schuster and Paliwal, 1997) to encode the input sentence x = {x1, . . . , xTx} into a sequence of hidden states h = {h1, . . . ,hTx}:
+ht = f1(e(xt),ht−1),
+where e(xt) ∈ Rm is an m-dimensional embedding of xt. The decoder, another RNN, is trained to predict the next word yt given previous predicted words {y1, . . . , yt−1} and the context vector ct:
+p(yt | {y1, . . . , yt−1}) = g(e(yt−1), st, ct),
+where
+st = f2(e(yt−1), st−1, ct) (1)
+and g is a nonlinear function that computes the probability of yt. The context ct depends on the sequence of {h1, . . . ,hTx}. Sutskever et al. (2014) encoded all source sentence information into a fixed-length vector, i.e., ct = hTx. Bahdanau et al. (2015) computed ct using an alignment model, addressing the bottleneck of the former approach.
+The entire model is jointly trained by maximizing the conditional log-probability of the correct translation given a source sentence with respect to the model parameters θ:
+θ∗ = argmax θ Ty∑ t=1 log p(yt | {y1, . . . , yt−1},x,θ).
+For a detailed description of the implementation, we refer the reader to Sutskever et al. (2014) and Bahdanau et al. (2015).
+
+3 Deep Character-Level Neural Machine Translation
+We identify two problems in word-level neural machine translation models. First, how can we map a word to a vector? This is typically done using a lookup table (embedding matrix) with a limited vocabulary size. Second, how do we map a vector to a word during prediction? This is usually done via a softmax function, which becomes computationally intractable with large vocabularies.
+We propose two novel architectures to address these issues: a word encoder leveraging morphology and a hierarchical decoder decoding at the character level. We introduce a deep character-level neural machine translation model (DCNMT).
+
+3.1 Learning Morphology in a Word Encoder
+Many words can be subdivided into smaller meaningful units called morphemes, such as “any-one”, “any-thing” and “every-one.” Words are built from morphemes, which are grammatically significant and meaningful. Different combinations of morphemes yield different meanings. Recognizing this, we introduce a word encoder to learn morphemes and their combination rules. Even if the word encoder has never seen “everything,” its understanding of English morphology allows it to infer its meaning. Thus, learning morphology in a word encoder may speed up training.
+The word encoder is based on two recurrent neural networks, as illustrated in Figure 1. We compute the representation of the word ‘anyone’ as
+ranyone = tanh( 6∑
+t=1
+wtrt),
+where rt is an RNN hidden state at time t, computed by
+rt = f(e(xt), rt−1).
+Each rt contains information about the preceding characters. The weight wt of each representation rt is computed by
+wt = exp(aff(ht)),
+where ht is another RNN hidden state at time t and aff() is an affine function mapping ht to a scalar. Here, we use a BiRNN to compute ht as shown in Figure 1. Instead of normalizing by ∑
+t exp(aff(ht)), we use the tanh activation function, which performs best in our experiments.
+We can view the weight wi as the energy determining whether ri represents a morpheme and its contribution to the word representation. Compared to an embedding lookup table, the decoupled RNNs learn morpheme representations and their combination rules, potentially representing words in a distributed manner. For example, we correctly translate “convenienter”, validating this idea.
+After obtaining the word representation, we encode the sentence using a bidirectional RNN as in RNNsearch (Bahdanau et al., 2015). The detailed architecture is shown in Figure 2.
+
+3.2 Hierarchical Decoder
+To decode at the character level, we introduce a hierarchical decoder. The first-level decoder is similar to RNNsearch, incorporating information about the target word. Specifically, st in Eqn. (1) contains information about the target word at time t. Instead of using a multi-layer network followed by a softmax function to compute the probability of each target word using st, we employ a second-level decoder that generates a character sequence based on st. The second-level decoder either continues the character-level states or resets using word-level states at boundaries. However, it is inefficient to conditionally pick outputs from the first-level decoder during batch training. For example, Luong and Manning (2016) use two forward passes (one for word-level and another for character-level) in batch training.
+To decode efficiently, we propose a variant of the gated recurrent unit (GRU) (Cho et al., 2014; Chung et al., 2014) used in the second-level decoder, which we denote as HGRU. HGRU has a settable state and generates a character sequence based on the given state until generating a delimiter. In our model, the state is initialized by the output of the first-level decoder. Once HGRU generates a delimiter, it resets the state to the next output of the first-level decoder. Given the previous output character sequence {y0, y1, . . . , yt−1}, where y0 is a token representing the start of sentence, and the auxiliary sequence {a0, a1, . . . , at−1}, indicating whether yi is a delimiter (a0 is set to 1), HGRU updates the state as follows:
+gt−1 = (1− at−1)gt−1 + at−1sit , (2) qjt = σ([Wqe(yt−1)] j + [Uqgt−1] j), (3)
+zjt = σ([Wze(yt−1)] j + [Uzgt−1] j), (4) g̃jt = φ([We(yt−1)] j + [U(qt gt−1)]j),
+(5)
+gjt = z j tg j t−1 + (1− z j t )g̃ j t , (6)
+where sit is the output of the first-level decoder, calculated as Eqn. (8). We can compute the probability of each target character yt based on gt with a softmax function:
+p(yt | {y1, . . . , yt−1},x) = softmax(gt). (7)
+The challenge is that the number of outputs from the first-level decoder is much fewer than the target character sequence. We use a matrix to unfold the outputs of the first-level decoder, making the batch training process more efficient. This is a Ty × T matrix R, where Ty is the number of delimiters (number of words) in the target character sequence and T is the length of the target character sequence. R[i, j1 + 1] to R[i, j2] are set to 1 if j1 is the index of the (i−1)-th delimiter and j2 is the index of the i-th delimiter in the target character sequence. The index of the 0-th delimiter is set to 0. For example, when the target output is “g o !” and the output of the first-level decoder is [s1, s2], the unfolding step is:
+[s1, s2] [ 1 1 1 0 0 0 0 0 1 1 ] = [s1, s1, s1, s2, s2],
+therefore {si1 , si2 , si3 , si4 , si5} is correspondingly set to {s1, s1, s1, s2, s2} in HGRU iterations. After this procedure, we compute the probability of each target character by the second-level decoder according to Eqns. (2) to (7).
+
+3.3 Model Architectures
+The model has a total of six recurrent neural networks, organized into four layers as shown in Figure 2. Figure 2 illustrates the training procedure of a deep character-level neural machine translation. Deeper recurrent networks could further improve the model. The first layer is a source word encoder with two RNNs, as shown in Figure 1. The second layer is a bidirectional RNN sentence encoder, identical to that of Bahdanau et al. (2015). The third layer is the first-level decoder. It takes the representation of the previous target word as feedback, produced by the target word encoder. As the feedback is less important, we use an ordinary RNN to encode the target word. The feedback rYt−1 combines the previous hidden state ut−1 and the context ct from the sentence encoder to generate the vector st:
+st = W1ct +W2rYt−1 +W3ut−1 + b. (8)
+With the state of HGRU in the second-level decoder set to st and the information of the previous generated character, the second-level decoder generates the next character until generating an end-of-sentence token (denoted as </s> in Figure 2). This hierarchical architecture allows end-to-end training of the character-level neural translation model.
+
+3.4 Generation Procedure
+We first encode the source sequence as in the training procedure, then generate the target sequence character by character based on the output st of the first-level decoder. Once we generate a delimiter, we compute the next vector st+1 according to Eqn. (8) by combining feedback rYt from the target word encoder, the context ct+1 from the sentence encoder, and the hidden state ut. The generation procedure terminates when an end-of-sentence (EOS) token is produced.
+
+4 Experiments
+We implement the model using Theano (Bergstra et al., 2010; Bastien et al., 2012) and Blocks (van Merriënboer et al., 2015). We train the model on a single GTX Titan X with 12GB RAM. We first evaluate the model on English-to-French translation, where the languages are morphologically relatively poor. For a fair comparison, we use the same dataset as in RNNsearch, provided by ACL WMT’14. To showcase our model’s strengths, we also conduct experiments on the English-to-Czech and Czech-to-English translation tasks, where Czech is a morphologically rich language. We use the same dataset as Chung et al. (2016b) and Lee et al. (2016), provided by ACL WMT’15.
+
+4.1 Dataset
+We use parallel corpora for two language pairs from WMT: En-Cs and En-Fr, consisting of 15.8M and 12.1M sentence pairs, respectively. In terms of preprocessing, we only apply standard tokenization. We select the 120 most frequent characters for each language, covering nearly 100% of the training data. Characters not included are mapped to a special token (UNK). We use newstest2013 (Dev) as the development set and evaluate on newstest2015 (Test). We do not use any monolingual corpus.
+
+4.2 Training Details
+We follow Bahdanau et al. (2015) using similar hyperparameters. The bidirectional RNN sentence encoder and the hierarchical decoder both consist of two-layer RNNs, each with 1024 hidden units. We use 120 most frequent characters for DCNMT, with a character embedding dimensionality of 64. The source word is encoded into a 600-dimensional vector. Other GRUs in the model have 512 hidden units.
+We use the ADAM optimizer (Kingma and Ba., 2015) with a minibatch of 56 sentences (72 for En-Fr). The learning rate is initially set to 10−3 and then annealed to 10−4.
+We use beam search to find a translation maximizing the conditional log-probability, a common approach in NMT (Sutskever et al., 2014; Bahdanau et al., 2015). In DCNMT, we can directly search at the character level.
+
+5 Result and Analysis
+We present quantitative results in Section 5.1, comparing our model with bpe-based subword models and other character-level models. Additionally, we analyze model efficiency and the effects of character-level modeling.
+
+5.1 Quantitative Results
+We demonstrate the effectiveness of the deep character-level neural machine translation by comparing it with the bpe-based subword model (Sennrich et al., 2016) and other character-level models. We measure performance using the BLEU score (Papineni et al., 2002).
+In Table 1, “Length” indicates the maximum sentence length (in words or characters), and “Size” is the total number of parameters. CNMT uses an ordinary RNN to encode source words (taking the last hidden state). In each test set, the best scores among models per language pair are in bold. Character-level models generally outperform subword-level models, and our model is comparable to state-of-the-art character-level models. Luong and Manning (2016)’s purely character-level model took 3 months to train and yielded +0.5 BLEU points compared to our result. We have analyzed decoder efficiency in Section 3.2. Though our model has six RNNs, it is the simplest and smallest in terms of model size, making it efficient to train.
+
+5.2 Learning Morphology
+We investigate whether our model learns morphology. We compare the word encoder with an ordinary RNN word encoder. We choose words with similar meaning but different morphology, as shown in Figure 3. Figure 3(a) shows that the words ending in “ability”, encoded by the ordinary RNN word encoder, are clustered together. In contrast, representations produced by our encoder are more reasonable, with words of similar meaning closer together. Compared with the CNN word encoder (Kim et al., 2016; Lee et al., 2016), the RNN word encoder in our model generates more meaningful representations. Explicit segmentation is needed to achieve this.
+We analyze how our word encoder learns morphemes and combination rules. Figure 4(a) shows the energy of each character, more precisely, the energy of preceding characters. The last character of a morpheme results in a relatively large energy, like “any” and “every” in these words. Even with different preceding characters, the same morpheme produces similar weight, like “way” in “anyway” and “everyway”. The two-dimensional PCA projection in Figure 4(b) further validates this. The word encoder may infer the meaning of “everything” even if it has never seen it before, thus accelerating learning. Interestingly, the beginning letter is also important, aligning with human perception (White et al., 2008).
+Figure 5 shows subword-level boundary detection by our word encoder. Our model correctly segments words like “consumers”, “monday”, “football”, and “greatest” into “consum-er-s”, “mon-day”, “foot-ball”, and “greatest”, respectively. Without explicit delimiters, it is more difficult to detect subword units.
+
+5.3 Benefiting from Learning Morphology
+As analyzed in Section 5.2, learning morphology speeds up learning, which is reflected in Table 1 (En-Fr and En-Cs tasks). Training for only one epoch yields results outperforming the bpe baseline.
+Another advantage is translating misspelled or nonce words. The character-level model has a better chance to recover the original word or sentence. Table 2 lists examples with misspelled words or nonce words. DCNMT correctly translates misspelled words. Word-level models map these to UNK tokens. DCNMT translates "convenienter" correctly by combining "convenient" and "er", correctly forming the comparative adjective, which does not appear in the training data. More sample translations are in the supplementary material.
+
+6 Conclusion
+We proposed a hierarchical architecture for training a deep character-level neural machine translation model, introducing a novel word encoder and a multi-level decoder. We demonstrated the training process’s efficiency and the model’s effectiveness compared to word-level and other character-level models. The BLEU score implies that our model outperforms word-level models and is competitive with state-of-the-art character-based models. Further performance improvements are possible using deeper recurrent networks (Wu et al., 2016), longer training, and longer sentence pairs.
+The character-level modeling solves the OOV issue of word-level models, allowing translation of misspelled or nonce words. The deep character-level model learns similar embeddings for words with similar meanings, like word-level models. The approach could be applicable to other tasks like speech recognition and text summarization.
+
+References: […same as original…]
+
+---
+
+Draft review with edits and improvements:
+
+**Strengths:**
+
+The authors present a novel approach to encoder-decoder neural machine translation using a system that starts and ends with characters, but incorporates representations of morphemes in between. 
+
+The authors publicly release their code and trained models for fr-en, cs-en, and en-cs, facilitating validation and further research.
+
+The system demonstrates reasonable translation quality even after just one training epoch, with continued improvement in subsequent epochs.
+
+The system appears to learn meaningful morphological tokenizations and can effectively handle previously unseen words, including nonce words, by implicitly falling back to morphemes.
+
+**Weaknesses:**
+
+The paper does not explicitly state which WMT test and development sets were used for reporting results. This hinders comparison with existing work, as it requires looking at the code repository’s README file (which indicates newstest2015 for test and newstest2013 for development). This information should be clearly stated in the paper.
+
+The instructions provided in the software README are adequate but could be improved. The training and testing sections would benefit from explicit examples of commands. The software should also implement a `--help` flag.
+
+The paper describes a 6-level architecture, but Figure 2 appears to show fewer than 6 layers. This discrepancy should be clarified. The figure caption should be more explicit, and if the figure doesn’t depict all layers, a complete diagram should be included (potentially in an appendix).
+
+The results are compared with other character-based neural systems, but not with state-of-the-art systems using other approaches. Existing results on these datasets (available at matrix.statmt.org) demonstrate higher performance. This should be acknowledged and discussed.
+
+The paper contains a few minor English disfluencies, typos, and LaTeX issues (e.g., reversed quotation marks). These should be corrected.
+
+**General Discussion:**
+
+This paper makes a valuable contribution to the literature on character-based neural machine translation.
+
+**Questions to Authors:**
+
+*   Could you please explicitly state the WMT test and development sets used in your experiments within the paper?
+*   Could you clarify the architecture depicted in Figure 2, specifically regarding the total number of layers?
+*   Could you discuss the performance of your model in relation to state-of-the-art results from other approaches on the same datasets?

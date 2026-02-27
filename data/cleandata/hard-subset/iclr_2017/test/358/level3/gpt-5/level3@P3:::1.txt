@@ -1,0 +1,49 @@
+1. Summary of contributions
+- Proposal: The paper introduces a hierarchical generative model (“Neural Statistician”) that explicitly treats datasets (unordered sets of datapoints) as first-class objects. A dataset-level latent c captures the distributional context for a set, while per-example latents z capture within-dataset variability.
+- Core idea: A “double” variational bound is derived over datasets, with q(c|D) produced by a statistic network that is exchangeable over elements of D, and q(z|x,c) for item-level latents. This yields a clean, general ELBO that looks like a VAE inside a higher-level VAE.
+- Architecture: An instance encoder → permutation-invariant pooling (mean) → post-pooling network produces a diagonal Gaussian over c. The generative/inference stacks optionally include multiple stochastic layers with skip connections.
+- Claims: Unsupervised learning of dataset-level statistics, transfer to new datasets, few-shot learning, clustering of datasets, selection of representative subsets, and conditional generation from small support sets.
+- Evidence: Synthetic 1D distributions cluster by family; Spatial-MNIST shows set summarization and subset selection; OMNIGLOT demonstrates few-shot conditional generation and competitive few-shot classification (strong in 5-way tasks); YouTube Faces shows conditional identity generation from small support sets.
+
+2. Decision: Accept
+Key reasons:
+- Clear, principled formulation of hierarchical generative modeling across datasets via a double variational bound; the idea is well presented and appears broadly applicable.
+- Solid empirical evidence for few-shot learning and dataset-level representation learning on diverse domains; the few-shot results look good even though I’m not a specialist in that subarea.
+
+3. Supporting arguments
+- Problem significance: Hierarchical modeling across datasets is important and under-explored in deep learning. Treating datasets as exchangeable sets and learning q(c|D) amortizes inference at the meta level and can unlock data/parameter efficiency and few-shot behavior.
+- Methodological soundness: The ELBO derivation for p(D) with dataset latent c and example latents z is standard and correct. The “double” variational bound (outer over c, inner over z) is conceptually elegant and easy to reuse in other hierarchical settings.
+- Design choices: The statistic network enforces permutation invariance and learns to make averaging meaningful by shaping the instance encoding. Multi-layer z with skip connections is sensible and ties to prior work on probabilistic ladder networks.
+- Empirics:
+  - Synthetic 1D: The learned contexts organize by distribution family and separate mean/variance directions—evidence that q(c|D) captures distributional properties.
+  - Spatial-MNIST: Conditional generation and greedy subset selection are convincing and show dataset-level summarization.
+  - OMNIGLOT: Conditional samples for unseen classes are high quality; 5-way few-shot classification is strong (20-way weaker than matching networks, plausibly because the representation is not contextualized by the entire episode).
+  - YouTube Faces: Proof-of-concept that c captures identity and enables conditional generation with varied poses.
+- Communication: The paper is well written; the double-bound framing, algorithms, and architectural details are clear.
+
+4. Additional feedback (to help improve the paper; not all points affect the accept decision)
+- Minibatches and unbiasedness of gradients:
+  - You state minibatches consist of datasets (not datapoints). However, the statistic network uses sample dropout on OMNIGLOT (and potentially other within-set subsampling). Please clarify:
+    1) Do you ever train with within-dataset subsamples S ⊂ D for computational or regularization reasons beyond sample-dropout?
+    2) If yes, do you use scaling (|D|/|S|) to obtain an unbiased estimator for the reconstruction and latent divergence terms that sum over x ∈ D?
+    3) The context KL term DKL(q(c|D) || p(c)) is only unbiased if you compute q(c|D). Replacing D by S changes the objective. Is sample-dropout intended as a regularizer (i.e., optimizing a different objective), or do you correct for it?
+- Expressiveness of the statistic network:
+  - Concern: Mean pooling may be weak for “existence-type” features (“any example has property P”), which are common in real datasets. This can limit modeling of dataset-wide features, particularly when training with small subsets. Consider alternatives such as max or log-sum-exp pooling, learned power means, attention-based DeepSets, or product-of-experts aggregators—all permutation-invariant and better at detecting rare-but-informative elements.
+  - Relatedly, consider incorporating count/coverage features beyond a scalar “number of samples,” or using mixture-of-pooling operators.
+- Few-shot evaluation:
+  - You classify by argmin DKL(Ni || Nx) between Gaussian posteriors. Did you try symmetric distances (e.g., Jensen–Shannon, symmetrized KL) or likelihood under p(c|Di) as a class-conditional prior? Briefly reporting sensitivity could strengthen the case.
+  - For 20-way tasks, discuss whether conditioning the representation on the entire support set (episode-level conditioning) might close the gap to matching networks.
+- Training dynamics:
+  - Posterior collapse risk: Did you observe c ignoring D or z ignoring x? Any ablations on skip connections, c dimensionality, KL annealing, or β-VAE-style weighting to ensure both c and z are used?
+  - Scaling: Computational complexity is O(∑|D|) per batch. How does wall-clock scale with set size? Any batching tricks for very large D?
+- Scope and applications:
+  - The method seems well-suited to hierarchical forecasting: treat each time series (e.g., electricity meter, product sales) as a dataset and learn c as a series-level embedding for cold-start and few-shot adaptation. This could be a high-impact practical domain.
+  - Additional comparisons to structured VAEs or topic-model-style baselines on document bag-of-words datasets could broaden the empirical story.
+
+Questions for the authors
+1) Are minibatches ever formed by subsampling within datasets when training q(c|D)? If so, do you rescale terms to yield an unbiased gradient estimate of the full-data ELBO, and how do you handle the context KL term?
+2) How sensitive are results to the choice of pooling operator? Did you try max or log-sum-exp pooling, or attention-based aggregators, especially for “any-example-has-feature” signals?
+3) Did you perform ablations on the ladder-style skips and the dimensionality of c and z to assess their roles and prevent posterior collapse?
+4) In few-shot classification, why choose DKL(Ni || Nx) asymmetrically? Is performance different with a symmetric divergence or by evaluating the evidence of x under p(x|Di)?
+5) How does performance change as the support set size increases at test time, especially if train-time datasets are smaller? Any strategies to close the “train/test set size mismatch” noted in the conclusion?
+6) Could you comment on the identifiability or interpretability of c across datasets—e.g., do specific c dimensions correlate with human-understandable dataset statistics?

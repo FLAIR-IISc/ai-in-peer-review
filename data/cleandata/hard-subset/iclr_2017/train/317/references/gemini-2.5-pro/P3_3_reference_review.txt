@@ -1,0 +1,47 @@
+### 1. Summary of Contributions
+
+This paper recasts the problem of single image super-resolution (SR) from the standard empirical risk minimization framework to one of amortised Maximum a Posteriori (MAP) inference. The central thesis is that producing perceptually plausible high-resolution (HR) images requires finding a mode of the posterior distribution `p(y|x)`, rather than its mean, which is what MSE-based methods approximate.
+
+The key contributions are:
+1.  **A Principled MAP Framework:** The authors formulate SR as maximizing the posterior probability of the generated image. By recognizing that the likelihood term is a delta function defined by the downsampling operation, they reframe the objective as maximizing the prior probability `p(y)` of the output, subject to the constraint that the output is consistent with the low-resolution (LR) input.
+2.  **The Affine Projection Layer:** To enforce this consistency constraint, the paper introduces a novel architectural component. This layer projects any HR image onto the affine subspace of all possible HR images that could have produced the given LR input. This is a hard constraint, implemented elegantly using a pseudo-inverse deconvolution `A+`, which guarantees `A * g(x) = x` for any generated output `g(x)`.
+3.  **Three Methods for Optimizing the Prior:** With the likelihood handled by the architecture, the problem reduces to optimizing the model's output distribution to match the natural image prior. The paper explores three distinct and well-motivated methods to achieve this:
+    *   **AffGAN:** An adversarial approach using a variant of GANs that minimizes KL[q_G || p_Y].
+    *   **AffDG:** A method guided by the gradients of the log-probability of data, estimated using a pre-trained denoising autoencoder.
+    *   **AffLL:** A method guided by an explicit, pre-trained density model (a PixelCNN with an MCGSM likelihood).
+4.  **Instance Noise:** A simple and effective technique is proposed to stabilize GAN training by adding annealed noise to both real and fake samples, which helps to ensure the distributions have overlapping support.
+5.  **Theoretical Connection to Variational Inference:** An appendix provides a compelling derivation showing that a stochastic version of AffGAN is equivalent to performing amortised variational inference, minimizing the KL divergence between the approximate and true posteriors.
+
+### 2. Decision and Key Reasons
+
+**Decision:** Accept
+
+This is a strong paper that makes significant contributions on both a conceptual and a technical level. The core reasons for my recommendation are:
+
+1.  **Novel and Elegant Problem Formulation:** The shift from MSE minimization to amortised MAP inference provides a clear and principled justification for using generative models in SR. The affine projection layer is a particularly clever architectural innovation that elegantly enforces a fundamental physical constraint of the problem, simplifying the learning task to that of modeling the natural image prior within the correct solution subspace.
+2.  **Comprehensive and Insightful Exploration:** The paper thoroughly investigates three different and powerful generative modeling paradigms (adversarial, score-based/denoising, and likelihood-based) within its unified framework. While only the GAN-based approach proves successful on complex images, this comparative study is itself a valuable contribution, highlighting the practical strengths and weaknesses of each approach for this task. The analysis is supported by a well-designed toy experiment that validates the core claims.
+
+### 3. Supporting Arguments
+
+The paper's main strength lies in its conceptual clarity. The derivation in Section 3, moving from MAP inference (Eq. 2) to a constrained optimization (Eq. 6) and finally to minimizing the cross-entropy `H[q_θ, p_Y]` (Eq. 9), is clean and compelling. This provides a strong theoretical underpinning for much of the recent work using GANs for SR (e.g., Ledig et al., 2016), which has often been motivated more heuristically.
+
+The affine projection layer is a standout technical contribution. The experiments in Section 5.2 convincingly show that not only does it enforce the consistency constraint perfectly (unlike soft constraints), but it also accelerates training and improves final performance even for standard MSE-based models. This suggests the component could be a valuable, general-purpose addition to many SR architectures.
+
+The investigation of three different optimization strategies is ambitious and insightful. The Swiss-roll experiment is an excellent sanity check, demonstrating that all proposed methods are, in principle, capable of finding the MAP solution in a low-dimensional setting. The fact that the denoising (AffDG) and likelihood-based (AffLL) methods fail to produce sharp results on real image textures is an important, albeit negative, result. It suggests that while estimating gradients or densities of `p_Y` is theoretically sound, doing so with sufficient accuracy for high-dimensional image optimization remains a major challenge. In contrast, the success of AffGAN highlights the power of adversarial training to implicitly capture and optimize against complex, high-dimensional priors without needing to model them explicitly.
+
+Finally, the introduction of "instance noise" and the theoretical link to variational inference in the appendix add significant depth. Instance noise is a practical trick with a solid motivation rooted in the problem of non-overlapping supports, which is a key issue in GAN training. The connection to variational inference is particularly thought-provoking and suggests a promising path for future work towards generating diverse, plausible solutions by sampling from an approximate posterior.
+
+### 4. Additional Feedback for Improvement
+
+While this is a strong paper, there are several areas where it could be improved:
+
+*   **Discussion of AffDG/AffLL Failure:** The failure of the denoiser and density-guided methods on real images is a key result but is somewhat downplayed, with the main discussion relegated to Appendix E. This finding deserves more prominence in the main text. A deeper analysis of *why* they fail would be valuable. Is it due to inaccurate gradient estimates from the denoiser? Or is the log-likelihood surface from the PixelCNN model too complex or poorly behaved for gradient-based optimization of the generator? Expanding on this would provide important lessons for the community.
+*   **Positioning with Respect to SRGAN:** The paper cites Ledig et al. (2016) [SRGAN], which also uses a GAN for perceptual SR. A more direct comparison would strengthen the paper. While the affine projection is a clear difference from SRGAN's use of a soft MSE content loss, it would be beneficial to explicitly state other key differences (e.g., in the GAN objective) and, if possible, provide a qualitative or quantitative comparison to demonstrate the benefits of the proposed MAP framework and affine projection.
+*   **Critique of MAP Inference:** The self-critique in Section 5.6 is excellent and demonstrates a nuanced understanding of the problem. However, framing MAP as the primary "desirable approach" in the introduction, only to deconstruct it at the end, is slightly jarring. Perhaps a sentence in the introduction acknowledging that MAP is a useful but imperfect proxy for perceptual plausibility would better frame the work.
+*   **Clarity on `A+`:** The method for numerically computing the pseudo-inverse `A+` is interesting. Is there any intuition for why the exact transposed convolution of `A` is insufficient and this numerical optimization is necessary? A brief comment could add clarity.
+
+### 5. Questions for the Authors
+
+1.  Could you elaborate on the potential reasons for the poor performance of AffDG and AffLL on real images compared to their success on the 2D toy problem? Do you believe the issue lies more with the accuracy of the gradient/density models, or with the optimization challenge of using those signals to train the generator network?
+2.  The connection to amortised variational inference in Appendix F is fascinating. Have you performed any preliminary experiments with the stochastic version of AffGAN? It seems like a promising direction for producing diverse SR samples rather than a single MAP estimate, which could address some of the critiques of MAP inference you raise in Section 5.6.
+3.  Regarding instance noise, how sensitive is the performance and stability of AffGAN to the specific noise distribution (Gaussian) and the annealing schedule? Have you explored alternative schedules or noise types?

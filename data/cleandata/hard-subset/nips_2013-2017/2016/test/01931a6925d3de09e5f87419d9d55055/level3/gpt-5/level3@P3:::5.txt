@@ -1,0 +1,74 @@
+Summary and relation to prior work
+The paper proposes the Locally Adaptive Normal Distribution (LAND), which replaces the Euclidean/Mahalanobis distance in a Gaussian with a geodesic distance induced by a learned, smoothly varying Riemannian metric, and extends this to mixtures with an EM algorithm. The metric is defined via a local diagonal covariance estimate smoothed by a Gaussian kernel (Eq. 7), the resulting density equals a Riemannian normal (Pennec 2006), and parameters (µ, Σ) are learned by ML using gradient descent with a Monte Carlo estimate of the normalization constant computed in the tangent space (Eqs. 9–13). The approach is conceptually related to Isomap-style geodesic distances, but unlike graph-based methods it yields a continuous, generative model on RD. Compared to previous manifold statistics papers that assume a known manifold (Pennec; Zhang & Fletcher), the novelty here is to learn the metric nonparametrically from data and then fit a parametric distribution on that learned geometry.
+
+Strengths
+- Interesting and promising idea: building a parametric, maximum-entropy distribution on a learned geodesic geometry. This offers an elegant bridge between manifold learning and Riemannian statistics and is a natural generalization of Gaussians to curved data domains.
+- Clean derivation of the tangent-space Monte Carlo estimator for the normalizer; avoiding BVPs by using Exp for IVPs is a good design choice.
+- Mixture extension and EM outline are natural and potentially widely useful.
+- Qualitative visualizations suggest LAND can capture non-ellipsoidal structure better than GMMs.
+
+Weaknesses and detailed comments
+1) Definition of the metric (Eq. 7)
+- The inverse metric tensor M(x) is defined as the inverse of a Gaussian-kernel–weighted local diagonal covariance. This feels ad hoc: no derivation from a principled criterion (e.g., Fisher information of a local likelihood model, Hessian of a log-density estimate, or a variational objective) is provided. As a result:
+  - Lack of invariance: using diagonal entries in the ambient basis makes the geometry sensitive to rotations and scaling. A simple PCA/whitening pre-processing or an anisotropic kernel/local full covariance (with shrinkage for stability) could mitigate this.
+  - Missing justification: please relate Eq. (7) to (i) local likelihood/locally weighted scatter matrices (Cleveland & Loader), (ii) Fisher information of a kernel density estimator (M(x) ∝ −∇2 log p̂(x) or its PSD approximation), or (iii) prior work on probabilistic geometries (e.g., Tosi et al. 2014).
+- Intuition for Gaussian kernel: the construction is essentially a Nadaraya–Watson estimate of the local variance. Gaussian weights ensure smoothness and positive weights, giving a smooth SPD field and well-posed geodesics/volume form. Please add discussion of bandwidth selection (cross-validation, plug-in, local adaptive bandwidth), sensitivity to σ and ρ, and note that compact-support kernels could reduce the cost of evaluating M(x) and its derivatives.
+
+2) Clarify “local covariance” vs model covariance
+- Eq. (7) defines a nonparametric, data-driven local covariance that is inverted to yield the metric M(x). Eq. (11) then performs ML over a global, parametric covariance Σ of the Riemannian normal. These are different objects. The text occasionally blurs them (and calls Eq. 11 “MAP” in places), which creates confusion. Please explicitly state early that:
+  - The manifold (metric M) is fixed by the training data and hyperparameters (σ, ρ), and is not estimated jointly with (µ, Σ).
+  - Σ is the covariance of the LAND in the tangent space at µ, distinct from the local covariance used to define M(x).
+  - Eq. (11) is ML, not MAP (unless you add priors).
+
+3) Quality: theory and algorithms
+- The Monte Carlo scheme for C(µ, Σ) is sensible, but variance control and convergence details are sparse. In mixtures, responsibilities require multiple C evaluations, potentially noisy. Please discuss:
+  - Use of common random numbers across iterations/components; control variates; quasi-MC; reuse of samples; and stopping criteria.
+  - Conditions ensuring integrability and geodesic completeness with the proposed metric (behavior far from data where M grows large; role of ρ).
+- Algorithm 1 uses the steepest-descent direction dµφ = −Σ∇µφ; good preconditioning, but the notation is inconsistent. Either switch to ∇ in lines 4–5 or define d explicitly in the algorithm caption/body and keep it consistent throughout.
+
+4) Scalability and complexity
+- Major concern: there is no complexity analysis or runtime comparison to standard EM for GMMs. The cost drivers include:
+  - For each evaluation of m(µ, v) you solve an IVP to compute Expµ(v); with S = 3000 samples per C(µ, Σ) and multiple evaluations per outer iteration and per mixture component, this can be expensive.
+  - Each evaluation of M(·) and ∂M/∂x is O(ND) with the global kernel unless you use neighbor search/approximation.
+Please report big-O costs per iteration/component, wall-clock times, and scaling in N, D, K, S compared to a full-covariance GMM EM on the same hardware. Also consider ablations showing:
+  - Effect of S on accuracy and runtime.
+  - Approximate neighborhoods (k-NN, KD-tree) and sparse kernels.
+  - Re-using samples across iterations and mixture components.
+
+5) Experimental evaluation
+- Synthetic experiments are illustrative but limited. The EEG experiment is interesting but lacks breadth:
+  - Baselines: include methods that explicitly model manifold structure, e.g., GMM after a nonlinear embedding (Isomap/LLE/LE with out-of-sample extension), kernel GMMs, or density models based on KDE with geodesic distances.
+  - Report held-out log-likelihood for all models (using consistent MC estimators), not just F-measure for clustering.
+  - Provide sensitivity analyses for σ and ρ, diagonal vs full local covariance, and S; and show stability across subjects.
+  - Provide runtime and memory measurements.
+- Practical sampling from pM is nontrivial due to the m(µ, v) term; some discussion or a small experiment would help.
+
+Evaluation by criteria
+- Quality: Sound core idea; the metric definition and scalability analysis need stronger justification; experiments are not thorough enough to support practical claims.
+- Clarity: Generally well written; improve the distinction between local metric covariance (Eq. 7) and model covariance Σ; add intuition for the kernel; clarify Algorithm 1 notation.
+- Originality: Good combination of learned geometry with Riemannian normal distributions; mixture extension is natural.
+- Significance: Potentially impactful if computational issues are addressed; current practicality is uncertain.
+
+Questions for the authors
+- Can you derive Eq. (7) from a local likelihood or Fisher-information perspective? Would a full local covariance with shrinkage be feasible?
+- How sensitive are results to σ and ρ? Can σ be learned (e.g., by maximizing the LAND likelihood or via cross-validation)?
+- What is the per-iteration and total runtime vs GMM-EM on your datasets? How large can N, D, and K be in practice?
+- Do you reuse MC samples and/or employ variance reduction in the mixture EM?
+
+Pros and cons for acceptance
+Pros:
+- Elegant theoretical framing; promising idea of learning a metric and using a Riemannian normal.
+- Clear algorithmic path; mixture extension.
+- Compelling qualitative fits on nonlinear manifolds.
+
+Cons:
+- Metric choice appears ad hoc; lacks principled justification and invariance.
+- Weak experimental evaluation and missing scalability/runtime analysis.
+- Practical applicability and robustness remain unclear.
+
+Minor issues
+- Algorithm 1, lines 4–5: make notation consistent. Either replace d with ∇ or explicitly define dµφ as the steepest-descent direction used in the update, and use that consistently.
+- Several small grammar issues (e.g., “replace” → “replaces” in intro).
+
+Overall
+Interesting theoretical contribution with a promising angle on generative modeling over learned manifolds. As it stands, I am concerned about scalability and the ad hoc nature of the metric. Strengthening the justification of Eq. (7), clarifying the covariance roles, adding comprehensive runtime/complexity analyses, and broadening the empirical study would substantially improve the paper and its practical impact.

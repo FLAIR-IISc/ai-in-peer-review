@@ -1,0 +1,435 @@
+{
+  "name" : "09fb05dd477d4ae6479985ca56c5a12d.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "LSDA: Large Scale Detection through Adaptation",
+    "authors" : [ "Judy Hoffman", "Sergio Guadarrama", "Eric Tzeng", "Ronghang Hu", "Jeff Donahue", "Kate Saenko" ],
+    "emails" : [ "jdonahue}@eecs.berkeley.edu", "hrh11@mails.tsinghua.edu.cn", "trevor}@eecs.berkeley.edu,", "saenko@cs.uml.edu" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Both classification and detection are key visual recognition challenges, though historically very different architectures have been deployed for each. Recently, the R-CNN model [1] showed how to adapt an ImageNet classifier into a detector, but required bounding box data for all categories. We ask, is there something generic in the transformation from classification to detection that can be learned on a subset of categories and then transferred to other classifiers?\nOne of the fundamental challenges in training object detection systems is the need to collect a large of amount of images with bounding box annotations. The introduction of detection challenge datasets, such as PASCAL VOC [2], have propelled progress by providing the research community a dataset with enough fully annotated images to train competitive models although only for 20 classes. Even though the more recent ImageNet detection challenge dataset [3] has extended the set of annotated images, it only contains data for 200 categories. As we look forward towards the goal of scaling our systems to human-level category detection, it becomes impractical to collect a large quantity of bounding box labels for tens or hundreds of thousands of categories.\n∗This work was supported in part by DARPA’s MSEE and SMISC programs, by NSF awards IIS-1427425, and IIS-1212798, IIS-1116411, and by support from Toyota.\nIn contrast, image-level annotation is comparatively easy to acquire. The prevalence of image tags allows search engines to quickly produce a set of images that have some correspondence to any particular category. ImageNet [3], for example, has made use of these search results in combination with manual outlier detection to produce a large classification dataset comprised of over 20,000 categories. While this data can be effectively used to train object classifier models, it lacks the supervised annotations needed to train state-of-the-art detectors.\nIn this work, we propose Large Scale Detection through Adaptation (LSDA), an algorithm that learns to transform an image classifier into an object detector. To accomplish this goal, we use supervised convolutional neural networks (CNNs), which have recently been shown to perform well both for image classification [4] and object detection [1, 5]. We cast the task as a domain adaptation problem, considering the data used to train classifiers (images with category labels) as our source domain, and the data used to train detectors (images with bounding boxes and category labels) as our target domain. We then seek to find a general transformation from the source domain to the target domain, that can be applied to any image classifier to adapt it into a object detector (see Figure 1).\nGirshick et al. (R-CNN) [1] demonstrated that adaptation, in the form of fine-tuning, is very important for transferring deep features from classification to detection and partially inspired our approach. However, the R-CNN algorithm uses classification data only to pre-train a deep network and then requires a large number of bounding boxes to train each detection category.\nOur LSDA algorithm uses image classification data to train strong classifiers and requires detection bounding box labeled data for only a small subset of the final detection categories and much less time. It uses the classes labeled with both classification and detection labels to learn a transformation of the classification network into a detection network. It then applies this transformation to adapt classifiers for categories without any bounding box annotated data into detectors.\nOur experiments on the ImageNet detection task show significant improvement (+50% relative mAP) over a baseline of just using raw classifier weights on object proposal regions. One can adapt any ImageNet-trained classifier into a detector using our approach, whether or not there are corresponding detection labels for that class."
+    }, {
+      "heading" : "2 Related Work",
+      "text" : "Recently, Multiple Instance Learning (MIL) has been used for training detectors using weak labels, i.e. images with category labels but not bounding box labels. The MIL paradigm estimates latent labels of examples in positive training bags, where each positive bag is known to contain at least one positive example. Ali et al. [6] constructs positive bags from all object proposal regions in a weakly labeled image that is known to contain the object, and uses a version of MIL to learn an object detector. A similar method [7] learns detectors from PASCAL VOC images without bounding box\nlabels. MIL-based methods are a promising approach that is complimentary to ours. They have not yet been evaluated on the large-scale ImageNet detection challenge to allow for direct comparison.\nDeep convolutional neural networks (CNNs) have emerged as state of the art on popular object classification benchmarks (ILSVRC, MNIST) [4]. In fact, “deep features” extracted from CNNs trained on the object classification task are also state of the art on other tasks, e.g., subcategory classification, scene classification, domain adaptation [8] and even image matching [9]. Unlike the previously dominant features (SIFT [10], HOG [11]), deep CNN features can be learned for each specific task, but only if sufficient labeled training data are available. R-CNN [1] showed that finetuning deep features on a large amount of bounding box labeled data significantly improves detection performance.\nDomain adaptation methods aim to reduce dataset bias caused by a difference in the statistical distributions between training and test domains. In this paper, we treat the transformation of classifiers into detectors as a domain adaptation task. Many approaches have been proposed for classifier adaptation; e.g., feature space transformations [12], model adaptation approaches [13, 14] and joint feature and model adaptation [15, 16]. However, even the joint learning models are not able to modify the feature extraction process and so are limited to shallow adaptation techniques. Additionally, these methods only adapt between visual domains, keeping the task fixed, while we adapt both from a large visual domain to a smaller visual domain and from a classification task to a detection task.\nSeveral supervised domain adaptation models have been proposed for object detection. Given a detector trained on a source domain, they adjust its parameters on labeled target domain data. These include variants for linear support vector machines [17, 18, 19], as well as adaptive latent SVMs [20] and adaptive exemplar SVM [21]. A related recent method [22] proposes a fast adaptation technique based on Linear Discriminant Analysis. These methods require labeled detection data for all object categories, both in the source and target domains, which is absent in our scenario. To our knowledge, ours is the first method to adapt to held-out categories that have no detection data."
+    }, {
+      "heading" : "3 Large Scale Detection through Adaptation (LSDA)",
+      "text" : "We propose Large Scale Detection through Adaptation (LSDA), an algorithm for adapting classifiers to detectors. With our algorithm, we are able to produce a detection network for all categories of interest, whether or not bounding boxes are available at training time (see Figure 2).\nSuppose we have K categories we want to detect, but we only have bounding box annotations for m categories. We will refer to the set of categories with bounding box annotations as B = {1, ...m}, and the set of categories without bounding box annotations as set A = {m, ...,K}. In practice, we will likely have m K, as is the case in the ImageNet dataset. We assume availability of classification data (image-level labels) for all K categories and will use that data to initialize our network.\nLSDA transforms image classifiers into object detectors using three key insights:\n1. Recognizing background is an important step in adapting a classifier into a detector 2. Category invariant information can be transferred between the classifier and detector fea-\nture representations 3. There may be category specific differences between a classifier and a detector\nWe will next demonstrate how our method accomplishes each of these insights as we describe the training of LSDA."
+    }, {
+      "heading" : "3.1 Training LSDA: Category Invariant Adaptation",
+      "text" : "For our convolutional neural network, we adopt the architecture of Krizhevsky et al. [4], which achieved state-of-the-art performance on the ImageNet ILSVRC2012 classification challenge. Since this network requires a large amount of data and time to train its approximately 60 million parameters, we start by pre-training the CNN trained on the ILSVRC2012 classification dataset, which contains 1.2 million classification-labeled images of 1000 categories. Pre-training on this dataset has been shown to be a very effective technique [8, 5, 1], both in terms of performance and in terms of limiting the amount of in-domain labeled data needed to successfully tune the network. Next, we replace the last weight layer (1000 linear classifiers) with K linear classifiers, one for each category in our task. This weight layer is randomly initialized and then we fine-tune the whole network on our classification data. At this point, we have a network that can take an image or a region proposal as input, and produce a set of scores for each of the K categories. We find that even using the net trained on classification data in this way produces a strong baseline (see Section 4).\nWe next transform our classification network into a detection network. We do this by fine-tuning layers 1-7 using the available labeled detection data for categories in set B. Following the Regionsbased CNN (R-CNN) [1] algorithm, we collect positive bounding boxes for each category in set B as well as a set of background boxes using a region proposal algorithm, such as selective search [23]. We use each labeled region as a fine-tuning input to the CNN after padding and warping it to the CNN’s input size. Note that the R-CNN fine-tuning algorithm requires bounding box annotated data for all categories and so can not directly be applied to train all K detectors. Fine-tuning transforms all network weights (except for the linear classifiers for set A) and produces a softmax detector for categories in set B, which includes a weight vector for the new background class.\nLayers 1-7 are shared between all categories in setB and we find empirically that fine-tuning induces a generic, category invariant transformation of the classification network into a detection network. That is, even though fine-tuning sees no detection data for categories in set A, the network transforms in a way that automatically makes the original set A image classifiers much more effective at detection (see Figure 3). Fine-tuning for detection also learns a background weight vector that encodes a generic “background” category. This background model is important for modeling the task shift from image classification, which does not include background distractors, to detection, which is dominated by background patches."
+    }, {
+      "heading" : "3.2 Training LSDA: Category Specific Adaptation",
+      "text" : "Finally, we learn a category specific transformation that will change the classifier model parameters into the detector model parameters that operate on the detection feature representation. The category specific output layer (fc8) is comprised of fcA, fcB, δB, and fc − BG. For categories in set B, this transformation can be learned through directly fine-tuning the category specific parameters fcB (Figure 2). This is equivalent to fixing fcB and learning a new layer, zero initialized, δB, with equivalent loss to fcB , and adding together the outputs of δB and fcB .\nLet us define the weights of the output layer of the original classification network as W c, and the weights of the output layer of the adapted detection network as W d. We know that for a category i ∈ B, the final detection weights should be computed as W di = W ci + δBi. However, since there is no detection data for categories in A, we can not directly learn a corresponding δA layer during fine-tuning. Instead, we can approximate the fine-tuning that would have occurred to fcA had detection data been available. We do this by finding the nearest neighbors categories in set B for each category in set A and applying the average change. Here we define nearest neighbors as\nthose categories with the nearest (minimal Euclidean distance) `2-normalized fc8 parameters in the classification network. This corresponds to the classification model being most similar and hence, we assume, the detection model should be most similar. We denote the kth nearest neighbor in set B of category j ∈ A as NB(j, k), then we compute the final output detection weights for categories in set A as:\n∀j ∈ A :W dj = W cj + 1\nk k∑ i=1 δBNB(j,i) (1)\nThus, we adapt the category specific parameters even without bounding boxes for categories in set A. In the next section we experiment with various values of k, including taking the full average: k = |B|."
+    }, {
+      "heading" : "3.3 Detection with LSDA",
+      "text" : "At test time we use our network to extract K + 1 scores per region proposal in an image (similar to the R-CNN [1] pipeline). One for each category and an additional score for the background category. Finally, for a given region, the score for category i is computed by combining the per category score with the background score: scorei − scorebackground. In contrast to the R-CNN [1] model which trains SVMs on the extracted features from layer 7 and bounding box regression on the extracted features from layer 5, we directly use the final score vector to produce the prediction scores without either of the retraining steps. This choice results in a small performance loss, but offers the flexibility of being able to directly combine the classification portion of the network that has no detection labeled data, and reduces the training time from 3 days to roughly 5.5 hours."
+    }, {
+      "heading" : "4 Experiments",
+      "text" : "To demonstrate the effectiveness of our approach we present quantitative results on the ILSVRC2013 detection dataset. The dataset offers a 200-category detection challenge. The training set has∼400K annotated images and on average 1.534 object classes per image. The validation set has 20K annotated images with ∼50K annotated objects. We simulate having access to classification labels for all 200 categories and having detection annotations for only the first 100 categories (alphabetically sorted)."
+    }, {
+      "heading" : "4.1 Experiment Setup & Implementation Details",
+      "text" : "We start by separating our data into classification and detection sets for training and a validation set for testing. Since the ILSVRC2013 training set has on average fewer objects per image than the validation set, we use this data as our classification data. To balance the categories we use ≈1000 images per class (200,000 total images). Note: for classification data we only have access to a single image-level annotation that gives a category label. In effect, since the training set may contain multiple objects, this single full-image label is a weak annotation, even compared to other classification training data sets. Next, we split the ILSVRC2013 validation set in half as [1] did, producing two sets: val1 and val2. To construct our detection training set, we take the images with bounding box labels from val1 for only the first 100 categories (≈ 5000 images). Since the validation set is relatively small, we augment our detection set with 1000 bounding box annotated images per category from the ILSVRC2013 training set (following the protocol of [1]). Finally we use the second half of the ILSVRC2013 validation set (val2) for our evaluation.\nWe implemented our CNN architectures and execute all fine-tuning using the open source software package Caffe [24] and have made our model definitions weights publicly available."
+    }, {
+      "heading" : "4.2 Quantitative Analysis on Held-out Categories",
+      "text" : "We evaluate the importance of each component of our algorithm through an ablation study. As a baseline we consider training the network with only the classification data (no adaptation) and applying the network to the region proposals. The summary of the importance of our three adaptation components is shown in Figure 3. Our full LSDA model achieves a 50% relative mAP boost over\nthe classification only network. The most important step of our algorithm proved to be adapting the feature representation, while the least important was adapting the category specific parameter. This fits with our intuition that the main benefit of our approach is to transfer category invariant information from categories with known bounding box annotation to those without the bounding box annotations.\nIn Table 1, we present a more detailed analysis of the different adaptation techniques we could use to train the network. We find that the best category invariant adaptation approach is to learn the background category layer and adapt all convolutional and fully connected layers, bringing mAP on the held-out categories from 10.31% up to 15.85%. Additionally, using output layer adaptation (k = 10) further improves performance, bringing mAP to 16.15% on the held-out categories (statistically significant at p = 0.017 using a paired sample t-test [25]). The last row shows the performance achievable by our detection network if it had access to detection data for all 200 categories, and serves as a performance upper bound.1\nWe find that one of the biggest reasons our algorithm improves is from reducing localization error. For example, in Figure 4, we show that while the classification only trained net tends to focus on the most discriminative part\nof an object (ex: face of an animal) after our adaptation, we learn to localize the whole object (ex: entire body of the animal)."
+    }, {
+      "heading" : "4.3 Error Analysis on Held Out Categories",
+      "text" : "We next present an analysis of the types of errors that our system (LSDA) makes on the held out object categories. First, in Figure 5, we consider three types of false positive errors: Loc (localization errors), BG (confusion with background), and Oth (other error types, which is essentially\n1To achieve R-CNN performance requires additionally learning SVMs on the activations of layer 7 and bounding box regression on the activations of layer 5. Each of these steps adds between 1-2mAP at high computation cost and using the SVMs removes the adaptation capacity of the system.\ncorrectly localizing an object, but misclassifying it). After separating all false positives into one of these three error types we visually show the percentage of errors found in each type as you look at the top scoring 25-3200 false positives.2 We consider the baseline of starting with the classification only network and show the false positive breakdown in Figure 5(b). Note that the majority of false positive errors are confusion with background and localization errors. In contrast, after adapting the network using LSDA we find that the errors found in the top false positives are far less due to localization and background confusion (see Figure 5(c)). Arguably one of the biggest differences between classification and detection is the ability to accurately localize objects and reject background. Therefore, we show that our method successfully adapts the classification parameters to be more suitable for detection.\nIn Figure 5(a) we show examples of the top scoring Oth error types for LSDA on the held-out categories. This means the detector localizes an incorrect object type. For example, the motorcycle detector localized and mislabeled bicycle and the lemon detector localized and mislabeled an orange. In general, we noticed that many of the top false positives from the Oth error type were confusion with very similar categories."
+    }, {
+      "heading" : "4.4 Large Scale Detection",
+      "text" : "To showcase the capabilities of our technique we produced a 7604 category detector. The first categories correspond to the 200 categories from the ILSVRC2013 challenge dataset which have bounding box labeled data available. The other 7404 categories correspond to leaf nodes in the ImageNet database and are trained using the available full image labeled classification data. We trained a full detection network using the 200 fully annotated categories and trained the other 7404 last layer nodes using only the classification data. Since we lack bounding box annotated data for the majority of the categories we show example top detections in Figure 6. The results are filtered using non-max suppression across categories to only show the highest scoring categories.\nThe main contribution of our algorithm is the adaptation technique for modifying a convolutional neural network for detection. However, the choice of network and how the net is used at test time both effect the detection time computation. We have therefore also implemented and released a version of our algorithm running with fast region proposals [27] on a spatial pyramid pooling network [28], reducing our detection time down to half a second per image (from 4s per image) with nearly the same performance. We hope that this will allow the use of our 7.6K model on large data sources such as videos. We have released the 7.6K model and code to run detection (both the way presented in this paper and our faster version) at lsda.berkeleyvision.org.\n2We modified the analysis software made available by Hoeim et al. [26] to work on ILSVRC-2013 detection\nmicrophone (sim): ov=0.00 1−r=−3.00\nmicrophone\nminiskirt (sim): ov=0.00 1−r=−1.00 miniskirt motorcycle (sim): ov=0.00 1−r=−6.00\nmotorcycle\nmush oom (sim): ov=0.00 1−r=−8.00\nmushroom\nnail (sim): ov=0.00 1−r=−4.00 nail laptop (sim): ov=0.00 1−r=−3.00 laptop lemon (sim): ov=0.00 1−r=−5.00\nlemon\n(a) Example Top Scoring False Positives: LSDA correctly localizes but incorrectly labels object"
+    }, {
+      "heading" : "5 Conclusion",
+      "text" : "We have presented an algorithm that is capable of transforming a classifier into a detector. We use CNN models to train both a classification and a detection network. Our multi-stage algorithm uses corresponding classification and detection data to learn the change from a classification CNN network to a detection CNN network, and applies that difference to future classifiers for which there is no available detection data.\nWe show quantitatively that without seeing any bounding box annotated data, we can increase performance of a classification network by 50% relative improvement using our adaptation algorithm. Given the significant improvement on the held out categories, our algorithm has the potential to enable detection of tens of thousands of categories. All that would be needed is to train a classification layer for the new categories and use our fine-tuned detection model along with our output layer adaptation techniques to update the classification parameters directly.\nOur approach significantly reduces the overhead of producing a high quality detector. We hope that in doing so we will be able to minimize the gap between having strong large-scale classifiers and strong large-scale detectors. There is still a large gap to reach oracle (known bounding box labels) performance. For future work we would like to explore multiple instance learning techniques to discover and mine patches for the categories that lack bounding box data."
+    } ],
+    "references" : [ {
+      "title" : "Rich feature hierarchies for accurate object detection and semantic segmentation",
+      "author" : [ "R. Girshick", "J. Donahue", "T. Darrell", "J. Malik" ],
+      "venue" : "In In Proc. CVPR,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : "1",
+      "year" : 2014
+    }, {
+      "title" : "The pascal visual object classes (voc) challenge",
+      "author" : [ "M. Everingham", "L. Van Gool", "C.K.I. Williams", "J. Winn", "A. Zisserman" ],
+      "venue" : "International Journal of Computer Vision,",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 2010
+    }, {
+      "title" : "ImageNet classification with deep convolutional neural networks",
+      "author" : [ "A. Krizhevsky", "I. Sutskever", "G.E. Hinton" ],
+      "venue" : "In Proc. NIPS,",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : "4",
+      "year" : 2012
+    }, {
+      "title" : "Overfeat: Integrated recognition, localization and detection using convolutional networks",
+      "author" : [ "P. Sermanet", "D. Eigen", "X. Zhang", "M. Mathieu", "R. Fergus", "Y. LeCun" ],
+      "venue" : "CoRR, abs/1312.6229,",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : "5",
+      "year" : 2013
+    }, {
+      "title" : "Confidence-rated multiple instance boosting for object detection",
+      "author" : [ "K. Ali", "K. Saenko" ],
+      "venue" : "In IEEE Conference on Computer Vision and Pattern Recognition,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : "6",
+      "year" : 2014
+    }, {
+      "title" : "On learning to localize objects with minimal supervision",
+      "author" : [ "H. Song", "R. Girshick", "S. Jegelka", "J. Mairal", "Z. Harchaoui", "T. Darrell" ],
+      "venue" : "In Proceedings of the International Conference on Machine Learning (ICML),",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : "7",
+      "year" : 2014
+    }, {
+      "title" : "DeCAF: A Deep Convolutional Activation Feature for Generic Visual Recognition",
+      "author" : [ "J. Donahue", "Y. Jia", "O. Vinyals", "J. Hoffman", "N. Zhang", "E. Tzeng", "T. Darrell" ],
+      "venue" : "In Proc. ICML,",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : "8",
+      "year" : 2014
+    }, {
+      "title" : "Descriptor matching with convolutional neural networks: a comparison to sift",
+      "author" : [ "Philipp Fischer", "Alexey Dosovitskiy", "Thomas Brox" ],
+      "venue" : "ArXiv e-prints,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 2014
+    }, {
+      "title" : "Distinctive image features from scale-invariant key points",
+      "author" : [ "D.G. Lowe" ],
+      "venue" : null,
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : "10",
+      "year" : 2004
+    }, {
+      "title" : "Histograms of oriented gradients for human detection",
+      "author" : [ "N. Dalal", "B. Triggs" ],
+      "venue" : "In In Proc. CVPR,",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 2005
+    }, {
+      "title" : "What you saw is not what you get: Domain adaptation using asymmetric kernel transforms",
+      "author" : [ "B. Kulis", "K. Saenko", "T. Darrell" ],
+      "venue" : "In Proc. CVPR,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 2011
+    }, {
+      "title" : "Adapting SVM classifiers to data with shifted distributions",
+      "author" : [ "J. Yang", "R. Yan", "A. Hauptmann" ],
+      "venue" : "In ICDM Workshops,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 2007
+    }, {
+      "title" : "Tabula rasa: Model transfer for object category detection",
+      "author" : [ "Y. Aytar", "A. Zisserman" ],
+      "venue" : "In Proc. ICCV,",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 2011
+    }, {
+      "title" : "Efficient learning of domain-invariant image representations",
+      "author" : [ "J. Hoffman", "E. Rodner", "J. Donahue", "K. Saenko", "T. Darrell" ],
+      "venue" : "In Proc. ICLR,",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : "15",
+      "year" : 2013
+    }, {
+      "title" : "Learning with augmented features for heterogeneous domain adaptation",
+      "author" : [ "L. Duan", "D. Xu", "Ivor W. Tsang" ],
+      "venue" : "In Proc. ICML,",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : "16",
+      "year" : 2012
+    }, {
+      "title" : "Cross-domain video concept detection using adaptive svms",
+      "author" : [ "J. Yang", "R. Yan", "A.G. Hauptmann" ],
+      "venue" : "ACM Multimedia,",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : "17",
+      "year" : 2007
+    }, {
+      "title" : "Tabula rasa: Model transfer for object category detection",
+      "author" : [ "Y. Aytar", "A. Zisserman" ],
+      "venue" : "In IEEE International Conference on Computer Vision,",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : "18",
+      "year" : 2011
+    }, {
+      "title" : "Semi-supervised domain adaptation with instance constraints",
+      "author" : [ "J. Donahue", "J. Hoffman", "E. Rodner", "K. Saenko", "T. Darrell" ],
+      "venue" : "In Computer Vision and Pattern Recognition (CVPR),",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : "19",
+      "year" : 2013
+    }, {
+      "title" : "Domain adaptation of deformable part-based models",
+      "author" : [ "J. Xu", "S. Ramos", "D. Vázquez", "A.M. López" ],
+      "venue" : "IEEE Trans. on Pattern Analysis and Machine Intelligence,",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : "20",
+      "year" : 2014
+    }, {
+      "title" : "Enhancing exemplar svms using part level transfer regularization",
+      "author" : [ "Y. Aytar", "A. Zisserman" ],
+      "venue" : "In British Machine Vision Conference,",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : "21",
+      "year" : 2012
+    }, {
+      "title" : "Interactive adaptation of real-time object detectors",
+      "author" : [ "D. Goehring", "J. Hoffman", "E. Rodner", "K. Saenko", "T. Darrell" ],
+      "venue" : "In International Conference on Robotics and Automation (ICRA),",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : "22",
+      "year" : 2014
+    }, {
+      "title" : "Selective search for object recognition",
+      "author" : [ "J.R.R. Uijlings", "K.E.A. van de Sande", "T. Gevers", "A.W.M. Smeulders" ],
+      "venue" : "International Journal of Computer Vision,",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : "23",
+      "year" : 2013
+    }, {
+      "title" : "Caffe: Convolutional architecture for fast feature embedding",
+      "author" : [ "Yangqing Jia", "Evan Shelhamer", "Jeff Donahue", "Sergey Karayev", "Jonathan Long", "Ross Girshick", "Sergio Guadarrama", "Trevor Darrell" ],
+      "venue" : "arXiv preprint arXiv:1408.5093,",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : "24",
+      "year" : 2014
+    }, {
+      "title" : "A comparison of statistical significance tests for information retrieval evaluation",
+      "author" : [ "M.D. Smucker", "J. Allan", "B. Carterette" ],
+      "venue" : "In In Conference on Information and Knowledge Management,",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : "25",
+      "year" : 2007
+    }, {
+      "title" : "Diagnosing error in object detectors",
+      "author" : [ "D. Hoeim", "Y. Chodpathumwan", "Q. Dai" ],
+      "venue" : "In In Proc. ECCV,",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : "26",
+      "year" : 2012
+    }, {
+      "title" : "Geodesic object proposals",
+      "author" : [ "P. Krähenbühl", "V. Koltun" ],
+      "venue" : "In In Proc. ECCV,",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : "27",
+      "year" : 2014
+    }, {
+      "title" : "Spatial pyramid pooling in deep convolutional networks for visual recognition",
+      "author" : [ "K. He", "X. Zhang", "S. Ren", "J. Sun" ],
+      "venue" : "In In Proc. ECCV,",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : "28",
+      "year" : 2014
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 0,
+      "context" : "Recently, the R-CNN model [1] showed how to adapt an ImageNet classifier into a detector, but required bounding box data for all categories.",
+      "startOffset" : 26,
+      "endOffset" : 29
+    }, {
+      "referenceID" : 1,
+      "context" : "The introduction of detection challenge datasets, such as PASCAL VOC [2], have propelled progress by providing the research community a dataset with enough fully annotated images to train competitive models although only for 20 classes.",
+      "startOffset" : 69,
+      "endOffset" : 72
+    }, {
+      "referenceID" : 2,
+      "context" : "To accomplish this goal, we use supervised convolutional neural networks (CNNs), which have recently been shown to perform well both for image classification [4] and object detection [1, 5].",
+      "startOffset" : 158,
+      "endOffset" : 161
+    }, {
+      "referenceID" : 0,
+      "context" : "To accomplish this goal, we use supervised convolutional neural networks (CNNs), which have recently been shown to perform well both for image classification [4] and object detection [1, 5].",
+      "startOffset" : 183,
+      "endOffset" : 189
+    }, {
+      "referenceID" : 3,
+      "context" : "To accomplish this goal, we use supervised convolutional neural networks (CNNs), which have recently been shown to perform well both for image classification [4] and object detection [1, 5].",
+      "startOffset" : 183,
+      "endOffset" : 189
+    }, {
+      "referenceID" : 0,
+      "context" : "(R-CNN) [1] demonstrated that adaptation, in the form of fine-tuning, is very important for transferring deep features from classification to detection and partially inspired our approach.",
+      "startOffset" : 8,
+      "endOffset" : 11
+    }, {
+      "referenceID" : 4,
+      "context" : "[6] constructs positive bags from all object proposal regions in a weakly labeled image that is known to contain the object, and uses a version of MIL to learn an object detector.",
+      "startOffset" : 0,
+      "endOffset" : 3
+    }, {
+      "referenceID" : 5,
+      "context" : "A similar method [7] learns detectors from PASCAL VOC images without bounding box",
+      "startOffset" : 17,
+      "endOffset" : 20
+    }, {
+      "referenceID" : 2,
+      "context" : "Deep convolutional neural networks (CNNs) have emerged as state of the art on popular object classification benchmarks (ILSVRC, MNIST) [4].",
+      "startOffset" : 135,
+      "endOffset" : 138
+    }, {
+      "referenceID" : 6,
+      "context" : ", subcategory classification, scene classification, domain adaptation [8] and even image matching [9].",
+      "startOffset" : 70,
+      "endOffset" : 73
+    }, {
+      "referenceID" : 7,
+      "context" : ", subcategory classification, scene classification, domain adaptation [8] and even image matching [9].",
+      "startOffset" : 98,
+      "endOffset" : 101
+    }, {
+      "referenceID" : 8,
+      "context" : "Unlike the previously dominant features (SIFT [10], HOG [11]), deep CNN features can be learned for each specific task, but only if sufficient labeled training data are available.",
+      "startOffset" : 46,
+      "endOffset" : 50
+    }, {
+      "referenceID" : 9,
+      "context" : "Unlike the previously dominant features (SIFT [10], HOG [11]), deep CNN features can be learned for each specific task, but only if sufficient labeled training data are available.",
+      "startOffset" : 56,
+      "endOffset" : 60
+    }, {
+      "referenceID" : 0,
+      "context" : "R-CNN [1] showed that finetuning deep features on a large amount of bounding box labeled data significantly improves detection performance.",
+      "startOffset" : 6,
+      "endOffset" : 9
+    }, {
+      "referenceID" : 10,
+      "context" : ", feature space transformations [12], model adaptation approaches [13, 14] and joint feature and model adaptation [15, 16].",
+      "startOffset" : 32,
+      "endOffset" : 36
+    }, {
+      "referenceID" : 11,
+      "context" : ", feature space transformations [12], model adaptation approaches [13, 14] and joint feature and model adaptation [15, 16].",
+      "startOffset" : 66,
+      "endOffset" : 74
+    }, {
+      "referenceID" : 12,
+      "context" : ", feature space transformations [12], model adaptation approaches [13, 14] and joint feature and model adaptation [15, 16].",
+      "startOffset" : 66,
+      "endOffset" : 74
+    }, {
+      "referenceID" : 13,
+      "context" : ", feature space transformations [12], model adaptation approaches [13, 14] and joint feature and model adaptation [15, 16].",
+      "startOffset" : 114,
+      "endOffset" : 122
+    }, {
+      "referenceID" : 14,
+      "context" : ", feature space transformations [12], model adaptation approaches [13, 14] and joint feature and model adaptation [15, 16].",
+      "startOffset" : 114,
+      "endOffset" : 122
+    }, {
+      "referenceID" : 15,
+      "context" : "These include variants for linear support vector machines [17, 18, 19], as well as adaptive latent SVMs [20] and adaptive exemplar SVM [21].",
+      "startOffset" : 58,
+      "endOffset" : 70
+    }, {
+      "referenceID" : 16,
+      "context" : "These include variants for linear support vector machines [17, 18, 19], as well as adaptive latent SVMs [20] and adaptive exemplar SVM [21].",
+      "startOffset" : 58,
+      "endOffset" : 70
+    }, {
+      "referenceID" : 17,
+      "context" : "These include variants for linear support vector machines [17, 18, 19], as well as adaptive latent SVMs [20] and adaptive exemplar SVM [21].",
+      "startOffset" : 58,
+      "endOffset" : 70
+    }, {
+      "referenceID" : 18,
+      "context" : "These include variants for linear support vector machines [17, 18, 19], as well as adaptive latent SVMs [20] and adaptive exemplar SVM [21].",
+      "startOffset" : 104,
+      "endOffset" : 108
+    }, {
+      "referenceID" : 19,
+      "context" : "These include variants for linear support vector machines [17, 18, 19], as well as adaptive latent SVMs [20] and adaptive exemplar SVM [21].",
+      "startOffset" : 135,
+      "endOffset" : 139
+    }, {
+      "referenceID" : 20,
+      "context" : "A related recent method [22] proposes a fast adaptation technique based on Linear Discriminant Analysis.",
+      "startOffset" : 24,
+      "endOffset" : 28
+    }, {
+      "referenceID" : 2,
+      "context" : "[4], which achieved state-of-the-art performance on the ImageNet ILSVRC2012 classification challenge.",
+      "startOffset" : 0,
+      "endOffset" : 3
+    }, {
+      "referenceID" : 6,
+      "context" : "Pre-training on this dataset has been shown to be a very effective technique [8, 5, 1], both in terms of performance and in terms of limiting the amount of in-domain labeled data needed to successfully tune the network.",
+      "startOffset" : 77,
+      "endOffset" : 86
+    }, {
+      "referenceID" : 3,
+      "context" : "Pre-training on this dataset has been shown to be a very effective technique [8, 5, 1], both in terms of performance and in terms of limiting the amount of in-domain labeled data needed to successfully tune the network.",
+      "startOffset" : 77,
+      "endOffset" : 86
+    }, {
+      "referenceID" : 0,
+      "context" : "Pre-training on this dataset has been shown to be a very effective technique [8, 5, 1], both in terms of performance and in terms of limiting the amount of in-domain labeled data needed to successfully tune the network.",
+      "startOffset" : 77,
+      "endOffset" : 86
+    }, {
+      "referenceID" : 0,
+      "context" : "Following the Regionsbased CNN (R-CNN) [1] algorithm, we collect positive bounding boxes for each category in set B as well as a set of background boxes using a region proposal algorithm, such as selective search [23].",
+      "startOffset" : 39,
+      "endOffset" : 42
+    }, {
+      "referenceID" : 21,
+      "context" : "Following the Regionsbased CNN (R-CNN) [1] algorithm, we collect positive bounding boxes for each category in set B as well as a set of background boxes using a region proposal algorithm, such as selective search [23].",
+      "startOffset" : 213,
+      "endOffset" : 217
+    }, {
+      "referenceID" : 0,
+      "context" : "At test time we use our network to extract K + 1 scores per region proposal in an image (similar to the R-CNN [1] pipeline).",
+      "startOffset" : 110,
+      "endOffset" : 113
+    }, {
+      "referenceID" : 0,
+      "context" : "In contrast to the R-CNN [1] model which trains SVMs on the extracted features from layer 7 and bounding box regression on the extracted features from layer 5, we directly use the final score vector to produce the prediction scores without either of the retraining steps.",
+      "startOffset" : 25,
+      "endOffset" : 28
+    }, {
+      "referenceID" : 0,
+      "context" : "Next, we split the ILSVRC2013 validation set in half as [1] did, producing two sets: val1 and val2.",
+      "startOffset" : 56,
+      "endOffset" : 59
+    }, {
+      "referenceID" : 0,
+      "context" : "Since the validation set is relatively small, we augment our detection set with 1000 bounding box annotated images per category from the ILSVRC2013 training set (following the protocol of [1]).",
+      "startOffset" : 188,
+      "endOffset" : 191
+    }, {
+      "referenceID" : 22,
+      "context" : "We implemented our CNN architectures and execute all fine-tuning using the open source software package Caffe [24] and have made our model definitions weights publicly available.",
+      "startOffset" : 110,
+      "endOffset" : 114
+    }, {
+      "referenceID" : 23,
+      "context" : "017 using a paired sample t-test [25]).",
+      "startOffset" : 33,
+      "endOffset" : 37
+    }, {
+      "referenceID" : 25,
+      "context" : "We have therefore also implemented and released a version of our algorithm running with fast region proposals [27] on a spatial pyramid pooling network [28], reducing our detection time down to half a second per image (from 4s per image) with nearly the same performance.",
+      "startOffset" : 110,
+      "endOffset" : 114
+    }, {
+      "referenceID" : 26,
+      "context" : "We have therefore also implemented and released a version of our algorithm running with fast region proposals [27] on a spatial pyramid pooling network [28], reducing our detection time down to half a second per image (from 4s per image) with nearly the same performance.",
+      "startOffset" : 152,
+      "endOffset" : 156
+    } ],
+    "year" : 2014,
+    "abstractText" : "A major challenge in scaling object detection is the difficulty of obtaining labeled images for large numbers of categories. Recently, deep convolutional neural networks (CNNs) have emerged as clear winners on object classification benchmarks, in part due to training with 1.2M+ labeled classification images. Unfortunately, only a small fraction of those labels are available for the detection task. It is much cheaper and easier to collect large quantities of image-level labels from search engines than it is to collect detection data and label it with precise bounding boxes. In this paper, we propose Large Scale Detection through Adaptation (LSDA), an algorithm which learns the difference between the two tasks and transfers this knowledge to classifiers for categories without bounding box annotated data, turning them into detectors. Our method has the potential to enable detection for the tens of thousands of categories that lack bounding box annotations, yet have plenty of classification data. Evaluation on the ImageNet LSVRC-2013 detection challenge demonstrates the efficacy of our approach. This algorithm enables us to produce a >7.6K detector by using available classification data from leaf nodes in the ImageNet tree. We additionally demonstrate how to modify our architecture to produce a fast detector (running at 2fps for the 7.6K detector). Models and software are available at lsda.berkeleyvision.org.",
+    "creator" : null
+  }
+}

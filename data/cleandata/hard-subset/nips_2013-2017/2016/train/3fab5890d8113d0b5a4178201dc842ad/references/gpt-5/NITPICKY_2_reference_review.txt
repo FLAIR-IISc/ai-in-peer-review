@@ -1,0 +1,69 @@
+Summary
+This paper proposes Sparse Access Memory (SAM), a memory-augmented neural network that imposes sparsity on both reads and writes to external memory. The key ideas are: (i) approximate content-based reads via K-nearest neighbor queries (using an ANN index such as randomized k-d trees or LSH) to obtain a sparse attention vector over K items; (ii) sparse writes to previously read locations and to a least-recently-used (LRU) location tracked by a custom usage data structure; and (iii) an in-place memory “rollback” scheme that stores only sparse diffs across timesteps, enabling O(1) space per timestep for backpropagation (after O(N) initialization). The authors claim asymptotically optimal time and space complexity for content-addressed memory. They benchmark speed/memory vs NTM and a dense variant (DAM), and evaluate on NTM-style algorithmic tasks, bAbI, and Omniglot one-shot classification, with a curriculum for scaling sequence lengths. They also sketch a sparse version of DNC (SDNC), claiming strong bAbI results.
+
+Strengths
+- Addresses an important scalability bottleneck in differentiable memory models with a simple, practical design that is compatible with gradient-based training.
+- Conceptual clarity of the engineering: sparse top-K reads, LRU allocation for writes, and sparse diffs for BPTT. The rollback trick is particularly useful.
+- Substantial empirical speed and memory savings vs standard NTM; qualitative trends are compelling for very large memory sizes.
+- Demonstrates that sparse access can preserve or even improve learning on several tasks; curriculum-based scaling to long sequences is interesting.
+- The approach is general and plausibly applicable to multiple MANN architectures; the SDNC extension supports this.
+
+Weaknesses and concerns
+Technical correctness and completeness
+1) Differentiability and gradient bias: The top-K selection and ANN-based neighbor retrieval introduce non-differentiable, data-dependent sparsity. The paper claims “retaining end-to-end gradient based optimization,” but the gradients are computed only over the selected K items; the neighbor selection is treated as fixed. This is a biased gradient estimator. There is no analysis of the impact of this bias, no surrogate/straight-through justification, and no ablation quantifying the effect (e.g., compare exact softmax over all N vs top-K over exact nearest neighbors vs ANN approximations). This omission is significant.
+
+2) ANN complexity claims: The paper states O(log N) queries for both k-d trees and LSH. This is generally incorrect. LSH offers sublinear O(N^ρ) expected query time under assumptions; log N is not guaranteed. Moreover, k-d trees degrade with dimension; no regimes (dimensionality, metric, M) are specified. The theoretical and empirical claims about sublinear performance should be qualified and supported more rigorously.
+
+3) “Asymptotically optimal” claim: The optimality statement is pushed to Supplementary A; the main text provides no proof sketch, assumptions, or formal problem statement (e.g., oracle model, metric assumptions). Given the prominence of this claim, more detail is needed.
+
+4) Write/erase semantics: Eq. (3) and Eq. (5) are not clearly specified (formatting errors; missing equals sign; ambiguous gates). The write to LRU location includes a hard erase (Rt = IU_t 1^T), but the implications for stability/forgetting and tasks with partial updates are not discussed.
+
+5) Backprop storage: While the sparse-diff rollback yields O(T) storage for memory, the paper does not account for controller activations, ANN state, and other persistent buffers. It would be helpful to separate total training memory into components and clarify which scale with T, N, or K.
+
+Experimental evaluation
+6) Baseline fairness: The speed/memory comparisons are against a “vanilla” NTM; it is unclear whether optimized dense baselines (e.g., using checkpointing/recompute, GPU-optimized kernels) were considered. Similarly, the dense DAM variant is under-specified.
+
+7) bAbI results: The main paper lacks a table with actual accuracies, dataset size (1k vs 10k), number of hops, and seeds; claims of “best reported” results for SDNC are not verifiable from the main text. The extent of supervision (no supporting facts) is stated, but detailed comparisons to strong contemporaneous baselines are deferred to the supplement.
+
+8) Omniglot: The setup differs from prior work (one-hot labels throughout; longer sequences). The paper selects the “best run” on validation for testing, which introduces selection bias; no mean/std or multiple seeds are reported. Reported numbers are vague (“0.2 < errors with 100 characters”).
+
+9) Curriculum and generalization: The curriculum schedule and stopping criteria are described qualitatively. For the striking generalization (train to 10k, test to 200k), details (number of steps, error rates, failure modes) are in the supplement; nothing quantitative is in the main paper.
+
+10) Ablations missing: No study of K (e.g., 1, 4, 8, 16), of ANN rebuild frequency, of LRU vs alternative allocation policies, or of exact vs approximate neighbor search. These are central knobs.
+
+Clarity and presentation
+11) Formatting issues throughout (mangled LaTeX: “⇥”, missing equals sign in Eq. (3), inconsistent notation for gates; stray spaces/superscripts/subscripts; “write operation is SAM” typo). Figures are referenced but not always interpretable without the supplement.
+
+12) References are incomplete: many lack years/venues/pages; DNC citation lacks venue; several entries are inconsistent.
+
+13) Reproducibility: Key hyperparameters, training budgets, and implementation details (device, batch sizes, controller hidden sizes, memory vector dimension M, optimizer settings) are not in the main paper. No code is provided.
+
+Originality and relation to prior work
+14) Relation to concurrent/nearby work is thin. The paper contrasts with RL-based discrete addressing [Zaremba & Sutskever] but does not sufficiently discuss other scalable MANN variants and approximate differentiable attention mechanisms. The “optimality” narrative would benefit from a broader positioning.
+
+Pros and cons for acceptance
+Pros:
+- Addresses a real scalability bottleneck with a simple, practically impactful idea.
+- Strong empirical speed/memory improvements at large N.
+- Promising results indicating sparse access does not cripple learning.
+
+Cons:
+- Non-differentiable top-K/ANN selection not analyzed; gradient bias unquantified.
+- Overstated complexity claims for LSH; theoretical claims under-specified.
+- Evaluation lacks rigor (missing tables, seeds/variance, ablations); several comparisons deferred to supplement.
+- Numerous formatting and citation issues; clarity suffers.
+
+Questions for the authors
+- Please provide a quantitative ablation isolating the effect of ANN vs exact search, and K sensitivity.
+- Clarify the precise complexity of ANN operations (with constants), dimensionality regimes, and rebuild costs.
+- Provide main-paper tables for bAbI/Omniglot with means/std over multiple seeds.
+- Clarify Eq. (3) and Eq. (5) with correct notation, and discuss gradient handling through neighbor selection.
+- Detail total training memory breakdown beyond the external memory.
+
+Overall assessment
+Quality: Medium — good engineering ideas but analysis is incomplete; evaluation lacks rigor.
+Clarity: Medium/Low — numerous formatting issues; key details pushed to supplement.
+Originality: Medium — the sparse-access framing is sensible, but not conceptually deep without stronger theory.
+Significance: Medium/High — if substantiated, could be widely useful.
+
+Recommendation: Weak reject. The contribution is promising and likely important, but the paper overclaims on complexity, glosses over the non-differentiable selection mechanism, and lacks essential ablations and clear, reproducible results in the main text. With tightened theory, corrected claims, stronger ablations, and clearer presentation, I would be inclined to accept.

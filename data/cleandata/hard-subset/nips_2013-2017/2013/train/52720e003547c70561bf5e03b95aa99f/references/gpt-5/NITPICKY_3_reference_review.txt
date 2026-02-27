@@ -1,0 +1,45 @@
+Summary
+The paper tackles large-scale sparse precision (inverse covariance) estimation by developing an inexact ADMM solver for the CLIME estimator. The main ideas are: (i) reformulating CLIME with a splitting variable, then applying a linearized (inexact) ADMM update that reduces each iteration to elementwise operations plus matrix multiplications; (ii) solving in column-blocks (size k) to replace repeated matrix–vector multiplies with BLAS-3 matrix–matrix multiplies that better exploit caches and parallel hardware; (iii) leveraging low-rank structure of the sample covariance (C = A A′ with p >> n) to reduce per-iteration complexity from O(p^2 k) to O(n p k); (iv) providing shared-memory and distributed-memory implementations with block-cyclic distribution for load balance; and (v) claiming O(1/T) ergodic rates for objective and residuals. Experiments compare to CLIME (flare), TIGER, and DC-QUIC, and include a million-dimensional run on 400 cores.
+
+Relation to prior work: CLIME and its theory are standard. ADMM and linearized ADMM variants are well studied, as are distributed implementations and block-cyclic layouts. Prior solvers for precision estimation include interior-point, QUIC/DC-QUIC, and ADMM variants. The novelty here lies primarily in the column-block ADMM design specialized to CLIME, the explicit low-rank multiply path, and the distributed implementation details targeting ultra-high dimensions.
+
+Strengths
+- Addresses an important scaling bottleneck in sparse precision estimation; the column-block design and low-rank multiplies are practically meaningful.
+- Clean decomposition of iterations into elementwise ops + GEMM; likely to yield strong performance on modern hardware.
+- O(1/T) convergence rate (ergodic) claimed for objective and residuals is aligned with known results for linearized/inexact ADMM.
+- Implementation effort on both shared-memory and distributed-memory; use of block-cyclic distribution is appropriate for load balancing.
+- Demonstrates plausibly impressive scale (p = 10^6) and near-linear speedups when using column blocks in distributed settings.
+
+Weaknesses and concerns
+Technical correctness and clarity:
+- Augmented Lagrangian (Eq. 4) and subsequent ADMM steps are inconsistent in constants and scaling. Eq. (4) omits the conventional 1/2 factor in the quadratic term, yet Eq. (6) uses ρ/2. Please fix and keep a coherent scaled/unscaled ADMM presentation.
+- The linearized X-update (Eq. 8) is missing the standard 1/2 factor in the proximal term; the resulting soft-thresholding step (Eq. 9) lacks a clear derivation. Precisely define V_t as the gradient of the quadratic term at X^t and show the soft-thresholding step follows with the correct step size.
+- V-update indexing mismatches: the text derives V_t = (ρ/η)(2 V̂_t − V̂_{t−1}) but Algorithm 1 uses V_{t+1} = (ρ/η)(2 V̂_{t+1} − V̂_t).
+- Theorem 2 uses a seminorm “‖X^T − X^{T−1}‖_{(η/ρ)I − C^2}” but is written as “‖·‖_{(η/ρ) I − C^2}” ambiguously (“I − C^2” also appears), and positivity requires η ≥ ρ λ_max^2(C). Please correct the metric to (η I − ρ C′C) and use standard Frobenius/operator norms with clear notation.
+- Theorem 3 (sparsifying C by adding ∆): as stated, it appears incorrect/overstated. Adding independent sub-exponential noise with unspecified magnitude will not preserve the O(√(log p/n)) deviation unless ∆ is deterministically bounded at that scale. The “special case” (threshold entries with |∆_ij| ≤ c√(log p/n)) is the meaningful statement; the general theorem should be weakened or precisely quantified (e.g., assume ‖∆‖_∞ ≤ c′√(log p/n)). Also discuss PSD and how this interacts with the low-rank factorization C=A A′ (you cannot use both the thresholded sparse C and the A-based low-rank multiply simultaneously).
+- Notation is inconsistent (e.g., ‖·‖_22 used for squared Frobenius; use ‖·‖_F^2), and the constraint residual is variously defined as CX−Z vs. U−Z; ensure consistent symbols throughout.
+
+Algorithmic and experimental details:
+- Parameter selection is under-specified: how are λ, ρ, and η chosen? The constraint η ≥ ρ λ_max^2(C) requires estimating λ_max(C); how is this done at scale? What stopping criteria and tolerances are used?
+- Comparisons: matching sparsity post hoc biases timing; TIGER is tuning-free and CLIME can be tuned-free via a second LP, but this variant is not evaluated. Report objective values, feasibility (‖C X − I‖_∞), and statistical accuracy (if ground truth exists), not only sparsity and runtime.
+- Figures/Tables are incomplete in this draft (e.g., Table 1/2 truncated, some captions only; stray numeric row). Some claims (e.g., “T_core1 is the time on 50 cores” for Score_q) are confusing. In Sec. 5.2, “For q cores, we use the process grid q^2 × 2” is nonsensical (r×c should multiply to q). Please correct and ensure reproducibility.
+- The “one million by one trillion parameters in 11 hours” result lacks accuracy metrics, parameter settings, and stopping criteria; runtime alone is insufficient.
+- The distributed implementation relies on block-cyclic distribution but communication patterns and costs (collectives, redistributions) are not described. Profiling or breakdown of compute vs. comms would strengthen the scalability claims.
+
+Writing, formatting, and references:
+- Numerous typos and grammatical issues (“achitectures,” “colletion,” “Comparision,” “spase,” etc.).
+- Pseudocode has misnumbered steps and inconsistent symbols.
+- References are incomplete (missing years/venues/authors), duplicated, and have errors (e.g., “dAspremont,” “reguarlized”). This is not up to NeurIPS standards.
+
+Originality and significance
+- The idea to solve CLIME in column blocks and leverage BLAS-3/low-rank multiplies is a practical engineering contribution, but methodologically incremental relative to existing CLIME/ADMM solvers and distributed optimization frameworks. The main significance would be in a robust, carefully evaluated system demonstrating end-to-end scalability and correctness. The current draft’s theory/notation issues and incomplete experiments undermine that impact.
+
+Questions for the authors
+- Provide a corrected, self-contained derivation of the linearized ADMM steps, with exact constants, and precise convergence statements (assumptions, norms, rates).
+- Clarify parameter choices, stopping criteria, and how λ_max(C) is computed at scale.
+- Revisit Theorem 3; either remove the stochastic claim or add assumptions guaranteeing ‖∆‖_∞ control and discuss the trade-offs with the low-rank path.
+- Provide full, reproducible experimental details (datasets, λ/ρ/η, tolerances), complete figures/tables, and accuracy/feasibility metrics in addition to runtime/speedups.
+- Correct the process grid description and speedup baselines; detail communication patterns.
+
+Recommendation
+I appreciate the practical focus and the potential impact of a scalable CLIME solver. However, the current version has too many technical inconsistencies, unclear derivations, incomplete experiments, and significant writing/reference issues. I recommend rejection in its current form. With a thorough rewrite, corrected theory, and stronger, reproducible experiments, this line of work could be impactful.

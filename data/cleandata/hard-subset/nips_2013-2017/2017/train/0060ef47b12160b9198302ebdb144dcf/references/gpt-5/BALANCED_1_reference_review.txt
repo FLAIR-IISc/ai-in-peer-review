@@ -1,0 +1,50 @@
+Summary and relation to prior work
+This paper proposes training a feed-forward “masking model” to generate class-conditional saliency maps for a given image classifier in a single pass. The core idea is to optimize a mask output network (a U-Net with a fixed ResNet-50 encoder and learned class embeddings) against an objective that encourages (i) smooth, small masks; (ii) preservation of the class probability when only the salient region is kept (SSR); and (iii) suppression of the class probability when the salient region is removed (SDR). To reduce artifacts from masking, the authors randomize the “background” replacement using either heavy blur or noisy color fills and impose TV regularization. They also propose a new saliency metric based on the log-area of a tight bounding crop versus the log class probability on the crop, arguing it captures concentrated evidence per SSR. They report weakly supervised localization results on ImageNet (with separate masking models for AlexNet, GoogLeNet, ResNet-50 as the target classifier) and a small-scale CIFAR-10 experiment trained from scratch. They claim real-time throughput (>100 fps at 224×224) and better localization and saliency scores compared to gradient-based methods, Excitation Backprop, and iterative perturbation methods (e.g., Fong & Vedaldi, 2017).
+
+This sits between backprop-based saliency (e.g., Simonyan et al. 2013; Guided Backprop; Excitation Backprop) and optimization-based perturbation approaches (e.g., Fong & Vedaldi 2017; occlusion sensitivity). It is also related to weakly supervised localization (CAM, Zhou et al. 2016) but uses a learned masking network trained against the frozen classifier.
+
+Strengths
+- Clear motivation for combining SSR and SDR in one objective; thoughtful discussion of “introduced evidence” via masking and practical countermeasures (randomized A, TV, low-res masks).
+- Moving from per-image iterative optimization to a trained predictor is novel for this problem (as of 2017) and yields large speedups, enabling real-time and potential video applications.
+- The U-Net design with class-conditioned feature filtering is sensible and empirically produces sharp, interpretable masks.
+- The “fake label” training trick to force class-conditional behavior is simple and effective.
+- New saliency metric aligns with the SSR notion and avoids some artifact issues by using cropping rather than masking during evaluation.
+
+Weaknesses and concerns
+- “Model-agnostic/black-box” claims are overstated. Training as described requires differentiability and backpropagation through the target classifier. The approach is architecture-agnostic but not black-box in the sense of gradient-free access. Please clarify the requirements and limits (e.g., cannot train if gradients are unavailable).
+- Objective definition has ambiguities/sign issues. Equation (4) contains log(fc(…)) with positive sign, which would penalize high probability when minimizing, seemingly contradicting the SSR goal. The last term fc(… )^λ4 is unusual; the text says setting λ4<1 helps reduce the probability, which also conflicts with minimization. These need explicit correction and consistent notation.
+- Evaluation details are insufficiently specified in the current draft. The paper references tables but does not enumerate numbers here; it is unclear which baselines (e.g., CAM/Grad-CAM) were included, how they were tuned, and whether the proposed metric or localization improvements are statistically significant.
+- New saliency metric depends on the classifier’s robustness to aspect-ratio distortion and scaling of the crop. The threshold ã = max(a, 0.05) is ad hoc. Ablations on resize strategy, threshold choice, and sensitivity to classifier invariances would strengthen the claim.
+- Training a separate masking model per classifier is a significant overhead compared to gradient-based methods; cross-model generalization (train on one classifier, test on another) is not reported.
+- The mitigation of adversarial artifacts is heuristic. It would help to include deletion/insertion curves (insertion: measuring confidence as you reveal pixels; deletion: as you remove pixels) and a “pointing game” or similar to quantify faithfulness and localization beyond IoU thresholds.
+- Limited ablations: no analysis of λ weights, mask upsampling resolution, choice of A (blur vs noise), thresholding strategy, or the importance of freezing the encoder vs fine-tuning.
+- Clarity issues: some typos and notational inconsistencies; training details (optimizer, learning rate schedule, batch size, epochs) and dataset splits are underspecified. The auxiliary loss hinted at for class embeddings (“ensuring maximal value of X^T_ij C_s…”) is not formalized.
+
+Assessment by NeurIPS criteria
+- Quality: Promising approach with reasonable design choices, but the current presentation has objective/sign inconsistencies, incomplete experimental details, and limited ablations that make it hard to fully verify rigor and reproducibility.
+- Clarity: Generally readable with good intuition, but equations and training/eval protocols need tightening, and claims about black-box status should be revised.
+- Originality: The idea of learning a fast masking network that unifies SSR/SDR is novel relative to contemporaneous perturbation and backprop-based methods.
+- Significance: Potentially impactful as a practical, real-time saliency tool; however, broader adoption requires clearer evidence of faithfulness and robustness, and a more comprehensive comparison to CAM/Grad-CAM and iterative baselines.
+
+Pros vs. cons for acceptance
+Pros:
+- Novel and practical contribution (real-time, feed-forward saliency).
+- Thoughtful handling of artifact introduction; masks appear sharp and interpretable.
+- Competitive weakly supervised localization reported; new metric aligned with SSR.
+
+Cons:
+- Overclaim on black-box agnosticism; training requires gradients.
+- Objective/notation issues and missing details undermine confidence.
+- Limited quantitative evidence in this draft; few ablations; dependency on classifier invariances for the proposed metric.
+- Per-classifier training overhead and unclear generalization.
+
+Recommendation
+Borderline reject. The idea is interesting and promising, but the paper in its current form has technical ambiguities and insufficient experimental rigor for NeurIPS standards.
+
+Suggestions for improvement
+- Fix and clarify the loss function, with explicit signs and motivations; report ablations over λ’s and the effect of each term (SSR-only, SDR-only, both).
+- Provide comprehensive quantitative comparisons, including CAM and Grad-CAM, guided backprop, excitation backprop, and optimization-based perturbation (with matched compute budgets). Include deletion/insertion AUC and pointing-game metrics.
+- Analyze sensitivity of the proposed saliency metric to resizing/aspect ratio handling and the area threshold; report correlations with human judgment or ground-truth segmentations when available.
+- Evaluate cross-model generalization and per-class behavior; report multi-instance coverage (does the mask select all instances?).
+- Clarify the “black-box” requirement; if truly black-box training is desired, discuss/experiment with gradient-free optimization (REINFORCE/zeroth-order) as a variant, or rephrase claims to “architecture-agnostic, differentiable models.”
+- Add implementation details (optimizer, schedule, training duration), release code, and include runtime benchmarks vs. baselines on shared hardware.

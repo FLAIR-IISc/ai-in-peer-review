@@ -1,0 +1,54 @@
+Summary and relation to prior work
+The paper proposes a “constrain-then-train” methodology to reconcile backpropagation with the constraints of neuromorphic hardware, specifically IBM’s TrueNorth [7]. The deployment network uses spiking neurons, 1-bit synaptic connections (on/off crossbar) with per-axon-type lookup for signed strengths, and strictly limited fan-in (256 inputs). The training network shares the same topology but operates in a probabilistic, continuous domain: input spikes (x̃), synaptic connection states (c̃), and neuron outputs (ñ) are probabilities in [0,1]. Using a Gaussian approximation for the sum of weighted Bernoulli inputs, the authors derive a differentiable surrogate for spike probability (Eq. 3) and its gradients (Eq. 4), enabling backpropagation to learn c̃ and biases while keeping synaptic strengths fixed a priori to a balanced ±1 design that minimizes pairwise correlations across neurons (Sec. 3.4). At deployment, multiple samples (ensembles) of the trained probabilistic network are instantiated stochastically and run on TrueNorth.
+
+Topologically, the network employs a progressive mixing, sliding-window scheme akin to locally connected layers (without weight sharing), constrained by core-level fan-in and axon-type structure (Sec. 4). On MNIST, they report up to 99.42% with a 30-core network and a 64-member ensemble (1920 cores active), and very low energy (down to 0.268 µJ/classification at 92.70% with a minimal 5-core network, 1-member ensemble) at 1000 images/s.
+
+The work connects to several strands: training spiking networks with high-precision weights [9–12], training with low-precision/trinary/binary synapses and neurons [13–15], and energy-efficient neuromorphic platforms [4–7,16]. The novelty is the end-to-end probabilistic backpropagation that (i) targets spiking neurons, (ii) uses extremely low synaptic precision (binary crossbar plus fixed axon-type strengths), (iii) respects strict fan-in/connectivity constraints, and (iv) maps directly to hardware without train-then-discretize conversion.
+
+Strengths
+- Clear deployment target and constraints: The design is tailored to TrueNorth’s architectural realities (binary crossbar, axon types, 256 inputs), making the mapping straightforward and efficient.
+- Principled surrogate: The Gaussian approximation provides a differentiable surrogate for spike probability enabling standard backprop machinery, with an argument for dropping higher-order terms where σ is large and µ near zero.
+- Hardware-aware initialization: The balanced ±1 strength assignment and axon-type balancing are motivated by minimizing pairwise correlations (Sec. 3.4), aligning with infomax ideas [19] and decorrelation to maximize information throughput.
+- Empirical results: Competitive MNIST accuracy for spiking networks (up to 99.42%) and unusually low energy per inference. The real-time demonstrations on silicon at 1 kHz throughput strengthen significance.
+- Practical training recipe: Includes mini-batch, momentum, dropout, data augmentation, and a simple mapping to ensembles without retraining.
+
+Weaknesses and points needing clarification
+Technical quality
+- Derivation and approximation details: The Gaussian surrogate (Eq. 3) is plausibly correct, but the equation as typeset appears malformed; please provide the exact expression (e.g., via Φ or erfc). Similarly, Eq. 4 is presented but then approximated by dropping the σ^3 term. The stated conditions (balanced weights, 256 inputs, µ ≈ 0, σ large) are reasonable, yet a quantitative justification (e.g., empirical comparison of full vs. approximated gradients and their effect on training) is missing.
+- Gradient for the bias: The manuscript states “the corresponding gradient with respect to the bias term equals one.” This seems incorrect; ∂µ/∂b = 1, but ∂ñ/∂b = ∂ñ/∂µ · ∂µ/∂b = ∂ñ/∂µ, not 1. Please correct or clarify.
+- Independence and Gaussian assumptions: The method assumes independence of inputs and leverages CLT-like behavior. Given the strong correlations in images (and later-layer activations), an empirical check of the approximation’s accuracy (e.g., Monte Carlo estimate of ñ vs. Gaussian surrogate across training) would strengthen the technical case.
+- Choice of loss: Optimizing the log-loss on the probability that the average class spike rate exceeds 0.5 is unconventional. A justification and sensitivity analysis (e.g., vs. softmax-xentropy on averaged probabilities) would be helpful.
+
+Empirical evaluation
+- Comparisons and fairness: Claims of state-of-the-art for spiking networks are promising, but further context would help. Please compare to concurrent train-then-constrain conversion methods on MNIST (e.g., [11,12]) under similar throughput/latency; tease apart the contribution of ensembling (1, 4, 16, 64 members) vs. single model; and discuss whether the 99.42% requires the 64-member ensemble to surpass prior results.
+- Ablations: The contribution of each design choice is unclear. Useful ablations include: with/without the σ^3 term; random vs. decorrelated initialization; effect of fan-in/locality; progressive mixing vs. convolutional weight sharing; number of inputs per neuron; and effect of ensemble size on both accuracy and energy.
+- Energy measurement methodology: Energy numbers include “active power plus the fraction of leakage power for the cores in use.” Leakage often does not scale linearly per active core. Please detail measurement procedure, scaling assumptions, and report confidence intervals. For cross-platform comparisons (e.g., [16]), ensure matched throughput, batch size, and latency.
+- Generality: Results are limited to MNIST. Demonstrations on more challenging datasets (e.g., Fashion-MNIST, CIFAR-10 with appropriate topology) would better establish significance and robustness.
+
+Clarity
+- The paper is generally well-organized and readable, but some equations are misformatted (Eq. 3) or potentially incorrect (bias gradient). Notation around s-values and axon types could be clearer: the text suggests both ±1 strengths and 9-bit signed strengths via axon-type lookup; please reconcile how these interact in practice during deployment.
+- Provide algorithmic pseudocode for forward/backward passes of the probabilistic network and the mapping to deployment (including sampling for ensembles), to improve reproducibility.
+
+Originality
+- The combination—probabilistic backprop over synapse on/off probabilities, fixed balanced synaptic strengths, strict hardware connectivity, and direct sampling to a spiking deployment—is, to my knowledge, novel relative to [9–15]. The approach is distinguished by the explicit targeting of sub-2-bit synapses and constrained fan-in on real hardware.
+
+Significance
+- Bridging mainstream backprop to practical neuromorphic deployment with excellent energy-accuracy trade-offs is significant. If the method generalizes beyond MNIST and is adopted by other platforms [4–6], it could meaningfully impact low-power inference.
+
+Pros for acceptance
+- Clear, hardware-grounded contribution with real silicon results and strong energy efficiency.
+- Conceptually simple, elegant “constrain-then-train” probabilistic framework enabling backprop with spiking, 1-bit synapses, and limited connectivity.
+- Competitive accuracy for spiking neuromorphic systems; practical training details provided.
+
+Cons against acceptance
+- Technical derivations/approximations under-validated; equation/gradient issues need correction.
+- Limited scope of experiments (MNIST only), limited ablations, and unclear fairness of some comparisons.
+- Reliance on large ensembles for top accuracy raises questions about memory/area efficiency vs. baselines.
+
+Suggestions for improvement
+- Fix equation/gradient typos; provide quantitative validation of approximations.
+- Add ablations and more datasets; report detailed energy methodology and per-configuration latency/throughput.
+- Clarify the role and setting of s-values and axon types; release code or detailed training scripts for reproducibility.
+
+Overall assessment
+A technically interesting and timely contribution that meaningfully advances the interface between backprop-based learning and energy-efficient neuromorphic hardware. With corrections to equations, stronger validation of the approximations, and broader/clearer empirical comparisons, this would be a strong paper.

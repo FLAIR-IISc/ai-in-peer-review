@@ -1,0 +1,43 @@
+Summary and contributions
+The paper proposes Gated Graph Transformer Neural Networks (GGT-NNs), a modular framework that extends GG-NNs/GGS-NNs with differentiable graph transformations that can add nodes (with soft existence and type), update node states (including a “direct reference” variant that routes sentence-level information to specific node types), update edges between any node pair, propagate messages, and aggregate graph-level representations. A text encoder (GRU) feeds these transformations to incrementally construct and update a latent graph from sentences, and a query procedure reads out answers. Training uses strong supervision on intermediate graphs with permutation-invariant node-addition loss and edge cross-entropy, followed by teacher forcing of gold nodes/edges during the rest of the step. The model is evaluated on bAbI tasks (text-to-answer), a 1D cellular automaton (Rule 30), and 2-symbol 4-state Turing machines (predict next-step graph), showing high accuracy on most bAbI tasks—especially with direct reference—and good generalization to longer horizons on the synthetic rule tasks. The paper positions GGT-NNs as making the internal state explicitly graph-structured and manipulable, unlike memory/DNC-style vector memories.
+
+Decision: Reject
+Key reasons:
+- Heavy reliance on strong supervision and dataset modifications makes the main empirical claims hard to interpret and reduces practical impact.
+- Incremental novelty relative to GG-NN/GGS-NN and existing neural modules; evaluation is largely on synthetic/controlled settings without fair, end-to-end baselines.
+
+Supporting arguments
+- Motivation and positioning: The goal—learning to construct and manipulate a latent graph from text—is important. The modular transformations are clearly described, composable, and differentiable, and the permutation-aware node-addition loss is sensible. However, the paper relies on access to the gold knowledge graph at every timestep for supervision, along with exact string-matched direct references. This substantially simplifies the problem relative to end-to-end text-to-graph learning and makes comparisons to models trained without such supervision (e.g., MemN2N, DNC, EntNet) not directly comparable.
+- Novelty: GGT-NN reuses GGNN propagation/aggregation and adds learned modules for node/edge creation and direct-reference node updates. While useful engineering, the conceptual distance to GGS-NN (which outputs sequences, and in prior work already handled pathfinding on pre-constructed graphs) is modest. The key novelty is allowing differentiable changes to the graph structure from text; but this is achieved under strong supervision and with dense pairwise edge MLPs (O(|V|^2)), which limits scalability and practical deployment.
+- Empirical evidence: 
+  - bAbI: The model achieves strong results on 19/20 tasks with direct reference. However, (a) it is trained with full intermediate graph supervision; (b) it modifies the dataset (e.g., collapsing multi-word entities to single words, adding history linked lists) which weakens comparability; and (c) comparisons mix strong supervision (MemNN) and no supervision (others), so conclusions about architectural superiority are ambiguous. The remaining hard tasks (e.g., positional reasoning) expose limitations when the entity universe grows. Ablations are limited to toggling direct-reference and intermediate propagation; there is no analysis of the necessity of individual transformations (Tadd/TC/Tprop), number of propagation steps, or representation size.
+  - Rule discovery tasks: The CA and Turing experiments convincingly show the framework can learn graph update rules and generalize to longer rollouts. Yet these settings are synthetic and the evaluation metric (exact match across all timesteps) is harsh but does not diagnose error modes; more granular step-wise or edge-wise metrics and qualitative analyses would strengthen claims.
+- Rigor and clarity: The transformation definitions are mostly clear (with equations and references in the appendix), but several important training choices are under-specified: constraints enforcement (simplex for xv, [0,1] for s and C), teacher forcing effects at test time, hyperparameters, capacity, and compute. The reference formatting is inconsistent, and dataset modifications are only briefly mentioned. The O(|V|^2) edge update is acknowledged as a limitation, but no mitigation is evaluated.
+
+Suggestions to improve (not strictly part of the accept/reject decision)
+- Reduce supervision: Demonstrate learning with only final answers (or final graphs), possibly with consistency/structure regularizers, curriculum, or semi-supervision (few graph-labeled examples + many QA-only examples). Quantify the gap vs. full supervision.
+- Fair baselines: Compare against end-to-end models that consume text only and produce answers, under matched supervision regimes. Include graph-based baselines that parse text to graphs using standard NLP (e.g., dependency/AMR) and run GGNNs, to separate parsing vs. reasoning.
+- Stronger datasets: Beyond bAbI/synthetic tasks, target real or semi-real IE/QA with graph-structured latent states (e.g., narrative reasoning, temporal KG construction, AMR/semantic role graphs, path queries on KGs).
+- Ablations and analysis: 
+  - Remove/replace modules (e.g., no Tadd, sparse TC, limited candidate edges via kNN or learned locality) to quantify contribution and efficiency.
+  - Study sensitivity to entity cardinality and longer stories.
+  - Report per-edge precision/recall on predicted graphs at test time; visualize learned graphs vs. gold.
+  - Explore scheduled sampling or self-consistency training to mitigate train-test mismatch from teacher forcing of gold graphs.
+- Efficiency: Explore sparsity (learned edge proposals, top-k), locality-aware propagation, or hierarchical graph construction to address O(|V|^2) scaling.
+
+Questions for the authors
+- Supervision and data modifications:
+  - Precisely which bAbI tasks were modified (e.g., multi-word entity collapsing, added history linked lists), and how do these changes affect task difficulty? Can you report results on the unmodified datasets?
+  - At training time you replace predicted nodes/edges with gold after computing loss. How do you handle exposure bias at test time? Did you try scheduled sampling?
+- Implementation details:
+  - How are the constraints enforced for xv (simplex), sv and edges (sigmoid/softmax)? Do you renormalize or use penalties?
+  - What are the typical numbers of node/edge types (N, Y), hidden sizes D/α, number of propagation steps T, and parameter counts? What are training times and peak memory?
+  - For edge updates, do you compute fset/freset for all pairs (v, v′)? Any sparsification?
+- Direct reference:
+  - How robust is performance to noisy entity mentions, coreference, or synonyms? Does direct reference leak answer information in some tasks?
+  - Can you learn direct reference end-to-end (e.g., via learned mention detectors) rather than exact string matches?
+- Evaluation:
+  - For the CA/TM tasks, can you report per-timestep accuracy and edge-level F1, and provide qualitative error analysis?
+  - On bAbI, can you report the accuracy of the predicted graphs at test time (without substituting gold), and correlate graph accuracy with QA accuracy?
+
+Overall, the paper presents an appealing modular framework and promising results on controlled tasks, but relies on strong supervision and dataset tailoring, and lacks convincing end-to-end evidence and scalability analyses for ICLR.

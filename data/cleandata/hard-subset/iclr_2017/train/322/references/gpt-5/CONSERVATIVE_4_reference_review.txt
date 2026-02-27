@@ -1,0 +1,43 @@
+Summary and contributions
+- Proposes “nonparametric neural networks” that adapt layer widths during training by adding zero units and removing units whose fan-in or fan-out is shrunk to zero under a group regularizer. The key theoretical claim (Theorem 1) shows existence of a global minimum at finite dimensionality under fan-in/out ℓp (p<∞) regularization.
+- Introduces two training components tailored to this setting: (i) CapNorm, a variant of batch normalization that caps standardization to avoid nullifying the regularizer; (ii) AdaRad, an optimizer that decomposes gradients into components parallel/orthogonal to fan-ins and normalizes only the orthogonal one to protect the shrinkage dynamics, plus an AdaRad-M momentum variant.
+- Empirical evaluation on MNIST, rectangles images, convex, and OpenML Poker. Claims include that the method can find competitive sizes in one run and sometimes yields higher accuracy than parametric networks of the same size; also a “large” tabular dataset experiment.
+
+Decision: Reject. Key reasons:
+- Empirical validation is not rigorous enough relative to claims; baselines and protocols are weak and not state-of-the-art, making it difficult to assess the benefit over established methods.
+- The main theoretical result is limited in practical impact (existence under group regularization), while the proposed training stack (CapNorm + AdaRad + add/remove schedule) is complex and under-ablated.
+
+Supporting arguments
+- Baselines and fairness: Comparisons are mainly to MLPs with SGD/momentum/RMSprop/Adam on small datasets, with ad hoc early stopping/rewinding and without standard regularization (e.g., weight decay, dropout). Parametric baselines use BN but λ=0 due to incompatibility, whereas the proposed method benefits from explicit regularization (fan-in), CapNorm, and a custom optimizer. This conflates the contributions and weakens claims like “outperforms same-size parametric networks.”
+- Limited scope: All core results are on small MLP benchmarks (MNIST, rectangles, convex). No convolutional architectures or standard vision benchmarks (CIFAR/SVHN), where model-size adaptation matters most. The poker experiment is tabular; further, the dataset is presented as “binary classification” with 0% test error in one setting, which raises concerns (the classical Poker Hand dataset is multiclass; details of the binary formulation and splits need scrutiny to rule out leakage/duplicated records).
+- Protocol choices introduce bias: The nonparametric method grows models gradually and then stops adding units upon validation plateau, but the parametric baselines are forced to use the same eventual sizes or a random search over sizes. The process of selecting a “typical representative” model by manual choice from 10 seeds, and then matching parametric models to that size, can bias in favor of the proposed method. Claims that NP nets “sometimes achieve higher accuracy than is possible by black-box methods” are not substantiated with a compute-matched comparison to a strong HPO method (e.g., modern BO, ASHA/Hyperband, or regularized evolution).
+- Ablation and component analysis are insufficient: There is no clean ablation disentangling the effect of (i) group regularization alone with unit removal, (ii) the add schedule, (iii) CapNorm versus BN without affine parameters, and (iv) AdaRad versus RMSprop/Adam when the shrinkage is handled appropriately. The observation that NP nets underfit training error (do not reach near-zero cross-entropy) yet generalize well hints that the regularizer is the dominant factor, not necessarily the nonparametric width search.
+- Theoretical novelty: Theorem 1 (existence of a finite minimizer under fan-in/out regularization) is plausible and technically involved, but largely formalizes an intuition common in group sparsity literature. Proposition 1 (self-similarity scaling) is a straightforward rescaling argument. The theory does not provide guarantees about the optimization dynamics or about recovering near-optimal width under realistic training.
+- Practicality and hyperparameter burden: The method requires new hyperparameters (λ, αr, αφ, addition rate/frequency) and relies on heuristics (e.g., αr=150λ to grant ≈50 epochs “grace period”). Sensitivity to these choices is not systematically studied. The training schedule includes multiple “rewind and continue” phases, which complicates adoption.
+
+Additional feedback to improve the paper
+- Strengthen baselines and scope:
+  - Include convolutional architectures on CIFAR-10/100 and SVHN. Compare against standard width-scaling baselines (grid over widths) with modern training (data augmentation, weight decay, dropout).
+  - Compare to strong pruning/growing and structured sparsity baselines (e.g., group-lasso on units with post-hoc pruning; dynamic network surgery; recent neuron/channel-level L0/L1 regularization) and to contemporary NAS/resource-constrained methods. Use compute-matched budgets.
+  - Provide a rigorous HPO comparison: e.g., ASHA/BOHB/DE/Evolutionary search over width with early stopping; report wall-clock and accuracy under a fixed budget to substantiate the “single run” advantage.
+- Provide thorough ablations:
+  - Isolate the effects of CapNorm (vs BN with/without affine) and AdaRad (vs RMSprop/Adam with proper handling of shrinkage). Show results with only group-l2 regularization plus simple SGD/Adam and unit removal/addition to assess necessity of AdaRad and CapNorm.
+  - Study sensitivity to λ, αr, αφ, addition rate. What happens if units are added faster/slower? Does the 50-epoch grace period matter?
+  - Evaluate removing unit addition (only shrinkage/pruning) vs addition+removal.
+- Clarify and solidify the poker experiment:
+  - Specify the exact dataset ID, task formulation (binary vs multiclass), preprocessing, train/val/test splits, and removal of duplicates/leakage. Report per-class performance if multiclass or class balance if binary. 0% test error on 100k examples demands strong evidence.
+- Report compute and memory overhead:
+  - Training time and memory versus standard optimizers, both per-step and to target accuracy. The claim that AdaRad scales more gracefully than RMSprop needs empirical backing on larger models.
+- Theoretical section:
+  - Summarize assumptions more intuitively and discuss practical implications/limitations (e.g., requirement σ(0)=0, self-similarity) and whether the result extends to conv layers/channels.
+  - If possible, provide any guarantees about the learned width relative to an oracle under simplifying assumptions.
+
+Questions for the authors
+1. How robust are results to λ, αr, αφ, addition frequency, and initialization of new units? Please provide sensitivity curves and recommendations.
+2. Can you show a compute-matched comparison to a modern HPO method that tunes widths (with early stopping), including wall-clock and final accuracy?
+3. How do results change if parametric baselines use weight decay and dropout, or if BN is replaced by CapNorm-like normalization without the affine parameters?
+4. On poker: Which exact OpenML task did you use (ID and task type)? How were splits generated? Why is the task binary rather than multiclass? How do you explain 0% test error, and can you rule out leakage/duplicates?
+5. Can you demonstrate the method on convnets (channel-level add/remove) for CIFAR with standard training to support claims of generality?
+6. What is the ablation showing group-l2 + simple optimizer vs +CapNorm vs +AdaRad? Which component is essential?
+
+Overall, the idea of width-adaptive training under group regularization is interesting, but the current empirical evidence and baseline methodology are not sufficient to justify acceptance.

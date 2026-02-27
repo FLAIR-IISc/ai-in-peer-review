@@ -1,0 +1,54 @@
+Summary and relation to prior work
+The paper proposes Population Matching Discrepancy (PMD), defined as the average cost of a minimum-weight bipartite matching between two i.i.d. samples X and Y from distributions pX and pY under a chosen ground cost d(·,·). PMD is the empirical 1-Wasserstein distance (Earth Mover’s Distance) between the associated empirical measures with uniform weights. The authors show PMD is a strongly consistent estimator of W1 by appealing to standard results on weak convergence of empirical measures and stability of optimal transport (Villani). They then propose to use PMD as a differentiable training objective for implicit distributions: compute the matching on a population, freeze the matching for several SGD steps, and optionally subsample for cheaper gradients. They argue PMD has practical advantages over MMD: no kernel bandwidth, stronger per-sample gradients (particularly for outliers), and the ability to use smaller SGD minibatches than the “population.” They apply PMD to unsupervised domain adaptation (Office dataset) and implicit generative modeling (MNIST/SVHN/LFW), reporting faster convergence and better or comparable performance to MMD baselines.
+
+The idea of comparing distributions via optimal transport has a long history in ML (e.g., EMD in vision; Wasserstein distance), and computing OT between empirical distributions is classic; the main novelty here is to package the empirical W1 as “PMD,” use it as a training loss in deep models with a simple matching-freeze heuristic, and compare it empirically to MMD. However, related and highly relevant advances on scalable differentiable OT are not discussed or compared, notably entropic-regularized Sinkhorn distances (Cuturi, NIPS 2013) and subsequent stochastic/automatic differentiation approaches for OT (e.g., Genevay et al., NIPS 2016), as well as OT-based domain adaptation (Courty et al.). For generative modeling, comparisons to WGAN (cited), MMD-GAN (cited but not evaluated), and sliced Wasserstein methods are absent.
+
+Strengths
+- Clear, simple formulation: PMD is just empirical W1 with uniform weights; the training loop is easy to implement.
+- Theoretical grounding: strong consistency of the empirical OT plan/value follows from standard results and is clearly stated.
+- Practical observations: qualitative analysis that PMD can give stronger sample-wise gradients than RBF-MMD and can work with smaller SGD minibatches is interesting; the empirical gradient magnitude histograms are informative.
+- Experiments indicate PMD can outperform vanilla MMD in the tested setups and converge faster.
+
+Weaknesses and detailed comments by review criteria
+
+Quality
+- Novelty of theory is limited: The main theorem is a direct corollary of Varadarajan + OT stability; no finite-sample bounds or new analysis. Known rates for W1 suggest N^{-1/d} scaling; the empirical −0.23 slope in 5D matches expectations but there is no formal treatment.
+- Differentiability/gradient claims: Eq. (3) drops the dependence of the optimal matching M* on θ and calls the result an “unbiased stochastic gradient.” This is not justified. The objective is piecewise smooth with kinks when the matching changes; a valid subgradient can be taken by freezing M* almost everywhere, but unbiasedness is unlikely, and the mini-batch subsampling in Eq. (4) introduces additional bias. The paper should clarify that updates use a subgradient of the current assignment, discuss convergence properties of such a scheme, and provide empirical evidence of stability under frequent assignment changes.
+- Computation: Relying on O(N^3) Hungarian or O(N^2) approximate matching is expensive relative to alternatives (even with GPU kernels for distances). Entropic OT (Sinkhorn) provides O(N^2) matrix scaling with GPU acceleration, smooth objectives, and end-to-end differentiability; not comparing to Sinkhorn OT is a major omission.
+- Claims about MMD are partially inaccurate: There exist linear-time unbiased estimators for MMD that allow small minibatches and streaming updates; MMD-GAN and learned kernels address gradient saturation. The statement that MMD “must” use very large batches or that the minibatch size “must equal the population” is not generally correct.
+- Experimental scope: Domain adaptation compares only to MMD; state-of-the-art methods (DANN, JAN, CORAL/CMD, OT-based DA) are missing. Hyperparameters are tuned using 100 labeled target points, which violates the unsupervised DA setting, and may distort the comparison. Generative modeling results rely mostly on visual inspection; no standardized metrics (FID, Inception score/KID), no comparisons to WGAN/WGAN-GP or MMD-GAN, and only low-resolution datasets. Using pixel L1 cost predictably yields blur; moving to feature-space costs is only briefly explored.
+
+Clarity
+- Writing is generally clear and well organized; the connections to W1 and MMD are explained.
+- Important implementation details are under-specified: frequency of recomputing matching, how many inner-loop SGD steps per matching, sensitivity to that parameter, and the stability of training when assignments change are not thoroughly analyzed.
+- The claim of “unbiased stochastic gradient” should be corrected to “a (sub)gradient obtained by treating the assignment as fixed,” with appropriate caveats.
+
+Originality
+- Framing empirical W1/assignment cost as PMD and applying it as a deep learning loss is incremental; similar ideas have appeared in EMD-based losses and in OT literature with differentiable approximations. The lack of discussion and empirical comparison with Sinkhorn OT and related scalable OT methods undermines the originality claim.
+
+Significance
+- The empirical finding that PMD can work with small minibatches and yield stronger gradients is potentially useful, but the broader impact is limited by (i) scalability, (ii) incomplete comparisons to stronger baselines, and (iii) limited evaluation metrics. As it stands, it is difficult to conclude PMD advances SOTA beyond MMD in general.
+
+Pros for acceptance
+- Simple, well-motivated objective grounded in OT.
+- Clear exposition and some useful empirical observations about gradient behavior.
+- Potentially practical in certain regimes (small to medium batch sizes) and tasks.
+
+Cons for acceptance
+- Limited novelty; PMD is empirical W1 with standard consistency.
+- Incomplete and sometimes inaccurate positioning w.r.t. prior work (e.g., Sinkhorn OT, linear-time MMD, DA baselines).
+- Questionable gradient unbiasedness; lack of theoretical or empirical analysis of the assignment-freeze heuristic.
+- Experimental evaluation is narrow, with nonstandard DA validation and no modern generative metrics or baselines.
+
+Suggestions for improvement
+- Position PMD rigorously within the OT literature: cite and compare to entropic-regularized Sinkhorn distances (Cuturi, NIPS 2013) and differentiable/auto-diff OT solvers; discuss pros/cons (e.g., bias vs. variance, computational cost).
+- Correct the gradient discussion: frame the algorithm as using subgradients; analyze conditions under which assignment remains stable; report sensitivity to inner-loop length; possibly adopt straight-through or implicit differentiation if needed.
+- Strengthen experiments:
+  - Domain adaptation: avoid labeled target validation; include DANN, JAN, CORAL/CMD, and OT-based DA baselines; report statistical significance across standard Office splits.
+  - Generative modeling: add WGAN/WGAN-GP, MMD-GAN, sliced Wasserstein baselines; report FID/KID/Inception Score; evaluate in feature space costs (e.g., learned encoders) and ablate cost choices (L1 vs. L2).
+  - Compare against Sinkhorn OT losses in both tasks, including runtime.
+- Discuss sample complexity and dimensionality: relate empirical rates to known W1 convergence rates; explore performance as dimension increases.
+- Implementation: release GPU-accelerated matching or use Sinkhorn for scalability; detail hyperparameters and matching recomputation schedules.
+
+Recommendation
+Reject. The paper’s core idea is a straightforward application of empirical W1/EMD; theoretical contributions are minimal; some claims about gradients and MMD are inaccurate; and the experimental evaluation lacks strong baselines and standardized metrics. With corrected positioning, stronger comparisons (especially to Sinkhorn-based OT and modern baselines), and clarified optimization analysis, the work could be a solid application paper in a future submission.

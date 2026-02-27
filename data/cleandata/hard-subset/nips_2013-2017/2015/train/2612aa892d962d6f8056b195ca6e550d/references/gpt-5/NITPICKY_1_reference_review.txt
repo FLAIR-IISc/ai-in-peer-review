@@ -1,0 +1,57 @@
+Summary and relation to prior work
+The paper proposes an alternating optimization framework that combines direct trajectory optimization (Contact-Invariant Optimization, CIO) with supervised learning of a neural network policy to achieve interactive, real-time control of complex simulated characters (swimmers, a bird, bipeds, quadrupeds) in 3D. The method alternates between (i) optimizing trajectories that satisfy physical realism via CIO with soft constraints and (ii) fitting a neural network that maps a “sensory” state s = [q, r, q̇t−1, ft−1] to an action a = [q̇, ṙ, f]. To improve robustness, Gaussian noise is injected into inputs and hidden units, and, crucially, targets are adjusted using locally optimal feedback gains a_s derived from a perturbation analysis that reuses the Gauss-Newton Hessian from trajectory optimization. A distributed asynchronous training architecture alternates these steps with proximal regularization. At test time, the learned policy produces desired velocities, memory updates, and forces; a single-step optimization with dynamics constraints (T=1) advances the state.
+
+This is closely related to Guided Policy Search and trajectory-optimization-supervised policy learning (e.g., Levine & Koltun ICML’14; Mordatch & Todorov RSS’14), as the authors acknowledge. The main advertised advances are: 3D characters including contact-rich locomotion, a new way to compute better-conditioned local feedback gains without a separate LQG pass, and a simple asynchronous alternating scheme instead of ADMM/dual methods.
+
+Strengths
+- Addresses an important problem: learning stable, purposeful, interactive controllers for high-DOF systems.
+- Sensible decomposition: letting trajectory optimization do the “heavy lifting” and teaching a NN to imitate with noise and local gains is compelling and practical.
+- The perturbation-based feedback gain computation that reuses CXX^-1 via Woodbury is a neat technical contribution that could be of broader interest.
+- Distributed implementation details are pragmatic and could be useful to practitioners.
+- Demonstrations across multiple morphologies with a single architecture are appealing.
+
+Weaknesses and detailed concerns
+Technical soundness and completeness
+- Action includes contact forces f as commanded outputs, while contact forces are simultaneously constrained by non-penetration and complementarity (Eq. 6) and penalized in execution via ||f − f_des||^2. Treating f both as an “action” and as a constrained variable is conceptually and numerically questionable; the optimization may simply compromise between inconsistent objectives, undermining physical fidelity. This weakens claims of realism, especially since “root forces” are allowed due to soft enforcement.
+- “Recurrent memory” r is introduced but not specified: dimension, purpose, initialization beyond “null,” and how it improves performance are not ablated. The network appears purely feedforward; recurrence is emulated by including r and past signals in s and predicting ṙ, but there is no BPTT or temporal loss. The claim “our network learns both optimal controls and a model of dynamics” is overstated.
+- The perturbation derivation: C̃(X, s̄) = C(X) + λ||s(X)− s̄||^2. The resulting expression for X̃_s̄ uses a Gauss-Newton Hessian and assumes local quadraticity and well-conditioned inverses. No discussion of conditioning/stability of (CXX + λ sX^T sX) or of feature scaling for sX is provided; λ is fixed (10^2) without sensitivity analysis.
+- Noise handling: freezing sampled ε during NN optimization decouples target adaptation from network changes and breaks the “denoising” spirit; implications are not analyzed.
+- Input and target scaling/normalization are not described. A single σε = 1e−2 applied across heterogeneous features (angles, positions, forces) is likely ill-conditioned; similarly for loss weighting. Without feature normalization, the NN training and the Hessian-based gains are sensitive to units.
+- Rollout and real-time step: using T=1 implicit optimization at 50 ms with soft complementarity may hide instabilities via penalty terms. There are no quantitative stability metrics (fall rate, constraint violation, root force magnitudes).
+- Ablations are incomplete: no evaluation of the contribution of feedback gains a_s vs. no gains; only “no noise” and “no joint optimization.” No comparison to TRPO/modern policy gradients on identical tasks. The MPC comparison is qualitative and under-specified (horizon, costs, constraints).
+- Evaluation lacks quantitative metrics (task completion time, energy/torque, contact violation, success rate across random seeds, robustness to perturbations). Claims like “two orders of magnitude better” are not grounded in reported units or absolute numbers.
+
+Clarity and presentation
+- Several notational inconsistencies and ambiguities: at times s, X, a, and their derivatives are introduced informally; a(s+ε)=a+asε reuses “as” and “da/ds”; “argmin∗” appears once; X includes [q, f, r] though later x is used for [state variables]; figure/table references (Fig. 2, 3; Table 1) are crucial but not provided here.
+- Algorithm 1 is inconsistently numbered and uses θ̄ both as current and proximal center; proximal terms “η2||·||2” omit factor 1/2 and clear definition of θ̄ on RHS.
+- Typos and grammar: “unity”→“unify,” “changed changed,” missing punctuation and inconsistent math spacing.
+- References are severely incomplete and inconsistently formatted (many missing years/venues/pages; some important related work on capture points, GPS variants, and contact-implicit methods not properly cited).
+
+Originality
+- The overall framework is a variant of guided policy search/trajectory-optimization-supervised learning. The incremental novelty lies in the feedback gain computation and practical asynchronous training. The paper should position itself more precisely relative to GPS (supervised constraints, penalty vs. ADMM, guarantees, sample efficiency).
+
+Significance
+- If substantiated with rigorous evaluation on contact-rich 3D locomotion without non-physical root forces, the approach would be impactful. As presented, the heavy reliance on soft constraints and lack of quantitative evaluation limit confidence in real-world or robotics applicability, which the paper claims.
+
+Questions for the authors
+1. Precisely define r: dimension, initialization, and ablation without r. Is the network recurrent or purely feedforward?
+2. How are inputs/targets normalized? Are loss terms weighted per-feature? How sensitive are results to σ_ε and λ?
+3. What is the effect of removing a_s in targets (pure denoising vs. gain-shaped targets)?
+4. Provide quantitative metrics for each task (success rate, energy, contact violation, ground reaction forces, root force magnitudes).
+5. Clarify how f_des interacts with complementarity at execution. Are contacts ever commanded to pull? How often are complementarity/penetration violations observed?
+6. Provide fair MPC and TRPO/baseline comparisons with matched costs and constraints.
+7. What are the compute times per control step on CPU/GPU? What is T and data volume?
+
+Pros
+- Addresses an important problem with an intuitively strong combination of CIO and NN policies.
+- Practical distributed implementation and a clever reuse of Hessian/inverses for feedback gains.
+- Demonstrations across diverse morphologies with a single architecture.
+
+Cons
+- Conceptual issues around treating contact forces as actions and reliance on soft physics constraints.
+- Incomplete, mostly qualitative evaluation; missing quantitative metrics, baselines, and ablations.
+- Ambiguities in model (role of r), training details (scaling, noise), and algorithmic specification.
+- Numerous presentation and reference formatting problems.
+
+Recommendation
+Reject. The paper has promising ideas and appealing demonstrations, but the accumulation of technical ambiguities, weak quantitative evaluation, and presentation issues make it hard to assess the true contribution and robustness. A revised version with clarified methodology, stronger baselines and metrics, and polished writing could be competitive.

@@ -1,0 +1,61 @@
+Summary
+The paper proposes training a feed-forward “masking model” (a U-Net with a ResNet-50 encoder and class-embedding “feature filter”) to predict class-specific saliency masks for an image classifier, with the goal of approximating both smallest sufficient region (SSR) and smallest destroying region (SDR) in a single pass. The loss combines (i) a total variation (TV) smoothness term, (ii) an area penalty, (iii) a term encouraging the preserved region to retain high class probability, and (iv) a term encouraging the removed region to reduce class probability. To mitigate “introduced evidence,” the masking operation composites the image with either a blurred version or random color + noise. The authors also propose a new “saliency metric” based on the log area of the tightest rectangle containing the mask and the log predicted class probability on the cropped region. They evaluate on ImageNet (localization accuracy) training one masking model per black-box classifier (AlexNet, GoogLeNet, ResNet-50) and provide qualitative results; a small CIFAR-10 experiment is also included.
+
+Relation to prior work: The paper situates itself among gradient-based saliency (Simonyan et al.; GB/EBP), optimization-based perturbation methods (Cao et al.; Fong & Vedaldi “Meaningful Perturbations”). The main difference is amortizing the search for masks by learning a predictor that approximates the optimization-based mask, aiming for real-time inference.
+
+Strengths
+- Clear motivation for amortized, real-time saliency with SSR/SDR considerations.
+- Sensible engineering to reduce adversarial artifacts (TV regularization, low-res mask upsampling, randomized alternative image A).
+- Architecture design is reasonable and likely effective (class-conditioned feature filter + U-Net).
+- The proposed “fake label” training heuristic to force class-conditioning is interesting.
+- Real-time throughput is desirable; qualitative masks look sharp (per text descriptions).
+- Weakly supervised localization results are reportedly competitive; the new metric attempts to quantify interpretability.
+
+Weaknesses and detailed comments
+
+Quality/technical soundness
+- Black-box vs differentiability: The work repeatedly claims model-agnostic/black-box operation, yet training requires gradients through the classifier to optimize the masking model parameters via the loss on fc(Φ(X,M)). This is not black-box in the usual sense (query-only); it requires a differentiable model and backprop access (albeit with frozen weights). Please clarify the exact access assumptions, and update claims accordingly.
+- Objective ambiguity (Eq. 4): The loss is not well-specified. The term signs and λ indices are unclear; “+ 3fc((X,1−M)) 4” is ambiguous (is there an exponent? is 4 a coefficient?). The text suggests the preserved-region term should be −log fc(Φ(X,M)) and the removal term should penalize fc(Φ(X,1−M)). Please provide a precise, unambiguous formula.
+- Saliency metric (Sec. 3.2): s(a,p)=log(ã) log(p) is ambiguous (missing minus sign?). If smaller is better, then the behavior with p→1 (log p→0) makes s≈log ã, which favors larger areas (less negative), counter to the stated goal. The theoretical motivation (“relative amount of information between indicator variables”) is hand-wavy and unsubstantiated. The metric depends on classifier calibration and on resizing/cropping distortions; no ablations are shown (threshold 0.05, rectangle tightness, thresholding of masks, effect of aspect-ratio warping).
+- Evaluation rigor: Key quantitative tables (localization error, metric comparisons) are not included in the submission (only referenced). Claims of “clearly outperforms” and “considerably better” lack numbers, confidence intervals, or statistical testing. Runtime comparisons to iterative methods are not reported (no hardware specs, batch size, exact fps).
+- Training details are insufficient for reproduction: optimizer, learning rate schedule, batch size, training time, data augmentations, exact λ’s mapping to the four loss terms, noise variance for A, class embedding dimensionality, initialization of decoder, weight decay, early stopping, etc.
+- Fake-label training: It is stated that “only the area penalty term” is applied for fake labels; does TV remain active? If not, the model may learn degenerate zero masks that don’t regularize shape. The later sentence about “ensuring that max(X^T_ij C_s) is high/low” suggests an additional auxiliary loss not formalized.
+- Potential circularity: The saliency metric uses the same classifier used to train the masking model. This risks overfitting the metric. Cross-model evaluation (train on one classifier, evaluate saliency metric on another) is needed to demonstrate true explanation quality.
+- Generalization/scope: The approach requires per-classifier training (one masking model per black box). This is a heavy offline cost; it is not compared against iterative methods under matched total computational budget.
+- CIFAR-10: Only qualitative examples; no quantitative assessment of the metric or localization. The modified architecture details are sketchy.
+
+Clarity
+- Numerous notation and formatting issues (equations 3 and 4; missing operators; superscripts/subscripts; inconsistent λ indices; “1 M” for “1−M”; “(·)” function unnamed until Eq. 6).
+- Figures and tables (1–6, Tables 1–3) are essential to validate claims but are not present in the submission. The review cannot verify the central empirical claims.
+- References are incomplete/misformatted (missing years/venues/DOIs; duplicate/ambiguous titles). The header includes “st Conference on Neural Information Processing Systems (NIPS 2017)” artifact text.
+
+Originality
+- The core idea—amortizing perturbation-based saliency via a learned predictor—is reasonable but incremental given Fong & Vedaldi (2017) and earlier optimization-based approaches; the architectural choices (U-Net, ResNet encoder, TV) are standard. The “feature filter” with class embeddings is a nice touch but not deeply novel.
+
+Significance
+- If validated, real-time high-quality saliency would be useful. However, the lack of quantitative evidence, clarity on the loss/metric, and reproducibility details materially diminishes confidence. The requirement to train a separate masking model per classifier limits practical impact.
+
+Pros
+- Practical, potentially impactful direction (amortized, real-time saliency).
+- Thoughtful discussion of introduced evidence and countermeasures.
+- Sensible architecture and training heuristics.
+- Competitive weakly supervised localization claimed.
+
+Cons
+- Ambiguous/mis-specified loss and metric; unclear black-box claims.
+- Missing quantitative results and ablations; figures/tables absent.
+- Insufficient training/evaluation details to reproduce.
+- Per-classifier training cost and possible metric circularity not addressed.
+- Reference and formatting issues.
+
+Questions for the authors
+1. Precisely define Eq. 4 with correct signs, coefficients (λ1..λ4), and whether any exponents are applied.
+2. Clarify the access model to the classifier: do you backprop through it? Can your method work with score-only access?
+3. Provide full quantitative tables (localization, saliency metric) with confidence intervals and runtime comparisons.
+4. How is the “tightest rectangle” defined for the metric (threshold, treatment of disconnected regions)? Why fix the threshold at 0.5?
+5. Report ablations on λ’s, A choices (blur std, noise variance), mask resolution, and fake-label probability.
+6. Evaluate cross-model generalization (train on classifier A, measure on classifier B) to rule out overfitting the metric.
+7. Provide full training details (optimizer, LR schedule, batch size, training epochs/time, hardware).
+
+Recommendation: Reject
+The paper tackles an important problem with a plausible approach, but the submission suffers from ambiguous core definitions (loss, metric), incomplete and unverifiable empirical evidence (missing tables/figures), and insufficient reproducibility details. Addressing these issues and providing rigorous quantitative validation would substantially strengthen the work.

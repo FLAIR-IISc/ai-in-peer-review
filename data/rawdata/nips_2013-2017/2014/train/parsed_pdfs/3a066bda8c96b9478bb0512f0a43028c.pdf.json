@@ -1,0 +1,544 @@
+{
+  "name" : "3a066bda8c96b9478bb0512f0a43028c.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Learning From Weakly Supervised Data by The Expectation Loss SVM (e-SVM) algorithm",
+    "authors" : [ "Jun Zhu", "Junhua Mao" ],
+    "emails" : [ "jzh@ucla.edu", "mjhustc@ucla.edu", "yuille@stat.ucla.edu" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Recent work in computer vision relies heavily on manually labeled datasets to achieve satisfactory performance. However, the detailed hand-labelling of datasets is expensive and impractical for large datasets such as ImageNet [6]. It is better to have learning algorithms that can work with data that has only been weakly labelled, for example by putting a bounding box around an object instead of segmenting it or parsing it into parts.\nIn this paper we present a learning algorithm called expectation loss SVM (e-SVM). It requires a method that can generate a set of proposals for the true label (e.g., the exact silhouette of the object). But this set of proposals may be very large, each proposal may be only partially correct (the correctness can be quantified by a continues value between 0 and 1 called ”positiveness”), and several proposals may be required to obtain the correct label. In the training stage, our algorithm can deal with the strong supervised case where the positiveness of the proposals are observed, and can easily extend to the weakly supervised case by treating the positiveness as latent variables. In the testing stage, it will predict the label for each proposal and provide a confidence score.\nThere are some alternative approaches for this problem, such as Support Vector Classification (SVC) and Support Vector Regression (SVR). For the SVC algorithm, because this is not a standard binary\nclassification problem, one might need to binarize the positiveness using ad-hoc heuristics to determine a threshold, which degrades its performance [18]. To address this problem, previous works usually used SVR [4, 18] to train the class confidence prediction models in segmentic segmentation. However, it is also not a standard regression problem since the value of positiveness belongs to a bounded interval [0, 1]. We compare our e-SVM to these two related methods in the segment proposal confidence prediction problem. The positiveness of each segment proposal is set as the Intersection over Union (IoU) overlap ratio between the proposal and the pixel level instance groundtruth. We test our algorithm under two types of scenarios with different annotations: the pixel level annotations (positiveness is observed) and the bounding box annotations (positiveness is unobserved). Experiments show that our model outperforms SVC and SVR in both scenarios. Figure 1 illustrates the framework of our algorithm.\nWe further validate our approach on two fundamental computer vision tasks: (i) semantic segmentation, and (ii) object detection. Firstly, we consider semantic segmentation. There has recently been impressive progress at this task using rich appearance cues. Segments are extracted from images [1, 3, 4, 12], appearance cues are computed for each segment [5, 21, 25], and classifiers are trained using groundtruth pixel labeling [18]. Methods of this type are almost always among the winners of the PASCAL VOC segmentation challenge [5]. But all these methods rely on datasets which have been hand-labelled at the pixel level. For this application we generate the segment proposals using CPMC segments [4]. The positiveness of each proposal is set as the Intersection over Union (IoU) overlap ratio. We show that appearance cues learnt by e-SVM, using either the bounding box annotations or pixel level annotations, are more effective than those learnt with SVC and SVR on PASCAL VOC 2011 [9] segmentation dataset. Our algorithm is also flexible enough to utilize additional bounding box annotations to further improve the results.\nSecondly, we address object detection by exploiting the effectiveness of segmentation cues and coupling them to existing object detection methods. For this application, the data is only weakly labeled because the groundtruth for object detection is typically specified by bounding boxes (e.g. PASCAL VOC [8, 9] and Imagenet [6]), which means that pixel level groundtruth is not available. We use either CPMC or super-pixels as methods for producing segment proposals. IoU is again used to represent the positiveness of the proposals. We test our approach on the PASCAL dataset using, as our base detector, the Regions with CNN features (RCNN) [14] (currently state of the art on PASCAL and outperforms previous works by a large margin). This method first used selective search method [24] to extract candidate bounding boxes. For each candidate bounding box, it extracts features by deep networks [16] learned on Imagenet dataset and fine-tuned on PASCAL. We couple our appearance cues to this system by simple concatenating our spatial confidence map features based on the trained e-SVM classifiers and the deep learning features, and then train a linear SVM. We show that this simple approach yields an average improvement of 1.5 percent on per-class average precision (AP).\nWe note that our approach is general. It can use any segment proposal detectors, any image features, and any classifiers. When applied to object detection it could use any base detector, and we could couple the appearance cues with the base detector in many different ways (we choose the simplest).\nIn addition, it can handle other classification problems where only the ”positiveness” of the samples instead of binary labels are available."
+    }, {
+      "heading" : "2 Related work on weakly supervised learning and weighted SVMs",
+      "text" : "We have introduced some of the most relevant works published recently for semantic segmentation or object detection. In this section, we will briefly review related work of weakly supervised learning methods for segment classification, and discuss the connection to instance weighted SVM in literature.\nThe problem settings for most previous works generally assumed that they only get a set of accompanying words of an image or a set of image level labeling, which is different from the problem settings in this paper. Multiple Instance Learning (MIL) [7, 2] was adopted to solve these problems [20, 22]. MIL handles cases where at least one positive instance is present in a positive bag and only the labels of a set of bags are available. Vezhnevets et.al. [26] proposed a Multi-Image Model (MIM) to solve this problem and showed that MIL in [22] is a special case of MIM. Later, [26] developed MIM to a generalized MIM and used it as their segmentation model. Recently, Liu et.al. [19] presented a weakly-supervised dual clustering approach to handle this task.\nOur weakly supervised problem setting is in the middle between these settings and the strong supervision case (i.e. the full pixel level annotations are available). It is also very important and useful because bounding box annotations of large-scale image dataset are already available (e.g. Imagenet [6]) while the pixel level annotations of large datasets are still hard to obtain. This weakly supervised problem cannot be solved by MIL. We cannot assume that at least one ”completely” positive instance (i.e. a CPMC segment proposals) is present in a positive bag (i.e. a groundtruth instance) since most of the proposals will contain both foreground pixels and background pixels. We will show how our e-SVM and its latent extension address this problem in the next sections.\nIn machine learning literature, the weighted SVM (WSVM) methods [23, 27, ?] also use an instancedependent weight on the cost of each example, and can improve the robustness of model estimation [23], alleviate the effect of outliers [27], leverage privileged information [17] or deal with unbalanced classification problems. The difference between our e-SVM and WSVMs mainly lies in that it weights labels instead of data points, which leads to each example contributing both to the costs of positive and negative labels. Although the loss function of e-SVM model is different from those of WSVMs, it can be effortlessly solved by any standard SVM solver (e.g., LibLinear [10]) like those used in WSVMs. This is an advantage because it does not require a specific solver for the implementation of our e-SVM."
+    }, {
+      "heading" : "3 The expectation loss SVM model",
+      "text" : "In this section, we will first describe the basic formulation of our expectation loss SVM model (e-SVM) in section 3.1 when the positiveness of each segment proposal is observed. Then, in section 3.2, a latent e-SVM model is introduced to handle the weak supervision situation where the positiveness of each segment proposal is unobserved."
+    }, {
+      "heading" : "3.1 The basic e-SVM model",
+      "text" : "We are given a set of training images D. Using some segmentation method (we adopt CPMC [4] in this work), we can generate a set of foreground segment proposals {S1, S2, . . . , SN} from these images. For each segment Si, we extract feature xi, xi ∈ Rd. Suppose the pixelwise annotations are available for all the groundtruth instances in D. For each object class, we can calculate the IoU ratio ui (ui ∈ [0, 1]) between each segment Si and the groundtruth instances labeling, and set the positiveness of Si as ui (although positiveness can be some functions of IoU ratio, for simplicity, we just set it as IoU and use ui to represent the positiveness in the following paragraphs). Because many foreground segments overlap partially with the groundtruth instances (i.e. 0 < ui < 1), it is not a standard binary classification problem for training. Of course, we can define a threshold τb and treat all the segments whose ui ≥ τb as positive examples and the segments whose ui < τb as negative examples. In this way, this problem is transferred to a Support Vector Classification (SVC) problem. But it needs some heuristics to determine τb and its performance is only partially satisfactory [18].\nTo address this issue, we proposed our expectation loss SVM model as an extension of the classical SVC models. In this model, we treat the label Yi of each segment as an unobserved random variable. Yi ∈ {−1,+1}. Given xi, we assume that Yi follows a Bernoulli distribution. The probability of Yi = 1 given xi (i.e. the success probability of the Bernoulli distribution) is denoted as µi. We assume that µi is a function of the positiveness ui, i.e. µi = g(ui). In the experiment, we simply set µi = ui.\nSimilar to the traditional linear SVC problem, we adopt a linear function as the prediction function: F (xi) = w\nTxi + b. For simplicity, we denote [w b] as w, [xi 1] as xi and F (xi) = wTxi in the remaining part of the paper. The loss function of our e-SVM is the expectation over the random variables Yi:\nL(w) =λw · 1\n2 wTw +\n1\nN N∑ i=1 EYi [max(0, 1− YiwTxi)]\n=λw · 1\n2 wTw +\n1\nN N∑ i=1 [l+i · Pr(Yi = +1|xi) + l − i · Pr(Yi = −1|xi)]\n=λw · 1\n2 wTw +\n1\nN N∑ i=1 {l+i · g(ui) + l − i · [1− g(ui)]}\n(1)\nwhere l+i = max(0, 1−wTxi) and l − i = max(0, 1 +w Txi).\nGiven the pixelwise groundtruth annotations, g(ui) is known. From Equation 1, we can see that it is equivalent to ”weight” each sample with a function of its positiveness. The standard linear SVM solver is used to solve this model with loss function of L(w). In the experiments, we show that the performance of our e-SVM is much better than SVC and slightly better than Support Vector Regression (SVR) in the segment classification task."
+    }, {
+      "heading" : "3.2 The latent e-SVM model",
+      "text" : "One of the advantage of our e-SVM model is that we can easily extend it to the situation where only bounding box annotations are available (this type of labeling is of most interest in the paper). Under this weakly supervised setting, we cannot obtain the exact value of the positiveness (IoU) ui for each segment. Instead, ui will be treated as a latent variable which will be determined by minimizing the following loss function:\nL(w,u) = λw · 1\n2 wTw +\n1\nN N∑ i=1 {l+i · g(ui) + l − i · [1− g(ui)]}+ λR ·R(u) (2)\nwhere u denotes {ui}i=1,...,N . R(u) is a regularization term for u. We can see that the loss function in Equation 1 is a special case of that in Equation 2 by setting u as constant and λR equal to 0.\nWhen u is fixed, L(w,u) is a standard linear SVM loss, which is convex with respect to w. When w is fixed, L(w,u) is also a convex function ifR(u) is a convex function with respect to u. The IoU between a segment Si and groundtruth bounding boxes, denoted as ubbi , can serve as an initialization for ui. We can iteratively fix u and w, and solve the two convex optimization problems until it converges. The pseudo-code for the optimization algorithm is shown in Algorithm 1.\nAlgorithm 1 The optimization for training latent e-SVM Initialization:\n1: u(cur) ← ubb; Process:\n2: repeat 3: w(new) ← argminw L(w,u(cur)); 4: u(new) ← argminu L(w(new),u); 5: u(cur) ← u(new); 6: until Converge\nIf we do not add any regularization term on u (i.e. set λR = 0), u will become 0 or 1 in the optimization step in line 4 of algorithm 1 because the loss function becomes a linear function with respect to u when w is fixed. It turns to be similar to a latent SVM and can lead the algorithm to stuck in the local minimal as shown in the experiments. The regularization term will prevent this situation under the assumption that the true value of u should be around ubb.\nThere are a lot of different designs of the regularization termR(u). In practice, we use the following one based on the cross entropy between two Bernoulli distributions with success probability ubbi and ui respectively.\nR(u) = − 1 N N∑ i=1 [ubbi · log(ui) + (1− ubbi ) · log(1− ui)]\n= − 1 N N∑ i=1 DKL[Bern(u bb i )||Bern(ui)] + C\n(3)\nwhere C is a constant value with respect to u. DKL(.) represents the KL distance between two Bernoulli distributions. This regularization term is a convex function with respect to u and achieves its minimal when u = ubb. It is a strong regularization term since its value increases very fast when u 6= ubb."
+    }, {
+      "heading" : "4 Visual Tasks",
+      "text" : ""
+    }, {
+      "heading" : "4.1 Semantic segmentation",
+      "text" : "We can easily apply our e-SVM model to the semantic segmentation task with the framework proposed by Carreira et al. [5]. Firstly, CPMC segment proposals [4] are generated and the secondorder pooling features [5] are extracted from each segment. Then we train the segment classifiers using either e-SVM or latent e-SVM according to whether the groundtruth pixel-level annotations are available. In the testing stage, the CPMC segments are sorted based on their confidence scores output by the trained classifiers. The top ones will be selected to produce the predicted semantic label map."
+    }, {
+      "heading" : "4.2 Object detection",
+      "text" : "For the task of object detection, we can only acquire bounding-box annotations instead of pixel-level labeling. Therefore, it is natural to apply our latent e-SVM in this task to provide complementary information for the current object detection system.\nIn the state-of-the-art object detection systems [11, 13, 24, 14], the window candidates of foreground object are extracted from images and the confidence scores are predicted on them. Window candidates are extracted either by sliding window approaches (used in e.g. the deformable part-based model [11, 13]) or most recently, the Selective Search method [24] (used in e.g. the Region Convolutional Neural Networks [14]). This method lowers down the number of window candidates compared to the traditional sliding window approach.\nIt is not easy to directly incorporate confidence scores of the segments into these object detection systems based on window candidates. The difficulty lies in two aspects. First, only some of the segments are totally inside a window candidate or totally outside the window candidate. It might be hard to calculate the contribution of the confidence score of a segment that only partially overlaps with a window candidate. Second, the window candidates (even the groundtruth bounding boxes) will contain some of the background regions. Some regions (e.g. the regions near the boundary of the window candidates) will have higher probability to be the background region than the regions in the center. Treating them equally will harm the accuracy of the whole detection system.\nIn order to solve these issues, we propose a new spatial confidence map feature. Given an image and a set of window candidates, we first calculate the confidence scores of all the segments in the image using the learned e-SVM models. The confidence score for a segment S is denoted as CfdScore(S). For each pixel, the confidence score is set as the maximum confidence score of all the segments that contain this pixel. CfdScore(p) = max∀S,p∈S CfdScore(S). In this way, we can handle the difficulty of partial overlapping between segments and candidate windows. For the second difficulty, we divide each candidate window into M = m ×m spatial bins and pool the confidence scores of the pixels in each bin. Because the classifiers are trained with the one-vs-all scheme, our spatial confidence map feature is class-specific. It leads to a (M × K)-dimensional feature for each candidate window, where K refers to the total number of object classes. After that, we encode it by additive kernels approximation mapping [25] and obtain the final feature representation of candidate windows. The feature generating process is illustrated in Figure 2. In the testing stage, we can concatenate this segment feature with the features from other object detection systems."
+    }, {
+      "heading" : "5 Experiments",
+      "text" : "In this section, we first evaluate the performance of e-SVM method on segment proposal classification, by using two new evaluation criterions for this task. After that, we apply our method to two essential tasks in computer vision: semantic segmentation and object detection. For semantic segmentation task, we test the proposed eSVM and latent eSVM on two different scenarios (i.e., with pixel-level groundtruth label annotation and with only bounding-box object annotation) respectively. For object detection task, we combine our confidence map feature with the state-of-the-art object detection system, and show our method can obtain non-trivial improvement on detection performance."
+    }, {
+      "heading" : "5.1 Performance evaluation on e-SVM",
+      "text" : "We use PASCAL VOC 2011 [9] segmentation dataset in this experiment. It is a subset of the whole PASCAL 2011 datasets with 1112 images in the training set and 1111 images in the validation set, with 20 foreground object classes in total. We use the official training set and validation set for training and testing respectively. Similar to [5], we extract 150 CPMC [4] segment proposals for each image and compute the second-order pooling features on each segment. Besides, we use the same sequential pasting scheme [5] as the inference algorithm in testing."
+    }, {
+      "heading" : "5.1.1 Evaluation criteria",
+      "text" : "In literature [5], the supervised learning framework of segment-based prediction model either regressed the overlapping value or converted it to a binary classification problem via a threshold value, and evaluate the performance by certain task-specific criterion (i.e., the pixel-wise accuracy used for semantic segmentation). In this paper, we adopt a direct performance evaluation criteria for the segment-wise target class prediction task, which is consistent with the learning problem itself and not biased to particular tasks. Unfortunately, we have not found any work on this sort of direct performance evaluation, and thus introduce two new evaluation criteria for this purpose. We first briefly describe them as follows:\nThreshold Average Precision Curve (TAPC) Although the ground-truth target value (i.e., the overlap rate of segment and bounding box) is a real value in the range of [0, 1], we can transform original prediction problem to a series of binary problems, each of which is conducted by thresholding the original groundtruth overlap rate. Thus, we calculate the Precison-Recall Curve as well as AP on each of binary classification problem, and compute the mean AP w.r.t. different threshold values as a performance measurement for the segment-based class confidence prediction problem.\nTAPC NDCG\ne-SVM 36.69 e-SVM 0.8750 SVR 35.23 SVR 0.8652 SVC-0.0 22.48 SVC-0 0.8153 SVC-0.2 33.96 SVC-0.2 0.8672 SVC-0.4 35.62 SVC-0.4 0.8656 SVC-0.6 32.57 SVC-0.6 0.8485 SVC-0.8 26.73 SVC-0.8 0.8244\nNormalized Discounted Cumulative Gain (NDCG) [15] Considering that a higher confidence value is expected to be predicted for the segment with higher overlap rate, we think this prediction problem can be treated as a ranking problem, and thus we use the Normalized Discounted Cumulative Gain (NDCG), which is common performance measurement for ranking problem, as another kind of performance evaluation criterion in this paper."
+    }, {
+      "heading" : "5.1.2 Comparisons to SVC and SVR",
+      "text" : "Based on the TAPC and NDCG introduced above, we evaluate the performance of our e-SVM model on PASCAL VOC 2011 segmentation dataset, and compare the results to two common methods (i.e. SVC and SVR) in literature. Note that we test the SVC’s performance with a variety of binary classification problems, each of which are trained by using different threshold values (e.g., 0, 0.2, 0.4, 0.6 and 0.8 as shown in figure 3). In figure 3 (a) and (b), we show the experimental results w.r.t. the model/classifier trained with clean pixel-wise object class labels and weakly-labelled bounding-box annotation, respectively. For both cases, we can see that our method obtains consistently superior performance than SVC model for all different threshold values. Besides, we can see that the TAPC and NDCG of our method are higher than those of SVR, which is a popular regression model for continuously valued target variable based on the max-margin principle."
+    }, {
+      "heading" : "5.2 Results of semantic segmentation",
+      "text" : "For the semantic segmentation task, we test our e-SVM model with PASCAL VOC 2011 segmtation dataset using training set for training and validation set for testing. We evaluate the performance under two different data annotation settings, i.e., training with pixel-wise semantic class label maps and object bounding-box annotations. The accuracy w.r.t. these two settings are 36.8% and 27.7% respectively, which are comparable to the results of the state-of-the-art segment confidence prediction model (i.e., SVR) [5] used in semantic segmentation task."
+    }, {
+      "heading" : "5.3 Results of object detection",
+      "text" : "As mentioned in Section 4.2, one of the natural applications of our e-SVM method is the object detection task. Most recently, Girshick et.al [14] presented a Regions with CNN features method (RCNN) using the Convolutional Neural Network pre-trained on the ImageNet Dataset [6] and finetuned on the PASCAL VOC datasets. They achieved a significantly improvement over the previous state-of-the-art algorithms (e.g. Deformable Part-based Model (DPM) [11])and push the detection\nperformance into a very high level (The average AP is 58.5 with boundary regularization on PASCAL VOC 2007).\nA question arises: can we further improve their performance? The answer is yes. In our method, we first learn the latent e-SVM models based on the object bounding-box annotation, and calculate the spatial confidence map features as in section 4.2. Then we simply concatenate them with RCNN the features to train object classifiers on candidate windows. We use PASCAL VOC 2007 dataset in this experiment. As shown in table 1, our method can improve the average AP by 1.2 before applying bounding boxes regression. For some categories that the original RCNN does not perform well, such as potted plant, the gain of AP is up to 3.65. After applying bounding box regression for both RCNN and our algorithm, the gain of performance is 1.5 on average.\nIn the experiment, we set m = 5 and adopt average pooling on the pixel level confidence scores within each spatial bin. We also modified the bounding box regularization method used in [14] by augmenting the fifth layer features with additive kernels approximation methods [25]. It will lead to a slightly improved performance.\nIn summary, we achieved an average AP of 60.0, which is 1.5 higher than the best known results (the original RCNN with bounding box regression) of this dataset. Please note that we only use the annotations on PASCAL VOC 2007 to train the e-SVM classifiers and have not considered context. The results are expected to be further improved if the data in ImageNet is used."
+    }, {
+      "heading" : "6 Conclusion",
+      "text" : "We present a novel learning algorithm call e-SVM that can well handle the situation in which the labels of training data are continuous values whose range is a bounded interval. It can be applied to segment proposal classification task and can be easily extended to learn segment classifiers under weak supervision (e.g. only bounding box annotations are available). We apply this method on two major tasks of computer vision (i.e., semantic segmentation and object detection), and obtain the state-of-the-art object detection performance on PASCAL VOC 2007 dataset. We believe that, with the ever growing size of datesets, it is increasingly important to learn segment classifiers under weak supervision to reduce the amount of labeling required. In future work, we will consider using the bounding box annotation from large datasets, such as ImageNet, to further improve semantic segmentation performance on PASCAL VOC.\nAcknowledgements. We gratefully acknowledge funding support from the National Science Foundation (NSF) with award CCF-1317376, and from the National Institute of Health NIH Grant 5R01EY022247-03. We also thank the NVIDIA Corporation for providing GPUs in our experiments."
+    } ],
+    "references" : [ {
+      "title" : "SLIC superpixels compared to state-of-the-art superpixel methods",
+      "author" : [ "R. Achanta", "A. Shaji", "K. Smith", "A. Lucchi", "P. Fua", "S. Susstrunk" ],
+      "venue" : "TPAMI, 34(11):2274–2282",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Support vector machines for multiple-instance learning",
+      "author" : [ "S. Andrews", "I. Tsochantaridis", "T. Hofmann" ],
+      "venue" : "Advances in Neural Information Processing Systems 15, pages 561–568. MIT Press",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : null,
+      "year" : 2003
+    }, {
+      "title" : "Semantic segmentation using regions and parts",
+      "author" : [ "P. Arbelaez", "B. Hariharan", "C. Gu", "S. Gupta", "J. Malik" ],
+      "venue" : "CVPR",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Cpmc: Automatic object segmentation using constrained parametric min-cuts",
+      "author" : [ "J. Carreira", "C. Sminchisescu" ],
+      "venue" : "TPAMI, 34(7):1312–1328",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Semantic segmentation with second-order pooling",
+      "author" : [ "J. a. Carreira", "R. Caseiro", "J. Batista", "C. Sminchisescu" ],
+      "venue" : "In ECCV,",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : "5",
+      "year" : 2012
+    }, {
+      "title" : "A",
+      "author" : [ "J. Deng" ],
+      "venue" : "Berg, , J. Winn, and A. Zisserman. The PASCAL Visual Object Classes Challenge 2010 ",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : null,
+      "year" : 2010
+    }, {
+      "title" : "Solving the multiple instance problem with axisparallel rectangles",
+      "author" : [ "T.G. Dietterich", "R.H. Lathrop", "T. Lozano-Pérez" ],
+      "venue" : "Artif. Intell.,",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : "7",
+      "year" : 1997
+    }, {
+      "title" : "and A",
+      "author" : [ "M. Everingham", "L. Van Gool", "C.K.I. Williams", "J. Winn" ],
+      "venue" : "Zisserman. The PASCAL Visual Object Classes Challenge 2007 ",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : null,
+      "year" : 2007
+    }, {
+      "title" : "and A",
+      "author" : [ "M. Everingham", "L. Van Gool", "C.K.I. Williams", "J. Winn" ],
+      "venue" : "Zisserman. The PASCAL Visual Object Classes Challenge 2011 ",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "LIBLINEAR: A library for large linear classification",
+      "author" : [ "R.-E. Fan", "K.-W. Chang", "C.-J. Hsieh", "X.-R. Wang", "C.-J. Lin" ],
+      "venue" : "JMLR, 9:1871–1874",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : null,
+      "year" : 2008
+    }, {
+      "title" : "Object detection with discriminatively trained part-based models",
+      "author" : [ "P.F. Felzenszwalb", "R.B. Girshick", "D. McAllester", "D. Ramanan" ],
+      "venue" : "TPAMI, 32(9):1627–1645",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : null,
+      "year" : 2010
+    }, {
+      "title" : "Efficient graph-based image segmentation",
+      "author" : [ "P.F. Felzenszwalb", "D.P. Huttenlocher" ],
+      "venue" : null,
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 2004
+    }, {
+      "title" : "Bottom-up segmentation for top-down detection",
+      "author" : [ "S. Fidler", "R. Mottaghi", "A.L. Yuille", "R. Urtasun" ],
+      "venue" : "CVPR, pages 3294–3301",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Rich feature hierarchies for accurate object detection and semantic segmentation",
+      "author" : [ "R. Girshick", "J. Donahue", "T. Darrell", "J. Malik" ],
+      "venue" : "CVPR",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Cumulated gain-based evaluation of ir techniques",
+      "author" : [ "K. Järvelin", "J. Kekäläinen" ],
+      "venue" : "TOIS, 20(4):422–446",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : null,
+      "year" : 2002
+    }, {
+      "title" : "Imagenet classification with deep convolutional neural networks",
+      "author" : [ "A. Krizhevsky", "I. Sutskever", "G.E. Hinton" ],
+      "venue" : "NIPS, pages 1106–1114",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Learning using privileged information: Svm+ and weighted svm",
+      "author" : [ "M. Lapin", "M. Hein", "B. Schiele" ],
+      "venue" : "Neural Networks, 53:95–108",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Object recognition as ranking holistic figure-ground hypotheses",
+      "author" : [ "F. Li", "J. Carreira", "C. Sminchisescu" ],
+      "venue" : "CVPR, pages 1712–1719",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : null,
+      "year" : 2010
+    }, {
+      "title" : "Weakly-supervised dual clustering for image semantic segmentation",
+      "author" : [ "Y. Liu", "J. Liu", "Z. Li", "J. Tang", "H. Lu" ],
+      "venue" : "Computer Vision and Pattern Recognition (CVPR), 2013 IEEE Conference on, pages 2075–2082. IEEE",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Multi-instance methods for partially supervised image segmentation",
+      "author" : [ "A. Müller", "S. Behnke" ],
+      "venue" : "PSL, pages 110–119",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Rgb-(d) scene labeling: Features and algorithms",
+      "author" : [ "X. Ren", "L. Bo", "D. Fox" ],
+      "venue" : "In CVPR,",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : "21",
+      "year" : 2012
+    }, {
+      "title" : "Semantic texton forests for image categorization and segmentation",
+      "author" : [ "J. Shotton", "M. Johnson", "R. Cipolla" ],
+      "venue" : "CVPR, pages 1–8",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : null,
+      "year" : 2008
+    }, {
+      "title" : "Weighted least squares support vector machines: robustness and sparse approximation",
+      "author" : [ "J. Suykens", "J.D. Brabanter", "L. Lukas", "J. Vandewalle" ],
+      "venue" : "NEUROCOMPUTING, 48:85–105",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : null,
+      "year" : 2002
+    }, {
+      "title" : "K",
+      "author" : [ "J. Uijlings" ],
+      "venue" : "van de Sande, T. Gevers, and A. Smeulders. Selective search for object recognition. IJCV, 104(2):154–171",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Efficient additive kernels via explicit feature maps",
+      "author" : [ "A. Vedaldi", "A. Zisserman" ],
+      "venue" : "TPAMI, 34(3):480–492",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Weakly supervised structured output learning for semantic segmentation",
+      "author" : [ "A. Vezhnevets", "V. Ferrari", "J.M. Buhmann" ],
+      "venue" : "CVPR, pages 845–852",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Weighted support vector machine for data classification",
+      "author" : [ "X. Yang", "Q. Song", "A. Cao" ],
+      "venue" : "IJCNN",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : null,
+      "year" : 2005
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 5,
+      "context" : "However, the detailed hand-labelling of datasets is expensive and impractical for large datasets such as ImageNet [6].",
+      "startOffset" : 114,
+      "endOffset" : 117
+    }, {
+      "referenceID" : 17,
+      "context" : "classification problem, one might need to binarize the positiveness using ad-hoc heuristics to determine a threshold, which degrades its performance [18].",
+      "startOffset" : 149,
+      "endOffset" : 153
+    }, {
+      "referenceID" : 3,
+      "context" : "To address this problem, previous works usually used SVR [4, 18] to train the class confidence prediction models in segmentic segmentation.",
+      "startOffset" : 57,
+      "endOffset" : 64
+    }, {
+      "referenceID" : 17,
+      "context" : "To address this problem, previous works usually used SVR [4, 18] to train the class confidence prediction models in segmentic segmentation.",
+      "startOffset" : 57,
+      "endOffset" : 64
+    }, {
+      "referenceID" : 0,
+      "context" : "Segments are extracted from images [1, 3, 4, 12], appearance cues are computed for each segment [5, 21, 25], and classifiers are trained using groundtruth pixel labeling [18].",
+      "startOffset" : 35,
+      "endOffset" : 48
+    }, {
+      "referenceID" : 2,
+      "context" : "Segments are extracted from images [1, 3, 4, 12], appearance cues are computed for each segment [5, 21, 25], and classifiers are trained using groundtruth pixel labeling [18].",
+      "startOffset" : 35,
+      "endOffset" : 48
+    }, {
+      "referenceID" : 3,
+      "context" : "Segments are extracted from images [1, 3, 4, 12], appearance cues are computed for each segment [5, 21, 25], and classifiers are trained using groundtruth pixel labeling [18].",
+      "startOffset" : 35,
+      "endOffset" : 48
+    }, {
+      "referenceID" : 11,
+      "context" : "Segments are extracted from images [1, 3, 4, 12], appearance cues are computed for each segment [5, 21, 25], and classifiers are trained using groundtruth pixel labeling [18].",
+      "startOffset" : 35,
+      "endOffset" : 48
+    }, {
+      "referenceID" : 4,
+      "context" : "Segments are extracted from images [1, 3, 4, 12], appearance cues are computed for each segment [5, 21, 25], and classifiers are trained using groundtruth pixel labeling [18].",
+      "startOffset" : 96,
+      "endOffset" : 107
+    }, {
+      "referenceID" : 20,
+      "context" : "Segments are extracted from images [1, 3, 4, 12], appearance cues are computed for each segment [5, 21, 25], and classifiers are trained using groundtruth pixel labeling [18].",
+      "startOffset" : 96,
+      "endOffset" : 107
+    }, {
+      "referenceID" : 24,
+      "context" : "Segments are extracted from images [1, 3, 4, 12], appearance cues are computed for each segment [5, 21, 25], and classifiers are trained using groundtruth pixel labeling [18].",
+      "startOffset" : 96,
+      "endOffset" : 107
+    }, {
+      "referenceID" : 17,
+      "context" : "Segments are extracted from images [1, 3, 4, 12], appearance cues are computed for each segment [5, 21, 25], and classifiers are trained using groundtruth pixel labeling [18].",
+      "startOffset" : 170,
+      "endOffset" : 174
+    }, {
+      "referenceID" : 4,
+      "context" : "Methods of this type are almost always among the winners of the PASCAL VOC segmentation challenge [5].",
+      "startOffset" : 98,
+      "endOffset" : 101
+    }, {
+      "referenceID" : 3,
+      "context" : "For this application we generate the segment proposals using CPMC segments [4].",
+      "startOffset" : 75,
+      "endOffset" : 78
+    }, {
+      "referenceID" : 8,
+      "context" : "We show that appearance cues learnt by e-SVM, using either the bounding box annotations or pixel level annotations, are more effective than those learnt with SVC and SVR on PASCAL VOC 2011 [9] segmentation dataset.",
+      "startOffset" : 189,
+      "endOffset" : 192
+    }, {
+      "referenceID" : 7,
+      "context" : "PASCAL VOC [8, 9] and Imagenet [6]), which means that pixel level groundtruth is not available.",
+      "startOffset" : 11,
+      "endOffset" : 17
+    }, {
+      "referenceID" : 8,
+      "context" : "PASCAL VOC [8, 9] and Imagenet [6]), which means that pixel level groundtruth is not available.",
+      "startOffset" : 11,
+      "endOffset" : 17
+    }, {
+      "referenceID" : 5,
+      "context" : "PASCAL VOC [8, 9] and Imagenet [6]), which means that pixel level groundtruth is not available.",
+      "startOffset" : 31,
+      "endOffset" : 34
+    }, {
+      "referenceID" : 13,
+      "context" : "We test our approach on the PASCAL dataset using, as our base detector, the Regions with CNN features (RCNN) [14] (currently state of the art on PASCAL and outperforms previous works by a large margin).",
+      "startOffset" : 109,
+      "endOffset" : 113
+    }, {
+      "referenceID" : 23,
+      "context" : "This method first used selective search method [24] to extract candidate bounding boxes.",
+      "startOffset" : 47,
+      "endOffset" : 51
+    }, {
+      "referenceID" : 15,
+      "context" : "For each candidate bounding box, it extracts features by deep networks [16] learned on Imagenet dataset and fine-tuned on PASCAL.",
+      "startOffset" : 71,
+      "endOffset" : 75
+    }, {
+      "referenceID" : 6,
+      "context" : "Multiple Instance Learning (MIL) [7, 2] was adopted to solve these problems [20, 22].",
+      "startOffset" : 33,
+      "endOffset" : 39
+    }, {
+      "referenceID" : 1,
+      "context" : "Multiple Instance Learning (MIL) [7, 2] was adopted to solve these problems [20, 22].",
+      "startOffset" : 33,
+      "endOffset" : 39
+    }, {
+      "referenceID" : 19,
+      "context" : "Multiple Instance Learning (MIL) [7, 2] was adopted to solve these problems [20, 22].",
+      "startOffset" : 76,
+      "endOffset" : 84
+    }, {
+      "referenceID" : 21,
+      "context" : "Multiple Instance Learning (MIL) [7, 2] was adopted to solve these problems [20, 22].",
+      "startOffset" : 76,
+      "endOffset" : 84
+    }, {
+      "referenceID" : 25,
+      "context" : "[26] proposed a Multi-Image Model (MIM) to solve this problem and showed that MIL in [22] is a special case of MIM.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 21,
+      "context" : "[26] proposed a Multi-Image Model (MIM) to solve this problem and showed that MIL in [22] is a special case of MIM.",
+      "startOffset" : 85,
+      "endOffset" : 89
+    }, {
+      "referenceID" : 25,
+      "context" : "Later, [26] developed MIM to a generalized MIM and used it as their segmentation model.",
+      "startOffset" : 7,
+      "endOffset" : 11
+    }, {
+      "referenceID" : 18,
+      "context" : "[19] presented a weakly-supervised dual clustering approach to handle this task.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 5,
+      "context" : "Imagenet [6]) while the pixel level annotations of large datasets are still hard to obtain.",
+      "startOffset" : 9,
+      "endOffset" : 12
+    }, {
+      "referenceID" : 22,
+      "context" : "In machine learning literature, the weighted SVM (WSVM) methods [23, 27, ?] also use an instancedependent weight on the cost of each example, and can improve the robustness of model estimation [23], alleviate the effect of outliers [27], leverage privileged information [17] or deal with unbalanced classification problems.",
+      "startOffset" : 193,
+      "endOffset" : 197
+    }, {
+      "referenceID" : 26,
+      "context" : "In machine learning literature, the weighted SVM (WSVM) methods [23, 27, ?] also use an instancedependent weight on the cost of each example, and can improve the robustness of model estimation [23], alleviate the effect of outliers [27], leverage privileged information [17] or deal with unbalanced classification problems.",
+      "startOffset" : 232,
+      "endOffset" : 236
+    }, {
+      "referenceID" : 16,
+      "context" : "In machine learning literature, the weighted SVM (WSVM) methods [23, 27, ?] also use an instancedependent weight on the cost of each example, and can improve the robustness of model estimation [23], alleviate the effect of outliers [27], leverage privileged information [17] or deal with unbalanced classification problems.",
+      "startOffset" : 270,
+      "endOffset" : 274
+    }, {
+      "referenceID" : 9,
+      "context" : ", LibLinear [10]) like those used in WSVMs.",
+      "startOffset" : 12,
+      "endOffset" : 16
+    }, {
+      "referenceID" : 3,
+      "context" : "Using some segmentation method (we adopt CPMC [4] in this work), we can generate a set of foreground segment proposals {S1, S2, .",
+      "startOffset" : 46,
+      "endOffset" : 49
+    }, {
+      "referenceID" : 17,
+      "context" : "But it needs some heuristics to determine τb and its performance is only partially satisfactory [18].",
+      "startOffset" : 96,
+      "endOffset" : 100
+    }, {
+      "referenceID" : 3,
+      "context" : "Firstly, CPMC segment proposals [4] are generated and the secondorder pooling features [5] are extracted from each segment.",
+      "startOffset" : 32,
+      "endOffset" : 35
+    }, {
+      "referenceID" : 4,
+      "context" : "Firstly, CPMC segment proposals [4] are generated and the secondorder pooling features [5] are extracted from each segment.",
+      "startOffset" : 87,
+      "endOffset" : 90
+    }, {
+      "referenceID" : 10,
+      "context" : "In the state-of-the-art object detection systems [11, 13, 24, 14], the window candidates of foreground object are extracted from images and the confidence scores are predicted on them.",
+      "startOffset" : 49,
+      "endOffset" : 65
+    }, {
+      "referenceID" : 12,
+      "context" : "In the state-of-the-art object detection systems [11, 13, 24, 14], the window candidates of foreground object are extracted from images and the confidence scores are predicted on them.",
+      "startOffset" : 49,
+      "endOffset" : 65
+    }, {
+      "referenceID" : 23,
+      "context" : "In the state-of-the-art object detection systems [11, 13, 24, 14], the window candidates of foreground object are extracted from images and the confidence scores are predicted on them.",
+      "startOffset" : 49,
+      "endOffset" : 65
+    }, {
+      "referenceID" : 13,
+      "context" : "In the state-of-the-art object detection systems [11, 13, 24, 14], the window candidates of foreground object are extracted from images and the confidence scores are predicted on them.",
+      "startOffset" : 49,
+      "endOffset" : 65
+    }, {
+      "referenceID" : 10,
+      "context" : "the deformable part-based model [11, 13]) or most recently, the Selective Search method [24] (used in e.",
+      "startOffset" : 32,
+      "endOffset" : 40
+    }, {
+      "referenceID" : 12,
+      "context" : "the deformable part-based model [11, 13]) or most recently, the Selective Search method [24] (used in e.",
+      "startOffset" : 32,
+      "endOffset" : 40
+    }, {
+      "referenceID" : 23,
+      "context" : "the deformable part-based model [11, 13]) or most recently, the Selective Search method [24] (used in e.",
+      "startOffset" : 88,
+      "endOffset" : 92
+    }, {
+      "referenceID" : 13,
+      "context" : "the Region Convolutional Neural Networks [14]).",
+      "startOffset" : 41,
+      "endOffset" : 45
+    }, {
+      "referenceID" : 24,
+      "context" : "After that, we encode it by additive kernels approximation mapping [25] and obtain the final feature representation of candidate windows.",
+      "startOffset" : 67,
+      "endOffset" : 71
+    }, {
+      "referenceID" : 8,
+      "context" : "We use PASCAL VOC 2011 [9] segmentation dataset in this experiment.",
+      "startOffset" : 23,
+      "endOffset" : 26
+    }, {
+      "referenceID" : 4,
+      "context" : "Similar to [5], we extract 150 CPMC [4] segment proposals for each image and compute the second-order pooling features on each segment.",
+      "startOffset" : 11,
+      "endOffset" : 14
+    }, {
+      "referenceID" : 3,
+      "context" : "Similar to [5], we extract 150 CPMC [4] segment proposals for each image and compute the second-order pooling features on each segment.",
+      "startOffset" : 36,
+      "endOffset" : 39
+    }, {
+      "referenceID" : 4,
+      "context" : "Besides, we use the same sequential pasting scheme [5] as the inference algorithm in testing.",
+      "startOffset" : 51,
+      "endOffset" : 54
+    }, {
+      "referenceID" : 4,
+      "context" : "In literature [5], the supervised learning framework of segment-based prediction model either regressed the overlapping value or converted it to a binary classification problem via a threshold value, and evaluate the performance by certain task-specific criterion (i.",
+      "startOffset" : 14,
+      "endOffset" : 17
+    }, {
+      "referenceID" : 14,
+      "context" : "Normalized Discounted Cumulative Gain (NDCG) [15] Considering that a higher confidence value is expected to be predicted for the segment with higher overlap rate, we think this prediction problem can be treated as a ranking problem, and thus we use the Normalized Discounted Cumulative Gain (NDCG), which is common performance measurement for ranking problem, as another kind of performance evaluation criterion in this paper.",
+      "startOffset" : 45,
+      "endOffset" : 49
+    }, {
+      "referenceID" : 4,
+      "context" : ", SVR) [5] used in semantic segmentation task.",
+      "startOffset" : 7,
+      "endOffset" : 10
+    }, {
+      "referenceID" : 13,
+      "context" : "al [14] presented a Regions with CNN features method (RCNN) using the Convolutional Neural Network pre-trained on the ImageNet Dataset [6] and finetuned on the PASCAL VOC datasets.",
+      "startOffset" : 3,
+      "endOffset" : 7
+    }, {
+      "referenceID" : 5,
+      "context" : "al [14] presented a Regions with CNN features method (RCNN) using the Convolutional Neural Network pre-trained on the ImageNet Dataset [6] and finetuned on the PASCAL VOC datasets.",
+      "startOffset" : 135,
+      "endOffset" : 138
+    }, {
+      "referenceID" : 10,
+      "context" : "Deformable Part-based Model (DPM) [11])and push the detection",
+      "startOffset" : 34,
+      "endOffset" : 38
+    }, {
+      "referenceID" : 13,
+      "context" : "We also modified the bounding box regularization method used in [14] by augmenting the fifth layer features with additive kernels approximation methods [25].",
+      "startOffset" : 64,
+      "endOffset" : 68
+    }, {
+      "referenceID" : 24,
+      "context" : "We also modified the bounding box regularization method used in [14] by augmenting the fifth layer features with additive kernels approximation methods [25].",
+      "startOffset" : 152,
+      "endOffset" : 156
+    } ],
+    "year" : 2014,
+    "abstractText" : "In many situations we have some measurement of confidence on “positiveness” for a binary label. The “positiveness” is a continuous value whose range is a bounded interval. It quantifies the affiliation of each training data to the positive class. We propose a novel learning algorithm called expectation loss SVM (eSVM) that is devoted to the problems where only the “positiveness” instead of a binary label of each training sample is available. Our e-SVM algorithm can also be readily extended to learn segment classifiers under weak supervision where the exact positiveness value of each training example is unobserved. In experiments, we show that the e-SVM algorithm can effectively address the segment proposal classification task under both strong supervision (e.g. the pixel-level annotations are available) and the weak supervision (e.g. only bounding-box annotations are available), and outperforms the alternative approaches. Besides, we further validate this method on two major tasks of computer vision: semantic segmentation and object detection. Our method achieves the state-of-the-art object detection performance on PASCAL VOC 2007 dataset.",
+    "creator" : null
+  }
+}

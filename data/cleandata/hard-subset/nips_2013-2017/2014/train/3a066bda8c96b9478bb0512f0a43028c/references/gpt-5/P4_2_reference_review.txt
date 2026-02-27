@@ -1,0 +1,45 @@
+Summary and relation to prior work
+The paper proposes expectation-loss SVM (e-SVM) for learning from “soft” supervision where each candidate segment/proposal has a positiveness score u in [0,1] (e.g., IoU to ground-truth masks). Instead of binarizing u to train SVC or treating it as a regression target for SVR, e-SVM assumes a Bernoulli latent label Y with success probability µ=g(u) (set to µ=u in experiments) and minimizes the expected hinge loss E_Y[max(0, 1 − Y w^T x)], which reduces to µ max(0,1 − w^T x) + (1−µ) max(0,1 + w^T x). This is a convex objective in w and can be implemented with standard linear SVM solvers by weighting the positive and negative hinge components. The paper also introduces a latent version for weak supervision when pixel masks are unavailable: the u_i are optimized jointly with w, regularized by the cross-entropy D_KL(Bern(u_bb) || Bern(u)) where u_bb is IoU to a bounding box. Alternating minimization over w and u is used.
+
+Empirically, e-SVM is evaluated on segment proposal confidence prediction (with two new evaluation criteria TAPC and NDCG), semantic segmentation (training with either pixel masks or only boxes), and object detection, where class-specific “spatial confidence map” features derived from segment confidences are concatenated with RCNN features. On VOC2011 segmentation, e-SVM outperforms SVC at various binarization thresholds and slightly outperforms SVR in TAPC and NDCG. On semantic segmentation it is “comparable” to SVR. On VOC2007 detection, adding the spatial e-SVM confidence features to RCNN yields 1.2 mAP improvement pre-regression and 1.5 mAP post-regression (to 60.0 mAP).
+
+The work relates to: (i) weakly supervised learning and MIL (authors argue MIL assumptions do not hold because no proposal is guaranteed fully positive), (ii) weighted SVMs (authors note their loss weights labels rather than instances), (iii) latent SVMs (alternating optimization), and (iv) confidence/ranking of segments used in segmentation pipelines (CPMC, second-order pooling).
+
+Strengths
+- Formulation: The expected hinge-loss with soft labels is simple, convex in w, and implementable with off-the-shelf linear SVM infrastructure. The latent extension is conceptually straightforward and convex in each block.
+- Applicability: The framework naturally fits tasks where “positiveness” lies in [0,1], and the paper demonstrates applicability to both segmentation and detection.
+- Empirical signal: On segment proposal ranking, e-SVM yields consistent improvements over SVC across thresholds and small but consistent gains over SVR on both TAPC and NDCG. On detection, the additional spatial confidence map features give a measurable mAP gain over a strong RCNN baseline.
+- Practicality: The KL regularization around u_bb is a reasonable and convex way to stabilize the latent u updates. The spatial pooling over confidence maps is a simple, computationally plausible way to relate segments to boxes.
+
+Weaknesses
+- Originality/positioning: Optimizing the expected hinge loss with probabilistic/soft labels is very close to known “soft-label”/“fuzzy”/“uncertain-label” SVM variants. The paper contrasts e-SVM with instance-weighted SVMs but does not discuss prior SVMs that directly incorporate label probabilities or ambiguous labels. The latent extension is similar in spirit to latent SVM with a convex regularizer; anchoring to u_bb is intuitive but incremental.
+- Clarity/presentation: Several equations are poorly typeset or ambiguous (e.g., the regularization term on w; repeated N factors; notation switching between vectors with bias). Algorithm 1 omits details of the u-update (closed form vs numeric, step size, constraints to (0,1)), convergence criteria, and initialization sensitivity. References contain multiple malformed entries (“?”, missing years/authors). Some claims (e.g., “effortlessly solved by any standard SVM solver”) warrant a precise reduction or implementation detail.
+- Experimental completeness and fairness: 
+  - The gains over SVR on TAPC/NDCG are modest; in semantic segmentation the method is only “comparable” to SVR, which undercuts claims of strong superiority.
+  - For detection, the baseline is RCNN; details on training protocol, C values, feature dimensionalities, and whether the slight change to bounding-box regression (additive kernel approximation on fc5) also benefits the baseline in exactly the same way are not fully specified, which can confound attribution of the 1.5 mAP gain.
+  - No sensitivity analysis for g(u) (identity is a heuristic), λ_R, and number of alternations; no ablations for the KL term vs alternative regularizers, or for using u=ubb without optimization.
+  - Runtime and scalability are not reported; duplicating examples or per-sample weights can be cheap, but the latent u optimization may add overhead.
+- Theory: No generalization bounds or calibration analysis for the expected hinge loss under soft labels; no convergence guarantees beyond blockwise convexity.
+- Reproducibility: Several key hyperparameters and implementation details are missing, and code/data release is not mentioned.
+
+Detailed comments and suggestions
+- Clarify the equivalence between minimizing µ l+ + (1−µ) l− and a standard SVM objective that standard solvers can handle (e.g., via example duplication with instance weights or via a custom per-example piecewise-linear loss supported by LibLinear). Specify precisely how it was implemented.
+- Provide the u-update derivation and solver: with g(u)=u and KL regularizer, the u-subproblem decouples over i; give the closed-form or numeric procedure, constraints to keep ui in (0,1), and stopping criteria.
+- Report sensitivity to λ_R, initialization u_bb, and to g(·) (e.g., logistic mapping of IoU or learned calibration). Include ablations comparing: (i) fixed u=ubb, (ii) latent e-SVM without KL (show the collapse to {0,1}), (iii) alternative convex regularizers (e.g., quadratic around u_bb).
+- For detection, ensure the RCNN baseline is matched in all respects (including any changes to bounding box regression) and report per-class AP and runtime. Add ablations isolating the contribution of spatial binning m, pooling choice, and the class-specific nature of the confidence map.
+- Improve clarity of equations, remove duplicated N factors, and state regularization on w unambiguously. Polish and complete the references, and cite prior work on SVMs with uncertain/soft labels and ambiguous supervision.
+- For segmentation, provide standard metrics (mean IoU per class) and direct comparisons to SVR and SVC on the same features and training protocol.
+
+Pros for acceptance
+- Simple, general, and practical formulation; easy to plug into existing pipelines.
+- Consistent improvements on proposal ranking; measurable and relevant gains on VOC2007 detection over a strong baseline.
+- Weak supervision handled via a convex regularizer on latent “positiveness,” with a clear optimization scheme.
+
+Cons for acceptance
+- Limited novelty relative to existing SVM variants with soft/uncertain labels; missing citations and positioning.
+- Clarity and presentation issues in equations and references; insufficient algorithmic details for reproducibility.
+- Modest gains over SVR in core segment-ranking task; detection improvements may be confounded by changes to the baseline and lack of ablations/sensitivity analyses.
+- No theoretical analysis of the loss under soft labels or convergence guarantees for the alternating scheme.
+
+Recommendation
+Borderline reject. The idea of expected hinge loss with soft labels and the latent extension are reasonable and the detection gains are encouraging, but the novelty relative to prior SVM literature appears limited, and the paper needs stronger positioning, clearer exposition, and more thorough experimental and ablation studies to substantiate claims and ensure reproducibility. With these issues addressed, the work could be a solid contribution.

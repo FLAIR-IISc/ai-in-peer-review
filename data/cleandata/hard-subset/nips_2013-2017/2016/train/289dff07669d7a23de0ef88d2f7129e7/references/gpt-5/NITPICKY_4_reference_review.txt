@@ -1,0 +1,55 @@
+Summary
+The paper proposes Cholesky-CMA-ES, a variant of CMA-ES that maintains and updates a lower-triangular Cholesky factor A of the covariance matrix C instead of storing/decomposing C directly. Sampling uses x = m + σAy with y ∼ N(0, I), and the rank-1 and rank-μ covariance updates are implemented by sequential rank-one updates to A in O(μ d^2) time per iteration. The main deviation from standard CMA-ES is in step-size adaptation (CSA): the correction term C^{-1/2} in pσ is replaced by A^{-1}, omitting an orthogonal factor E_t that would arise from the RQ/QR relation between the symmetric square root and the Cholesky factor. Theoretical justification is provided via Lemma 1: assuming the normalized covariance C̄_t converges, ET_{t-1} E_t → I, so the induced error in ||pσ|| vanishes asymptotically. Empirically, on standard rotated benchmarks up to d = 256, the method matches the number of function evaluations of a reference CMA-ES while significantly reducing wall-clock time; the speedup grows with d.
+
+Relation to prior work: The idea of operating on a decomposition rather than C itself goes back to Suttorp et al. (nontriangular factors), and rank-one Cholesky updates for special CMA-ES variants were studied by Krause & Igel (2015) for μ=λ=1 and MO-CMA-ES. This paper extends those updates to the standard CMA-ES with rank-μ, and argues that the CSA modification remains effective.
+
+Strengths
+- Addresses a meaningful bottleneck in CMA-ES (matrix square root/eigendecomposition) without restricting the covariance model.
+- Practical algorithm with clear O(μ d^2) time and optimal storage complexity; triangular inverse available in O(d^2).
+- Sensible empirical evaluation on rotated benchmarks showing similar function evaluations and much lower wall-clock times; speedups are material for moderate-to-large d.
+- Discussion of why a nontriangular factorization can be problematic (non-bijectivity and potential rotation drift) is insightful.
+
+Weaknesses and detailed comments
+
+Quality (theory and experiments)
+- The main theoretical support for replacing C^{-1/2} with A^{-1} in CSA is weak. Lemma 1 assumes convergence of C̄_t and uniqueness/continuity of an RQ decomposition; this is not guaranteed in the stochastic CMA-ES dynamics, and no finite-time error bound on ||pσ|| is provided. The argument is heuristic and asymptotic.
+- The claim “As det C̄ ≠ 0, this decomposition is unique” is false for QR/RQ without explicit sign conventions; uniqueness requires, e.g., triangular factor with positive diagonal. Moreover, the proof inconsistently switches from decomposing C̄^{1/2} to C̄.
+- A critical technical error: “the diagonal elements of a triangular Cholesky factor are the square roots of the eigenvalues of the factorized matrix” is incorrect in general. diag(A)^2 are Cholesky pivots, not eigenvalues. This undermines claims about obtaining eigenvalues “for free” and using them to monitor conditioning.
+- Complexity statements are imprecise: repeatedly “ω(d^2)” is used to mean “super-quadratic” (typical costs are O(d^3)). The “asymptotically optimal” O(μ d^2) claim is asserted but not justified by a formal lower bound (other than the informal footnote about matrix multiplication).
+- Numerical stability is not analyzed. Rank-one updates to a Cholesky factor accumulate rounding errors; no conditioning safeguards (e.g., enforcing positive diagonals, jitter/regularization, re-factorization schedule) are discussed. Inverting A each iteration may magnify small diagonal entries. The algorithm’s behavior under near-singular C is not examined.
+- CSA invariance: the paper concedes lack of affine invariance guarantees and relies on empirical rotation tests. But only function evaluations are closely matched; more rigorous tests of rotation invariance (e.g., differences in step-size trajectories or pσ norms) are deferred to the supplement (not provided). No ablations isolate the effect of the CSA approximation (e.g., occasional exact C^{-1/2} vs A^{-1}).
+- Experimental fairness is unclear for wall-clock comparisons. Details like hardware, BLAS/LAPACK versions, compiler flags, threading, and whether all variants are implemented in the same optimized codebase are missing. The reference CMA-ES’s decomposition delay schedule is garbled (see clarity items), and computations are only run up to d=128 in the reference due to “long running times,” complicating comparisons at higher d.
+- The Rosenbrock protocol excludes nonconvergent runs; the fraction excluded is not reported, potentially biasing results.
+
+Clarity and presentation
+- Numerous formatting/typographical issues: broken references (e.g., “Akimoto et al.,? \Q2012\E”), inconsistent author names (“Heidrich.Meisner”), missing or malformed conference names, a stray “th Conference…” line, mismatched parentheses, and footnote markers in the main text. Equation numbering and footnotes (e.g., the “Given cc” paragraph) are misplaced.
+- In Section 2, the relation H = AE labeled as a “QR-decomposition” with A lower triangular and E orthogonal is nonstandard (QR convention is H = QR with R upper triangular). Later “RQ-decomposition” is used. Please fix terminology and specify sign conventions.
+- The delay schedule for the reference CMA-ES is written as max{1, 110 d (c1+cμ)}; likely 1/(10 d (c1+cμ)). As written it is nonsensical.
+- Lacking essential experimental details: hardware, software stack, exact parameter settings, stopping criteria per function, success rates, and confidence intervals. Figures and Table 1 are referenced but not presented; without them the claims cannot be verified by readers.
+
+Originality
+- The extension of rank-one Cholesky updates from μ=1 to general μ within standard CMA-ES is a useful incremental contribution. The CSA approximation via A^{-1} instead of C^{-1/2} is also a pragmatic idea. However, both build directly on existing foundations (Suttorp et al.; Krause & Igel), and the novelty is primarily engineering with limited new theory.
+
+Significance
+- If robust and widely applicable, the O(μ d^2) update with matched evaluation counts could be impactful for medium-to-high dimensional black-box optimization where full covariance remains feasible. However, the current theoretical justification is not compelling, and the experimental evidence, while promising, lacks rigor and reproducibility details. The incorrect eigenvalue claim is particularly concerning for the claimed monitoring benefits.
+
+Minor issues and requested clarifications
+- Prove (or cite) stability of Algorithm 2 under repeated updates; specify constraints on β and how you handle negative/very small diagonal entries.
+- Provide a finite-time bound on ||pσ|| error when replacing C^{-1/2} by A^{-1}, in terms of ||E_t^T E_{t-1} − I|| and the CSA forgetting factor.
+- Report success rates on Rosenbrock and fraction of excluded runs.
+- Ensure all variants are implemented in the same optimized environment and provide runtime reproducibility details.
+- Remove/repair all broken citations; standardize decomposition terminology; correct the eigenvalue statement.
+
+Pros
+- Practical speedup without sacrificing function evaluations on benchmarks.
+- Memory savings and straightforward implementation.
+- Addresses a relevant bottleneck in a widely used algorithm.
+
+Cons
+- Theoretical argument is heuristic; no finite-time guarantees.
+- Serious technical misstatement (Cholesky diagonals ≠ eigenvalues).
+- Poor presentation quality with many formatting/citation errors.
+- Experimental methodology lacks detail; fairness not convincingly established.
+
+Recommendation: Reject
+While the idea is promising and empirically appealing, the accumulation of technical inaccuracies (notably the eigenvalue claim), weak theoretical support for the CSA approximation, and significant presentation and reproducibility issues outweigh the contributions in the current form. I encourage the authors to correct the theoretical and factual errors, strengthen the analysis, and thoroughly revise the experimental section and presentation.

@@ -1,0 +1,62 @@
+Summary and relation to prior work
+The paper proposes Supervised Word Mover’s Distance (S-WMD), which learns a supervised document distance by jointly (i) learning a linear transformation A of the word embedding space and (ii) learning per-word importance weights w that reweight normalized BOW histograms. The distance between two documents is the entropically regularized optimal transport cost (Sinkhorn) between the reweighted histograms with ground cost ||A(xi − xj)||^2. The model parameters are learned by minimizing a stochastic leave-one-out kNN classification loss (NCA), with several computational tricks: using Sinkhorn for O(q^2) transport, approximating gradients via the optimal transport plan and dual potentials, initializing A via NCA on Word Centroid Distance (WCD), and restricting the NCA neighborhood to M nearest documents measured by WCD. Experiments on eight text datasets compare against WMD, WCD, and many representation+metric-learning baselines, reporting favorable kNN error.
+
+This work sits at the intersection of metric learning (NCA/LMNN/ITML), optimal transport (OT)/Wasserstein distances with entropy regularization (Cuturi 2013), and EMD metric learning (Cuturi & Avis; Wang & Guibas; Wang et al.). The novelty is applying supervised ground metric learning to word-embedding-based OT for text and co-learning histogram weights, coupled with an NCA objective and practical approximations.
+
+Strengths
+- Clear and relevant problem: tailoring WMD to task-specific supervision is natural and important for retrieval/classification.
+- Sound high-level idea: learn A in the embedding space and w over vocabulary, staying in low d while avoiding doc-level dimensionality.
+- Computationally aware: uses Sinkhorn, dual potentials, WCD-based neighbor subsampling, and a sensible WCD-based initialization.
+- Empirical scope: multiple datasets and many baselines; reports suggest consistent improvements over strong competitors.
+- Code released (claimed), which is valuable.
+
+Weaknesses and detailed comments
+Methodological/derivation issues
+- Constraints on w are unspecified. Since d̃a = (w ◦ da)/(w>da) must be a valid histogram, w should be nonnegative (and ideally bounded). The algorithm uses unconstrained gradient steps on w, risking negative entries and invalid histograms. A positivity-preserving parameterization (e.g., w = exp(θ)) or projection is needed.
+- Scaling/regularization of A is not addressed. Without constraints (e.g., Frobenius norm penalty or trace constraint), NCA with exponential softmax can drive norms arbitrarily large/small. There is no discussion of regularization, identifiability, or stability.
+- Gradient w.r.t. A (Eq. 8) ignores the dependence of the optimal transport plan on A unless invoking an envelope/Danskin argument. For the entropic OT, the objective is smooth, but the text cites uniqueness for the unregularized plan and then replaces it by T*λ. A rigorous justification (via the regularized objective and its smooth dependence on A) is missing, and references are unclear ([1] and [7] not clearly mapped).
+- Gradient w.r.t. w relies on dual potentials α*, β* and uses α*λ = log(u)/λ − mean(log u)/p · 1 and similarly for β. This centering is not standard; canonical relations are α = −(1/λ) log u + const, β = −(1/λ) log v + const. Provide derivation or citation showing why centering by the average is correct for the dual objective used in Eq. (9).
+- Neighborhood subsampling based on WCD may bias the NCA objective once A and w evolve, as the true nearest neighbors under DA,w can drift. Do you refresh neighbor sets during training, and how sensitive is training to M? There is no ablation on M, B, N, or on the frequency of neighbor set updates.
+- Choice and scaling of λ = 10 is ad hoc. Because the entropic regularization interacts with the magnitude of the ground cost (which changes as A changes), fixed λ can cause inconsistent smoothing across training. Some normalization or an adaptive λ strategy should be discussed and ablated.
+- Use of squared Euclidean ground cost is stated to be “usually set to 1 or 2” earlier, but the implementation appears to fix p=2. No comparison to p=1 or cosine costs; no justification for squared vs. non-squared.
+- Complexity analysis uses p and q inconsistently. Earlier q is unique words per doc; later p denotes the same. The final complexity O(TBN[p^2 + d^2(p + r)]) seems to double-count terms and lacks constants. Practical runtimes are claimed “seconds”, but no breakdown per dataset or sensitivity to p, d, r is given.
+
+Empirical concerns
+- Key experimental details are missing: which embedding (GoogleNews word2vec? dim d? OOV handling? tokenization, stopword removal, stemming?), vocabulary size n per dataset, average q, and values of r (A’s output dim). These are essential for reproducibility and for interpreting speed.
+- No ablation to disentangle the benefits of A vs. w. Do we gain primarily from reweighting or from metric learning? What happens if only A or only w is learned?
+- No comparison to recent supervised OT with Sinkhorn and learned ground costs in NLP (e.g., supervised alignment/transport baselines), or to simple supervised averaging (learned linear projection of WCD centroids). S-WCD is included but more analysis would help.
+- Lack of statistical tests. While multiple splits are reported for some datasets, no significance testing is provided, and tables are not included here to verify margins.
+- The neighbor filtering relies on WCD; no experiment shows accuracy vs. M trade-off or compares to full NCA training.
+
+Clarity and presentation
+- Notation is error-prone and inconsistent: p is used for the norm parameter, the length of 1p, and later for number of unique words; q vs. p; r appears without being motivated; n is both vocabulary size and sometimes reused as index bounds. Tighten notation throughout.
+- Several equations contain typos or awkward spacing (e.g., Eq. (1) label “D(xi,xj) = min_T …” mislabels the document distance; indices for dbj; normalization parentheses in Eq. (4)).
+- The dual potentials derivation is too terse; provide a short proof or precise citation.
+- Algorithm 1 contains malformed line numbers and missing punctuation; step 3 defines ca = Xda but then runs NCA to learn A on centroids—clarify dimension r and whether A acts on word vectors or centroids in initialization.
+- Figures/tables are referenced but not present; claims like “highlighted in blue/red” are not appropriate for grayscale print.
+
+Formatting and references
+- Numerous reference entries are incomplete or malformed (missing years, venues, pages), and some contain placeholders or question marks (e.g., “[5, 21? ]”, “th Conference on Neural Information Processing Systems (NIPS 2016)”, “/1 /10/27...wordcloud10.svg” artifact). This is below NeurIPS standards.
+- Footnote markers near the title are dangling (“∗Authors contributing equally †This work was done…”).
+- Minor grammar issues and inconsistent hyphenation (S-WMD vs SWMD; “document distances are” vs “distance is”).
+
+Questions for authors
+- How do you enforce w ≥ 0 during training? If by projection or reparametrization, please describe.
+- What regularization do you place on A and w? Any early stopping criteria?
+- How often do you recompute neighbor sets Na during training? Sensitivity to M and N?
+- Please provide the precise formulas and justification for α, β from u, v, including constants.
+- What is r, how is it chosen, and do you reduce d→r? How sensitive are results to r?
+- Which embedding did you use, and how do you handle OOV and preprocessing?
+
+Reproducibility
+- Currently limited: missing many training details, hyperparameters, and preprocessing choices. Please add a thorough appendix with all settings, ablations, and exact train/test splits.
+
+Overall assessment
+- Originality: moderate; learning a ground metric for OT is known, but applying it to WMD with joint word weighting and an NCA objective is a useful, domain-specific contribution.
+- Significance: potentially solid for text retrieval/classification; however, empirical evidence needs clearer, more reproducible support and ablations.
+- Quality: promising but several technical and presentation issues reduce confidence.
+- Clarity: below the bar due to notation, derivation shortcuts, and formatting.
+
+Recommendation: Lean reject. The idea is compelling and likely impactful, but the current manuscript has too many technical, clarity, and formatting shortcomings. With stronger derivations (esp. gradients and constraints), comprehensive experimental details/ablations, and a thorough cleanup, this could become a strong submission.
+
+Confidence: High.

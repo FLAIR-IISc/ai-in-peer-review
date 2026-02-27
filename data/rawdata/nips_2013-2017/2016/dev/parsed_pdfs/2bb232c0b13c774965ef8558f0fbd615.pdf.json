@@ -1,0 +1,592 @@
+{
+  "name" : "2bb232c0b13c774965ef8558f0fbd615.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Joint Line Segmentation and Transcription for End-to-End Handwritten Paragraph Recognition",
+    "authors" : [ "Théodore Bluche" ],
+    "emails" : [ "tb@a2ia.com" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Offline handwriting recognition consists in recognizing a sequence of characters in an image of handwritten text. Unlike printed texts, images of handwriting are difficult to segment into characters. Early methods tried to compute segmentation hypotheses for characters, for example by performing a heuristic over-segmentation, followed by a scoring of groups of segments (e.g. in [4]). In the nineties, this kind of approach was progressively replaced by segmentation-free methods, where a whole word image is fed to a system providing a sequence of scores. A lexicon constrains a decoding step, allowing to retrieve the character sequence. Some examples are the sliding window approach [25], in which features are extracted from vertical frames of the line image, or space-displacement neural networks [4]. In the last decade, word segmentations were abandoned in favor of complete text line recognition with statistical language models [10].\nNowadays, the state of the art handwriting recognition systems are Multi-Dimensional Long ShortTerm Memory Recurrent Neural Networks (MDLSTM-RNNs [18]), which consider the whole image, alternating MDLSTM layers and convolutional layers. The transformation of the 2D structure into a sequence is computed by a simple collapse layer summing the activations along the vertical axis. Connectionist Temporal Classification (CTC [17]) allows to train the network to both align and recognize sequences of characters. These models have become very popular and won the recent evaluations of handwriting recognition [9, 34, 37].\nHowever, current models still need segmented text lines, and full document processing pipelines should include automatic line segmentation algorithms. Although the segmentation of documents into lines is assumed in most descriptions of handwriting recognition systems, several papers or\n30th Conference on Neural Information Processing Systems (NIPS 2016), Barcelona, Spain.\nsurveys state that it is a crucial step for handwriting text recognition systems [8, 28]. The need of line segmentation to train the recognition system has also motivated several efforts to map a paragraph-level or page-level transcript to line positions in the image (e.g. recently [7, 16]).\nHandwriting recognition systems evolved from character to word segmentation, and to complete line processing nowadays. The performance has always improved by making less segmentation hypotheses. In this paper, we pursue this traditional tendency. We propose a model for multiline recognition based on the popular MDLSTM-RNNs, augmented with an attention mechanism inspired from the recent models for machine translation [3], image caption generation [38], or speech recognition [11, 12]. In the proposed model, the “collapse” layer is modified with an attention network, providing weights to modulate the importance given at different positions in the input. By iteratively applying this layer to a paragraph image, the network can transcribe each text line in turn, enabling a purely segmentation-free recognition of full paragraphs.\nWe carried out experiments on two public datasets of handwritten paragraphs: Rimes and IAM. We report results that are competitive with the state-of-the-art systems, which use the ground-truth line segmentation. The remaining of this paper is organized as follows. Section 2 presents methods related to the one presented here, in terms of the tackled problem and modeling choices. In Section 3, we introduce the baseline model: MDLSTM-RNNs. We expose in Section 4 the proposed modification, and we give the details of the system. Experimental results are reported in Section 5, and followed by a short discussion in Section 6, in which we explain how the system could be improved, and present the challenge of generalizing it to complete documents."
+    }, {
+      "heading" : "2 Related Work",
+      "text" : "Our work is clearly related to MDLSTM-RNNs [18], which we improve by replacing the simple collapse layer by a more elaborated mechanism, itself made of MDLSTM layers. The model we propose iteratively performs an implicit line segmentation at the level of intermediate representations.\nClassical text line segmentation algorithms are mostly based on image processing techniques and heuristics. However, some methods were devised using statistical models and machine learning techniques such as hidden Markov models [8], conditional random fields [21], or neural networks [24, 31, 32]. In our model, the line segmentation is performed implicitly and integrated in the neural network. The intermediate features are shared by the transcription and the segmentation models, and they are jointly trained to minimize the transcription error.\nRecently, many “attention-based” models were proposed to iteratively select in an encoded signal the relevant parts to make the next prediction. This paradigm, already suggested by Fukushima in 1987 [15], was successfully applied to various problems such as machine translation [3], image caption generation [38], speech recognition [11, 12], or cropped words in scene text [27]. Attention mechanisms were also parts of systems that can generate or recognize small pieces of handwriting (e.g. a few digits with DRAW [20] or RAM [2], or short online handwritten sequences [19]). Our system is designed to handle long sequences and multiple lines.\nIn the field of computer vision, and particularly object detection and recognition, many neural architectures were proposed to both locate and recognize the objects, such as OverFeat [35] or spatial transformer networks (STN [22]). In a sense, our model is quite related to the DenseCap model for image captioning [23], itself similar to STNs. However, we do not aim at explicitly predicting line positions, and STNs are not as good with a large amount of small objects.\nWe recently proposed an attention-based model to transcribe full paragraphs of handwritten text, which predicts each character in turn [6]. Outputting one token at a time turns out to be prohibitive in terms of memory and time consumption for full paragraphs, which typically contain about hundreds of characters. In the proposed system, the encoded image is not summarized as a single vector at each timestep, but as a sequence of vectors representing full text lines. It represents a huge speedup, and a comeback to the original MDLSTM-RNN architecture, in which the collapse layer is augmented with an MDLSTM attention network similar to the one presented in [6]."
+    }, {
+      "heading" : "3 Handwriting Recognition with MDLSTM and CTC",
+      "text" : "MDLSTM-RNNs [18] were first introduced in the context of handwriting recognition. The Multi-\nDimensional Long Short-Term Memory layers scan the input in the four possible directions. The LSTM cell inner state and output are computed from the states and outputs of previous positions in the considered horizontal and vertical directions. Each MDLSTM layer is followed by a convolutional layer. At the top of this network, there is one feature map for each character. These maps are collapsed into a sequence of prediction vectors, normalized with a softmax activation. The whole architecture is depicted in Figure 1. The Connectionist Temporal Classification (CTC [17]) algorithm, which considers all possible labellings of the sequence, may be applied to train the network to recognize text lines.\nThe 2D to 1D conversion happens in the collapsing layer, which computes a simple aggregation of the feature maps into vector sequences, i.e. maps of height 1. This is achieved by a simple sum across the vertical dimension:\nzi = H∑ j=1 aij (1)\nwhere zi is the i-th output vector and aij is the input feature vector at coordinates (i, j). All the information in the vertical dimension is reduced to a single vector, regardless of its position in the feature maps, preventing the recognition of multiple lines within this framework."
+    }, {
+      "heading" : "4 An Iterative Weighted Collapse for End-to-End Handwriting Recognition",
+      "text" : "In this paper, we replace the sum of Eqn. 1 by a weighted sum, in order to focus on a specific part of the input. The weighted collapse is defined as follows:\nz (t) i = H∑ j=1 ω (t) ij aij (2)\nwhere ω(t)ij are scalar weights between 0 and 1, computed at every time t for each position (i, j). The weights are provided by a recurrent neural network, illustrated in Figure 2, enabling the recognition of a text line at each timestep.\nThis collapse, weighted with a neural network, may be interpreted as the “attention” module of an attention-based neural network similar to those of [3, 38]. This mechanism is differentiable and can be trained with backpropagation. The complete architecture may be described as follows.\nAn encoder extracts feature maps from the input image I:\na = (aij)(i,j)∈[1,W ]×[1,H] = Encoder(I) (3)\nwhere (i, j) are coordinates in the feature maps. In this work, the Encoder module is an MDLSTM network with same architecture as the model presented in Section 3.\nA weighted collapse provides a view of the encoded image at each timestep in the form of a weighted sum of feature vector sequences. The attention network computes a score for the feature vectors at every position:\nα (t) ij = Attention(a, ω (t−1)) (4)\nWe refer to ω(t) = {ω(t)ij }(1≤i≤W, 1≤j≤H) as the attention map at time t, which computation depends not only on the encoded image, but also on the previous attention features. A softmax normalization is applied to each column:\nω (t) ij = e α (t) ij / ∑ j′ e α (t) ij′ (5)\nIn this work, the Attention module is an MDLSTM network.\nThis module is applied several times to the features from the encoder. The output of the attention module at iteration t, computed with Eqn. 2, is a sequence of feature vectors z, intended to represent a text line. Therefore, we may see this module as a soft line segmentation neural network. The advantages over the neural networks trained for line segmentation [13, 24, 32, 31] are that (i) it works on the same features as those used for the transcription (multi-task encoder) and (ii) it is trained to maximize the transcription accuracy (i.e. more closely related to the goal of handwriting recognition systems, and easily interpretable).\nA decoder predicts a character sequence from the feature vectors:\ny = Decoder(z) (6)\nwhere z is the concatenation of z(1), z(2), . . . , z(T ). Alternatively, the decoder may be applied to z(i)s sub-sequences to get y(i)s and y is the concatenation of y(1), y(2), . . . , y(T ).\nIn the standard MDLSTM architecture of Section 3, the decoder is a simple softmax. However, a Bidirectional LSTM (BLSTM) decoder could be applied to the collapsed representations. This is particularly interesting in the proposed model, as the BLSTM would potentially process the whole paragraph, allowing a modeling of dependencies across text lines.\nThis model can be trained with CTC. If the line breaks are known in the transcript, the CTC could be applied to the segments corresponding to each line prediction. Otherwise, one can directly apply CTC to the whole paragraph. In this work, we opted for that strategy, with a BLSTM decoder applied to the concatenation of all collapsing steps."
+    }, {
+      "heading" : "5 Experiments",
+      "text" : ""
+    }, {
+      "heading" : "5.1 Experimental Setup",
+      "text" : "We carried out the experiments on two public databases. The IAM database [29] is made of handwritten English texts copied from the LOB corpus. There are 747 documents (6,482 lines) in the training set, 116 documents (976 lines) in the validation set and 336 documents (2,915 lines) in the test set. The Rimes database [1] contains handwritten letters in French. The data consist of a training set of 1,500 paragraphs (11,333 lines), and a test set of 100 paragraphs (778 lines). We held out the last 100 paragraphs of the training set as a validation set.\nThe networks have the following architecture. The encoder first computes a 2x2 tiling of the input and alternate MDLSTM layers of 4, 20 and 100 units and 2x4 convolutions of 12 and 32 filters with no overlap. The last layer is a linear layer with 80 outputs for IAM and 102 for Rimes. The attention network is an MDLSTM network with 2x16 units in each direction followed by a linear\nlayer with one output, and a softmax on columns (Eqn. 5). The decoder is a BLSTM network with 256 units. Dropout is applied after each LSTM layer [33]. The networks are trained with RMSProp [36] with a base learning rate of 0.001 and mini-batches of 8 examples, to minimize the CTC loss over entire paragraphs. The measure of performance is the Character (or Word) Error Rate (CER%), corresponding to the edit distance between the recognition and ground-truth, normalized by the number of ground-truth characters."
+    }, {
+      "heading" : "5.2 Impact of the Decoder",
+      "text" : "In our model, the weighted collapse method is followed by a BLSTM decoder. In this experiment, we compare the baseline system (standard collapse followed by a softmax) with the proposed model. In order to dissociate the impact of the weighted collapse from that of the BLSTM decoder, we also trained an intermediate architecture with a BLSTM layer after the standard collapse, but still limited to text lines.\nThe character error rates (CER%) on the validation sets are reported in Table 1 for 150dpi images. We observe that the proposed model outperforms the baseline by a large margin (relative 20% improvement on IAM, 50% on Rimes), and that the gain may be attributed to both the BLSTM decoder, and the attention mechanism."
+    }, {
+      "heading" : "5.3 Impact of Line Segmentation",
+      "text" : "Our model performs an implicit line segmentation to transcribe paragraphs. The baseline considered in the previous section is somehow cheating, because it was evaluated on the ground-truth line segmentation. In this experiment, we add to the comparison the baseline models evaluated in a real scenario where they are applied to the result of an automatic line segmentation algorithm.\nIn Table 2, we report the CERs obtained with the ground-truth line positions, with three different segmentation algorithms, and with our end-to-end system, on the validation sets of both databases with different input resolutions. We see that applying the baseline networks on automatic segmentations increases the error rates, by an absolute 1% in the best case. We also observe that the models are better with higher resolutions.\nOur models yield better performance than methods based on an explicit and automatic line segmentation, and comparable or better results than with ground-truth segmentation, even with a resolution divided by two. Two factors may explain why our model yields better results than the line recognition from ground-truth segmentation. First, the ground-truth line positions are bounding boxes that may include some parts of adjacent lines and include irrelevant data, whereas the attention model will focus on smaller areas. But the main reason is probably that the proposed model includes a BLSTM operating on the whole paragraph, which may capture linguistic dependencies across text lines.\nIn Figure 3, we display a visualisation of the implicit line segmentation computed by the network. Each color corresponds to one step of the iterative weighted collapse. On the images, the color represents the weights given by the attention network (the transparency encodes their intensity). The texts below are the predicted transcriptions, and chunks are colored according to the corresponding timestep of the attention mechanism."
+    }, {
+      "heading" : "5.4 Comparison to Published Results",
+      "text" : "In this section, we also compute the word error rates (WER%) and evaluate our models on the test sets to compare the proposed approach to existing systems. For IAM, we applied a 3-gram language model with a lexicon of 50,000 words, trained on the LOB, Brown and Wellington corpora.1 This language model has a perplexity of 298 and out-of-vocabulary rate of 4.3% on the validation set (329 and 3.7% on the test set).\nThe results are presented in Table 3 for different input resolutions. When comparing the error rates, it is important to note that all systems in the literature used an explicit (ground-truth) line segmentation and a language model. [14, 26, 30] used a hybrid character/word language model to tackle the issue of out-of-vocabulary words. Moreover, all systems except [30, 33] carefully pre-processed the line image (e.g. corrected the slant or skew, normalized the height, ...), whereas we just normalized the pixel values to zero mean and unit variance. Finally, [5] is a combination of four systems.\nOn Rimes, the system applied to 150 dpi images already outperforms the state of the art in CER%, while being competitive in terms of WER%. The system for 300 dpi images is comparable to the best single system [33] in WER% with a significantly better CER%.\nOn IAM, the language model turned out to be quite important, probably because there is more variability in the language.2 On 150 dpi images, the results are not too far from the state of the art results. The WER% does not improve much on 300 dpi images, but we get a lower CER%. When analysing the errors, we noticed that there is a lot of punctuation in IAM, which was often missed by the attention mechanism. It may happen because punctuation marks are significantly smaller than characters. With the attention-based collapse and the weighted sum, they will be more easily missed than with the standard collapse, which gives the same weight to all vertical positions."
+    }, {
+      "heading" : "6 Discussion",
+      "text" : "The proposed model can transcribe complete paragraphs without segmentation and is orders of magnitude faster that the model of [6] (cf. Table 4). However, the mechanism cannot handle arbitrary reading orders. Rather, it implements a sort of implicit line segmentation. In the current implementation, the iterative collapse runs for a fixed number of timesteps. Yet, the model can handle a variable number of text lines, and, interestingly, the focus is put on interlines in the additional steps. A more elegant solution should include the prediction of a binary variable indicating when to stop reading.\nOur method was applied to paragraph images, so a document layout analysis is required to detect those paragraphs before applying the model. Naturally, the next step should be the transcription of complex documents without an explicit or assumed paragraph extraction. The limitation to paragraphs is inherent to this system. Indeed, the weighted collapse always outputs sequences corresponding to the whole width of the encoded image, which, in paragraphs, may correspond to text lines. In order to switch to full documents, several issues arise. On the one hand, the size of the lines is determined by the size of the text block. Thus a method should be devised to only select a smaller part of the feature maps, representing only the considered text line. This is not possible in the presented framework. A potential solution could come from spatial transformer networks [22], performing a differentiable crop. On the other hand, training will in practice become more difficult, not only because of the complexity of the task, but also because the reading order of text blocks in complex documents cannot be exactly inferred in many cases (even defining arbitrary rules may be tricky)."
+    }, {
+      "heading" : "7 Conclusion",
+      "text" : "We have presented a model to transcribe full paragraphs of handwritten texts without an explicit line segmentation. Contrary to classical methods relying on a two-step process (segment, then recognize), our system directly considers the paragraph image without an elaborated pre-processing, and outputs the complete transcription. We proposed a simple modification of the collapse layer in the standard MDLSTM architecture to iteratively focus on single text lines. This implicit line segmentation is learnt with backpropagation along with the rest of the network to minimize the CTC error at the paragraph level. We reported error rates comparable to the state of the art on two public databases. After switching from explicit to implicit character, then word segmentation for handwriting recognition, we showed that line segmentation can also be learnt inside the transcription model. The next step towards end-to-end handwriting recognition is now at the full page level.\n2 A simple language model yields a perplexity of 18 on Rimes [5]."
+    } ],
+    "references" : [ {
+      "title" : "Preteux. RIMES evaluation campaign for handwritten mail processing",
+      "author" : [ "E. Augustin", "M. Carré", "E. Grosicki", "J.-M. Brodin", "E. Geoffrois" ],
+      "venue" : "In Proceedings of the Workshop on Frontiers in Handwriting Recognition,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : "1",
+      "year" : 2006
+    }, {
+      "title" : "Multiple object recognition with visual attention",
+      "author" : [ "Jimmy Ba", "Volodymyr Mnih", "Koray Kavukcuoglu" ],
+      "venue" : "arXiv preprint arXiv:1412.7755,",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 2014
+    }, {
+      "title" : "Neural machine translation by jointly learning to align and translate",
+      "author" : [ "Dzmitry Bahdanau", "Kyunghyun Cho", "Yoshua Bengio" ],
+      "venue" : "arXiv preprint arXiv:1409.0473,",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 2014
+    }, {
+      "title" : "Lerec: A NN/HMM hybrid for on-line handwriting recognition",
+      "author" : [ "Yoshua Bengio", "Yann LeCun", "Craig Nohl", "Chris Burges" ],
+      "venue" : "Neural Computation,",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : "4",
+      "year" : 1995
+    }, {
+      "title" : "Deep Neural Networks for Large Vocabulary Handwritten Text Recognition",
+      "author" : [ "Théodore Bluche" ],
+      "venue" : "Theses, Université Paris Sud - Paris XI,",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : "5",
+      "year" : 2015
+    }, {
+      "title" : "Scan, Attend and Read: End-to-End Handwritten Paragraph Recognition with MDLSTM Attention",
+      "author" : [ "Théodore Bluche", "Jérôme Louradour", "Ronaldo Messina" ],
+      "venue" : "arXiv preprint arXiv:1604.03286,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : "6",
+      "year" : 2016
+    }, {
+      "title" : "Automatic line segmentation and groundtruth alignment of handwritten documents",
+      "author" : [ "Théodore Bluche", "Bastien Moysset", "Christopher Kermorvant" ],
+      "venue" : "In International Conference on Frontiers in Handwriting Recognition (ICFHR),",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : "7",
+      "year" : 2014
+    }, {
+      "title" : "Statistical text line analysis in handwritten documents",
+      "author" : [ "Vicente Bosch", "Alejandro Hector Toselli", "Enrique Vidal" ],
+      "venue" : "In Frontiers in Handwriting Recognition (ICFHR),",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : "8",
+      "year" : 2012
+    }, {
+      "title" : "The Maurdor Project: Improving Automatic Processing of Digital Documents",
+      "author" : [ "Sylvie Brunessaux", "Patrick Giroux", "Bruno Grilhères", "Mathieu Manta", "Maylis Bodin", "Khalid Choukri", "Olivier Galibert", "Juliette Kahn" ],
+      "venue" : "In Document Analysis Systems (DAS),",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 2014
+    }, {
+      "title" : "Offline recognition of unconstrained handwritten texts using hmms and statistical language models",
+      "author" : [ "Horst Bunke", "Samy Bengio", "Alessandro Vinciarelli" ],
+      "venue" : "Pattern Analysis and Machine Intelligence, IEEE Transactions on,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : "10",
+      "year" : 2004
+    }, {
+      "title" : "Listen, attend and spell",
+      "author" : [ "William Chan", "Navdeep Jaitly", "Quoc V Le", "Oriol Vinyals" ],
+      "venue" : "arXiv preprint arXiv:1508.01211,",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 2015
+    }, {
+      "title" : "Attentionbased models for speech recognition",
+      "author" : [ "Jan K Chorowski", "Dzmitry Bahdanau", "Dmitriy Serdyuk", "Kyunghyun Cho", "Yoshua Bengio" ],
+      "venue" : "In Advances in Neural Information Processing Systems,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 2015
+    }, {
+      "title" : "Fast and robust training of recurrent neural networks for offline handwriting recognition",
+      "author" : [ "Patrick Doetsch", "Michal Kozielski", "Hermann Ney" ],
+      "venue" : null,
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 2014
+    }, {
+      "title" : "Neural network model for selective attention in visual pattern recognition and associative recall",
+      "author" : [ "Kunihiko Fukushima" ],
+      "venue" : "Applied Optics,",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : "15",
+      "year" : 1987
+    }, {
+      "title" : "Ground-truth production in the transcriptorium project",
+      "author" : [ "Basilis Gatos", "Georgios Louloudis", "Tim Causer", "Kris Grint", "Veronica Romero", "Joan-Andreu Sánchez", "Alejandro Hector Toselli", "Enrique Vidal" ],
+      "venue" : "In Document Analysis Systems (DAS),",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : "16",
+      "year" : 2014
+    }, {
+      "title" : "Connectionist temporal classification: labelling unsegmented sequence data with recurrent neural networks",
+      "author" : [ "A Graves", "S Fernández", "F Gomez", "J Schmidhuber" ],
+      "venue" : "In International Conference on Machine learning,",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : "17",
+      "year" : 2006
+    }, {
+      "title" : "Offline Handwriting Recognition with Multidimensional Recurrent Neural Networks",
+      "author" : [ "A. Graves", "J. Schmidhuber" ],
+      "venue" : "In Advances in Neural Information Processing Systems,",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : "18",
+      "year" : 2008
+    }, {
+      "title" : "Generating sequences with recurrent neural networks",
+      "author" : [ "Alex Graves" ],
+      "venue" : "arXiv preprint arXiv:1308.0850,",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : "19",
+      "year" : 2013
+    }, {
+      "title" : "DRAW: A recurrent neural network for image generation",
+      "author" : [ "Karol Gregor", "Ivo Danihelka", "Alex Graves", "Daan Wierstra" ],
+      "venue" : "arXiv preprint arXiv:1502.04623,",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : "20",
+      "year" : 2015
+    }, {
+      "title" : "Continuous crf with multi-scale quantization feature functions application to structure extraction in old newspaper",
+      "author" : [ "David Hebert", "Thierry Paquet", "Stephane Nicolas" ],
+      "venue" : "In Document Analysis and Recognition (ICDAR),",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : "21",
+      "year" : 2011
+    }, {
+      "title" : "Spatial transformer networks",
+      "author" : [ "Max Jaderberg", "Karen Simonyan", "Andrew Zisserman" ],
+      "venue" : "In Advances in Neural Information Processing Systems,",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : "22",
+      "year" : 2015
+    }, {
+      "title" : "Densecap: Fully convolutional localization networks for dense captioning",
+      "author" : [ "Justin Johnson", "Andrej Karpathy", "Li Fei-Fei" ],
+      "venue" : "arXiv preprint arXiv:1511.07571,",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : "23",
+      "year" : 2015
+    }, {
+      "title" : "Neural network-based text location in color images",
+      "author" : [ "Keechul Jung" ],
+      "venue" : "Pattern Recognition Letters,",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : "24",
+      "year" : 2001
+    }, {
+      "title" : "Sophisticated topology of hidden Markov models for cursive script recognition",
+      "author" : [ "Alfred Kaltenmeier", "Torsten Caesar", "Joachim M Gloger", "Eberhard Mandler" ],
+      "venue" : "In Document Analysis and Recognition,",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : "25",
+      "year" : 1993
+    }, {
+      "title" : "Improvements in RWTH’s System for Off-Line Handwriting Recognition",
+      "author" : [ "Michal Kozielski", "Patrick Doetsch", "Hermann Ney" ],
+      "venue" : "In Document Analysis and Recognition (ICDAR),",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : "26",
+      "year" : 2013
+    }, {
+      "title" : "Recursive recurrent nets with attention modeling for ocr in the wild",
+      "author" : [ "Chen-Yu Lee", "Simon Osindero" ],
+      "venue" : "arXiv preprint arXiv:1603.03101,",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : "27",
+      "year" : 2016
+    }, {
+      "title" : "Text line segmentation of historical documents: a survey",
+      "author" : [ "Laurence Likforman-Sulem", "Abderrazak Zahour", "Bruno Taconet" ],
+      "venue" : "International Journal of Document Analysis and Recognition (IJDAR),",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : "28",
+      "year" : 2007
+    }, {
+      "title" : "The IAM-database: an English sentence database for offline handwriting recognition",
+      "author" : [ "U-V Marti", "Horst Bunke" ],
+      "venue" : "International Journal on Document Analysis and Recognition,",
+      "citeRegEx" : "29",
+      "shortCiteRegEx" : "29",
+      "year" : 2002
+    }, {
+      "title" : "Surgenerative Finite State Transducer n-gram for Out-Of-Vocabulary Word Recognition",
+      "author" : [ "R. Messina", "C. Kermorvant" ],
+      "venue" : "In 11th IAPR Workshop on Document Analysis Systems",
+      "citeRegEx" : "30",
+      "shortCiteRegEx" : "30",
+      "year" : 2014
+    }, {
+      "title" : "Space displacement localization neural networks to locate origin points of handwritten text lines in historical documents",
+      "author" : [ "Bastien Moysset", "Pierre Adam", "Christian Wolf", "Jérôme Louradour" ],
+      "venue" : "In International Workshop on Historical Document Imaging and Processing (HIP),",
+      "citeRegEx" : "31",
+      "shortCiteRegEx" : "31",
+      "year" : 2015
+    }, {
+      "title" : "Paragraph text segmentation into lines with recurrent neural networks",
+      "author" : [ "Bastien Moysset", "Christopher Kermorvant", "Christian Wolf", "Jérôme Louradour" ],
+      "venue" : "In International Conference of Document Analysis and Recognition (ICDAR),",
+      "citeRegEx" : "32",
+      "shortCiteRegEx" : "32",
+      "year" : 2015
+    }, {
+      "title" : "Dropout improves recurrent neural networks for handwriting recognition",
+      "author" : [ "Vu Pham", "Théodore Bluche", "Christopher Kermorvant", "Jérôme Louradour" ],
+      "venue" : "In 14th International Conference on Frontiers in Handwriting Recognition",
+      "citeRegEx" : "33",
+      "shortCiteRegEx" : "33",
+      "year" : 2014
+    }, {
+      "title" : "HTRtS: Handwritten Text Recognition on tranScriptorium Datasets",
+      "author" : [ "Joan Andreu Sánchez", "Verónica Romero", "Alejandro Toselli", "Enrique Vidal" ],
+      "venue" : "ICFHR",
+      "citeRegEx" : "34",
+      "shortCiteRegEx" : "34",
+      "year" : 2014
+    }, {
+      "title" : "Overfeat: Integrated recognition, localization and detection using convolutional networks",
+      "author" : [ "Pierre Sermanet", "David Eigen", "Xiang Zhang", "Michaël Mathieu", "Rob Fergus", "Yann LeCun" ],
+      "venue" : "arXiv preprint arXiv:1312.6229,",
+      "citeRegEx" : "35",
+      "shortCiteRegEx" : "35",
+      "year" : 2013
+    }, {
+      "title" : "Lecture 6.5-rmsprop: Divide the gradient by a running average of its recent magnitude",
+      "author" : [ "Tijmen Tieleman", "Geoffrey Hinton" ],
+      "venue" : "COURSERA: Neural Networks for Machine Learning,",
+      "citeRegEx" : "36",
+      "shortCiteRegEx" : "36",
+      "year" : 2012
+    }, {
+      "title" : "Open Handwriting Recognition and Translation (OpenHaRT13) Evaluation",
+      "author" : [ "A. Tong", "M. Przybocki", "V. Maergner", "H. El Abed" ],
+      "venue" : "NIST",
+      "citeRegEx" : "37",
+      "shortCiteRegEx" : "37",
+      "year" : 2013
+    }, {
+      "title" : "Show, attend and tell: Neural image caption generation with visual attention",
+      "author" : [ "Kelvin Xu", "Jimmy Ba", "Ryan Kiros", "Aaron Courville", "Ruslan Salakhutdinov", "Richard Zemel", "Yoshua Bengio" ],
+      "venue" : "arXiv preprint arXiv:1502.03044,",
+      "citeRegEx" : "38",
+      "shortCiteRegEx" : "38",
+      "year" : 2015
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 23,
+      "context" : "Some examples are the sliding window approach [25], in which features are extracted from vertical frames of the line image, or space-displacement neural networks [4].",
+      "startOffset" : 46,
+      "endOffset" : 50
+    }, {
+      "referenceID" : 3,
+      "context" : "Some examples are the sliding window approach [25], in which features are extracted from vertical frames of the line image, or space-displacement neural networks [4].",
+      "startOffset" : 162,
+      "endOffset" : 165
+    }, {
+      "referenceID" : 9,
+      "context" : "In the last decade, word segmentations were abandoned in favor of complete text line recognition with statistical language models [10].",
+      "startOffset" : 130,
+      "endOffset" : 134
+    }, {
+      "referenceID" : 16,
+      "context" : "Nowadays, the state of the art handwriting recognition systems are Multi-Dimensional Long ShortTerm Memory Recurrent Neural Networks (MDLSTM-RNNs [18]), which consider the whole image, alternating MDLSTM layers and convolutional layers.",
+      "startOffset" : 146,
+      "endOffset" : 150
+    }, {
+      "referenceID" : 15,
+      "context" : "Connectionist Temporal Classification (CTC [17]) allows to train the network to both align and recognize sequences of characters.",
+      "startOffset" : 43,
+      "endOffset" : 47
+    }, {
+      "referenceID" : 8,
+      "context" : "These models have become very popular and won the recent evaluations of handwriting recognition [9, 34, 37].",
+      "startOffset" : 96,
+      "endOffset" : 107
+    }, {
+      "referenceID" : 32,
+      "context" : "These models have become very popular and won the recent evaluations of handwriting recognition [9, 34, 37].",
+      "startOffset" : 96,
+      "endOffset" : 107
+    }, {
+      "referenceID" : 35,
+      "context" : "These models have become very popular and won the recent evaluations of handwriting recognition [9, 34, 37].",
+      "startOffset" : 96,
+      "endOffset" : 107
+    }, {
+      "referenceID" : 7,
+      "context" : "surveys state that it is a crucial step for handwriting text recognition systems [8, 28].",
+      "startOffset" : 81,
+      "endOffset" : 88
+    }, {
+      "referenceID" : 26,
+      "context" : "surveys state that it is a crucial step for handwriting text recognition systems [8, 28].",
+      "startOffset" : 81,
+      "endOffset" : 88
+    }, {
+      "referenceID" : 2,
+      "context" : "We propose a model for multiline recognition based on the popular MDLSTM-RNNs, augmented with an attention mechanism inspired from the recent models for machine translation [3], image caption generation [38], or speech recognition [11, 12].",
+      "startOffset" : 173,
+      "endOffset" : 176
+    }, {
+      "referenceID" : 36,
+      "context" : "We propose a model for multiline recognition based on the popular MDLSTM-RNNs, augmented with an attention mechanism inspired from the recent models for machine translation [3], image caption generation [38], or speech recognition [11, 12].",
+      "startOffset" : 203,
+      "endOffset" : 207
+    }, {
+      "referenceID" : 10,
+      "context" : "We propose a model for multiline recognition based on the popular MDLSTM-RNNs, augmented with an attention mechanism inspired from the recent models for machine translation [3], image caption generation [38], or speech recognition [11, 12].",
+      "startOffset" : 231,
+      "endOffset" : 239
+    }, {
+      "referenceID" : 11,
+      "context" : "We propose a model for multiline recognition based on the popular MDLSTM-RNNs, augmented with an attention mechanism inspired from the recent models for machine translation [3], image caption generation [38], or speech recognition [11, 12].",
+      "startOffset" : 231,
+      "endOffset" : 239
+    }, {
+      "referenceID" : 16,
+      "context" : "Our work is clearly related to MDLSTM-RNNs [18], which we improve by replacing the simple collapse layer by a more elaborated mechanism, itself made of MDLSTM layers.",
+      "startOffset" : 43,
+      "endOffset" : 47
+    }, {
+      "referenceID" : 7,
+      "context" : "However, some methods were devised using statistical models and machine learning techniques such as hidden Markov models [8], conditional random fields [21], or neural networks [24, 31, 32].",
+      "startOffset" : 121,
+      "endOffset" : 124
+    }, {
+      "referenceID" : 19,
+      "context" : "However, some methods were devised using statistical models and machine learning techniques such as hidden Markov models [8], conditional random fields [21], or neural networks [24, 31, 32].",
+      "startOffset" : 152,
+      "endOffset" : 156
+    }, {
+      "referenceID" : 22,
+      "context" : "However, some methods were devised using statistical models and machine learning techniques such as hidden Markov models [8], conditional random fields [21], or neural networks [24, 31, 32].",
+      "startOffset" : 177,
+      "endOffset" : 189
+    }, {
+      "referenceID" : 29,
+      "context" : "However, some methods were devised using statistical models and machine learning techniques such as hidden Markov models [8], conditional random fields [21], or neural networks [24, 31, 32].",
+      "startOffset" : 177,
+      "endOffset" : 189
+    }, {
+      "referenceID" : 30,
+      "context" : "However, some methods were devised using statistical models and machine learning techniques such as hidden Markov models [8], conditional random fields [21], or neural networks [24, 31, 32].",
+      "startOffset" : 177,
+      "endOffset" : 189
+    }, {
+      "referenceID" : 13,
+      "context" : "This paradigm, already suggested by Fukushima in 1987 [15], was successfully applied to various problems such as machine translation [3], image caption generation [38], speech recognition [11, 12], or cropped words in scene text [27].",
+      "startOffset" : 54,
+      "endOffset" : 58
+    }, {
+      "referenceID" : 2,
+      "context" : "This paradigm, already suggested by Fukushima in 1987 [15], was successfully applied to various problems such as machine translation [3], image caption generation [38], speech recognition [11, 12], or cropped words in scene text [27].",
+      "startOffset" : 133,
+      "endOffset" : 136
+    }, {
+      "referenceID" : 36,
+      "context" : "This paradigm, already suggested by Fukushima in 1987 [15], was successfully applied to various problems such as machine translation [3], image caption generation [38], speech recognition [11, 12], or cropped words in scene text [27].",
+      "startOffset" : 163,
+      "endOffset" : 167
+    }, {
+      "referenceID" : 10,
+      "context" : "This paradigm, already suggested by Fukushima in 1987 [15], was successfully applied to various problems such as machine translation [3], image caption generation [38], speech recognition [11, 12], or cropped words in scene text [27].",
+      "startOffset" : 188,
+      "endOffset" : 196
+    }, {
+      "referenceID" : 11,
+      "context" : "This paradigm, already suggested by Fukushima in 1987 [15], was successfully applied to various problems such as machine translation [3], image caption generation [38], speech recognition [11, 12], or cropped words in scene text [27].",
+      "startOffset" : 188,
+      "endOffset" : 196
+    }, {
+      "referenceID" : 25,
+      "context" : "This paradigm, already suggested by Fukushima in 1987 [15], was successfully applied to various problems such as machine translation [3], image caption generation [38], speech recognition [11, 12], or cropped words in scene text [27].",
+      "startOffset" : 229,
+      "endOffset" : 233
+    }, {
+      "referenceID" : 18,
+      "context" : "a few digits with DRAW [20] or RAM [2], or short online handwritten sequences [19]).",
+      "startOffset" : 23,
+      "endOffset" : 27
+    }, {
+      "referenceID" : 1,
+      "context" : "a few digits with DRAW [20] or RAM [2], or short online handwritten sequences [19]).",
+      "startOffset" : 35,
+      "endOffset" : 38
+    }, {
+      "referenceID" : 17,
+      "context" : "a few digits with DRAW [20] or RAM [2], or short online handwritten sequences [19]).",
+      "startOffset" : 78,
+      "endOffset" : 82
+    }, {
+      "referenceID" : 33,
+      "context" : "In the field of computer vision, and particularly object detection and recognition, many neural architectures were proposed to both locate and recognize the objects, such as OverFeat [35] or spatial transformer networks (STN [22]).",
+      "startOffset" : 183,
+      "endOffset" : 187
+    }, {
+      "referenceID" : 20,
+      "context" : "In the field of computer vision, and particularly object detection and recognition, many neural architectures were proposed to both locate and recognize the objects, such as OverFeat [35] or spatial transformer networks (STN [22]).",
+      "startOffset" : 225,
+      "endOffset" : 229
+    }, {
+      "referenceID" : 21,
+      "context" : "In a sense, our model is quite related to the DenseCap model for image captioning [23], itself similar to STNs.",
+      "startOffset" : 82,
+      "endOffset" : 86
+    }, {
+      "referenceID" : 5,
+      "context" : "We recently proposed an attention-based model to transcribe full paragraphs of handwritten text, which predicts each character in turn [6].",
+      "startOffset" : 135,
+      "endOffset" : 138
+    }, {
+      "referenceID" : 5,
+      "context" : "It represents a huge speedup, and a comeback to the original MDLSTM-RNN architecture, in which the collapse layer is augmented with an MDLSTM attention network similar to the one presented in [6].",
+      "startOffset" : 192,
+      "endOffset" : 195
+    }, {
+      "referenceID" : 16,
+      "context" : "MDLSTM-RNNs [18] were first introduced in the context of handwriting recognition.",
+      "startOffset" : 12,
+      "endOffset" : 16
+    }, {
+      "referenceID" : 15,
+      "context" : "The Connectionist Temporal Classification (CTC [17]) algorithm, which considers all possible labellings of the sequence, may be applied to train the network to recognize text lines.",
+      "startOffset" : 47,
+      "endOffset" : 51
+    }, {
+      "referenceID" : 2,
+      "context" : "This collapse, weighted with a neural network, may be interpreted as the “attention” module of an attention-based neural network similar to those of [3, 38].",
+      "startOffset" : 149,
+      "endOffset" : 156
+    }, {
+      "referenceID" : 36,
+      "context" : "This collapse, weighted with a neural network, may be interpreted as the “attention” module of an attention-based neural network similar to those of [3, 38].",
+      "startOffset" : 149,
+      "endOffset" : 156
+    }, {
+      "referenceID" : 22,
+      "context" : "The advantages over the neural networks trained for line segmentation [13, 24, 32, 31] are that (i) it works on the same features as those used for the transcription (multi-task encoder) and (ii) it is trained to maximize the transcription accuracy (i.",
+      "startOffset" : 70,
+      "endOffset" : 86
+    }, {
+      "referenceID" : 30,
+      "context" : "The advantages over the neural networks trained for line segmentation [13, 24, 32, 31] are that (i) it works on the same features as those used for the transcription (multi-task encoder) and (ii) it is trained to maximize the transcription accuracy (i.",
+      "startOffset" : 70,
+      "endOffset" : 86
+    }, {
+      "referenceID" : 29,
+      "context" : "The advantages over the neural networks trained for line segmentation [13, 24, 32, 31] are that (i) it works on the same features as those used for the transcription (multi-task encoder) and (ii) it is trained to maximize the transcription accuracy (i.",
+      "startOffset" : 70,
+      "endOffset" : 86
+    }, {
+      "referenceID" : 27,
+      "context" : "The IAM database [29] is made of handwritten English texts copied from the LOB corpus.",
+      "startOffset" : 17,
+      "endOffset" : 21
+    }, {
+      "referenceID" : 0,
+      "context" : "The Rimes database [1] contains handwritten letters in French.",
+      "startOffset" : 19,
+      "endOffset" : 22
+    }, {
+      "referenceID" : 31,
+      "context" : "Dropout is applied after each LSTM layer [33].",
+      "startOffset" : 41,
+      "endOffset" : 45
+    }, {
+      "referenceID" : 34,
+      "context" : "The networks are trained with RMSProp [36] with a base learning rate of 0.",
+      "startOffset" : 38,
+      "endOffset" : 42
+    }, {
+      "referenceID" : 12,
+      "context" : "[14, 26, 30] used a hybrid character/word language model to tackle the issue of out-of-vocabulary words.",
+      "startOffset" : 0,
+      "endOffset" : 12
+    }, {
+      "referenceID" : 24,
+      "context" : "[14, 26, 30] used a hybrid character/word language model to tackle the issue of out-of-vocabulary words.",
+      "startOffset" : 0,
+      "endOffset" : 12
+    }, {
+      "referenceID" : 28,
+      "context" : "[14, 26, 30] used a hybrid character/word language model to tackle the issue of out-of-vocabulary words.",
+      "startOffset" : 0,
+      "endOffset" : 12
+    }, {
+      "referenceID" : 28,
+      "context" : "Moreover, all systems except [30, 33] carefully pre-processed the line image (e.",
+      "startOffset" : 29,
+      "endOffset" : 37
+    }, {
+      "referenceID" : 31,
+      "context" : "Moreover, all systems except [30, 33] carefully pre-processed the line image (e.",
+      "startOffset" : 29,
+      "endOffset" : 37
+    }, {
+      "referenceID" : 4,
+      "context" : "Finally, [5] is a combination of four systems.",
+      "startOffset" : 9,
+      "endOffset" : 12
+    }, {
+      "referenceID" : 31,
+      "context" : "The system for 300 dpi images is comparable to the best single system [33] in WER% with a significantly better CER%.",
+      "startOffset" : 70,
+      "endOffset" : 74
+    }, {
+      "referenceID" : 5,
+      "context" : "Table 4: Comparison of decoding times of different methods: using ground-truth line information, with explicit segmentation, with the attention-based method of [6] and with the system presented in this paper.",
+      "startOffset" : 160,
+      "endOffset" : 163
+    }, {
+      "referenceID" : 5,
+      "context" : "26 Scan, Attend and Read [6] (reco) 21.",
+      "startOffset" : 25,
+      "endOffset" : 28
+    }, {
+      "referenceID" : 5,
+      "context" : "The proposed model can transcribe complete paragraphs without segmentation and is orders of magnitude faster that the model of [6] (cf.",
+      "startOffset" : 127,
+      "endOffset" : 130
+    }, {
+      "referenceID" : 20,
+      "context" : "A potential solution could come from spatial transformer networks [22], performing a differentiable crop.",
+      "startOffset" : 66,
+      "endOffset" : 70
+    }, {
+      "referenceID" : 4,
+      "context" : "2 A simple language model yields a perplexity of 18 on Rimes [5].",
+      "startOffset" : 61,
+      "endOffset" : 64
+    } ],
+    "year" : 2016,
+    "abstractText" : "Offline handwriting recognition systems require cropped text line images for both training and recognition. On the one hand, the annotation of position and transcript at line level is costly to obtain. On the other hand, automatic line segmentation algorithms are prone to errors, compromising the subsequent recognition. In this paper, we propose a modification of the popular and efficient Multi-Dimensional Long Short-Term Memory Recurrent Neural Networks (MDLSTM-RNNs) to enable end-to-end processing of handwritten paragraphs. More particularly, we replace the collapse layer transforming the two-dimensional representation into a sequence of predictions by a recurrent version which can select one line at a time. In the proposed model, a neural network performs a kind of implicit line segmentation by computing attention weights on the image representation. The experiments on paragraphs of Rimes and IAM databases yield results that are competitive with those of networks trained at line level, and constitute a significant step towards end-to-end transcription of full documents.",
+    "creator" : null
+  }
+}

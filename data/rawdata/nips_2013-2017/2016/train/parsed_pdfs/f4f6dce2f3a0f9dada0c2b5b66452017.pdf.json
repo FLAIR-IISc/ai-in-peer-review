@@ -1,0 +1,661 @@
+{
+  "name" : "f4f6dce2f3a0f9dada0c2b5b66452017.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "SPALS: Fast Alternating Least Squares via Implicit Leverage Scores Sampling",
+    "authors" : [ "Dehua Cheng", "Richard Peng", "Ioakeim Perros", "Yan Liu" ],
+    "emails" : [ "dehua.cheng@usc.edu", "rpeng@cc.gatech.edu", "perros@gatech.edu", "yanliu.cs@usc.edu" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Tensors, a.k.a. multidimensional arrays, appear frequently in many applications, including spatialtemporal data modeling [40], signal processing [12, 14], deep learning [29] and more. Low-rank tensor decomposition [21] is a fundamental tool for understanding and extracting the information from tensor data, which has been actively studied in recent years. Developing scalable and provable algorithms for most tensor processing tasks is challenging due to the non-convexity of the objective [18, 21, 16, 1]. Especially in the era of big data, scalable low-rank tensor decomposition algorithm (that runs in nearly linear or even sublinear time in the input data size) has become an absolute must to command the full power of tensor analytics. For instance, the Amazon review data [24] yield a 2, 440, 972⇥ 6, 643, 571⇥ 92, 626 tensor with 2 billion nonzero entries after preprocessing. Such data sets pose challenges of scalability to some of the simplest tensor decomposition tasks.\nThere are multiple well-defined tensor ranks[21]. In this paper, we focus on the tensor CANDECOMP/PARAFAC (CP) decomposition [17, 3], where the low-rank tensor is modeled by the summation over many rank-1 tensors. Due to its simplicity and interpretability, tensor CP decomposition, which is to find the best rank-R approximation for the input tensor often by minimizing the square loss function, has been widely adopted in many applications [21].\n30th Conference on Neural Information Processing Systems (NIPS 2016), Barcelona, Spain.\nMatrix Khatri-Rao (KRP) product captures the interactions between different tensor modes in the CP decomposition, and it is essential for understanding many tensor related tasks. For instance, in the alternating least square (ALS) algorithm, which has been the workhorse for solving the tensor CP decomposition problem, a compact representation of the KRP can reduce the computational cost directly. ALS is a simple and parameter-free algorithm that optimizes the target rank-R tensor by updating its factor matrices in the block coordinate descent fashion. In each iteration, the computational bottleneck is to solve a least square regression problem, where the size of the design matrix, a KRP of factor matrices, is n2 ⇥ n for an n⇥ n⇥ n tensor. While least square regression is one of the most studied problem, solving it exactly requires at least O(n2) operations [23], which can be larger than the size of input data for sparse tensors. For instance, the amazon review data with 2⇥ 109 nonzeros leads to a computational cost on the order of 1012 per iteration. Exploiting the structure of the KRP can reduce this cost to be linear in the input size, which on large-scale applications is still expensive for an iterative algorithm.\nAn effective way for speeding up such numerical computations is through randomization [23, 38], where the computational cost can be uncorrelated with the ambient size of the input data in the optimal case. By exploring the connection between the spectral structures of the design matrix as the KRP of the factor matrices, we provide efficient access to the statistical leverage score of the design matrix. It allows us to propose the SPALS algorithm that samples rows of the KRP in a nearly-optimal manner. This near optimality is twofold: 1) the estimates of leverage scores that we use have many tight cases; 2) the operation of sampling a row can be efficiently performed. The latter requirement is far from trivial: Note that even when the optimal sampling probability is given, drawing a sample may require O(n2) preprocessing. Our result on the spectral structures of the design matrix allows us to achieve both criteria simultaneously, leading to the first sublinear-per-iteration cost ALS algorithm with provable approximation guarantees. Our contributions can be summarized as follows:\n1. We show a close connection between the statistical leverage scores of the matrix Khatri-Rao product and the scores of the input matrices. This yields efficient and accurate leverage score estimations for importance sampling;\n2. Our algorithm achieves the state-of-art computational efficiency, while approximating the ALS algorithm provably for computing CP tensor decompositions. The running time of each iteration of our algorithm is ˜O(nR3), sublinear in the input size for large tensors.\n3. Our theoretical results on the spectral structure of KRP can also be applied on other tensor related applications such as stochastic gradient descent [26] and high-order singular value decompositions (HOSVD) [13].\nWe formalize the definitions in Section 2 and present our main results on leverage score estimation of the KRP in Section 3. The SPALS algorithm and its theoretical analysis are presented in Section 4. We discuss connections with previous works in Section 5. In Section 6, we empirical evaluate this algorithm and its variants on both synthetic and real world data. And we conclude and discuss our work in Section 7."
+    }, {
+      "heading" : "2 Notation and Background",
+      "text" : "Vectors are represented by boldface lowercase letters, such as, a,b, c; Matrices are represented by boldface capital letters, such as, A,B,C; Tensors are represented by boldface calligraphic capital letters, such as, T . Without loss of generality, in this paper we focus our discussion for the 3-mode tensors, but our results and algorithm can be easily generalized to higher-order tensors.\nThe ith entry of a vector is denoted by ai, element (i, j) of a matrix A is denoted by Aij , and the element (i, j, k) of a tensor T 2 RI⇥J⇥K is denoted by Tijk. For notation simplicity, we assume that (i, j) also represents the index i+ Ij between 1 and IJ , where the value I and J should be clear from the context. For a tensor T 2 RI⇥J⇥K , we denote the tensor norm as kT k, i.e., kT k = qPI,J,K\ni,j,k=1 T 2ijk. Special Matrix Products Our manipulation of tensors as matrices revolves around several matrix products. Our main focus is the matrix Khatri-Rao product (KRP) , where for a pair of matrices A 2 RI⇥R and B 2 RJ⇥R, A B 2 R(IJ)⇥R has element ((i, j), r) as AirBjr.\nWe also utilize the matrix Kronecker product ⌦ and the elementwise matrix product ⇤. More details on these products can be found in Appendix A and [21].\nTensor Matricization Here we consider only the case of mode-n matricization. For n = 1, 2, 3, the mode-n matricization of a tensor T 2 RI⇥J⇥K is denoted by T(n). For instance, T(3) 2 RK⇥IJ , where the element (k, (i, j)) is Tijk. Tensor CP Decomposition The tensor CP decomposition [17, 3] expresses a tensor as the sum of a number of rank-one tensors, e.g.,\nT = RX\nr=1\nar br cr,\nwhere denotes the outer product, T 2 RI⇥J⇥K and ar 2 RI ,br 2 RJ , and cr 2 RK for r = 1, 2, . . . , R. Tensor CP decomposition will be compactly represented using JA,B,CK, where the factor matrices A 2 RI⇥R,B 2 RJ⇥R and C 2 RK⇥R and ar,br, cr are their r-th column respectively, i.e., JA,B,CKijk = PR r=1 AirBjrCkr. Similar as in the matrix case, each rank-1 component is usually interpreted as a hidden factor, which captures the interactions between all dimensions in the simplest way.\nGiven a tensor T 2 RI⇥J⇥K along with target rank R, the goal is to find a rank-R tensor specified by its factor matrices A 2 RI⇥R,B 2 RJ⇥R,C 2 RK⇥R, that is as close to T as possible:\nmin A,B,C kT JA,B,CKk2 =\nX\ni,j,k\nT i,j,k\nRX\nr=1\nAirBjrCkr\n!2 .\nAlternating Least Squares Algorithm A widely used method for performing CP decomposition is alternating least squares (ALS) algorithm. It iteratively minimizes one of the factor matrices with the others fixed. For instance, when the factors A and B are fixed, algebraic manipulations suggest that the best choice of C can be obtained by solving the least squares regression:\nmin\nC\nXC> T>(3) 2 , (1)\nwhere the design matrix X = B A is the KRP of A and B, and T(3) is the matricization of T [21]."
+    }, {
+      "heading" : "3 Near-optimal Leverage Score Estimation for Khatri-Rao Product",
+      "text" : "As shown in Section 2, the matrix KRP captures the essential interactions between the factor matrices in the tensor CP decomposition. This task is challenging because the size of KRP of two matrices is significantly larger than the input matrices. For example, for the amazon review data, the KRP of two factor matrices contains 1012 rows, which is much larger than the data set itself with 109 nonzeros.\nImportance sampling is one of the most powerful tools for obtaining sample efficient randomized data reductions with strong guarantees. However, effective implementation requires comprehensive knowledge on the objects to be sampled: the KRP of factor matrices. In this section, we provide an efficient and effective toolset for estimating the statistical leverage scores of the KRP of factor matrices, giving a direct way of applying importance sampling, one of the most important tools in randomized matrix algorithms, for tensor CP decomposition related applications.\nIn the remainder of this section, we first define and discuss the optimal importance: statistical leverage score, in the context of `2-regression. Then we propose and prove our near-optimal leverage score estimation routine.\n3.1 Leverage Score Sampling for `2-regression\nIt is known that, when p ⌧ n, subsampling the rows of design matrix X 2 Rn⇥p by its statistical leverage score and solving on the samples provides efficient approximate solution to the least square regression problem: min kX yk22, with strong theoretical guarantees [23].\nDefinition 3.1 (Statistical Leverage Score). Given an n⇥ r matrix X, with n > r, let U denote the n⇥ r matrix consisting of the top-r left singular vectors of X. Then, the quantity\n⌧i = kUi,:k22, where Ui,: denotes the i-th row of U, is the statistical leverage score of the i-th row of X.\nThe statistical leverage score of a certain row captures importance of the row in forming the linear subspace. Its optimality in solving `2-regression can be explained by the subspace projection nature of linear regression.\nIt does not yield an efficient algorithm for the optimization problem in Equation (1) due to the difficulties of computing statistical leverage scores. But this reduction to the matrix setting allows for speedups using a variety of tools. In particular, sketching [6, 25, 27] or iterative sampling [22, 9] lead to routines that run in input sparsity time: O(nnz) plus the cost of solving an O(r log n) sized least squares problem. However, directly applying these methods still require at least one pass over T at each iteration, which will dominate the overall cost."
+    }, {
+      "heading" : "3.2 Near-optimal Leverage Score Estimation",
+      "text" : "As discussed in the previous section, the KRPs of factor matrices capture the interaction between two modes in the tensor CP decomposition, e.g., the design matrix B A in the linear regression problem. To extract a compact representation of the interaction, the statistical leverage scores of B A provide an informative distribution over the rows, which can be utilized to select the important subsets of rows randomly.\nFor a matrix with IJ rows in total, e.g., B A, in general, the calculation of statistical leverage score is prohibitively expensive. However, due to the special structure of the KRP B A, the upper bound of statistical leverage score, which is sufficient to obtain the same guarantee by using slightly more samples, can be efficiently estimated, as shown in Theorem 3.2. Theorem 3.2 (Khatri-Rao Bound). For matrix A 2 RI⇥R and matrix B 2 RJ⇥R, where I > R and J > R, let ⌧Ai and ⌧Bj be the statistical leverage score of the i-th and j-th row of A and B, respectively. Then, for statistical leverage score of the (iJ + j)-th row of matrix A B, ⌧A Bi,j , we have\n⌧A⌦Bi,j  ⌧Ai ⌧Bj .\nProof. Let the singular value decomposition of A and B be A = Ua⇤aVa> and B = Ub⇤bVb>, where Ua 2 RI⇥R, Ub 2 RJ⇥R, and ⇤a,⇤b,Va,Vb 2 RR⇥R. By the definition of Khatri-Rao product, we have that\nA B = [A:,1 ⌦B:,1, . . . ,A:,R ⌦B:,R] 2 RIJ⇥R, where ⌦ is the Kronecker product. By the form of SVD and Lemma B.1, we have A B =[Ua⇤a(Va1,:)> ⌦Ub⇤b(Vb1,:)>, . . . ,Ua⇤a(VaR,:)> ⌦Ub⇤b(VbR,:)>]\n= h (Ua⇤a)⌦ (Ub⇤b) i ⇣ Va> Vb> ⌘ = h Ua ⌦Ub i h ⇤a ⌦⇤b i ⇣ Va> Vb> ⌘ = h Ua ⌦Ub i S,\nwhere S = ⇥ ⇤a ⌦⇤b ⇤ ⇣ Va> Vb> ⌘ 2 RR\n2⇥R . So the SVD of A B can be constructed using the SVD of S = Us⇤sV>s . So the leverage score of A B can be computed from [Ua ⌦Ub]Us:\nH = [Ua ⌦Ub]UsU>s [Ua ⌦Ub]> , (2) and for the index k = iJ + j, we have\n⌧A Bi,j = Hk,k = e > k Hek  h Ua ⌦Ub i> ek 2\n2\n(3)\n= RX\np=1\nRX\nq=1\n(Uai,p) 2(Ubj,q) 2 = (\nRX\np=1\n(Uai,p) 2)(\nRX\nq=1\n(Ubj,q) 2 ) = ⌧Ai ⌧ B j , (4)\nwhere ei is the i-th natural basis vector. The first inequality is because H 4 [Ua ⌦Ub] [Ua ⌦Ub]> .\nAlgorithm 1 Sample a row from B A and T(3). Draw a Bernoulli random variable z ⇠ Bernoulli( ). if z = 0 then\nDraw i ⇠ Multi(⌧A1 /R, . . . , ⌧AI /R) and j ⇠ Multi(⌧B1 /R, . . . , ⌧BJ /R). else\nDraw a entry (i, j, k) from the nonzero entries with probability proportional to T 2i,j,k. end if Return the (jI + i)-th row of B A and T(3) with weight IJpi,j .\nFor the rank-R CP decomposition, the sum of the leverage scores for all rows in B A equals R. The sum of our upper bound relaxes it to R2, which means that now we need ˜O(R2) samples instead of ˜O(R). This result directly generalizes to the Khatri-Rao product of k-dimensional tensors. The proof is provided in Appendix C.\nTheorem 3.3. For matrices A(k) 2 RIk⇥R where Ik > R for k = 1, . . . ,K, let ⌧ (k)i be the statistical leverage score of the i-th row of A(k). Then, for the Q k Ik-by-R matrix A\n(1) A(2) · · · A(K) with statistical leverage score ⌧i1,...,iK for the row corresponding to ⌧i1,...,iK , we have\n⌧1:Ki1,...,iK  KY\nk=1\n⌧ (k)ik ,\nwhere ⌧1:Ki1,...,iK denotes the statistical leverage score of the row of A (1) A(2) · · · A(K) corresponding to the ik-th row of A(k) for k = 1, . . . ,K. Our estimation enables the development of efficient numerical algorithms and is nearly optimal in three ways:\n1. The estimation can be calculated in sublinear time given that max{I, J,K} = o (nnz(T )). For instance, for the amazon review data, we have max{I, J,K} ⇡ 106 ⌧ nnz(T ) ⇡ 109;\n2. The form of the estimation allows efficient sample-drawing. In fact, the row index can be drawn efficiently by considering each mode independently;\n3. The estimation is tight up to a constant factor R. And R is considered as modest constant for low-rank decomposition. Therefore, the estimation allows sample-efficient importance sampling."
+    }, {
+      "heading" : "4 SPALS: Sampling Alternating Least Squares",
+      "text" : "The direct application of our results on KRP leverage score estimation is an efficient version of the ALS algorithm for tensor CP decomposition, where the computational bottleneck is to solve the optimization problem 1.\nOur main algorithmic result is a way to obtain a high quality O(r2 log n) row sample of X without explicitly constructing the matrix X. This is motivated by a recent work that implicitly generates sparsifiers for multistep random walks [4]. In particular, we sample the rows of X, the KRP of A and B, using products of quantities computed on the corresponding rows in A and B, which provides a rank-1 approximation to the optimal importance: the statistical leverage scores. This leads to a sublinear time sampling routine, and implies that we can approximate the progress of each ALS step linear in the size of the factor being updated, which can be sublinear in the number of non-zeros in T . In the remainder of this section, we present our algorithm SPALS and prove its approximation guarantee. We will also discuss its extension to other tensor related applications."
+    }, {
+      "heading" : "4.1 Sampling Alternating Least Squares",
+      "text" : "The optimal solution to optimization problem (1) is\nC = T(3) (B A) ⇥ A>A ⇤ B>B ⇤ 1 .\nWe separate the calculation into two parts: (1) T(3) (B A), and (2) ⇥ A>A ⇤ B>B ⇤ 1, where ⇤ denotes the elementwise matrix product. The latter is to invert the gram matrix of the Khatri-Rao\nproduct, which can also be efficiently computed due to its R ⇥ R size. We will mostly focus on evaluating the former expression.\nWe perform the matrix multiplication by drawing a few rows from both T>(3) and B A and construct the final solution from the subset of rows. The row of B A can be indexed by (i, j) for i = 1, . . . , I and j = 1, . . . , J , which correspond to the i-th and j-th row in A and B, respectively. That is, our sampling problem can be seen as to sample the entries of a I ⇥ J matrix P = {pi,j}i,j . We define the sampling probability pi,j as follows,\npi,j = (1 ) ⌧Ai ⌧ B j\nR2 +\nPK k=1 T 2 i,j,k\nkT k2 . (5)\nwhere 2 (0, 1). The first term is a rank-1 component for matrix P. And when the input tensor is sparse, the second term is sparse, thus admitting the sparse plus low rank structure, which can be easily sampled as the mixture of two simple distributions. The sampling algorithm is described in Algorithm 1. Note that sampling by the leverage scores of the design matrix B A alone provides a guaranteed but worse approximation for each step [23]. Since that the design matrix itself is formed by two factor matrices, i.e., we are not directly utilizing the information in the data, we design the second term for the worst case scenario.\nWhen R ⌧ n and n ⌧ nnz(T ), where n = max(I, J,K), we can afford to calculate ⌧Ai and ⌧Bj exactly in each iteration. So the distribution corresponding to the first term can be efficiently sampled with preparation cost ˜O(r2n+ r3) and per-sample-cost O(log n). Note that the second term requires a one-time O(nnz(T )) preprocessing before the first iteration."
+    }, {
+      "heading" : "4.2 Approximation Guarantees",
+      "text" : "We define the following conditions:\nC1. The sampling probability pi,j satisfies pi,j 1 ⌧ A B i,j R for some constant 1; C2. The sampling probability pi,j satisfies pi,j 2 PK k=1 T 2 i,j,k\nkT k2 for some constant 2; The proposed probabilities pi,j in Equation (5) satisfy both conditions with 1 = (1 )/R and 2 = . We can now prove our main approximation result. Theorem 4.1. For a tensor T 2 RI⇥J⇥K with n = max(I, J,K) and any factor matrices on the first two dimension as A 2 RI⇥R and B 2 RJ⇥R. If a step of ALS on the third dimension gives Copt, then a step of SPALS that samples m = ⇥(R2 log n/✏2) rows produces C satisfying T qA,B,Cy 2 < kT JA,B,CoptKk2 + ✏kT k2. Proof. Denote the sample-and-rescale matrix as S 2 Rm⇥IJ . By Corollary E.3, we have that T(3) (B A) T(3)S>S (B A)  ✏kT k. Together with Lemma E.1, we can conclude.\nNote that the approximation error of our algorithm does not accumulate over iterations. Similar to the stochastic gradient descent algorithm, the error occurred in the previous iterations can be addressed in the subsequent iterations."
+    }, {
+      "heading" : "4.3 Extensions on Other Tensor Related Applications",
+      "text" : "Importance Sampling SGD on CP Decompostion We can incorporate importance sampling in the stochastic gradient descent algorithm for CP decomposition. The gradient follows the form\n@\n@C kT JA,B,CKk2 = T(3) (B A) .\nBy sampling rows according to proposed distribution, it reduces the per-step variance via importance sampling [26]. Our result addresses the computational difficulty of finding the appropriate importance.\nSampling ALS on Higher-Order Singular Value Decomposition (HOSVD) For solving the HOSVD [13] on tensor, the Kronecker product is involved instead of the Khatri-Rao product. In Appendix D, we prove similar leverage score approximation results for Kronecker product. In fact, for Kronecker product, our “approximation” provides the exact leverage score.\nTheorem 4.2. For matrix A 2 RI⇥M and matrix B 2 RJ⇥N , where I > M and J > N , let ⌧Ai and ⌧Bj be the statistical leverage score of the i-th and j-th row of A and B, respectively. Then, for matrix A ⌦B 2 RIJ⇥MN with statistical leverage score ⌧A⌦Bi,j for the (iJ + j)-th row, we have ⌧A⌦Bi,j = ⌧ A i ⌧ B j ."
+    }, {
+      "heading" : "5 Related Works",
+      "text" : "CP decomposition is one of the simplest, most easily-interpretable tensor decomposition. Fitting it in an ALS fashion is still considered as the state-of-art in the recent tensor analytics literature [37]. The most widely used implementation of ALS is the MATLAB Tensor Toolbox [21]. It directly performs the analytic solution of ALS steps. There is a line of work on speeding up this procedure in distributed/parallel/MapReduce settings [20, 19, 5, 33]. Such approaches are compatible with our approach, as we directly reduce the number of steps by sampling. A similar connection holds for works achieving more efficient computation of KRP steps of the ALS algorithm such as in [32].\nThe applicability of randomized numerical linear algebra tools to tensors was studied during their development [28]. Within the context of sampling-based tensor decomposition, early work has been published in [36, 35] that focuses though on Tucker decomposition. In [30], sampling is used as a means of extracting small representative sub-tensors out of the initial input, which are further decomposed via the standard ALS and carefully merged to form the output. Another work based on an a-priori sampling of the input tensor can be found in [2]. However, recent developments in randomized numerical linear algebra often focused on over-constrained regression problems or low rank matrices. The incorporation of such tools into tensor analytics routines was fairly recent [31, 37]\nMost closely related to our algorithm are the routines from [37], which gave a sketch-based CP decomposition inspired by the earlier work in [31]. Both approaches only need to examine the factorization at each iteration, followed by a number of updates that only depends on rank. A main difference is that the sketches in [37] moves the non-zeroes, while our sampling approach removes many entries instead. Their algorithm also performs a subsequent FFT step, while our routine always works on subsets of the matricizations. Our method is much more suitable for sparse tensors. Also, our routine can be considered as data dependent randomization, which enjoys better approximation accuracy than [37] in the worst case.\nFor direct comparison, the method in [37] and ours both require nnz(T ) preprocessing at the beginning. Then, for each iteration, our method requires ˜O(nr3) operations comparing with O(r(n+ Bb log b) + r3) for [37]. Here B and b for [37] are parameters for the sketching and need to be tuned for various applications. Depending on the target accuracy, b can be as large as the input size: on the cube synthetic tensors with n = 103 that the experiments in [37] focused on, b was set to between 2\n14 ⇡ ⇥103 and 216 ⇡ 6⇥ 104 in order to converge to good relative errors. From a distance, our method can be viewed as incorporating randomization into the intermediate steps of algorithms, and can be viewed as higher dimensional analogs of weighted SGD algorithms [39]. Compared to more global uses of randomization [38], these more piecemeal invocations have several advantages. For high dimensional tensors, sketching methods need to preserve all dimensions, while the intermediate problems only involve matrices, and can often be reduced to smaller dimensions. For approximating a rank R tensor in d dimensions to error ✏, this represents the difference between poly(R, ✏) and R✏\nd. Furthermore, the lower cost of each step of alternate minimization makes it much easier to increase accuracy at the last few steps, leading to algorithms that behave the same way in the limit. The wealth of works on reducing sizes of matrices while preserving objectives such as `p norms, hinge losses, and M-estimators [11, 10, 8, 7] also suggest that this approach can be directly adapted to much wider ranges of settings and objectives."
+    }, {
+      "heading" : "6 Experimental Results",
+      "text" : "We implemented and evaluated our algorithms in a single machine setting. The source code is available online1. Experiments are tested on a single machine with two Intel Xeon E5-2630 v3 CPU and 256GB memory. All methods are implemented in C++ with OpenMP parallelization. We report averages from 5 trials.\n1 https://github.com/dehuacheng/SpAls\nDense Synthetic Tensors We start by comparing our method against the sketching based algorithm from [37] in the single thread setting as in their evaluation. The synthetic data we tested are thirdorder tensors with dimension n = 1000, as described in [37]. We generated a rank-1000 tensor with harmonically decreasing weights on rank-1 components. And then after normalization, random Gaussian noise with noise-to-signal nsr = 0.1, 1, 10 was added. As with previous experimental evaluations [37], we set target rank to r = 10. The performances are given in Table 1a. We vary the sampling rate of our algorithm, i.e., SPALS(↵) will sample ↵r2 log2 n rows at each iteration.\nnsr = 0.1 nsr = 1 nsr = 10 error time error time error time\nALS-dense 0.27 64.8 1.08 66.2 10.08 67.6 sketch(20, 14) 0.45 6.50 1.37 4.70 11.11 4.90 sketch(40, 16) 0.30 16.0 1.13 12.7 10.27 12.4 ALS-sparse 0.24 501 1.09 512 10.15 498 SPALS(0.3) 0.20 1.76 1.14 1.93 10.40 1.92 SPALS(1) 0.18 5.79 1.10 5.64 10.21 5.94\nSPALS(3.0) 0.21 15.9 1.09 16.1 10.15 16.16 (a) Running times per iterations in seconds and errors of various alternating least squares implementations\nerror time ALS-sparse 0.981 142 SPALS(0.3) 0.987 6.97 SPALS(1) 0.983 15.7\nSPALS(3.0) 0.982 38.9 (b) Relative error and running times per iteration on the Amazon review tensor with dimensions 2.44e6 ⇥ 6.64e6 ⇥ 9.26e4 and 2.02 billion non-zeros\nOn these instances, a call to SPALS with rate ↵ samples was about 4.77↵⇥103 rows, and as the tensor is dense, 4.77↵ ⇥ 106 entries. The correspondence between running times and rates demonstrate the sublinear runtimes of SPALS with low sampling rates. Comparing with the [37], our algorithm employs data dependent random sketch with minimal overhead, which yields significantly better precision with similar amount of computation.\nSparse Data Tensor Our original motivation for SPALS was to handle large sparse data tensors. We ran our algorithm on a large-scale tensor generated from Amazon review data [24]. Its sizes and convergences of SPALS with various parameters are in Table 1b. We conduct the experiments in parallel with 16 threads. The Amazon data tensor has a much higher noise to signal ratio than our other experiments which common for large-scale data tensors: Running deterministic ALS with rank 10 on it leads to a relative error of 98.1%. SPALS converges rapidly towards a good approximation with only a small fraction of time comparing with the ALS algorithm."
+    }, {
+      "heading" : "7 Discussion",
+      "text" : "Our experiments show that SPALS provides notable speedup over previous CP decomposition routines on both dense and sparse data. There are two main sources of speedups: (1) the low target rank and moderate individual dimensions enable us to compute leverage scores efficiently; and (2) the simple representations of the sampled form also allows us to use mostly code from existing ALS routines with minimal computational overhead. It is worth noting that in the dense case, the total number of entries accessed during all 20 iterations is far fewer than the size of T . Nonetheless, the adaptive nature of the sampling scheme means all the information from T are taken into account while generating the first and subsequent iterations. From a randomized algorithms perspective, the sub-linear time sampling steps bear strong resemblances with stochastic optimization routines [34]. We believe more systematically investigating such connections can lead to more direct connections between tensors and randomized numerical linear algebra, and in turn further algorithmic improvements."
+    }, {
+      "heading" : "Acknowledgments",
+      "text" : "This work is supported in part by the U. S. Army Research Office under grant number W911NF-15-10491, NSF Research Grant IIS-1254206 and IIS-1134990. The views and conclusions are those of the authors and should not be interpreted as representing the official policies of the funding agency, or the U.S. Government."
+    } ],
+    "references" : [ {
+      "title" : "Dictionary learning and tensor decomposition via the sum-of-squares method",
+      "author" : [ "B. Barak", "J.A. Kelner", "D. Steurer" ],
+      "venue" : "In STOC,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : "1",
+      "year" : 2015
+    }, {
+      "title" : "A New Sampling Technique for Tensors",
+      "author" : [ "S. Bhojanapalli", "S. Sanghavi" ],
+      "venue" : "ArXiv e-prints,",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 2015
+    }, {
+      "title" : "Analysis of individual differences in multidimensional scaling via an n-way generalization of “eckart-young",
+      "author" : [ "J.D. Carroll", "J.-J. Chang" ],
+      "venue" : null,
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 1970
+    }, {
+      "title" : "Spectral sparsification of random-walk matrix polynomials",
+      "author" : [ "D. Cheng", "Y. Cheng", "Y. Liu", "R. Peng", "S.-H. Teng" ],
+      "venue" : "arXiv preprint arXiv:1502.03496,",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : "4",
+      "year" : 2015
+    }, {
+      "title" : "Dfacto: Distributed factorization of tensors",
+      "author" : [ "J.H. Choi", "S. Vishwanathan" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : "5",
+      "year" : 2014
+    }, {
+      "title" : "Low rank approximation and regression in input sparsity time",
+      "author" : [ "K.L. Clarkson", "D.P. Woodruff" ],
+      "venue" : "In STOC,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : "6",
+      "year" : 2013
+    }, {
+      "title" : "Input sparsity and hardness for robust subspace approximation",
+      "author" : [ "K.L. Clarkson", "D.P. Woodruff" ],
+      "venue" : "In FOCS,",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : "7",
+      "year" : 2015
+    }, {
+      "title" : "Sketching for m-estimators: A unified approach to robust regression",
+      "author" : [ "K.L. Clarkson", "D.P. Woodruff" ],
+      "venue" : "In SODA,",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : "8",
+      "year" : 2015
+    }, {
+      "title" : "Uniform sampling for matrix approximation",
+      "author" : [ "M.B. Cohen", "Y.T. Lee", "C. Musco", "R. Peng", "A. Sidford" ],
+      "venue" : "ITCS,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 2015
+    }, {
+      "title" : "`p row sampling by Lewis weights",
+      "author" : [ "M.B. Cohen", "R. Peng" ],
+      "venue" : "In STOC,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : "10",
+      "year" : 2015
+    }, {
+      "title" : "Sampling algorithms and coresets for \\ell_p regression",
+      "author" : [ "A. Dasgupta", "P. Drineas", "B. Harb", "R. Kumar", "M.W. Mahoney" ],
+      "venue" : "SIAM Journal on Computing,",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 2009
+    }, {
+      "title" : "From matrix to tensor: Multilinear algebra and signal processing",
+      "author" : [ "L. De Lathauwer", "B. De Moor" ],
+      "venue" : "In Institute of Mathematics and Its Applications Conference Series,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 1998
+    }, {
+      "title" : "A multilinear singular value decomposition",
+      "author" : [ "L. De Lathauwer", "B. De Moor", "J. Vandewalle" ],
+      "venue" : "SIAM journal on Matrix Analysis and Applications,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 2000
+    }, {
+      "title" : "Tensor rank and the ill-posedness of the best low-rank approximation problem",
+      "author" : [ "V. De Silva", "L.-H. Lim" ],
+      "venue" : "SIAM J. Matrix Anal. Appl.,",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 2008
+    }, {
+      "title" : "Faster least squares approximation",
+      "author" : [ "P. Drineas", "M.W. Mahoney", "S. Muthukrishnan", "T. Sarlós" ],
+      "venue" : "Numerische Mathematik,",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : "15",
+      "year" : 2011
+    }, {
+      "title" : "Escaping from saddle points - online stochastic gradient for tensor decomposition",
+      "author" : [ "R. Ge", "F. Huang", "C. Jin", "Y. Yuan" ],
+      "venue" : "In COLT,",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : "16",
+      "year" : 2015
+    }, {
+      "title" : "Foundations of the parafac procedure: Models and conditions for an\" explanatory\" multi-modal factor analysis",
+      "author" : [ "R.A. Harshman" ],
+      "venue" : null,
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : "17",
+      "year" : 1970
+    }, {
+      "title" : "Most tensor problems are np-hard",
+      "author" : [ "C.J. Hillar", "L.-H. Lim" ],
+      "venue" : "Journal of the ACM (JACM),",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : "18",
+      "year" : 2013
+    }, {
+      "title" : "Haten2: Billion-scale tensor decompositions",
+      "author" : [ "I. Jeon", "E.E. Papalexakis", "U. Kang", "C. Faloutsos" ],
+      "venue" : "In ICDE,",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : "19",
+      "year" : 2015
+    }, {
+      "title" : "Gigatensor: scaling tensor analysis up by 100 times-algorithms and discoveries",
+      "author" : [ "U. Kang", "E. Papalexakis", "A. Harpale", "C. Faloutsos" ],
+      "venue" : "In KDD,",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : "20",
+      "year" : 2012
+    }, {
+      "title" : "Tensor decompositions and applications",
+      "author" : [ "T.G. Kolda", "B.W. Bader" ],
+      "venue" : "SIAM review,",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : "21",
+      "year" : 2009
+    }, {
+      "title" : "Iterative row sampling",
+      "author" : [ "M. Li", "G. Miller", "R. Peng" ],
+      "venue" : "In FOCS,",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : "22",
+      "year" : 2013
+    }, {
+      "title" : "Randomized algorithms for matrices and data",
+      "author" : [ "M.W. Mahoney" ],
+      "venue" : "Foundations and Trends R  in Machine Learning,",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : "23",
+      "year" : 2011
+    }, {
+      "title" : "Hidden factors and hidden topics: understanding rating dimensions with review text",
+      "author" : [ "J. McAuley", "J. Leskovec" ],
+      "venue" : "In RecSys,",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : "24",
+      "year" : 2013
+    }, {
+      "title" : "Low-distortion subspace embeddings in input-sparsity time and applications to robust linear regression",
+      "author" : [ "X. Meng", "M.W. Mahoney" ],
+      "venue" : "In STOC,",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : "25",
+      "year" : 2013
+    }, {
+      "title" : "Stochastic gradient descent, weighted sampling, and the randomized kaczmarz algorithm",
+      "author" : [ "D. Needell", "R. Ward", "N. Srebro" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : "26",
+      "year" : 2014
+    }, {
+      "title" : "Osnap: Faster numerical linear algebra algorithms via sparser subspace embeddings",
+      "author" : [ "J. Nelson", "H.L. Nguyên" ],
+      "venue" : "In FOCS,",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : "27",
+      "year" : 2013
+    }, {
+      "title" : "Tensor sparsification via a bound on the spectral norm of random tensors",
+      "author" : [ "N.H. Nguyen", "P. Drineas", "T.D. Tran" ],
+      "venue" : null,
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : "28",
+      "year" : 2010
+    }, {
+      "title" : "Tensorizing neural networks",
+      "author" : [ "A. Novikov", "D. Podoprikhin", "A. Osokin", "D.P. Vetrov" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "29",
+      "shortCiteRegEx" : "29",
+      "year" : 2015
+    }, {
+      "title" : "Parcube: Sparse parallelizable tensor decompositions",
+      "author" : [ "E.E. Papalexakis", "C. Faloutsos", "N.D. Sidiropoulos" ],
+      "venue" : "In Machine Learning and Knowledge Discovery in Databases. Springer,",
+      "citeRegEx" : "30",
+      "shortCiteRegEx" : "30",
+      "year" : 2012
+    }, {
+      "title" : "Fast and scalable polynomial kernels via explicit feature maps",
+      "author" : [ "N. Pham", "R. Pagh" ],
+      "venue" : "In KDD,",
+      "citeRegEx" : "31",
+      "shortCiteRegEx" : "31",
+      "year" : 2013
+    }, {
+      "title" : "Fast alternating ls algorithms for high order candecomp/parafac tensor factorizations",
+      "author" : [ "A.-H. Phan", "P. Tichavsky", "A. Cichocki" ],
+      "venue" : "Signal Processing, IEEE Transactions on,",
+      "citeRegEx" : "32",
+      "shortCiteRegEx" : "32",
+      "year" : 2013
+    }, {
+      "title" : "Splatt: Efficient and parallel sparse tensormatrix multiplication",
+      "author" : [ "S. Smith", "N. Ravindran", "N.D. Sidiropoulos", "G. Karypis" ],
+      "venue" : "IEEE International Parallel & Distributed Processing Symposium,",
+      "citeRegEx" : "33",
+      "shortCiteRegEx" : "33",
+      "year" : 2015
+    }, {
+      "title" : "A randomized kaczmarz algorithm with exponential convergence",
+      "author" : [ "T. Strohmer", "R. Vershynin" ],
+      "venue" : "JFAA,",
+      "citeRegEx" : "34",
+      "shortCiteRegEx" : "34",
+      "year" : 2009
+    }, {
+      "title" : "Multivis: Content-based social network exploration through multi-way visual analysis",
+      "author" : [ "J. Sun", "S. Papadimitriou", "C.-Y. Lin", "N. Cao", "S. Liu", "W. Qian" ],
+      "venue" : "In SDM. SIAM,",
+      "citeRegEx" : "35",
+      "shortCiteRegEx" : "35",
+      "year" : 2009
+    }, {
+      "title" : "Mach: Fast randomized tensor decompositions",
+      "author" : [ "C.E. Tsourakakis" ],
+      "venue" : "In SDM. SIAM,",
+      "citeRegEx" : "36",
+      "shortCiteRegEx" : "36",
+      "year" : 2010
+    }, {
+      "title" : "Fast and guaranteed tensor decomposition via sketching",
+      "author" : [ "Y. Wang", "H.-Y. Tung", "A.J. Smola", "A. Anandkumar" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "37",
+      "shortCiteRegEx" : "37",
+      "year" : 2015
+    }, {
+      "title" : "Sketching as a tool for numerical linear algebra",
+      "author" : [ "D.P. Woodruff" ],
+      "venue" : "Foundations and Trends R  in Theoretical Computer Science,",
+      "citeRegEx" : "38",
+      "shortCiteRegEx" : "38",
+      "year" : 2014
+    }, {
+      "title" : "Weighted sgd for `p regression with randomized preconditioning",
+      "author" : [ "J. Yang", "Y. Chow", "C. Ré", "M.W. Mahoney" ],
+      "venue" : "In SODA,",
+      "citeRegEx" : "39",
+      "shortCiteRegEx" : "39",
+      "year" : 2016
+    }, {
+      "title" : "Accelerated online low rank tensor learning for multivariate spatiotemporal streams",
+      "author" : [ "R. Yu", "D. Cheng", "Y. Liu" ],
+      "venue" : "In ICML,",
+      "citeRegEx" : "40",
+      "shortCiteRegEx" : "40",
+      "year" : 2015
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 39,
+      "context" : "multidimensional arrays, appear frequently in many applications, including spatialtemporal data modeling [40], signal processing [12, 14], deep learning [29] and more.",
+      "startOffset" : 105,
+      "endOffset" : 109
+    }, {
+      "referenceID" : 11,
+      "context" : "multidimensional arrays, appear frequently in many applications, including spatialtemporal data modeling [40], signal processing [12, 14], deep learning [29] and more.",
+      "startOffset" : 129,
+      "endOffset" : 137
+    }, {
+      "referenceID" : 13,
+      "context" : "multidimensional arrays, appear frequently in many applications, including spatialtemporal data modeling [40], signal processing [12, 14], deep learning [29] and more.",
+      "startOffset" : 129,
+      "endOffset" : 137
+    }, {
+      "referenceID" : 28,
+      "context" : "multidimensional arrays, appear frequently in many applications, including spatialtemporal data modeling [40], signal processing [12, 14], deep learning [29] and more.",
+      "startOffset" : 153,
+      "endOffset" : 157
+    }, {
+      "referenceID" : 20,
+      "context" : "Low-rank tensor decomposition [21] is a fundamental tool for understanding and extracting the information from tensor data, which has been actively studied in recent years.",
+      "startOffset" : 30,
+      "endOffset" : 34
+    }, {
+      "referenceID" : 17,
+      "context" : "Developing scalable and provable algorithms for most tensor processing tasks is challenging due to the non-convexity of the objective [18, 21, 16, 1].",
+      "startOffset" : 134,
+      "endOffset" : 149
+    }, {
+      "referenceID" : 20,
+      "context" : "Developing scalable and provable algorithms for most tensor processing tasks is challenging due to the non-convexity of the objective [18, 21, 16, 1].",
+      "startOffset" : 134,
+      "endOffset" : 149
+    }, {
+      "referenceID" : 15,
+      "context" : "Developing scalable and provable algorithms for most tensor processing tasks is challenging due to the non-convexity of the objective [18, 21, 16, 1].",
+      "startOffset" : 134,
+      "endOffset" : 149
+    }, {
+      "referenceID" : 0,
+      "context" : "Developing scalable and provable algorithms for most tensor processing tasks is challenging due to the non-convexity of the objective [18, 21, 16, 1].",
+      "startOffset" : 134,
+      "endOffset" : 149
+    }, {
+      "referenceID" : 23,
+      "context" : "For instance, the Amazon review data [24] yield a 2, 440, 972⇥ 6, 643, 571⇥ 92, 626 tensor with 2 billion nonzero entries after preprocessing.",
+      "startOffset" : 37,
+      "endOffset" : 41
+    }, {
+      "referenceID" : 20,
+      "context" : "There are multiple well-defined tensor ranks[21].",
+      "startOffset" : 44,
+      "endOffset" : 48
+    }, {
+      "referenceID" : 16,
+      "context" : "In this paper, we focus on the tensor CANDECOMP/PARAFAC (CP) decomposition [17, 3], where the low-rank tensor is modeled by the summation over many rank-1 tensors.",
+      "startOffset" : 75,
+      "endOffset" : 82
+    }, {
+      "referenceID" : 2,
+      "context" : "In this paper, we focus on the tensor CANDECOMP/PARAFAC (CP) decomposition [17, 3], where the low-rank tensor is modeled by the summation over many rank-1 tensors.",
+      "startOffset" : 75,
+      "endOffset" : 82
+    }, {
+      "referenceID" : 20,
+      "context" : "Due to its simplicity and interpretability, tensor CP decomposition, which is to find the best rank-R approximation for the input tensor often by minimizing the square loss function, has been widely adopted in many applications [21].",
+      "startOffset" : 228,
+      "endOffset" : 232
+    }, {
+      "referenceID" : 22,
+      "context" : "While least square regression is one of the most studied problem, solving it exactly requires at least O(n2) operations [23], which can be larger than the size of input data for sparse tensors.",
+      "startOffset" : 120,
+      "endOffset" : 124
+    }, {
+      "referenceID" : 22,
+      "context" : "An effective way for speeding up such numerical computations is through randomization [23, 38], where the computational cost can be uncorrelated with the ambient size of the input data in the optimal case.",
+      "startOffset" : 86,
+      "endOffset" : 94
+    }, {
+      "referenceID" : 37,
+      "context" : "An effective way for speeding up such numerical computations is through randomization [23, 38], where the computational cost can be uncorrelated with the ambient size of the input data in the optimal case.",
+      "startOffset" : 86,
+      "endOffset" : 94
+    }, {
+      "referenceID" : 25,
+      "context" : "Our theoretical results on the spectral structure of KRP can also be applied on other tensor related applications such as stochastic gradient descent [26] and high-order singular value decompositions (HOSVD) [13].",
+      "startOffset" : 150,
+      "endOffset" : 154
+    }, {
+      "referenceID" : 12,
+      "context" : "Our theoretical results on the spectral structure of KRP can also be applied on other tensor related applications such as stochastic gradient descent [26] and high-order singular value decompositions (HOSVD) [13].",
+      "startOffset" : 208,
+      "endOffset" : 212
+    }, {
+      "referenceID" : 20,
+      "context" : "More details on these products can be found in Appendix A and [21].",
+      "startOffset" : 62,
+      "endOffset" : 66
+    }, {
+      "referenceID" : 16,
+      "context" : "Tensor CP Decomposition The tensor CP decomposition [17, 3] expresses a tensor as the sum of a number of rank-one tensors, e.",
+      "startOffset" : 52,
+      "endOffset" : 59
+    }, {
+      "referenceID" : 2,
+      "context" : "Tensor CP Decomposition The tensor CP decomposition [17, 3] expresses a tensor as the sum of a number of rank-one tensors, e.",
+      "startOffset" : 52,
+      "endOffset" : 59
+    }, {
+      "referenceID" : 20,
+      "context" : "where the design matrix X = B A is the KRP of A and B, and T(3) is the matricization of T [21].",
+      "startOffset" : 90,
+      "endOffset" : 94
+    }, {
+      "referenceID" : 22,
+      "context" : "1 Leverage Score Sampling for `2-regression It is known that, when p ⌧ n, subsampling the rows of design matrix X 2 Rn⇥p by its statistical leverage score and solving on the samples provides efficient approximate solution to the least square regression problem: min kX yk22, with strong theoretical guarantees [23].",
+      "startOffset" : 310,
+      "endOffset" : 314
+    }, {
+      "referenceID" : 5,
+      "context" : "In particular, sketching [6, 25, 27] or iterative sampling [22, 9] lead to routines that run in input sparsity time: O(nnz) plus the cost of solving an O(r log n) sized least squares problem.",
+      "startOffset" : 25,
+      "endOffset" : 36
+    }, {
+      "referenceID" : 24,
+      "context" : "In particular, sketching [6, 25, 27] or iterative sampling [22, 9] lead to routines that run in input sparsity time: O(nnz) plus the cost of solving an O(r log n) sized least squares problem.",
+      "startOffset" : 25,
+      "endOffset" : 36
+    }, {
+      "referenceID" : 26,
+      "context" : "In particular, sketching [6, 25, 27] or iterative sampling [22, 9] lead to routines that run in input sparsity time: O(nnz) plus the cost of solving an O(r log n) sized least squares problem.",
+      "startOffset" : 25,
+      "endOffset" : 36
+    }, {
+      "referenceID" : 21,
+      "context" : "In particular, sketching [6, 25, 27] or iterative sampling [22, 9] lead to routines that run in input sparsity time: O(nnz) plus the cost of solving an O(r log n) sized least squares problem.",
+      "startOffset" : 59,
+      "endOffset" : 66
+    }, {
+      "referenceID" : 8,
+      "context" : "In particular, sketching [6, 25, 27] or iterative sampling [22, 9] lead to routines that run in input sparsity time: O(nnz) plus the cost of solving an O(r log n) sized least squares problem.",
+      "startOffset" : 59,
+      "endOffset" : 66
+    }, {
+      "referenceID" : 3,
+      "context" : "This is motivated by a recent work that implicitly generates sparsifiers for multistep random walks [4].",
+      "startOffset" : 100,
+      "endOffset" : 103
+    }, {
+      "referenceID" : 22,
+      "context" : "Note that sampling by the leverage scores of the design matrix B A alone provides a guaranteed but worse approximation for each step [23].",
+      "startOffset" : 133,
+      "endOffset" : 137
+    }, {
+      "referenceID" : 25,
+      "context" : "By sampling rows according to proposed distribution, it reduces the per-step variance via importance sampling [26].",
+      "startOffset" : 110,
+      "endOffset" : 114
+    }, {
+      "referenceID" : 12,
+      "context" : "Sampling ALS on Higher-Order Singular Value Decomposition (HOSVD) For solving the HOSVD [13] on tensor, the Kronecker product is involved instead of the Khatri-Rao product.",
+      "startOffset" : 88,
+      "endOffset" : 92
+    }, {
+      "referenceID" : 36,
+      "context" : "Fitting it in an ALS fashion is still considered as the state-of-art in the recent tensor analytics literature [37].",
+      "startOffset" : 111,
+      "endOffset" : 115
+    }, {
+      "referenceID" : 20,
+      "context" : "The most widely used implementation of ALS is the MATLAB Tensor Toolbox [21].",
+      "startOffset" : 72,
+      "endOffset" : 76
+    }, {
+      "referenceID" : 19,
+      "context" : "There is a line of work on speeding up this procedure in distributed/parallel/MapReduce settings [20, 19, 5, 33].",
+      "startOffset" : 97,
+      "endOffset" : 112
+    }, {
+      "referenceID" : 18,
+      "context" : "There is a line of work on speeding up this procedure in distributed/parallel/MapReduce settings [20, 19, 5, 33].",
+      "startOffset" : 97,
+      "endOffset" : 112
+    }, {
+      "referenceID" : 4,
+      "context" : "There is a line of work on speeding up this procedure in distributed/parallel/MapReduce settings [20, 19, 5, 33].",
+      "startOffset" : 97,
+      "endOffset" : 112
+    }, {
+      "referenceID" : 32,
+      "context" : "There is a line of work on speeding up this procedure in distributed/parallel/MapReduce settings [20, 19, 5, 33].",
+      "startOffset" : 97,
+      "endOffset" : 112
+    }, {
+      "referenceID" : 31,
+      "context" : "A similar connection holds for works achieving more efficient computation of KRP steps of the ALS algorithm such as in [32].",
+      "startOffset" : 119,
+      "endOffset" : 123
+    }, {
+      "referenceID" : 27,
+      "context" : "The applicability of randomized numerical linear algebra tools to tensors was studied during their development [28].",
+      "startOffset" : 111,
+      "endOffset" : 115
+    }, {
+      "referenceID" : 35,
+      "context" : "Within the context of sampling-based tensor decomposition, early work has been published in [36, 35] that focuses though on Tucker decomposition.",
+      "startOffset" : 92,
+      "endOffset" : 100
+    }, {
+      "referenceID" : 34,
+      "context" : "Within the context of sampling-based tensor decomposition, early work has been published in [36, 35] that focuses though on Tucker decomposition.",
+      "startOffset" : 92,
+      "endOffset" : 100
+    }, {
+      "referenceID" : 29,
+      "context" : "In [30], sampling is used as a means of extracting small representative sub-tensors out of the initial input, which are further decomposed via the standard ALS and carefully merged to form the output.",
+      "startOffset" : 3,
+      "endOffset" : 7
+    }, {
+      "referenceID" : 1,
+      "context" : "Another work based on an a-priori sampling of the input tensor can be found in [2].",
+      "startOffset" : 79,
+      "endOffset" : 82
+    }, {
+      "referenceID" : 30,
+      "context" : "The incorporation of such tools into tensor analytics routines was fairly recent [31, 37]",
+      "startOffset" : 81,
+      "endOffset" : 89
+    }, {
+      "referenceID" : 36,
+      "context" : "The incorporation of such tools into tensor analytics routines was fairly recent [31, 37]",
+      "startOffset" : 81,
+      "endOffset" : 89
+    }, {
+      "referenceID" : 36,
+      "context" : "Most closely related to our algorithm are the routines from [37], which gave a sketch-based CP decomposition inspired by the earlier work in [31].",
+      "startOffset" : 60,
+      "endOffset" : 64
+    }, {
+      "referenceID" : 30,
+      "context" : "Most closely related to our algorithm are the routines from [37], which gave a sketch-based CP decomposition inspired by the earlier work in [31].",
+      "startOffset" : 141,
+      "endOffset" : 145
+    }, {
+      "referenceID" : 36,
+      "context" : "A main difference is that the sketches in [37] moves the non-zeroes, while our sampling approach removes many entries instead.",
+      "startOffset" : 42,
+      "endOffset" : 46
+    }, {
+      "referenceID" : 36,
+      "context" : "Also, our routine can be considered as data dependent randomization, which enjoys better approximation accuracy than [37] in the worst case.",
+      "startOffset" : 117,
+      "endOffset" : 121
+    }, {
+      "referenceID" : 36,
+      "context" : "For direct comparison, the method in [37] and ours both require nnz(T ) preprocessing at the beginning.",
+      "startOffset" : 37,
+      "endOffset" : 41
+    }, {
+      "referenceID" : 36,
+      "context" : "Then, for each iteration, our method requires  ̃ O(nr3) operations comparing with O(r(n+ Bb log b) + r3) for [37].",
+      "startOffset" : 109,
+      "endOffset" : 113
+    }, {
+      "referenceID" : 36,
+      "context" : "Here B and b for [37] are parameters for the sketching and need to be tuned for various applications.",
+      "startOffset" : 17,
+      "endOffset" : 21
+    }, {
+      "referenceID" : 36,
+      "context" : "Depending on the target accuracy, b can be as large as the input size: on the cube synthetic tensors with n = 103 that the experiments in [37] focused on, b was set to between",
+      "startOffset" : 138,
+      "endOffset" : 142
+    }, {
+      "referenceID" : 38,
+      "context" : "From a distance, our method can be viewed as incorporating randomization into the intermediate steps of algorithms, and can be viewed as higher dimensional analogs of weighted SGD algorithms [39].",
+      "startOffset" : 191,
+      "endOffset" : 195
+    }, {
+      "referenceID" : 37,
+      "context" : "Compared to more global uses of randomization [38], these more piecemeal invocations have several advantages.",
+      "startOffset" : 46,
+      "endOffset" : 50
+    }, {
+      "referenceID" : 10,
+      "context" : "The wealth of works on reducing sizes of matrices while preserving objectives such as `p norms, hinge losses, and M-estimators [11, 10, 8, 7] also suggest that this approach can be directly adapted to much wider ranges of settings and objectives.",
+      "startOffset" : 127,
+      "endOffset" : 141
+    }, {
+      "referenceID" : 9,
+      "context" : "The wealth of works on reducing sizes of matrices while preserving objectives such as `p norms, hinge losses, and M-estimators [11, 10, 8, 7] also suggest that this approach can be directly adapted to much wider ranges of settings and objectives.",
+      "startOffset" : 127,
+      "endOffset" : 141
+    }, {
+      "referenceID" : 7,
+      "context" : "The wealth of works on reducing sizes of matrices while preserving objectives such as `p norms, hinge losses, and M-estimators [11, 10, 8, 7] also suggest that this approach can be directly adapted to much wider ranges of settings and objectives.",
+      "startOffset" : 127,
+      "endOffset" : 141
+    }, {
+      "referenceID" : 6,
+      "context" : "The wealth of works on reducing sizes of matrices while preserving objectives such as `p norms, hinge losses, and M-estimators [11, 10, 8, 7] also suggest that this approach can be directly adapted to much wider ranges of settings and objectives.",
+      "startOffset" : 127,
+      "endOffset" : 141
+    }, {
+      "referenceID" : 36,
+      "context" : "Dense Synthetic Tensors We start by comparing our method against the sketching based algorithm from [37] in the single thread setting as in their evaluation.",
+      "startOffset" : 100,
+      "endOffset" : 104
+    }, {
+      "referenceID" : 36,
+      "context" : "The synthetic data we tested are thirdorder tensors with dimension n = 1000, as described in [37].",
+      "startOffset" : 93,
+      "endOffset" : 97
+    }, {
+      "referenceID" : 36,
+      "context" : "As with previous experimental evaluations [37], we set target rank to r = 10.",
+      "startOffset" : 42,
+      "endOffset" : 46
+    }, {
+      "referenceID" : 36,
+      "context" : "Comparing with the [37], our algorithm employs data dependent random sketch with minimal overhead, which yields significantly better precision with similar amount of computation.",
+      "startOffset" : 19,
+      "endOffset" : 23
+    }, {
+      "referenceID" : 23,
+      "context" : "We ran our algorithm on a large-scale tensor generated from Amazon review data [24].",
+      "startOffset" : 79,
+      "endOffset" : 83
+    } ],
+    "year" : 2016,
+    "abstractText" : "Tensor CANDECOMP/PARAFAC (CP) decomposition is a powerful but computationally challenging tool in modern data analytics. In this paper, we show ways of sampling intermediate steps of alternating minimization algorithms for computing low rank tensor CP decompositions, leading to the sparse alternating least squares (SPALS) method. Specifically, we sample the Khatri-Rao product, which arises as an intermediate object during the iterations of alternating least squares. This product captures the interactions between different tensor modes, and form the main computational bottleneck for solving many tensor related tasks. By exploiting the spectral structures of the matrix Khatri-Rao product, we provide efficient access to its statistical leverage scores. When applied to the tensor CP decomposition, our method leads to the first algorithm that runs in sublinear time per-iteration and approximates the output of deterministic alternating least squares algorithms. Empirical evaluations of this approach show significant speedups over existing randomized and deterministic routines for performing CP decomposition. On a tensor of the size 2.4m ⇥ 6.6m ⇥ 92k with over 2 billion nonzeros formed by Amazon product reviews, our routine converges in two minutes to the same error as deterministic ALS.",
+    "creator" : null
+  }
+}

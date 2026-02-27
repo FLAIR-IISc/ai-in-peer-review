@@ -1,0 +1,56 @@
+Summary
+The paper proposes the Locally Adaptive Normal Distribution (LAND), which replaces the Euclidean metric in a Gaussian with a learned Riemannian metric on RD to capture nonlinear structure. The metric is constructed as a smoothly varying diagonal precision matrix (inverse weighted local covariance) via Gaussian kernels. With this metric, the authors define a Riemannian normal distribution (per Pennec) and estimate its normalization constant by Monte Carlo integrating over the tangent space at the mean, pushing forward via the exponential map. They derive gradient-based ML updates for mean and covariance, extend to mixtures with an EM-like algorithm, and report experiments on synthetic curves and EEG sleep-stage features, showing improved fit/clustering versus GMM and a least-squares Riemannian baseline.
+
+Strengths
+- Ambitious and attractive idea: bring maximum-entropy Riemannian normals to the manifold-learning setting by learning the metric directly from data.
+- The construction of a smooth, data-adaptive metric that “pulls” geodesics toward high-density regions is intuitive and broadly useful.
+- Monte Carlo estimation of the normalization constant using a tractable proposal (N(0, Σ)) is a pragmatic step towards making such models usable.
+- The empirical results indicate the method can capture non-elliptical structures better than GMMs; the REM/awake/non-REM clustering application is interesting.
+
+Major concerns (technical correctness)
+1) Change of variables for C(µ, Σ) appears incorrect. Equation (9) asserts
+C(µ, Σ) = ∫_{TµM} sqrt|M(Expµ(v))| exp(-1/2 v^T Σ^{-1} v) dv.
+In general, ∫_M f(x) dM(x) = ∫_{TµM} f(Expµ(v)) |det DExpµ(v)| dv (in normal coordinates the pullback volume includes the Jacobian of the exponential map). The paper seems to omit |det DExpµ(v)| and uses only sqrt|M(Expµ(v))|, which is the Riemannian volume density in a local coordinate chart, not the Jacobian of the coordinate change v↦x. This is not a benign omission: away from v=0, |det DExp| ≠ 1 and has curvature-dependent expansion. If (9) is wrong, then the normalization constant, its gradients, and the ML procedure are all biased. This needs a rigorous derivation or correction.
+
+2) Geodesic equation (3) is suspect. The Levi-Civita geodesic equation involves Christoffel symbols Γ^i_jk built from M and its derivatives via the standard symmetric combination (∂_j M_{kℓ}+∂_k M_{jℓ}-∂_ℓ M_{jk}). The compact expression using [∂ vec M/∂γ]^T (γ'⊗γ') as written appears to miss the required symmetrization unless a nontrivial identity is established (not shown). Please provide the explicit derivation or correct equation; otherwise the computed Exp/Log may be wrong.
+
+3) Gradients w.r.t. µ and Σ. From (10), C(µ, Σ)=Z E_{N(0,Σ)}[m(µ,v)], with m(µ,v)=sqrt|M(Expµ(v))|. Then ∂C/∂µ = Z E[∂m/∂µ], not proportional to E[m v] as in (12). The appearance of vs in (12) is unexplained; it would require a reparameterization or score-function trick that is not shown and seems inconsistent because the Gaussian proposal does not depend on µ. Similarly, ∇Aφ in (13) mixes Z/C and E[m v v^T] terms but omits the proposal’s score term unless it is implicitly absorbed. The derivations are deferred to the supplement; in the main text they are not credible as stated. Given (9) is questionable, these gradients are doubly so.
+
+4) Global issues with Exp/Log. The exponential map need not be globally bijective; integrating over all v∈TµM risks double-counting beyond the cut locus. The paper assumes D(µ)=RD and global Log exists; this is not justified for the learned metric.
+
+Methodological concerns
+- The learned metric is diagonal and not invariant to linear transforms (acknowledged). Without explicit preprocessing/whitening, results are feature-scale dependent and may be brittle. No discussion of robustness or recommended preprocessing is given.
+- Hyperparameters (σ, ρ, step sizes) and initialization: choices are ad hoc (“σ as small as possible while ensuring geodesics can be computed”), with important details deferred to the supplement. For the EEG task, σ is tuned by picking the best F-measure over a grid, which appears to use labels for model selection—this is not a fair unsupervised evaluation relative to GMM unless GMM is similarly tuned.
+- Computational cost. Each evaluation of m(µ,v) requires an ODE solve for Expµ(v); with S=3000 samples per C(µ,Σ) evaluation, per iteration and per component, the cost can be substantial. No runtimes, scaling with D, N, and K, or variance/error analysis for the MC estimator are provided.
+- Mixture EM details are missing from the main paper; responsibilities depend on estimated C(µk,Σk), compounding MC noise. Convergence behavior is not discussed.
+
+Experimental concerns
+- Synthetic evaluation computes cross-entropy by sampling from the fitted model and scoring under the true distribution; this is an unusual metric that can favor models that overspread mass. Standard practice would be test log-likelihood of held-out data under the model. Also, the metric used to learn M is derived from the same data used to fit and evaluate, leading to optimistic results; there is no separation between manifold-learning and evaluation.
+- Baselines are limited (GMM and LS Riemannian estimators). Missing comparisons: spectral clustering, manifold GMMs (mixtures of PPCA/factor analyzers), kernel density estimators, normalizing flows (for 2016 era, RealNVP/planar flows), or Riemannian mixtures with proper normalization.
+- No ablation on S (samples for MC), σ, or demonstration of stability. No sensitivity plots in the main paper.
+
+Clarity and presentation
+- Several formatting and referencing issues: many references are incomplete (missing years/venues/pages), duplicate/malformed entries, stray figure labels (“Geodesics LAND model Linear model”), and Algorithm 1’s termination criterion is truncated. Critical derivations are deferred to the supplement; given their centrality, some need to be in the main text.
+
+Pros
+- Interesting and potentially impactful idea of adapting Riemannian normals to data-driven metrics.
+- Intuitive metric design; the qualitative plots (as described) suggest the model captures nonlinearity.
+- Practical attempt to handle otherwise intractable normalization via MC.
+
+Cons
+- Likely incorrect change-of-variables for the normalization constant; missing Jacobian of Exp.
+- Questionable geodesic equation and gradient derivations; insufficient detail to verify.
+- Evaluation methodology and hyperparameter tuning raise fairness and overfitting concerns.
+- Heavy computational footprint with no complexity/runtimes; limited baselines.
+- Numerous presentation and citation issues.
+
+Questions for the authors
+1) Please provide a rigorous derivation of (9), explicitly stating conditions and whether |det DExpµ(v)| is included or not. If not, why is it valid to omit?
+2) Provide full derivations for (12) and (13) in the main paper or at least a clear sketch: where does the factor vs arise in ∇µφ?
+3) Clarify the geodesic ODE used in practice and how it relates to the standard Christoffel form.
+4) How do you ensure global well-posedness of Exp/Log for your learned metric?
+5) Report runtimes, number of ODE solves, and scalability with D, N, K. How large can S be in practice?
+6) For EEG, was σ selected using labels? If so, please separate validation/test or tune σ unsupervised. Also report GMM tuned over comparable hyperparameters (e.g., cov types).
+
+Recommendation
+Reject. While the high-level idea is appealing, there are substantial technical issues (most critically the normalization constant change-of-variables and gradients) that undermine correctness, and the empirical evaluation lacks rigor and breadth. Addressing these would require significant revisions.

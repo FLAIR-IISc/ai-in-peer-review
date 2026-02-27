@@ -1,0 +1,48 @@
+1) Summary of claims and contributions
+- Problem: Automate neural architecture design by learning to generate architectures with a controller RNN, trained via policy gradient on validation performance of “child” models.
+- Method: A controller LSTM outputs variable-length sequences describing architectures. Rewards are non-differentiable validation metrics; REINFORCE with a moving-average baseline, large-scale asynchronous training, and a depth-increase schedule are used. The search space includes convolutional architectures with skip connections (via set-selection attention) and recurrent cells parameterized as computation trees with activation/combination choices and optional cell-state injections.
+- Results: On CIFAR-10, controller-discovered CNNs achieve 3.65% test error (close to/better than strong baselines, with claims of being 1.05× faster than a DenseNet variant). On PTB, discovered cells achieve 62.4 perplexity, improving prior SOTA by 3.6 perplexity, generalize to character-level PTB (1.214 bpc at larger scale), and yield +0.5 BLEU in GNMT without retuning. Control experiments: enlarged search space (adding max, sin) and a random search baseline (on PTB).
+
+2) Decision: Reject
+Key reasons:
+- Methodological clarity and rigor are insufficient: many ad-hoc design choices (reward shaping, graph “compilation” fixes, fixed pooling positions, depth schedule) are introduced without ablations or theoretical justification; baseline comparisons are not consistently fair; the validation protocol risks overfitting.
+- Reproducibility and accessibility: results rely on extreme compute (e.g., 800 GPUs) with many under-specified details. The paper lacks essential reporting (variance, multiple runs, correlation between proxy training and final performance), making it difficult to assess robustness.
+
+3) Supporting arguments
+- Reward shaping and search dynamics: The reward is “max validation accuracy of the last 5 epochs cubed.” No justification or ablation is given for cubing, nor for using max-vs-mean. Such shaping can distort gradients and amplify noise. The moving-average baseline is the only variance-reduction; no entropy regularization or KL penalties are documented.
+- Proxy training vs final performance: Child models are trained for 50 epochs (CIFAR) or 35 (PTB). There is no analysis of correlation between proxy reward and fully trained accuracy. This is essential to justify the search objective. Architectures that learn quickly early may be favored over better final performers.
+- Validation leakage/overfitting risk: A fixed validation split is repeatedly used for RL feedback over 12,800 (CIFAR) and 15,000 (PTB) evaluations. No safeguards (e.g., multiple validation folds, fresh held-out subsets per iteration, or early stopping only on training loss) are described. The final post-search grid search further complicates the protocol; it is unclear which data it uses and how leakage is prevented.
+- Search space and ad-hoc constraints: 
+  - CIFAR “pooling at layer 13 and 24” and “3-layer blocks” are strong hand-crafted constraints that shape the outcome; the method is not purely automatic.
+  - Skip-connection handling uses several hacks: if a layer has no inputs, feed the image; at the end, concatenate all unconnected outputs; zero-pad to align shapes. These choices are non-standard and may produce architectures unlike common baselines. No ablations quantify their effect.
+  - Fan-in via set-selection attention may explode memory; constraints (limits on input count, feature dimensions) are not specified.
+- Asynchronous training and off-policy gradients: With 100 controller replicas and large, non-stationary updates, gradients can be stale. No discussion or analysis of bias/stability is provided. Aggregating 10 gradients per update (PTB) is also ad hoc.
+- Comparisons and fairness:
+  - CIFAR: Runtime claim “1.05× faster than DenseNet” lacks measurement details (hardware, batch size, compiler, precision, inference/training). The comparison to DenseNet 3.46% (using 1×1 bottlenecks) is dismissed as “not exact,” but the key result (3.65%) is enabled by post-hoc widening of all layers; fairness of parameter/compute budgets vs baselines is unclear.
+  - PTB: Baselines differ in regularization/tooling (dropout variants, shared embeddings, pointer mechanisms). Matching “medium” parameter counts is not sufficient to ensure fairness. Variance across seeds and runs is not reported. The random search baseline is included for PTB only, not for CIFAR.
+- Reporting gaps:
+  - No variances, confidence intervals, or multiple-seed averages for final results.
+  - No sensitivity to controller hyperparameters (lr, hidden size 35, temperature, baseline decay).
+  - No statistics about “compilation failures,” distribution of skip connections, or effective search coverage.
+- Wording/formatting/consistency issues (numerous): typos (“one a time,” “hiddenstate,” “on the on,” “parameter sever,” “an WMT14”), inconsistent use of “convergence,” ambiguous “samples” (architectures or minibatches?), unconventional augmentation description (“upsample each image then crop 32×32” without factor), and many malformed references (duplicates, placeholders “? \Q2016\E”), which obstruct verification.
+
+4) Additional feedback (to improve the paper; not all decisive)
+- Provide a rigorous protocol to mitigate validation overfitting: multiple validation folds or a final, untouched validation set for selection, with test reported once.
+- Analyze proxy-vs-final correlation; show that 50-epoch accuracy predicts final performance.
+- Add ablations: reward shaping (with/without cubing; max vs mean), depth schedule, skip-connection hacks, block constraints, asynchronous update frequency, entropy regularization.
+- Report compute budgets: total GPU/CPU hours for search and for final training; failure rates; wall-clock time. Include variance across seeds.
+- Standardize and document data preprocessing precisely (CIFAR padding/cropping/whitening).
+- Ensure fair comparisons: fix parameter/compute budgets and training recipes across methods; substantiate speed claims with controlled measurements.
+- Clean and standardize references; fix typos and notation; clearly define the recurrent cell search tree (topology, number of nodes, indices).
+- Release search space specifications and seeds to enhance reproducibility.
+
+Questions for the authors
+- How do you prevent overfitting to the validation set used for reward, especially after 10k+ evaluations and a final grid search? Do you use multiple validation splits or any early stopping safeguards?
+- What is the empirical correlation between 50-epoch validation accuracy and fully trained test accuracy on CIFAR? Between 35-epoch proxy and final PTB perplexity?
+- What fraction of sampled graphs “failed compilation,” and how often did the three heuristics (image-as-input, final concatenation, zero-padding) trigger? How do these heuristics affect performance if ablated?
+- How is the pooling-at-layers-13/24 constraint justified? What happens if pooling location is also searched?
+- What limits are imposed on skip-connection fan-in and channel growth to control memory/computation?
+- Please detail the speed measurements vs DenseNet (hardware, batch size, precision, inference/training).
+- Do you use entropy regularization or temperature schedules for the controller? If not, how do you avoid premature collapse?
+- For PTB baselines, can you report results with exactly matched regularization (embedding dropout, variational dropout, shared embeddings) and parameter/compute budgets, with variance over multiple seeds?
+- What is the total compute cost (GPU/CPU hours) of each search, and the number of controller updates to reach your best models?

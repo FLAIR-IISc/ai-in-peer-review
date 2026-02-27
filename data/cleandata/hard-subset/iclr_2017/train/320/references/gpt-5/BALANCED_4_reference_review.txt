@@ -1,0 +1,47 @@
+Summary and contributions
+The paper tackles visual servoing for target following by combining (i) off-the-shelf, pre-trained deep visual features (VGG), (ii) a learned predictive dynamics model in feature space (a multiscale bilinear model), and (iii) a sample-efficient policy learning procedure that uses a special-purpose fitted Q-iteration (FQI) to learn feature weights for a simple one-step lookahead servoing controller. The core idea is elegant: use robust pretrained features to avoid large data requirements, learn how actions perturb these features via a bilinear model, and then choose actions by minimizing the predicted next-step distance to a goal feature map, with the relative importance of channels/scales learned via a linear Q-function approximator that matches the servoing objective. On a simulated quadcopter car-following benchmark, the method reportedly learns effective policies with as few as 20 trajectories for RL, substantially outperforming classical IBVS with hand-engineered features or a visual tracker, and being far more sample efficient than standard model-free deep RL. Code, simulator, and videos are provided.
+
+Decision: Reject (borderline), primarily because:
+1) Limited empirical scope and external validity: all evaluation is in a single synthetic environment with a narrow task setup, with no real-world validation, limited generalization, and a cost function derived from simulator state.
+2) Methodological novelty is incremental: the main technical contribution is a tailored linear Q-approximation and FQI procedure to learn feature weights for a one-step servo; while neat and practical, it is modest conceptually, and stronger empirical support is needed to warrant acceptance.
+
+Supporting arguments
+- Problem and motivation: The paper addresses an important and well-motivated problem—sample-efficient, robust visual servoing. The argument to leverage pre-trained features and simple predictive models is sound, and the link to the literature is reasonable (visual servoing, video prediction, RL). The motivation for weighting channels/scales and learning these weights from long-horizon returns is convincing.
+
+- Approach: The multiscale feature pyramid and bilinear feature dynamics are well laid out. Using the structure of the servoing objective to define a linear Q-approximator, and then running a tailored FQI with a shared scale/bias update (α, b) to stabilize Bellman error minimization is clever and yields computational efficiency. However:
+  • The dynamics modeling is short-horizon and action-linear; while sufficient for the presented task, limits are not explored.
+  • The novelty is mostly in engineering a convenient representation for Q and a training trick for α, b. There is no theoretical analysis of approximation error, convergence, or conditions under which the greedy policy induced by the Q-approximator is optimal (or competitive).
+
+- Empirical evidence and rigor: Results show strong gains over baselines under the chosen setup, and the ablations across VGG layers are informative. The sample efficiency claims versus model-free TRPO are plausible. However:
+  • External validity is weak. Only one synthetic benchmark is used. The cost metric relies on ground-truth car pose from the simulator (Appendix B), which is not available in real settings and may bias learning/evaluation. Success rates, robustness to initialization, and generalization across broader visual/dynamics conditions are not comprehensively reported.
+  • Comparisons may be unfavorable to alternatives: the end-to-end TRPO baselines are known to be sample-inefficient; stronger model-based RL baselines (e.g., MPC/MPPI/CEM using the learned dynamics with multi-step planning, or model-based actor-critic) are missing. The IBVS baselines rely on hand-crafted features or a slow tracker; yet they are given ground-truth depths and, in some variants, access to car dynamics—this mixture raises fairness questions and needs clearer framing.
+  • Some key implementation choices appear under-specified or possibly inconsistent. For example, Section 4.2/Appendix C.2 suggest both fully and locally connected bilinear models are considered; later it is stated that locally connected models are not used for semantic features due to memory, which contradicts the earlier rationale for local sparsity. Clarification is needed.
+
+Constructive feedback and suggestions (to help improve the work; not all affect my decision)
+- Strengthen empirical evaluation:
+  • Add at least one additional environment (different camera placements, targets, and distractor statistics) and a more challenging generalization regime (e.g., different backgrounds, lighting, target categories).
+  • Include real-robot or sim-to-real results (even if modest) to support claims that pretrained features plus learned feature dynamics confer robustness to nuisance variation.
+  • Report success rates, confidence intervals, and sensitivity to initialization (distance/angle to target), exploration noise, and discount factor.
+  • Provide ablations: impact of the α, b step in FQI; effect of number of RL trajectories; influence of multiscale vs single-scale; channel sparsity/regularization on weights; locally vs fully connected bilinear dynamics.
+
+- Baselines and fairness:
+  • Compare to model-based control using the learned dynamics but with multi-step planning (CEM/MPPI/MPC), with and without learned feature weights, to disentangle the value of long-horizon planning versus the Q-weight learning.
+  • Include more modern features (e.g., ResNet, self-supervised features) and report compute/speed trade-offs, since run-time is dominated by feature extraction.
+  • Ensure comparable compute/data budgets across baselines; for TRPO, include tuned architectures and observation stacking, and consider model-based actor-critic or Dyna-style baselines.
+
+- Method clarity and analysis:
+  • Clarify the bilinear dynamics parameterization used per feature type (pixels vs VGG), the exact tensor sizes, and memory/compute costs. Resolve the apparent inconsistency about locally vs fully connected models for semantic features.
+  • Explain the optimization for non-negativity constraints on weights in FQI and how often θ saturates at zero (i.e., feature pruning). Visualize which channels/scales get high weights to validate the “task-relevant feature selection” claim.
+  • Discuss failure modes (e.g., severe occlusions, fast target turns, target out-of-FOV) and show qualitative sequences.
+  • Provide a brief theoretical discussion or empirical study on when the one-step greedy policy with learned weights approximates multi-step objectives well, and when it fails.
+
+Questions for the authors
+1) Dynamics model: Which variant (fully vs locally connected) is used for which feature type and at which scales? The text in 4.2 and Appendix C.2 appears contradictory. Please detail parameter counts, receptive fields, and training times.
+2) Cost function: During RL, the per-step cost uses simulator car pose. How would this be instantiated in real settings without privileged state? Can a purely image-based surrogate be used, and have you tried it?
+3) Exploration and data: What is the distribution of initial states at training vs testing? How does performance degrade when starting far from the goal or when the goal image differs significantly from current observations?
+4) FQI stability: How critical is the α, b joint-fitting step? Please provide an ablation. Do you observe divergence without it? What values of ν were necessary?
+5) Generalization: You train on 5 cars and test on “novel cars.” How visually distinct are they? Can you quantify generalization as a function of category/appearance shift?
+6) Baselines: Have you tried multi-step MPC over the learned feature dynamics? If so, how does it compare in cost and compute?
+7) Feature selection: Do the learned weights prune many channels? Can you visualize top-weighted channels/scales and relate them to semantics (e.g., car parts vs background)?
+
+Overall, the paper presents a neat, practical integration of pre-trained features, simple learned feature dynamics, and an efficient Q-learning procedure tailored to a servoing policy. With stronger and broader empirical validation (ideally including real-world evidence) and clearer analysis of design choices, this could become a compelling contribution.

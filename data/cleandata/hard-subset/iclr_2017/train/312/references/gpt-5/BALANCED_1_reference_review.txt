@@ -1,0 +1,66 @@
+1) Summary of contributions
+The paper proposes Neural Architecture Search (NAS), an RL-based framework that learns to generate neural network architectures with a recurrent controller. The controller emits sequences of tokens encoding architectural hyperparameters (e.g., filter sizes, channel counts, skip connections for CNNs; operation/activation choices in a tree-structured RNN cell). Architectures sampled by the controller are trained (“child networks”), and their validation accuracy serves as the reward to update the controller via REINFORCE with a moving-average baseline. The approach supports variable-length architectures, includes mechanisms to sample skip connections, and scales via a parameter-server with many parallel workers. Empirically, the method discovers:
+- A competitive CNN for CIFAR-10 (down to 3.65% with post-hoc widening), with novel features such as rectangular filters and skip patterns, and favorable speed vs. a strong baseline.
+- A novel RNN cell that improves PTB perplexity by ~3.6 over prior SOTA, transfers to character-level PTB, and yields modest BLEU gains when swapped into GNMT without additional tuning.
+The work is ambitious, conceptually simple, and demonstrates the feasibility of learning architectures from scratch.
+
+2) Decision
+Accept.
+Key reasons: (i) Clear, novel formulation of architecture search as a trainable sequence-generation problem optimized by policy gradients over a very rich, variable-length search space; (ii) Strong empirical evidence across two modalities (vision and language), including transfer tests, that the learned architectures are competitive or superior to hand-designed baselines.
+
+3) Supporting arguments
+Addressing the three questions:
+
+- What problem is tackled?
+Automating neural architecture design by learning a policy that generates model descriptions, thereby shifting from manual engineering to data-driven architecture discovery. The paper targets both CNNs (CIFAR-10) and RNN cells (PTB).
+
+- Is the approach well motivated and well placed in the literature?
+Yes. The method bridges hyperparameter optimization, neuro-evolution, program induction, and seq2seq with RL on non-differentiable rewards. The paper contrasts with Bayesian optimization (typically fixed-length spaces), neuro-evolution (flexible but often slow), and prior RL for sequence-level metrics. The motivation for variable-length spaces and skip-connection sampling is well argued. One minor nit: calling the method “gradient-based” can be confusing since gradients flow through the controller (policy gradient), not through the non-differentiable reward; “RL-based NAS” may be clearer.
+
+- Do the results support the claims with rigor?
+Largely yes. The authors describe the search spaces, optimization details, and distributed setup. Results show: (a) CIFAR-10 architectures competitive with top human designs, including analyses of skip connections and stride/pooling choices; (b) PTB RNN cells that outperform prior work with speed benefits; (c) transfer to character-level PTB and GNMT. A useful control contrasts policy gradient with random search on PTB and shows meaningful gains. However, several aspects limit full rigor:
+  • Compute budget is extraordinarily large (e.g., up to 800 concurrent GPUs for CNN search), raising concerns about practicality and the extent to which results reflect search compute rather than policy quality.
+  • Statistical reporting is limited: no error bars or variability across independent searches; reliance on selecting the single best architecture; and reward shaping choices (e.g., cubing validation accuracy) are not ablated.
+  • Fairness of comparisons relies on post-hoc grid search for the discovered architecture; it is unclear whether baselines receive comparable final-stage tuning and budgets.
+  • For CIFAR-10, a random-search control analogous to PTB is missing, and there is no cost-aware metric (e.g., search cost vs. final performance).
+
+Despite these caveats, the empirical improvements and breadth of applications convincingly demonstrate the viability and promise of the approach.
+
+4) Additional feedback and questions to help improve the paper
+These points aim to strengthen clarity and rigor; they are not all prerequisites for acceptance.
+
+- Report search cost and efficiency:
+  • Provide total compute (GPU/CPU hours) for each experiment. Include the number of child models trained, average training time to convergence, and controller updates.
+  • Add cost-aware comparisons: performance vs. search budget; efficiency vs. random/evolutionary baselines on both CIFAR-10 and PTB.
+
+- Statistical robustness:
+  • Show variability: distribution of validation and test performance over top-k architectures; variance across at least 3 independent controller runs; sensitivity to random seeds.
+  • Clarify whether any test set was consulted during search or model selection (you say only once, but restate clearly).
+
+- Ablations on design choices:
+  • Reward shaping: why cube accuracy and square c·perplexity? Show sensitivity to this choice and baseline smoothing hyperparameters.
+  • Search space: quantify how enabling stride/pooling or skip-connection mechanisms affects search difficulty and final performance.
+  • “Compilation failure” fallbacks (defaulting to input, concatenating unconnected outputs, zero-padding): measure how often these occur and their impact.
+  • Post-hoc hyperparameter tuning: detail the grid ranges; ensure comparable tuning for baselines.
+
+- Fairness and comparability:
+  • For CIFAR-10, include a random-search baseline within the same search space and compute budget.
+  • Normalize comparisons by parameter count and training recipe. Consider including 1x1 bottlenecks if they materially change the comparison to DenseNet.
+
+- Generalization tests:
+  • Evaluate the discovered CNN on another vision dataset (e.g., SVHN, CIFAR-100) without re-search to assess transfer analogous to the RNN experiments.
+  • Explore training the best-found architecture with stronger regularization or longer schedules to rule out under-training relative to baselines.
+
+- Clarity and reproducibility:
+  • More explicit, machine-readable descriptions of the final architectures (full token sequences) and the exact search spaces.
+  • Clarify the “gradient-based” terminology to avoid confusion with differentiable architecture search.
+
+Questions for the authors
+- What is the total search budget (compute and wall-clock) for the best CIFAR-10 and PTB results? How many child models were fully trained, and what was the average time per child?
+- How sensitive are results to the reward transformation (accuracy cubed, c·perplexity squared) and the moving-average baseline hyperparameters?
+- For CIFAR-10, how does NAS compare to random search given the same number of evaluated architectures and training epochs?
+- How many independent NAS runs were performed per setting? What is the variance in the final test performance of the best architecture across runs?
+- How frequently do “compilation failures” occur, and do the fallback rules bias the search toward certain topologies?
+- In GNMT, can you report training curves and inference speed for the NAS cell vs. LSTM under matched FLOPs/parameters?
+
+Overall, this is an influential and well-executed paper that opens a compelling direction. Addressing the above points would strengthen the scientific rigor and practical guidance for future users of NAS.

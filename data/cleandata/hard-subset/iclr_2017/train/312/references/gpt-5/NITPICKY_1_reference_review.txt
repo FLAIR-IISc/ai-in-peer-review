@@ -1,0 +1,50 @@
+Summary and contributions
+The paper proposes Neural Architecture Search (NAS), an RL-based framework where a controller RNN sequentially generates variable-length neural network architectures (convnets for CIFAR-10 and recurrent cells for PTB). The controller is trained with REINFORCE to maximize a non-differentiable reward (validation accuracy/perplexity) of “child” networks trained to convergence. The search space includes layer hyperparameters and skip connections via a set-selection attention. For RNNs, the controller specifies a compositional “tree” cell structure with operations and activations, including cell-state injection. Large-scale distributed, asynchronous training (parameter server, many replicas) is used to evaluate thousands of sampled architectures in parallel. Empirically, NAS finds competitive-to-SOTA architectures on CIFAR-10 (down to 3.65% test error after post hoc adjustments) and a novel RNN cell that improves PTB perplexity and transfers to character PTB and GNMT with modest BLEU gains.
+
+Decision: Reject
+Primary reasons: (1) Significant methodological and reporting gaps that undermine scientific rigor and reproducibility, despite strong headline numbers; (2) Extensive post hoc tuning and compute-heavy search without adequate baselines/controls make it difficult to attribute gains to the proposed learning signal rather than to brute-force exploration and manual adjustments.
+
+Supporting arguments
+- Ambiguity and insufficient detail in the core method:
+  - Reward shaping is ad hoc and under-justified. For CIFAR-10, the reward is (max validation accuracy over last 5 epochs)^3; for PTB, “c(validation perplexity)^2”. Since REINFORCE maximizes reward, using positive perplexity squared is inconsistent unless the sign or inversion is applied (not specified). No ablation on the exponent/constant c or on the choice of max-over-epochs vs. final/average accuracy is provided.
+  - The baseline for variance reduction is an EMA of past rewards; no description of advantage normalization, entropy regularization, or exploration temperature. Given the enormous action space, these choices matter; their absence prevents assessment of stability/sample efficiency.
+  - Asynchronous parameter-server training with stale gradients and heterogeneous child runtimes is used but not analyzed; no convergence diagnostics, learning curves of the controller, or sensitivity to S/K/m are provided.
+
+- Incomplete/contradictory description of search spaces:
+  - Skip connections: when spatial dimensions differ, smaller feature maps are “padded with zeros” to match size prior to concatenation. This is unconventional (padding does not change spatial resolution) and underspecified (which dimensions are padded? is upsampling used?). Fallbacks for “compilation failures” (e.g., using the input image when no parents exist) further alter semantics and could bias the reward landscape; no quantification of how often such cases occur or their impact.
+  - Pooling experiments: the text says the controller can include 2 pooling layers “at layer 13 and 24” while “predicting 13 layers where each prediction is a fully connected block of 3 layers,” which is internally inconsistent and needs clarification.
+  - RNN cell generation: the binary-tree wiring and how intermediate nodes select their inputs are not fully specified for the base-8 case. The treatment of c_{t-1}/c_t (where c_t is set to a pre-activation output at a chosen index) diverges from standard gated accumulation, yet details are sparse.
+
+- Evaluation and fairness concerns:
+  - Compute budget: CIFAR-10 search evaluates 12,800 child models for 50 epochs each, with 800 GPUs in parallel; PTB uses 400 CPUs and up to 15,000 architectures. The paper does not report GPU/CPU-days or energy use, nor does it normalize performance by compute. This makes comparison to baselines with orders of magnitude less compute difficult.
+  - Post hoc tuning: After selecting the best validation architecture, a hand-tuned grid search over optimizer hyperparameters is performed; additionally, the top CIFAR model is modified by “adding 40 more filters to each layer” to reach 3.65%. This manual intervention breaks the purity of the controller’s discovery and complicates attribution.
+  - Baselines: The random search baseline is only discussed for PTB (figure referenced, no numbers, not shown here), not for CIFAR-10. For RL vs random search, ensure equalized budgets and report both best and distributional statistics. No comparison to simpler black-box optimizers (e.g., TPE, SMAC) on the same compute budget.
+  - Statistical rigor: Results are reported for single runs; no multiple seeds for the controller or the final models, no error bars/confidence intervals, no tests of significance (e.g., 0.5 BLEU on WMT14 could be noise).
+  - Metric misuse: Character PTB typically reports bits-per-character; the paper calls it “perplexity 1.214,” which is confusing (perplexity = 2^BPC).
+  - Apples-to-apples claims: “1.05x faster than DenseNet” is implementation- and hardware-dependent; FLOPs/throughput are not reported. The comparison to DenseNet 3.46% is dismissed due to 1x1 bottlenecks, yet the proposed model uses manual filter scaling.
+
+- Reproducibility:
+  - Only code for running final models is promised; no code for the controller/search. With the above ambiguities and scale of resources, independent reproduction seems unlikely.
+
+- Presentation quality:
+  - Numerous formatting/citation issues (duplicates; inconsistent venues; escaped punctuation “\Q2016\E”, “et al\.,?”). Several figures/tables are referenced but not available in the text provided. Typos (“one a time”) recur. These detract from clarity.
+
+Additional feedback to improve the paper
+- Precisely define reward functions (including sign), and provide ablations on reward shaping, baselines, entropy regularization, and controller optimization settings. Include learning curves of the controller and stability across seeds.
+- Fully specify skip-connection shape handling. If spatial sizes differ, use principled alignments (e.g., strided conv/pooling or interpolation) and quantify the rate of fallbacks/degenerate graphs.
+- Resolve the pooling/blocks inconsistency and explicitly describe the conv search space variants. For RNN cells, formalize the tree topology, input selection, and c_t update.
+- Report compute in standardized units (GPU-days/CPU-days) and normalize comparisons by search budget. Provide random/TPE/SMAC baselines with matched budgets for both CIFAR and PTB.
+- Avoid manual post hoc architecture edits (e.g., adding filters) or clearly separate them as follow-up baselines. Report final model results over multiple seeds with mean±std.
+- Use correct metrics (BPC for char-level), and provide full GNMT evaluation details (beam size, length penalty, dev/test BLEU, variance across runs).
+
+Questions for the authors
+1) How exactly is the PTB reward defined so that lower perplexity yields higher reward? Is it negative c*PPL^2, or 1/PPL, or something else?
+2) For skip connections with mismatched spatial sizes, do you upsample/downsample or literally zero-pad spatially? Please provide the exact implementation and its frequency of use.
+3) In the “13 blocks × 3 layers” CIFAR setup, how can pooling be at “layer 13 and 24”? What is the precise mapping from blocks to layers?
+4) What are the total compute budgets (GPU-days/CPU-days) for each experiment? How sensitive are results to reducing the budget by 10×?
+5) For the RNN cell with base 8, how are intermediate nodes wired (fixed binary tree vs learned connections)? How are inputs chosen for each internal node?
+6) What is the variance across seeds for the controller and the final retrained models? Please report mean±std for key metrics.
+7) For the random search baseline(s), were budgets matched (number of evaluated architectures, epochs per child)? Can you provide CIFAR-10 random search results?
+8) How often do “compilation failures” occur, and what fraction of child models end up using input-image fallbacks?
+9) Are entropy regularization or temperature schedules used in the controller? Any gradient clipping or optimizer-specific settings to handle non-stationarity?
+10) Will you release code for the search procedure, not only the discovered architectures?

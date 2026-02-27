@@ -1,0 +1,51 @@
+Summary and relation to prior work:
+The paper proposes IMGPO, a GP-based global optimization algorithm that aims to achieve exponential convergence of simple regret without relying on the impractical δ-cover sampling used by de Freitas et al. (ICML’12). The key idea is to combine hierarchical partitioning à la DIRECT/SOO with a GP-based UCB to screen divisions. The novelty is cast as “infinite-metric optimization”: rather than committing to a single (often loose) bound (e.g., a known Lipschitz/Hölder bound), the algorithm implicitly considers infinitely many candidate semi-metrics and uses the GP to prune candidates whose implied upper bounds are looser than the GP-UCB. The analysis claims an exponential regret bound O(λN+Ngp) with λ < 1, under an “unknown bound” assumption (Hölder continuity around x*) and an exploration-loss term ρ̄t that captures the penalty for not committing to a single bound. The method is compared empirically to SOO, BaMSOO, GP-PI and GP-EI on several benchmarks, with code promised.
+
+Strengths:
+- Ambitious goal: exponential rate without δ-cover sampling and without optimizing the acquisition via an auxiliary nonconvex solver.
+- Interesting hybrid of optimistic partitioning (DIRECT/SOO/DOO) with GP-based pruning; the “infinite-metric exploration loss” is a potentially useful analytical device.
+- A practical algorithm that tries to cut function evaluations via “GP-based labels,” avoiding needless queries where UCB is below the current best.
+- Experiments include multiple benchmarks and a REMBO-based high-dimensional example; hyperparameters are treated realistically (empirical Bayes, isotropic Matérn).
+
+Major concerns (quality, correctness, and clarity):
+1) Core theoretical claim is unclear/likely incorrect as stated.
+- Theorem 1 states rN ≤ const · exp(−α[(N+Ngp)/(2CDρ̄t) − Ξn − 2] ln 3) and “O(λN+Ngp) with λ < 1,” but λ is then defined as λ = 3 − α2CDρ̄t < 1. This is dimensionally and mathematically inconsistent (3 − something vs 3−(…) in the exponent). I suspect λ should be 3−α/(2CDρ̄t); please fix and clarify the exact dependence.
+- More fundamentally, exponential convergence in the number of function evaluations for general Hölder-continuous black-box functions contradicts known minimax lower bounds (e.g., rates typically scale polynomially in N with exponent depending on smoothness and dimension; see Munos’ DOO/HOO analyses; Bull 2011 for EI; Lipschitz bandits literature). The only way to reconcile an exponential-in-N bound would be if the exponent’s coefficient depends adversarially on ρ̄t and other terms that themselves grow with N so that the net rate is effectively polynomial. The paper’s Remarks try to qualify this, but the conditions under which ρ̄t = O(1) seem strong and not justified. Please either (a) precisely state assumptions under which exponential in N is possible and compare to lower bounds, or (b) correct the rate to the appropriate polynomial form.
+- Counting Ngp (the number of UCB evaluations) in the exponent is unusual and potentially misleading: UCB calls are not function evaluations and should not be “credited” as progress in sample complexity. The cost/model for UCB calls vs f-evaluations needs to be formalized. If Ngp can be made large cheaply, the bound becomes meaningless.
+
+2) Validity of UCB property under empirical Bayes.
+- The paper asserts “this particular form of ςM maintains f(x) ≤ U(x|D) during execution with prob ≥ 1 − η.” This typically requires fixed kernel/hyperparameters and an RKHS-norm bound (Srinivas et al., 2010). Here, hyperparameters are re-estimated at every iteration by empirical Bayes; the union bound over M UCB calls alone is not sufficient to guarantee coverage under such data-dependent re-estimation. This is a critical gap: the entire pruning rule (and the regret proof) rely on the high-probability upper bound property. A precise statement and proof (or a clear separation of what is proved under fixed hyperparameters vs what is heuristic in practice) are needed.
+
+3) Algorithmic details contain inconsistencies/typos that hinder reproducibility.
+- Line 38: “Update Ξ: if f+ was updated, Ξ ← Ξ + 22, otherwise Ξ ← max(Ξ − 2−1, 1).” 22 seems to be 2^2 (4)? Why add 4 and subtract 1/2? Dimensions and intent are unclear.
+- “3Ξmax times” in complexity of step (iii) likely means 3^Ξmax. Please fix notation consistently.
+- Step (iii) uses i∗h+ξ and g(ch+ξ,i∗h+ξ) but these indices are not unambiguously defined; the construction of T′h+ξ(ch,i∗h) and the max over U on that set is expensive; clarify how this is implemented efficiently.
+- Ω is assumed to be a “square,” satisfied by “scaling.” In D > 1, an axis-aligned hyperrectangle can be affinely mapped to a hypercube; but if Ω is not a hyperrectangle, this is nontrivial. You allude to a general-case treatment “in the last paragraph of section 4,” which is not present in the provided text.
+- β definition: β = supx,x′∈Ω (1/2)‖x − x′‖∞. OK, but check where βD1/p is used; some exponents appear inconsistent.
+
+4) Experimental methodology raises fairness and substantiation issues.
+- The claimed exponential convergence is not empirically substantiated (log10 plots do not test exponential vs polynomial; slopes vs N should be analyzed).
+- GP-PI and GP-EI are disadvantaged: you optimize the acquisition with SOO plus a local gradient method, which is atypical and likely suboptimal. Standard practice uses multi-start quasi-Newton/CMA-ES with restarts; please ensure competitive acquisition optimization.
+- Only GP-PI/EI are averaged over 50 runs; deterministic methods are single-run. Report multiple random seeds for all methods (e.g., random tie-breaking, initial points).
+- Table 1 (runtime) and Figure 1/2 are referenced but not included; without them, the claims about speed and performance are not verifiable.
+- The REMBO experiment lacks details (embedding dimensionality k, bounds, random projections, budget). The 1000D claim is anecdotal without thorough analysis.
+
+5) Presentation and referencing:
+- Numerous typos and formatting issues (e.g., missing/incorrect parentheses, inconsistent variables N/n/t, “hence this interval is divided” phrasing, “Sin+1” likely sin + 1?, “converges rapidly” vague). The pseudocode is hard to parse in its current form.
+- Several references are incomplete (years/pages missing) and some relevant related work is not discussed (e.g., lower bounds for Lipschitz optimization; convergence of EI: Bull 2011; HOO/POO variants).
+
+Pros:
+- Addresses an important practical limitation (δ-cover) and aims to retain strong rates.
+- Conceptually appealing fusion of GP-UCB pruning with optimistic partitioning.
+- Introduces an interesting analytical device (infinite-metric exploration loss).
+- Implementation appears to skip expensive evaluations when UCB is clearly suboptimal.
+
+Cons:
+- Central theoretical claim (exponential in N) is inconsistent with known theory as stated; key definitions (λ) are incorrect/typo-prone.
+- UCB validity under empirical Bayes is not justified; proofs are deferred and not checkable here.
+- Algorithm description has multiple inconsistencies (Ξ updates, 3^Ξ, indices), making reproduction difficult.
+- Experimental comparisons are not fully fair or sufficiently detailed; missing figures/tables.
+
+Recommendation: Reject (as is). The high-level idea is promising, but the paper requires substantial revisions: correct the theory (including precise assumptions, consistency with lower bounds, and a clear λ), rigorously address UCB validity under hyperparameter learning, fix algorithmic inconsistencies, and strengthen/standardize the empirical evaluation.
+
+Confidence: High.

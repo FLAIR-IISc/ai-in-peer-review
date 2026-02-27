@@ -1,0 +1,59 @@
+Summary
+The paper proposes the Locally Adaptive Normal Distribution (LAND): a Riemannian normal distribution defined on a data-driven Riemannian manifold over RD. The manifold is induced by a smoothly varying metric M(x) built from a locality-weighted (diagonal) covariance estimator, with Gaussian kernel bandwidth σ and regularizer ρ. Densities are defined via Pennec’s Riemannian normal, pM(x|µ,Σ) ∝ exp(−1/2⟨Logµ(x), Σ−1 Logµ(x)⟩), where Exp/Log are computed via geodesic ODEs. Because the normalizer C(µ,Σ) has no closed form on learned manifolds, the authors propose a Monte Carlo approximation by “integrating on the tangent space” using samples v ~ N(0,Σ) and evaluating m(µ,v) = √|M(Expµ(v))|. They give gradients for ML estimation (block coordinate descent over µ and Σ with Σ−1 = AᵀA), and extend to a mixture with an EM-like procedure. Synthetic experiments and EEG sleep-stage clustering suggest improvements over GMMs and LS-based Riemannian baselines.
+
+Relation to prior work
+The paper builds on Pennec’s Riemannian normal and intrinsic statistics, and on learned metrics/manifold learning (Isomap, Hauberg et al.). Unlike prior Riemannian mixture models on known manifolds, LAND learns the metric from data (though with strong constraints). This is a sensible avenue, but several theoretical and practical aspects are underdeveloped or incorrect.
+
+Strengths
+- Ambitious and timely goal: bring Riemannian statistics to learned manifolds and provide a generative model.
+- Practical algorithm outline with gradients and a scalable trick to avoid repeated BVPs when estimating C(µ,Σ) (sampling on TµM and using IVPs).
+- Experiments suggest the model can capture non-elliptical structure and improve clustering on EEG features.
+
+Major weaknesses / technical concerns
+1) Change-of-variables/volume element appears incorrect. Eq. (9)–(10) implicitly assume
+C(µ,Σ) = ∫_{TµM} √|M(Expµ(v))| exp(−1/2⟨v,Σ−1v⟩) dv.
+In general, when reparametrizing via x = Expµ(v), the Riemannian volume element in coordinates v is √det(gφ(v)) dv with gφ the pullback metric: gφ(v) = (dExpµ,v)ᵀ M(Expµ(v)) (dExpµ,v). Thus the integrand should include |det dExpµ,v| in addition to √|M(Expµ(v))|:
+√det(gφ(v)) = √(det M(Expµ(v))) · |det dExpµ,v|.
+The current estimator m(µ,v) = √|M(Expµ(v))| omits |det dExp|, which is not 1 except at v=0. This affects normalization, gradients, and likelihoods, and may invalidate probabilistic comparisons and EM responsibilities.
+
+2) Computational contradictions and missing complexity analysis. The method still requires Logµ(xn) for every data point and iteration (BVPs), which the paper elsewhere calls a bottleneck. No timings, iteration counts, or N/S/D scaling are reported. The cost of evaluating M(Expµ(v)) also scales with N (kernel sums) at each ODE step; no neighborhood pruning or data structures are used.
+
+3) Metric design is severely restrictive and coordinate dependent. Using only diagonal local covariances makes the metric non-invariant to linear transforms and unable to capture local anisotropy directions. This design choice is acknowledged but not mitigated; no empirical study of its impact is provided.
+
+4) ML gradients and “steepest descent” justification are unclear. The claim ∂/∂µ ⟨Logµ(x), Σ−1 Logµ(x)⟩ = −2 Σ−1 Logµ(x) is presented without conditions. On a manifold, the gradient of 1/2 d2(µ,x) is −Logµ(x) with respect to the manifold metric; here the inner product uses Σ−1 in TµM, not M(µ). The choice dµφ = −Σ∇µφ is described as “steepest descent,” but the underlying metric on parameter space is not specified. A careful Riemannian gradient derivation (with clear metric choices) is needed.
+
+5) Experimental evaluation issues.
+- Synthetic evaluation reports “mean negative log-likelihood of the true generative distribution using samples from the fitted model,” which estimates E_{x∼model}[−log p_true(x)], not the standard measure E_{x∼true}[−log p_model(x)]. This is not a proper criterion for model comparison.
+- Hyperparameter tuning is asymmetric: for EEG, σ is swept and the best LAND is reported, but it is unclear whether similar tuning was applied to GMM (covariance structure, components, regularization).
+- No uncertainty quantification (std/CI) or ablations on S, σ, ρ, or solver tolerances; no runtime/memory stats.
+- Figures/Tables referenced but not present in the main text; several are deferred to supplements.
+
+6) Statistical circularity and generalization. The learned metric M(x) is built from the full dataset and then used for likelihoods on the same data, making the model partially nonparametric in a data-dependent way. There is no held-out evaluation to assess generalization under the learned geometry.
+
+Clarity and presentation issues
+- Numerous formatting/typos: broken section numbering (“.1 Synthetic Data Experiments”), stray figure captions in the text (“Geodesics LAND model Linear model”), truncated conference header, missing years/pages in many references, malformed references (e.g., “and L, D. Purves…”), inconsistent citation formatting, and missing figures/tables referenced in the text.
+- Key derivations (e.g., gradients, justification of Eq. 12–13) are deferred to supplements; the main text lacks enough detail for reproduction.
+
+Originality and significance
+- The idea of adapting Riemannian normals to learned geometries is appealing, but similar ideas have appeared (e.g., geodesic mixtures on known manifolds). The paper’s novelty rests on learning the metric and estimating the normalizer efficiently. Given the substantial technical issue with the volume element and the incomplete empirical evaluation, the current significance is limited.
+
+Questions for the authors
+- Please correct the integration measure when changing variables via Exp and include |det dExpµ,v| or equivalently work with the pullback metric explicitly. How does this affect C(µ,Σ), gradients, and results?
+- How are Log maps computed in practice (solver, tolerances, initializations)? What are the runtimes per iteration for typical N, D, K, S?
+- How were σ, ρ chosen in all experiments? Was GMM tuned comparably (full/tied/diag covariance, components)?
+- Can you report E_{x∼true}[−log p_model(x)] on held-out data and sensitivity to S?
+- Why restrict to diagonal local covariances? Can you at least rotate data (e.g., PCA-whiten) to mitigate coordinate dependence?
+
+Pros
+- Interesting and potentially useful modeling direction.
+- Practical algorithmic components; code could be impactful if made correct and efficient.
+- Empirical results suggest potential gains in non-elliptical settings.
+
+Cons
+- Likely incorrect normalization due to missing |det dExp| term.
+- Heavy computational burden and lack of complexity/timing analysis.
+- Coordinate-dependent, diagonal metric with limited justification.
+- Evaluation methodology and reporting issues; presentation quality problems.
+
+Recommendation
+Reject. While the high-level idea is compelling, the apparent error in the normalization change-of-variables, together with significant methodological, evaluation, and presentation issues, undermines the paper’s technical soundness and reproducibility. I encourage the authors to fix the measure/normalization, clarify and justify the optimization under a consistent Riemannian framework, strengthen experiments with proper likelihood on held-out data and fair baselines, and improve clarity/formatting. Confidence: high.

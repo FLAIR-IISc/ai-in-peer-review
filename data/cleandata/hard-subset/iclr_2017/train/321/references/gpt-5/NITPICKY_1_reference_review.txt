@@ -1,0 +1,44 @@
+Summary
+The paper proposes a framework for hierarchical reinforcement learning in sparse-reward settings: (1) pretrain a low-level, multi-skill policy using Stochastic Neural Networks (SNNs) with a categorical latent z and a proxy reward (e.g., CoM speed) to learn a “span of skills”; (2) at test time, freeze the low-level SNN, and train a high-level “Manager” to select a skill every T steps to solve downstream sparse tasks (mazes and gather). To prevent mode collapse and promote interpretable behaviors, the pretraining adds a mutual information (MI) bonus between the latent z and a subset of the state (the agent’s CoM (x, y)), implemented via a discretized posterior estimate p̂(Z|c). The paper claims improved exploration and performance on sparse tasks, better sample efficiency vs training K independent policies, and interpretable skills; code and videos are provided.
+
+Decision: Reject
+Key reasons:
+1) Empirical support is limited and brittle: results are largely on Swimmer and a custom Snake; Ant fails in hierarchical use. High variance and frequent failure modes undermine robustness. Several key claims (e.g., sample-efficiency gains “K times”) are asserted but not convincingly quantified.
+2) Insufficiently strong baselines and ablations: comparisons to modern intrinsic motivation/exploration and hierarchical baselines are weak or relegated to appendices with mismatched settings; key design choices (bilinear vs concatenation, MI strength, K, T) are not evaluated rigorously or consistently across tasks.
+3) Technical/methodological clarity and rigor issues: MI estimator details and stability (e.g., zero-count smoothing), nonstationary shaping, discretization choices, and sensitivity are underspecified; formatting/citation quality is poor.
+
+Supporting arguments
+- Novelty and motivation: Using an SNN policy π(a|s, z) to induce multimodality and a mutual-information regularizer to discover diverse skills is sensible and timely; the formulation is related to mixture-of-experts/options with shared parameters and to InfoGAN-inspired skill discovery. The paper is reasonably well-situated (HiREPS, option-critic, GPS, VIME), though direct comparison to concurrent works that discover skills via MI/unsupervised objectives is missing (understandable if contemporaneous, but then the empirical evaluation should be correspondingly stronger).
+- MI regularizer: The intended objective I(Z; C) with C the CoM is coherent; maximizing E log p̂(Z|C) encourages skill-state discriminability. However:
+  - The posterior p̂(Z|c) is obtained via counts on a discretized grid without any stated smoothing; log p̂ can be ill-defined for unseen z in a cell (log 0). Even if an epsilon is used, its value is not reported; the impact on gradients and stability is unaddressed.
+  - The MI bonus is recomputed batch-wise using data collected under the current policy, creating a moving target/ nonstationary shaped reward. There is no analysis of stability, bias, or sensitivity to grid resolution (beyond a single value in Appendix A).
+  - Restricting C to (x, y) may bias skills to direction-of-travel variants and ignore rotational symmetries; the paper acknowledges dependence on initial orientation and shows behaviors tied to a fixed heading. This raises concerns about generalization to tasks requiring orientation/pose-dependent manipulation, yet no remedy is explored (e.g., including heading or velocity as C).
+- Architecture and optimization:
+  - Treating z as part of the observation to keep TRPO tractable is standard. However, the claim that training an SNN “takes a comparable amount of samples to a single policy,” hence yielding K-fold sample savings, is not substantiated with learning curves or quantitative pretraining convergence metrics. Interference between modes (shared parameters) and capacity limitations could hurt per-skill quality; no such analysis is provided.
+  - The bilinear integration vs concatenation observation is supported only by visitation plots and anecdotal percentages; no quantitative diversity metric (e.g., MI achieved, state coverage, skill overlap) or statistical test is reported.
+  - The high-level Manager commits for T=500 in Swimmer tasks; such long commitments can mask credit assignment issues and are unlikely to transfer to reactive settings. Sensitivity to T is only studied in an appendix for Snake, not on the main tasks.
+- Empirical evaluation:
+  - Main environments are Swimmer mazes and a gather task; Ant is reported as failing to switch robustly (Appendix D). This substantially limits the generality of the approach to unstable/high-DoF agents.
+  - Baselines: The primary non-hierarchical baseline is adding the proxy reward to the task, which is weak for mazes; prior exploration methods (VIME) appear only in Appendix B with different episode lengths (500 vs 5000), complicating interpretation. No comparison to option-critic or to training K independent options with a Manager under matched sample budgets is provided.
+  - Variance/brittleness: Authors note that some pretrained SNNs simply lack a motion needed to solve certain mazes, leading to zero return even after training the Manager. This indicates that skill discovery is not reliably aligned with downstream needs; no mechanism is proposed to diagnose or refine skills post hoc.
+- Reproducibility and presentation:
+  - Code is provided, but key hyperparameters and procedures critical to MI (grid size, smoothing, bonus scaling, normalization over discounting) and to the manager (temperature/entropy regularization for categorical policy) are not clearly specified in the main text.
+  - Numerous typos and formatting/citation issues (e.g., “signle,” “SILL,” dangling footnotes “3,” malformed references with missing years, duplicated author names) detract from professionalism.
+
+Additional feedback (to improve the paper)
+- Provide quantitative measures of skill diversity and coverage (e.g., estimated I(Z; C), pairwise occupancy divergence, controllability metrics), not only visitation plots.
+- Report pretraining sample complexity vs K independent policies under matched budgets; show that SNN pretraining achieves comparable or better per-skill quality.
+- Add smoothing for p̂(Z|c) and report its effect; analyze sensitivity to grid resolution and alpha scaling; consider density models for p̂(Z|C) when C is higher-dimensional.
+- Evaluate across more challenging agents with successful hierarchical switching (e.g., Hopper/Walker2d) and provide strategies to mitigate instability in Ant (e.g., warm-starting internal states, transition policies, termination policies).
+- Strengthen baselines: option-critic, mixture-of-policies, parameter noise, count-based/hash-based exploration, and matched VIME settings; include hierarchical baselines with independently trained skills.
+- Study sensitivity to K and T on the main tasks; consider learning a termination policy and allowing end-to-end finetuning to adapt skills to downstream tasks.
+- Reduce dependence on fixed initial orientation; consider rotational augmentation or including heading in C for MI.
+- Clean up formatting and references; ensure all citations are complete and consistent.
+
+Questions for the authors
+1) How do you handle zero-count cells in p̂(Z|c)? Is any smoothing used? How sensitive are results to the smoothing constant and grid resolution?
+2) Can you report the actual MI achieved during pretraining and relate it to downstream performance and skill interpretability?
+3) What is the empirical pretraining cost vs training K independent policies? Do SNNs ever hurt per-skill quality due to interference?
+4) How does performance vary with K and T on the main Swimmer mazes? Can a learned termination policy improve robustness?
+5) Can you provide matched-setting comparisons to option-critic and VIME (same horizons, batch sizes) and to a hierarchical baseline with K independently trained skills and a Manager?
+6) For Ant, what concrete strategies failed/succeeded to stabilize switching? Could you pretrain with switch events to improve robustness?

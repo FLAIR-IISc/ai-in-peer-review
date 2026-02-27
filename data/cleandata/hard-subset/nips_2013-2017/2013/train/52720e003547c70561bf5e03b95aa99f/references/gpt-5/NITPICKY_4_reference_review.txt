@@ -1,0 +1,65 @@
+Summary
+The paper tackles large-scale sparse precision (inverse covariance) estimation via the CLIME estimator by proposing an inexact ADMM algorithm and a scalable implementation that solves CLIME in column blocks. The main ideas are: (i) linearized/inexact ADMM updates that reduce the X-step to elementwise soft-thresholding; (ii) solving k columns at a time to leverage matrix–matrix multiplies (BLAS-3) and cache locality; (iii) exploiting low-rank structure of the sample covariance (C = A A′) to replace C X by A(A′X), reducing cost from O(p^2 k) to O(n p k) in the low-sample regime (n ≪ p); (iv) distributed memory implementation with block-cyclic data distribution for load balancing. The paper provides O(1/T) convergence rates (ergodic) for objective suboptimality and constraint residuals, discusses possible sparsity/low-rank accelerations, and presents experiments comparing with CLIME, TIGER, and DC-QUIC. They report scaling to p = 10^6 on 400 cores in ~11 hours.
+
+Relation to prior work: The approach builds on CLIME (Cai et al.), ADMM (Boyd et al.), linearized/inexact ADMM (e.g., Yang & Zhang; He & Yuan), and HPC block algorithms (ScaLAPACK). It is related to QUIC/DC-QUIC and big-scale graphical lasso methods; however, important closely related large-scale work (e.g., BIGQUIC) is not cited or compared.
+
+Strengths
+- Practical systems contribution: turning CLIME into a column-block, BLAS-3-friendly algorithm with block-cyclic distribution is useful and likely effective at scale.
+- Reasonable theoretical guarantees: O(1/T) ergodic rates for objective and residuals under a standard condition (η ≥ ρ λ_max(C)^2).
+- Exploits low-rank structure to avoid forming/storing C and to reduce per-iteration cost—appropriate for n ≪ p.
+- Distributed implementation details (block sizes, process grids, parallel I/O) and empirical scaling on both shared and distributed memory.
+
+Weaknesses and concerns
+Technical correctness/clarity:
+- Multiple inconsistencies in notation and constants:
+  - Augmented Lagrangian (4) uses ρ⟨Y, CX−Z⟩ + ρ‖CX−Z‖^2, but the ADMM subproblem (5) uses (ρ/2)‖CX−Z+Y‖^2; scaled vs unscaled dual forms are mixed.
+  - Linearization step (8) lacks consistent 1/2 factors in the proximal term, yet the closed-form soft-thresholding (9) assumes a different scaling. As written, soft(X^t−V_t, 1/η) does not follow from (8) unless constants are corrected.
+  - V-updates: V_t is defined as ρη C(2Y^t−Y^{t−1}) in text, but Algorithm 1 uses V_{t+1} = ρη(2 V̂_{t+1} − V̂_t) without division by η that one would expect from (8). These factor-of-η/ρ inconsistencies need fixing.
+  - Theorem 2 uses a nonstandard norm “‖X^T−X^{T−1}‖_{2η/ρ I−C^2}” (as written: “‖·‖2η ρ I−C2”), which is ambiguous. It is unclear whether C^2 means C′C, and how matrix-weighted Frobenius norms are defined. The dimensionality (matrix vs vectorization) is not specified.
+- Dimensional errors in Section 4: earlier A ∈ R^{p×n}, but later A is stated as ∈ R^{n×p}; U is declared as ∈ R^{n×k} when it should be p×k if U = A(A′X). This occurs multiple times and affects understanding of distribution and load balance.
+- The “perturbation” theorem (Theorem 3) is not convincing as stated. Adding an independent sub-exponential Δ to C will in general increase the deviation ‖(C+Δ)−Σ_0‖∞ unless Δ magnitudes scale appropriately with n. The theorem lacks precise conditions on the tails/scales of Δ relative to n, p, and constants. The “special case” of hard-thresholding small entries is deterministic and not covered by the independence assumption. As written, this section risks misleading readers about when sparsification preserves CLIME guarantees.
+- CLIME typically requires symmetrization of the column-wise solution to form a valid precision estimate; positive definiteness is not enforced. The paper does not describe the symmetrization step, its cost at scale, or whether the final estimator is PD (and if not, what the downstream implications are).
+
+Experimental methodology:
+- Critical omissions: n is not consistently reported, especially for the p = 10^6 experiment. Memory footprints, I/O, and how the 10^12 parameters are stored/output are not discussed. If outputs are sparse, what thresholds are used?
+- Missing stopping criteria and parameter selection: no details on ρ, η, stopping tolerances, and how they affect accuracy and runtime.
+- Comparisons: QUIC/DC-QUIC are included, but BIGQUIC (highly relevant for million-variable settings) and other scalable graphical lasso/CLIME implementations are not cited or compared. This undermines the claimed state-of-the-art scaling.
+- Quality evaluation focuses on speed; statistical accuracy (e.g., estimation error norms) and constraint satisfaction are not reported for large problems. Precision/recall is reported only for synthetic small/medium p; convergence plots are absent.
+- Some claims (e.g., linear speedup) are plausible but would benefit from careful profiling (compute vs communication), and ablations on block size k, block-cyclic tile sizes, and cache effects.
+
+Presentation and formatting:
+- Numerous typos and grammatical issues (“Comparision”, “acheived”, “architechtures”, “colletion”, “reguarlized”, etc.).
+- References are incomplete or duplicated and often missing venues/years; e.g., d’Aspremont/Banerjee entry is mangled; Friedman et al. appears twice; BIGQUIC missing.
+- Figures/tables are referenced but not included in the text provided; table captions are incomplete.
+- Notation section uses nonstandard definitions (e.g., “matrix inner product is defined elementwise”) and conflates vector/matrix norms.
+
+Quality: The algorithmic idea (linearized ADMM for CLIME with block columns and BLAS-3) is sound in spirit, but the current write-up has multiple inconsistencies that call correctness into question. Theoretical results look standard but are not cleanly stated; the perturbation result is particularly weak.
+
+Clarity: Below the bar. The paper needs a thorough pass to fix notation, constants, dimensions, and to standardize the ADMM derivation.
+
+Originality: Moderate. Linearized ADMM and block-cyclic BLAS-3 implementations are well known; the main novelty is applying these to CLIME at scale and packaging a distributed implementation. However, similar-scale results exist for related estimators (e.g., BIGQUIC), which are not discussed.
+
+Significance: Potentially significant as an engineering contribution if validated and cleaned up, but the current form lacks necessary rigor and comparisons to convincingly advance the state of the art.
+
+Pros for acceptance
+- Addresses an important and practically relevant scaling problem.
+- Simple algorithmic modifications that exploit modern HPC primitives.
+- Promising empirical scaling (if substantiated) to very large p.
+
+Cons for acceptance
+- Technical inconsistencies in derivations and notation; unclear correctness of some updates.
+- Weak/possibly incorrect “sparsification via perturbation” theorem.
+- Missing critical experimental details and comparisons to key prior art (e.g., BIGQUIC).
+- Numerous presentation and reference issues; clarity below NeurIPS standards.
+- Lack of discussion on symmetrization/PD of the final estimator and output/storage at the million-scale.
+
+Suggestions for improvement
+- Clean, consistent derivation of the linearized ADMM updates with correct constants; define scaled vs unscaled ADMM forms explicitly; provide a complete proof sketch in the main text.
+- Precisely state Theorems 1–3 with clear norms, matrix weights, and all assumptions. Either remove or substantially revise Theorem 3 to a deterministic thresholding corollary that is actually used.
+- Clarify dimensions throughout; fix Section 4 dimensional errors; specify process grid choice and justify.
+- Describe symmetrization, PD considerations, and how the final solution is stored at scale.
+- Report n, ρ, η, stopping criteria, and convergence; include estimation error metrics where possible.
+- Compare against BIGQUIC and other scalable baselines; include ablations on block size and communication.
+- Thoroughly revise writing, figures/tables, and references.
+
+Recommendation: Reject in current form due to substantial technical and presentation issues, despite a promising systems-oriented direction.

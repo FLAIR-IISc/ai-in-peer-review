@@ -1,0 +1,44 @@
+1) Summary and contributions
+The paper proposes Gated Graph Transformer Neural Networks (GGT-NNs), an extension of GG-NNs/GGS-NNs that (i) treats graphs as fully differentiable objects with soft node types, node “existence” strengths, and a dense multi-edge adjacency tensor, and (ii) introduces a library of differentiable graph transformations: node addition (Tadd), node state updates (Th, with an optional per-type “direct reference” input), edge updates (TC) with set/reset gates, propagation (Tprop, GGNN-like with type-specific message functions), and attention-based aggregation (Trepr). A particular configuration processes a sequence of sentences with a GRU, incrementally builds/updates a graph, and answers a query via readout over the final graph.
+
+The paper reports:
+- Strongly supervised bAbI results (1k training examples), where the model is trained to produce the ground-truth graph at each step (node/edge losses with permutation-invariant matching for new node slots), then uses the ground-truth graph for further processing. With “direct reference,” the model achieves ≥95% on 19/20 tasks (exceptions: task 17).
+- Synthetic “rule discovery” experiments: predicting next-step graph states for 1D Rule-30 cellular automata and 2-symbol 4-state Turing machines, with some generalization to longer rollout lengths.
+
+Positive aspects:
+- Clear, modular formulation of differentiable graph operations, including continuous node/edge existence and per-type updates.
+- Thoughtful training procedure for unordered node creation using set matching (Vinyals et al.) and explicit edge/node cross-entropy.
+- Compelling qualitative fit for tasks (e.g., path finding), and evidence that graph-based internal state can be advantageous.
+- Detailed appendices specifying operations and graph encodings; code availability is noted.
+
+2) Decision: Reject
+Key reasons:
+- The central empirical results rely on strong supervision with teacher-forced intermediate graphs and hand-engineered direct references, limiting the significance of the claimed ability to construct graphs from unstructured text.
+- Limited experimental rigor: no end-to-end results without graph supervision on bAbI; few ablations; no fair baselines on the rule-learning tasks; no scaling analysis.
+
+3) Supporting arguments
+- Strength of supervision and realism: For bAbI the model is trained at every step with the exact ground-truth graph, including node/edge states, and then the gold graph is injected for subsequent computation. This makes the downstream QA largely contingent on operating over nearly perfect graphs, undercutting the claim that the system “learns to build” the graph from text. Direct reference is implemented by dictionary lookup of entity names to node types, further narrowing the gap between text and graph. End-to-end methods (MemN2N, DNC, DMN+) are incomparable under these conditions; MemNN is the only other strongly supervised baseline, and each approach “wins” on a subset of tasks. A rigorous test would remove ground-truth graph supervision (or use weak/partial supervision) and report performance.
+- Missing ablations: There is no analysis of which components matter. For example:
+  - Effect of teacher forcing (training with vs. without substituting gold nodes/edges).
+  - Effect of Tadd vs. pre-instantiated nodes; effect of TC vs. propagation-only; effect of direct reference, beyond the reported aggregate results.
+  - Discrete vs. continuous edges (e.g., straight-through/Gumbel) and the impact of soft edges on inference quality and calibration.
+- Comparisons on algorithmic tasks: The cellular automaton and Turing machine simulations are interesting, but there are no direct comparisons to NTM/DNC/EntNet/transformer-based algorithmic learners on the same setups. The evaluation metric (“percent of examples with perfect graphs across all timesteps”) is strict, but the reported numbers (Table 3) are summarized only in prose; per-timestep accuracy/length extrapolation curves are absent.
+- Scalability: The method is O(|V|^2Y) in both compute and memory due to dense TC/Tprop on all node pairs and edge types. The paper acknowledges this but offers no empirical scaling study, sparsity strategies, or results on larger graphs. bAbI graphs are tiny; the rule tasks also use small lists/tapes.
+- Clarity and positioning: The term “Transformer” here means “a system that transforms graphs,” which risks confusion with attention-based Transformers. Related work on graph generation/structure learning (e.g., differentiable structure learning, neural relational inference) is not discussed. References are inconsistently formatted. Hyperparameters, dimensionalities, and training details (optimizers, propagation steps, batch sizes) are not clearly reported.
+
+4) Suggestions for improvement (constructive, not required for the current decision)
+- Provide end-to-end results without graph-level supervision on bAbI, and/or a semi-supervised regime with partial graphs plus consistency/regularization. Quantify the gap to the strongly supervised setting.
+- Add ablations on each transformation (Tadd, TC, Tprop, Trepr), the teacher-forcing substitution, and direct reference. Report sensitivity to graph softness (continuous vs. discretized edges).
+- Strengthen algorithmic-task baselines (e.g., NTM/DNC/Relational Memory/Transformers with relative positional biases) under identical data and metrics; show length generalization curves.
+- Analyze computational scaling: report runtime/memory vs. |V|, and experiment with sparse/neighborhood-limited updates or learned attention over candidate edges.
+- Improve clarity: rename or explicitly disambiguate “Transformer”; fix references; provide full training details and release code/scripts for exact reproduction.
+- Qualitative analysis: visualize learned graphs, failure cases (e.g., task 17), and attention patterns; show how errors propagate when ground-truth graphs are not injected.
+
+5) Questions for the authors
+- What is performance when the ground-truth graph is not injected during training (no teacher forcing of nodes/edges), and only the final QA loss is used? Can you report the full spectrum: none, partial (only edges or only nodes), and full supervision?
+- How large are the typical graphs (|V|, |E|, Y) per task, and how do runtime/memory scale empirically? What are the propagation step counts T?
+- How are hyperparameters chosen (hidden sizes, learning rates, number of added nodes per step)? Please provide a table and validation protocol.
+- For rule-learning, could you report per-timestep accuracy and length-agnostic metrics, and compare against DNC/NTM baselines on the same datasets?
+- What happens if direct reference is noisy or absent? Can you learn the referential pointer end-to-end (e.g., via soft lexical/entity attention) without dictionary matches?
+- Do edges remain fractional at inference, or do they saturate to near-binary values? Any calibration or thresholding needed?
+- Can the method be adapted with sparse candidate edge sets (e.g., kNN in embedding space) to alleviate O(|V|^2) costs? Any preliminary results?

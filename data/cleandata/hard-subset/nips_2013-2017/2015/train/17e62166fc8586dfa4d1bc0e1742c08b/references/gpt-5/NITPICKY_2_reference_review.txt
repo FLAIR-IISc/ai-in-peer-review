@@ -1,0 +1,61 @@
+Summary
+The paper addresses the problem of generating a sequence of sentences to describe a stream of images (e.g., a travel photo album). The proposed coherent recurrent convolutional network (CRCN) combines: (i) a CNN (VGGNet fc7) for image features, (ii) a bidirectional RNN over sentence embeddings (doc2vec) to model textual content flow, and (iii) an entity-grid-based local coherence model (Barzilay & Lapata) to encourage fluent sentence-to-sentence transitions. Training data are constructed from blog posts via paragraph-based text-image segmentation and LSA-based summarization, yielding paired image–sentence sequences. The model is trained with a max-margin ranking loss over aligned/misaligned image–text sequences. At test time, sentences are retrieved from training data by first selecting K nearest images per position and then re-ranking concatenated candidates using the learned CRCN. Experiments on two blog datasets (NYC, Disneyland) report improvements over several single-image captioning baselines on BLEU/CIDEr/METEOR and retrieval metrics, plus AMT user studies indicating a preference for CRCN outputs, especially for longer sequences.
+
+Strengths
+- Clear problem motivation: image streams require coherence across multiple sentences; blogs provide a natural, weakly aligned source.
+- Incorporating a local coherence model into a multimodal scoring framework is interesting and underexplored in multimodal captioning circa the cited timeframe.
+- The overall system is simple and scalable in principle (nearest-neighbor retrieval + learned re-ranking).
+- Sensible ablations (BRNN-only vs. BRNN+coherence) and user studies that probe the value of coherence for longer sequences.
+
+Weaknesses and concerns
+Methodological/modeling
+- The method retrieves sentences; it does not generate novel text. This is not made sufficiently clear in positioning or evaluation, and claims about “generation” and “unsupervised” are misleading. The approach is better described as supervised/weakly supervised retrieval with a coherence-aware re-ranker.
+- Score function design (Eq. 3) is problematic: Skl = sum_t s_k,t·v_l,t + g_k·v_l,t. The coherence term g_k is dot-multiplied with every image vector, effectively (sum_t v_l,t)·g_k, scaling with sequence length and content-agnostic repetition across positions. This is ad hoc and risks length bias. No normalization by N is used; negatives are of variable length. This can confound learning to prefer longer sequences.
+- The coherence feature path is awkward: a 64-d entity-grid histogram is zero-padded to 300-d and then linearly mapped to 4096-d. There is no nonlinearity between the two FC layers (dropout does not provide nonlinearity at test time), so Wf2Wf1 collapses to a single linear map at inference. The claim that it “does not reduce to a single linear mapping thanks to dropout” is not accurate.
+- The BRNN inputs are doc2vec sentence embeddings; no details on doc2vec hyperparameters (window, epochs, negative samples) are given, nor on how doc2vec was trained (“separately from the two classes” is ambiguous). It is also unclear whether coreference resolution (beyond parsing) is actually used; a parse tree alone does not identify coreferent entities.
+- Candidate search: the “divide-and-conquer beam search” is under-specified. Q, beam widths per level, and pruning criteria are not reported. Complexity and runtime are not discussed.
+- The coherence model is global (one vector per sequence), but the combination in Eq. 2 concatenates [O|q] with shared FC parameters; details are underspecified, and dimensionalities in Eq. 2 are hard to follow.
+- Training details are incomplete: learning rate, number of epochs, early stopping criteria, weight decay, gradient clipping, BRNN hidden sizes (are they 300?), initialization of doc2vec and whether it is fine-tuned, etc. Dropout is applied “in all layers except BRNN” but the rationale is not explained.
+
+Data and preprocessing
+- The blog segmentation heuristic (nearest image by index) and LSA summarization are simplistic and error-prone. No intrinsic evaluation of segmentation/summarization quality is provided, and no analysis of their downstream impact.
+- Data augmentation via top-κ (κ=3) summary sentences per image risks introducing near-duplicate supervision; potential overfitting or biased training is not discussed. No ablation over κ.
+- Ethical/legal aspects of scraping blogs (licenses, privacy) and whether the datasets will be released are not addressed.
+
+Evaluation
+- Using single-image captioning baselines (NeuralTalk, Show-and-Tell) as paragraph generators by concatenation is a weak and potentially unfair comparison; those models are designed for sentence-level generation and would struggle on blogs without careful domain adaptation. It is unclear if they were trained end-to-end on the blog data, their vocabularies, or how OOV handling and sequence truncation were done.
+- Metrics: BLEU/CIDEr/METEOR at paragraph level are known to be brittle, especially when test and train are disjoint and the method is retrieval-based; this is acknowledged but not remedied. No coherence-specific metrics (e.g., entity-grid discrimination, sentence ordering accuracy) are reported. No statistical significance tests for AMT results are shown; details about annotator qualification, inter-annotator agreement, and question randomization are missing.
+- Possible leakage: heavy reuse of sentences from the same domain raises the risk of near-duplicate content across train/test (especially with blogs that syndicate content). No deduplication analysis is presented.
+
+Clarity and presentation
+- Several typographical and notation issues: “ne examples” (Sec. 3.4), inconsistent use of “coherent/coherence,” unclear indices (k,l,t), and confusing dimensions in Eq. 2. The explanation of why two FC layers are needed is unconvincing. Some variable names (O, S, g) are overloaded and not defined where first used.
+- References are incomplete and inconsistent: many missing years, venues, arXiv identifiers, and page numbers; inconsistent capitalization and punctuation.
+- The claim “our approach is completely unsupervised” contradicts the supervised ranking loss over aligned pairs.
+- Figures are referenced for key intuition and results, but full quantitative tables and figures are not included here; reproducibility suffers due to missing details.
+
+Originality and significance
+- The main novelty is the integration of an entity-grid coherence prior with a multimodal retrieval scoring function for image streams. While reasonable, it is a relatively straightforward combination of known components. The scoring formulation has questionable design choices, and the lack of rigorous ablations/analysis weakens the contribution.
+- Practical impact is limited by retrieval-only outputs; generalization to domains without plentiful in-domain text is unclear.
+
+Pros vs. cons (high-level)
+Pros:
+- Addresses a relevant extension from single images to image streams.
+- Incorporates a classical coherence model into multimodal ranking.
+- Shows promising human preference for longer sequences.
+
+Cons:
+- Misleading positioning (unsupervised/generation) vs. retrieval.
+- Questionable score design and length bias; under-specified search.
+- Incomplete training/evaluation details; weak/possibly unfair baselines.
+- Heavy reliance on noisy preprocessing without analysis.
+- Presentation and referencing issues.
+
+Suggestions
+- Normalize scores by sequence length; reconsider coherence–image interaction (e.g., model transitions directly, or condition coherence on text only and combine at the sequence level).
+- Provide rigorous ablations: κ, K, M, doc2vec training, BRNN variants (LSTM/GRU), with and without coreference, effect of segmentation quality.
+- Add coherence-specific evaluations (entity-grid discrimination, sentence ordering) and significance tests for AMT; report runtimes.
+- Clarify and correct claims about supervision and generation; broaden baselines to sequence-aware models (e.g., CRFs over sentence selection/order), and ensure fair training on the same data.
+- Release data/code or provide enough detail for reproduction; fix reference formatting.
+
+Recommendation: Reject
+While the problem is interesting and the idea of injecting discourse coherence is appealing, the paper has numerous methodological and presentation shortcomings, misleading claims about supervision, and insufficiently rigorous evaluation. The accumulation of minor issues, combined with some substantive concerns about the scoring objective and fairness of baselines, prevents acceptance in its current form.

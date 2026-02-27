@@ -1,0 +1,51 @@
+1) Summary and claimed contributions (positive)
+The paper proposes Direct Future Prediction (DFP) as an alternative to reward-centric RL. Instead of learning value functions or policies via TD methods, DFP learns, via supervised learning, to predict vectors of future intrinsic measurements (e.g., health, ammo, frags) at multiple temporal offsets, conditioned on the current observation, a candidate action, and a goal vector. At test time, the agent selects the action that maximizes a goal-weighted linear utility over the predicted future measurements. Key claims are: (i) supervised prediction of dense, vectorial measurements is easier to train than scalar-reward RL and yields strong performance; (ii) the approach generalizes across environments and supports dynamically specified goals; (iii) on Doom-based 3D control tasks, DFP outperforms DQN, A3C, and DSR, and won the Visual Doom AI Competition.
+
+2) Decision
+Reject — despite a promising and potentially impactful idea, the submission contains numerous methodological ambiguities, fairness concerns in comparisons, and many avoidable clarity/formatting issues that undermine confidence in the results and their reproducibility.
+
+Key reasons:
+- Conceptual and training-protocol ambiguities (goal-conditioning, supervision for unexecuted actions, relation between predicted futures and the behavior policy) that materially affect interpretation and correctness are not articulated clearly or evaluated.
+- Baseline comparisons appear potentially unfair and insufficiently controlled, and several critical experimental details are missing. The paper also has pervasive formatting/reference problems.
+
+3) Supporting arguments
+Methodological clarity and correctness
+- Goal-conditioning semantics: f (future measurement differences) depend on the policy followed after the first action. In your setup, that policy is ε-greedy w.r.t. the episode’s goal, so the conditional target is truly f | g. This is crucial to justify including g as an input to F. The paper never states this explicitly nor analyzes the implications (e.g., distribution shift when testing with unseen g). It reads as if F predicts environment dynamics; in fact it predicts policy-conditional outcomes.
+- Supervision signal for actions: The network outputs future predictions for all actions, but the loss (Eq. 4) is defined only for the executed action. The other action heads are trained only via shared parameters and the action-stream normalization (Eq. 6). This weak supervision for non-executed actions can bias comparisons versus methods that explicitly evaluate all actions (e.g., Q-learning). Ablations or training variants that supervise all actions via counterfactual rollouts or model-based augmentation are absent.
+- Multi-horizon targets: You predict at six horizons but “only the latest three” contribute to the loss with weights (0.5, 0.5, 1). “Latest” is ambiguous (largest τ?). The choice and weighting are unexplained; no sensitivity analysis is provided.
+- Objective/metric mismatch: For D3/D4, training optimizes a linear combination of (ammo, health, frags) but evaluation reports only frags. This can distort conclusions—please report the full utility and component-wise metrics.
+- Conditioning on g: Because the same (o, a) can appear with different g across episodes yet share the same f target, the MSE optimum can ignore g. Any benefit must come from g shaping the behavior policy and thus the state-action distribution. An ablation removing g from the network would quantify whether g truly improves predictive accuracy or control.
+
+Baselines and fairness
+- Architecture parity: DFP uses a dueling-like architecture and dense vectorial supervision. It is unclear whether comparable architectural enhancements (e.g., dueling heads) were used for DQN/A3C. Using stronger heads only for DFP makes the comparison less fair.
+- Hyperparameter tuning: For DSR only the simplest scenario is reported and with limited tuning. For A3C, an “independent implementation” is used; this is a major source of variance. Training budgets and environment details (e.g., frame-skip, action repeat) can drastically affect results. The paper lacks a careful, standardized evaluation protocol and significance analysis.
+- Reporting: Results are aggregated over three seeds for training curves; final results have no confidence intervals or statistical tests. Given the high variance of these methods, error bars are important.
+
+Experimental/reproducibility details
+- Several critical training details are missing in the main text: optimizer and settings (Adam suggested by references but not specified), replay memory size M, minibatch size N, k (update frequency), ε schedule, preprocessing (frame size, grayscale vs RGB), reward/measurement normalization procedures, and action frame-skip. Appendices are referenced but not provided here; at minimum, the main text should summarize key settings.
+- In D3/D4: “Any combination of these sub-actions can be used, resulting in possible actions.” The number is missing (presumably 256). This is a basic omission.
+
+Presentation and formatting issues
+- Many typographical and formatting errors (e.g., “state-ofthe-art”, “cotemporal”, equation (6) uses Ai on both sides without distinguishing pre/post normalization; “latest three time steps” phrasing). Broken references are pervasive with placeholders and incorrect citation formats (e.g., “Bertsekas.,? \Q2010\E”, “He, He,? \Q2015\E”). These are unacceptable for ICLR camera-ready standards and hinder verification.
+- Some claims are overbroad given the restricted domain (e.g., “outperforms sophisticated deep reinforcement learning formulations” based on Doom-like tasks only).
+
+4) Suggestions to improve the paper (helpful, not exhaustive)
+- Clearly state that F predicts policy-conditional futures: after taking action a now, the subsequent trajectory is induced by an ε-greedy policy wrt g. Discuss the implications for generalization to new g and distribution shift.
+- Add ablations: (i) remove g from F; (ii) train with fixed g but test on new g; (iii) supervise all action heads (e.g., via off-policy counterfactuals if possible) vs. only executed action; (iv) vary τ sets and loss weights; (v) remove dueling split.
+- Ensure strict architectural parity in baselines (e.g., dueling DQN, same conv backbone, same preprocessing).
+- Report full utility scores alongside component metrics, include confidence intervals and statistical tests over ≥5 seeds.
+- Clarify replay memory size, optimizer, batch sizes, ε schedule, frame-skip, observation preprocessing, measurement normalization, action space cardinality, and training compute.
+- Improve notation (distinguish pre/post-normalization in Eq. 6), fix typos, and repair all references to standard formats.
+
+Questions for the authors
+1) Do you intend F to predict futures under the goal-conditioned behavior policy? If so, please formalize: F(o, a, g) ≈ E[f | o, a, πg], where πg is the ε-greedy policy w.r.t. g. How sensitive is performance to mismatch between training ε and test ε=0?
+2) Are non-executed action heads trained at all? If only the executed action contributes to the loss, have you measured calibration/accuracy across actions? Any techniques to mitigate bias (e.g., importance sampling, counterfactual estimates)?
+3) What is the exact action space size in D3/D4? Are sub-actions mutually compatible (e.g., run+backward+shoot simultaneously)?
+4) Please provide ablations showing the effect of removing g from F and/or training with fixed g but testing on unseen g. Does F actually use g (predictive accuracy conditioned on g)?
+5) How were DQN/A3C architectures matched to DFP (dueling heads, network width/depth, preprocessing)? Did you try dueling DQN/A3C?
+6) Why weight only the largest three horizons, and how sensitive are results to the choice of τ and weights?
+7) Can you report the utility used for training (0.5 ammo + 0.5 health + 1 frags) at test time, not only frags, for D3/D4? Also provide confidence intervals across seeds.
+8) What are M, N, k, optimizer and its hyperparameters, ε schedule, and frame-skip? How do results vary with replay memory size?
+9) Could you release code and training scripts to ensure reproducibility?
+
+Overall, the idea is interesting and promising, but the current presentation and experimental rigor are not yet at a standard I would recommend for acceptance.

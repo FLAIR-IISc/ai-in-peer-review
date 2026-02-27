@@ -1,0 +1,60 @@
+Summary
+The paper proposes Region Proposal Networks (RPNs) that generate class-agnostic object proposals by sliding a small fully-convolutional subnetwork over shared convolutional feature maps. Each location predicts k anchor-relative bounding boxes and objectness scores; the anchors span multiple scales and aspect ratios, yielding translation-equivariant proposals. A 4-step alternating training scheme is used to share conv layers between the RPN and a Fast R-CNN detector. On PASCAL VOC 2007/2012, the unified system achieves higher mAP than Fast R-CNN with Selective Search/EdgeBoxes while reducing proposal-time to ~10 ms due to feature sharing; overall runtime is reported as ~198 ms per image with VGG-16 (5 fps) and up to 17 fps with a smaller ZF net. Ablations show effects of sharing features, number of proposals, and contributions of classification vs regression heads. Comparisons to OverFeat-style one-stage systems favor the proposed two-stage cascade.
+
+Relation to prior work
+Builds directly on R-CNN/SPPnet/Fast R-CNN by moving proposal generation into the network, sharing conv computation. Contrasts with MultiBox (fixed set of non-translation-invariant priors, large output layer) and OverFeat (one-stage, class-specific sliding-window regression/classification). Uses standard multi-task loss and bounding-box parameterization as in R-CNN/Fast R-CNN. References to SPP, Fast R-CNN, and proposal methods (SS, EdgeBoxes) are appropriate, though see reference issues below.
+
+Strengths
+- Clear and elegant architectural idea that unifies proposals and detection with shared conv features.
+- Demonstrated speed/accuracy gains over SS/EB + Fast R-CNN; proposals effectively “free” at test time.
+- Solid ablations disentangling roles of cls/reg heads, NMS, and number of proposals.
+- Practical training recipe (alternating optimization) that achieves shared-feature convergence.
+- Thorough discussion of anchors and translation invariance; sensible design (3 scales × 3 aspect ratios).
+- Reproducibility aided by using Caffe and stating core hyperparameters; code is promised.
+
+Weaknesses and detailed concerns
+Methodology/analysis
+- Sensitivity analyses are thin: no ablation on anchor configurations (scales, aspect ratios, k), IoU label thresholds (0.7/0.3), NMS threshold (fixed 0.7), or s=600 resizing. Claims of robustness would be stronger with these.
+- The “translation-invariant” claim is somewhat overstated: stride-16 sampling and padding make the system only approximately equivariant; border handling requires ignoring cross-boundary anchors in training. Please temper the claim and/or quantify effects near borders (recall vs. distance to image edge).
+- Train/test mismatch: cross-boundary anchors are ignored during training but kept (and clipped) at test time; the paper asserts non-convergence otherwise without exploring more principled masking or valid-coordinate regression. A brief experiment with masked loss on valid coordinates would strengthen this choice.
+- Normalization/weighting in the loss is confusing and inconsistent. Equation (1) introduces Ncls, Nreg, λ, but later a footnote states an “early implementation” sets λ=10 with Ncls=256 and Nreg≈2,400. Which configuration is used for reported results? If different between ZF/VGG or between RPN-only vs shared, please specify.
+- Runtime reporting is incomplete: it is unclear whether the 10 ms RPN time includes NMS and proposal sorting; hardware is unspecified (GPU model, cuDNN version, CPU involvement). Please give a full breakdown (conv time, RPN heads, NMS, RoI pooling/fc time) and hardware details.
+- Evaluation scope is limited to PASCAL VOC 07/12 with IoU=0.5 mAP. Given the proposal focus, reporting average recall vs. IoU and COCO-style metrics (if not full COCO detection) would better reflect localization quality. The Recall–IoU figure is mentioned but quantitative tables (AUC/AR) are absent in the text.
+- Comparisons to MultiBox are primarily parameter-count arguments; there is no direct empirical comparison under the same detector/training setup. Even a qualitative or literature-sourced baseline on VOC would contextualize accuracy/recall trade-offs.
+- The one-stage comparison uses dense sliding windows and a 5-scale pyramid; however, implementation details (number of windows, NMS, class-agnostic vs class-specific regression) matter greatly. More parity (e.g., using the same anchors as RPN but class-specific heads) would isolate the cascade’s benefit more cleanly.
+
+Reproducibility
+- Important details are missing/underspecified: random seed strategy and variance across runs; image pre-processing (mean subtraction, color jitter/augmentation if any); proposal minimum size; any proposal post-processing before feeding to Fast R-CNN; momentum/weight decay for RPN-only vs shared; precise layers fine-tuned for VGG (conv3_1 and up is stated, but whether conv1/2 frozen impacts RPN quality).
+- The training schedule (60k+20k) is tied to VOC; guidance for scaling to larger datasets is not given.
+- The provided code URLs are malformed/inconsistent: “https://github.com/ ShaoqingRen/faster_rcnn” has a space; Fast R-CNN link is separate. Please ensure a single, working repository and clarify the exact commit used.
+
+Clarity/formatting
+- Numerous formatting and reference issues: broken hyphenation (e.g., “de∗tection”), footnote markers (1,2,3,4) interleaved in main text, dangling and inconsistent citations with missing years and venues, truncated author lists (“and A, M. Everingham...”), stray commas, inconsistent use of math symbols (W × H “typically ~2,400” is confusing: that number is area, not a dimension). Tables and figures are referenced (Fig. 1, Tables 1–5, Fig. 2) but not visible here; ensure captions are self-contained and that all hyperparameters used in them are stated in the text.
+- The discussion of stride vs. pixel spacing mixes original and resized image coordinates; “stride 16 on the re-scaled image, and thus ~10 pixels on a typical PASCAL image (~500×375)” is imprecise—please state stride in the resized domain consistently.
+- The claim “frame rate of 5 fps including all steps on a GPU” (VGG) vs. “17 fps with the ZF net” is reasonable, but both should report exact hardware and batch size (single-image inference assumed?).
+
+Pros for acceptance
+- Conceptually clean, impactful idea with clear empirical benefits.
+- Strong integration with an influential detection pipeline; likely high adoption.
+- Good ablations and practical training recipe.
+
+Cons for acceptance
+- Many presentation/clarity issues and incomplete experimental details.
+- Limited sensitivity analyses; some claims (translation invariance, loss normalization) under-justified.
+- Incomplete runtime reporting and fairness issues in some comparisons.
+- Evaluation restricted to VOC and IoU=0.5 mAP; proposal quality metrics underreported quantitatively.
+
+Questions for authors
+1) Which exact loss normalization/λ configuration produces the reported ZF/VGG results? Please unify the description and code.
+2) How sensitive are results to anchor scales/ratios, IoU thresholds, NMS IoU, and s? Please provide a small grid of ablations.
+3) Does the 10 ms RPN time include NMS? What GPU and cuDNN were used?
+4) Can you provide COCO-style AR or recall@IoU curves with numbers (AUC), and a small-scale COCO evaluation?
+5) Can you train with cross-boundary anchors by masking invalid coordinates in the regression loss? Does it fix the convergence issue?
+
+Overall assessment
+Quality: technically sound, but with gaps in analysis and reporting.
+Clarity: needs significant polishing; many minor but pervasive issues.
+Originality: strong and well-positioned relative to prior work.
+Significance: high practical impact.
+
+Recommendation: Reject (promising and likely impactful, but the accumulation of methodological and presentation issues warrants revision before acceptance). Confidence: high.

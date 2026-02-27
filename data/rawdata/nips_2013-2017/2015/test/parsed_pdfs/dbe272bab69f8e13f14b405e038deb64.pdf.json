@@ -1,0 +1,594 @@
+{
+  "name" : "dbe272bab69f8e13f14b405e038deb64.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Matrix Manifold Optimization for Gaussian Mixtures",
+    "authors" : [ "Reshad Hosseini" ],
+    "emails" : [ "reshad.hosseini@ut.ac.ir", "suvrit@mit.edu" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Gaussian Mixture Models (GMMs) are a mainstay in a variety of areas, including machine learning and signal processing [4, 10, 16, 19, 21]. A quick literature search reveals that for estimating parameters of a GMM the Expectation Maximization (EM) algorithm [9] is still the de facto choice. Over the decades, other numerical approaches have also been considered [24], but methods such as conjugate gradients, quasi-Newton, Newton, have been noted to be usually inferior to EM [34].\nThe key difficulty of applying standard nonlinear programming methods to GMMs is the positive definiteness (PD) constraint on covariances. Although an open subset of Euclidean space, this constraint can be difficult to impose, especially in higher-dimensions. When approaching the boundary of the constraint set, convergence speed of iterative methods can also get adversely affected. A partial remedy is to remove the PD constraint by using Cholesky decompositions, e.g., as exploited in semidefinite programming [7]. It is believed [30] that in general, the nonconvexity of this decomposition adds more stationary points and possibly spurious local minima.1 Another possibility is to formulate the PD constraint via a set of smooth convex inequalities [30] and apply interior-point methods. But such sophisticated methods can be extremely slower (on several statistical problems) than simpler EM-like iterations, especially for higher dimensions [27].\nSince the key difficulty arises from the PD constraint, an appealing idea is to note that PD matrices form a Riemannian manifold [3, Ch.6] and to invoke Riemannian manifold optimization [1, 6]. Indeed, if we operate on the manifold2, we implicitly satisfy the PD constraint, and may have a better chance at focusing on likelihood maximization. While attractive, this line of thinking also fails: an out-of-the-box invocation of manifold optimization is also vastly inferior to EM. Thus, we need to think harder before challenging the hegemony of EM. We outline a new approach below.\n1Remarkably, using Cholesky with the reformulation in §2.2 does not add spurious local minima to GMMs. 2Equivalently, on the interior of the constraint set, as is done by interior point methods (their nonconvex\nversions); though these turn out to be slow too as they are second order methods.\nKey idea. Intuitively, the mismatch is in the geometry. For GMMs, the M-step of EM is a Euclidean convex optimization problem, whereas the GMM log-likelihood is not manifold convex3 even for a single Gaussian. If we could reformulate the likelihood so that the single component maximization task (which is the analog of the M-step of EM for GMMs) becomes manifold convex, it might have a substantial empirical impact. This intuition supplies the missing link, and finally makes Riemannian manifold optimization not only match EM but often also greatly outperform it.\nTo summarize, the key contributions of our paper are the following: – Introduction of Riemannian manifold optimization for GMM parameter estimation, for which we\nshow how a reformulation based on geodesic convexity is crucial to empirical success. – Development of a Riemannian LBFGS solver; here, our main contribution is the implementation\nof a powerful line-search procedure, which ensures convergence and makes LBFGS outperform both EM and manifold conjugate gradients. This solver may be of independent interest.\nWe provide substantive experimental evidence on both synthetic and real-data. We compare manifold optimization, EM, and unconstrained Euclidean optimization that reformulates the problem using Cholesky factorization of inverse covariance matrices. Our results shows that manifold optimization performs well across a wide range of parameter values and problem sizes. It is much less sensitive to overlapping data than EM, and displays much less variability in running times.\nOur results are quite encouraging, and we believe that manifold optimization could open new algorithmic avenues for mixture models, and perhaps other statistical estimation problems.\nNote. To aid reproducibility of our results, MATLAB implementations of our methods are available as a part of the MIXEST toolbox developed by our group [12]. The manifold CG method that we use is directly based on the excellent toolkit MANOPT [6].\nRelated work. Summarizing published work on EM is clearly impossible. So, let us briefly mention a few lines of related work. Xu and Jordan [34] examine several aspects of EM for GMMs and counter the claims of Redner and Walker [24], who claimed EM to be inferior to generic secondorder nonlinear programming techniques. However, it is now well-known (e.g., [34]) that EM can attain good likelihood values rapidly, and scales to much larger problems than amenable to secondorder methods. Local convergence analysis of EM is available in [34], with more refined results in [18], who show that when data have low overlap, EM can converge locally superlinearly. Our paper develops Riemannian LBFGS, which can also achieve local superlinear convergence.\nFor GMMs some innovative gradient-based methods have also been suggested [22, 26], where the PD constraint is handled via a Cholesky decomposition of covariance matrices. However, these works report results only for low-dimensional problems and (near) spherical covariances.\nThe idea of using manifold optimization for GMMs is new, though manifold optimization by itself is a well-developed subject. A classic reference is [29]; a more recent work is [1]; and even a MATLAB toolbox exists [6]. In machine learning, manifold optimization has witnessed increasing interest4, e.g., for low-rank optimization [15, 31], or optimization based on geodesic convexity [27, 33]."
+    }, {
+      "heading" : "2 Background and problem setup",
+      "text" : "The key object in this paper is the Gaussian Mixture Model (GMM), whose probability density is\np(x) := ∑K\nj=1 αjpN (x;µj ,Σj), x ∈ Rd,\nand where pN is a (multivariate) Gaussian with mean µ ∈ Rd and covariance Σ 0. That is, pN (x;µ,Σ) := det(Σ) −1/2(2π)−d/2 exp ( − 12 (x− µ) TΣ−1(x− µ) ) .\nGiven i.i.d. samples {x1, . . . ,xn}, we wish to estimate {µ̂j ∈ Rd, Σ̂j 0}Kj=1 and weights α̂ ∈ ∆K , the K-dimensional probability simplex. This leads to the GMM optimization problem\nmax α∈∆K ,{µj ,Σj 0}Kj=1 n∑ i=1 log (∑K j=1 αjpN (xi;µj ,Σj) ) . (2.1)\n3That is, convex along geodesic curves on the PD manifold. 4Manifold optimization should not be confused with “manifold learning” a separate problem altogether.\nSolving Problem (2.1) can in general require exponential time [20].5 However, our focus is more pragmatic: similar to EM, we also seek to efficiently compute local solutions. Our methods are set in the framework of manifold optimization [1, 29]; so let us now recall some material on manifolds."
+    }, {
+      "heading" : "2.1 Manifolds and geodesic convexity",
+      "text" : "A smooth manifold is a non-Euclidean space that locally resembles Euclidean space [17]. For optimization, it is more convenient to consider Riemannian manifolds (smooth manifolds equipped with an inner product on the tangent space at each point). These manifolds possess structure that allows one to extend the usual nonlinear optimization algorithms [1, 29] to them.\nAlgorithms on manifolds often rely on geodesics, i.e., curves that join points along shortest paths. Geodesics help generalize Euclidean convexity to geodesic convexity. In particular, say M is a Riemmanian manifold, and x, y ∈M; also let γ be a geodesic joining x to y, such that\nγxy : [0, 1]→M, γxy(0) = x, γxy(1) = y. Then, a set A ⊆ M is geodesically convex if for all x, y ∈ A there is a geodesic γxy contained within A. Further, a function f : A → R is geodesically convex if for all x, y ∈ A, the composition f ◦ γxy : [0, 1]→ R is convex in the usual sense.\nThe manifold of interest to us is Pd, the manifold of d× d symmetric positive definite matrices. At any point Σ ∈ Pd, the tangent space is isomorphic to set of symmetric matrices; and the Riemannian metric at Σ is given by tr(Σ−1dΣΣ−1dΣ). This metric induces the geodesic [3, Ch. 6]\nγΣ1,Σ2(t) := Σ 1/2 1 (Σ −1/2 1 Σ2Σ −1/2 1 ) tΣ 1/2 1 , 0 ≤ t ≤ 1.\nThus, a function f : Pd → R if geodesically convex on a set A if it satisfies f(γΣ1,Σ2(t)) ≤ (1− t)f(Σ1) + tf(Σ2), t ∈ [0, 1], Σ1,Σ2 ∈ A.\nSuch functions can be nonconvex in the Euclidean sense, but are globally optimizable due to geodesic convexity. This property has been important in some matrix theoretic applications [3, 28], and has gained more extensive coverage in several recent works [25, 27, 33].\nWe emphasize that even though the mixture cost (2.1) is not geodesically convex, for GMM optimization geodesic convexity seems to play a crucial role, and it has a huge impact on convergence speed. This behavior is partially expected and analogous to EM, where a convex M-Step makes the overall method much more practical. Let us now use this intuition to elicit geodesic convexity."
+    }, {
+      "heading" : "2.2 Problem reformulation",
+      "text" : "We begin with parameter estimation for a single Gaussian: although this has a closed-form solution (which ultimately benefits EM), it requires more subtle handling when using manifold optimization. Consider the following maximum likelihood parameter estimation for a single Gaussian:\nmax µ,Σ 0\nL(µ,Σ) := ∑n\ni=1 log pN (xi;µ,Σ). (2.2)\nAlthough (2.2) is a Euclidean convex problem, it is not geodesically convex on its domain Rd × Pd, which makes it geometrically handicapped when applying manifold optimization. To overcome this problem, we invoke a simple reparametrization6 that has far-reaching impact. More precisely, we augment the sample vectors xi to instead consider yTi = [x T i 1]. Therewith, (2.2) turns into\nmax S 0\nL̂(S) := ∑n\ni=1 log qN (yi;S), (2.3)\nwhere qN (yi;S) := √ 2π exp( 12 )pN (yi; 0,S). Proposition 1 states the key property of (2.3).\nProposition 1. The map φ(S) ≡ −L̂(S), where L̂(S) is as in (2.3), is geodesically convex.\nWe omit the proof due to space limits; see [13] for details. Alternatively, see [28] for more general results on geodesic convexity.\nTheorem 2.1 shows that the solution to (2.3) yields the solution to the original problem (2.2) too. 5Though under very strong assumptions, it has polynomial smoothed complexity [11]. 6This reparametrization in itself is probably folklore; its role in GMM optimization is what is crucial here.\nTheorem 2.1. If µ∗,Σ∗ maximize (2.2), and if S∗ maximizes (2.3), then L̂(S∗) = L(µ∗,Σ∗) for\nS∗ =\n( Σ∗ + µ∗µ∗T µ∗\nµ∗T 1\n) .\nProof. We express S by new variablesU , t and s by writing S = ( U + sttT st stT s ) . The objective\nfunction L̂(S) in terms of the new parameters becomes\nL̂(U , t, s) = n2 − d 2 log(2π)− n 2 log s− n 2 log det(U)− ∑n i=1 1 2 (xi − t) TU−1(xi − t)− n2s .\nOptimizing L̂ over s > 0 we see that s∗ = 1 must hold. Hence, the objective reduces to a ddimensional Gaussian log-likelihood, for which clearly U∗ = Σ∗ and t∗ = µ∗.\nTheorem 2.1 shows that reformulation (2.3) is “faithful,” as it leaves the optimum unchanged. Theorem 2.2 proves a local version of this result for GMMs. Theorem 2.2. A local maximum of the reparameterized GMM log-likelihood\nL̂({Sj}Kj=1) := ∑n i=1 log (∑K j=1 αjqN (yi;Sj) ) is a local maximum of the original log-likelihood\nL({µj ,Σj}Kj=1) := ∑n i=1 log (∑K j=1 αjpN (xi|µj ,Σj) ) .\nThe proof can be found in [13].\nTheorem 2.2 shows that we can replace problem (2.1) by one whose local maxima agree with those of (2.1), and whose individual components are geodesically convex. Figure 1 shows the true import of our reformulation: the dramatic impact on the empirical performance of Riemmanian ConjugateGradient (CG) and Riemannian LBFGS for GMMs is unmistakable.\nThe final technical piece is to replace the simplex constraint α ∈ ∆K to make the problem unconstrained. We do this via a commonly used change of variables [14]: ηk = log ( αk αK ) for k = 1, . . . ,K − 1. Assuming ηK = 0 is a constant, the final GMM optimization problem is:\nmax {Sj 0}Kj=1,{ηj} K−1 j=1 L̂({Sj}Kj=1, {ηj}K−1j=1 ) := n∑ i=1 log ( K∑ j=1 exp(ηj)∑K k=1 exp(ηk) qN (yi;Sj) ) (2.4)\nWe view (2.4) as a manifold optimization problem; specifically, it is an optimization problem on the product manifold (∏K j=1 Pd ) × RK−1. Let us see how to solve it."
+    }, {
+      "heading" : "3 Manifold Optimization",
+      "text" : "In unconstrained Euclidean optimization, typically one iteratively (i) finds a descent direction; and (ii) performs a line-search to obtain sufficient decrease and ensure convergence. On a Riemannian manifold, the descent direction is computed on the tangent space (this space varies (smoothly) as one moves along the manifold). At a point X , the tangent space TX is the approximating vector space (see Fig. 2). Given a descent direction ξX ∈ TX , line-search is performed along a smooth curve on the manifold (red curve in Fig. 2). The derivative of this curve at X equals the descent direction ξX . We refer the reader to [1, 29] for an in depth introduction to manifold optimization.\nSuccessful large-scale Euclidean methods such as conjugate-gradient and LBFGS combine gradients at the current point with gradients and descent directions from previous points to obtain a new descent direction. To adapt such algorithms to manifolds, in addition to defining gradients on manifolds, we also need to define how to transport vectors in a tangent space at one point to vectors in a different tangent space at another point.\nOn Riemannian manifolds, the gradient is simply a direction on the tangent space, where the inner-product of the gradient with another direction in the tangent space gives the directional derivative of the function. Formally, if gX defines the inner product in the tangent space TX , then\nDf(X)ξ = gX(gradf(X), ξ), for ξ ∈ TX . Given a descent direction in the tangent space, the curve along which we perform line-search can be a geodesic. A\nmap that takes the direction and a step length to obtain a corresponding point on the geodesic is called an exponential map. Riemannian manifolds are also equipped with a natural way of transporting vectors on geodesics, which is called parallel transport. Intuitively, a parallel transport is a differential map with zero derivative along the geodesics. Using the above ideas, Algorithm 1 sketches a generic manifold optimization algorithm.\nAlgorithm 1: Sketch of an optimization algorithm (CG, LBFGS) to minimize f(X) on a manifold Given: Riemannian manifoldM with Riemannian metric g; parallel transport T onM; exponential map R; initial value X0; a smooth function f for k = 0, 1, . . . do\nObtain a descent direction based on stored information and gradf(Xk) using metric g and transport T Use line-search to find α such that it satisfies appropriate (descent) conditions Calculate the retraction / update Xk+1 = RXk (αξk) Based on the memory and need of algorithm store Xk, gradf(Xk) and αξk\nend for return estimated minimum Xk\nNote that Cartesian products of Riemannian manifolds are again Riemannian, with the exponential map, gradient and parallel transport defined as the Cartesian product of individual expressions; the inner product is defined as the sum of inner product of the components in their respective manifolds. Different variants of Riemannian LBFGS can be obtained depending where to perform the vector\ntransport. We found that the version developed in [28] gives the best performance, once we combine it with a line-search algorithm satisfying Wolfe conditions. We present the crucial details below."
+    }, {
+      "heading" : "3.1 Line-search algorithm satisfying Wolfe conditions",
+      "text" : "To ensure Riemannian LBFGS always produces a descent direction, it is necessary to ensure that the line-search algorithm satisfies Wolfe conditions [25]. These conditions are given by:\nf(RXk(αξk)) ≤ f(Xk) + c1αDf(Xk)ξk, (3.1) Df(Xk+1)ξk+1 ≥ c2Df(Xk)ξk, (3.2)\nwhere 0 < c1 < c2 < 1. Note that αDf(Xk)ξk = gXk(gradf(Xk), αξk), i.e., the derivative of f(Xk) in the direction αξk is the inner product of descent direction and gradient of the function. Practical line-search algorithms implement a stronger (Wolfe) version of (3.2) that enforces\n|Df(Xk+1)ξk+1| ≤ c2Df(Xk)ξk.\nSimilar to the Euclidean case, our line-search algorithm is also divided into two phases: bracketing and zooming [23]. During bracketing, we compute an interval such that a point satisfying Wolfe conditions can be found in this interval. In the zooming phase, we obtain such a point in the determined interval. The one-dimensional function and its gradient used by the line-search are\nφ(α) = f(RXk(αξk)), φ ′(α) = αDf(Xk)ξk.\nThe algorithm is essentially the same as the line-search in the Euclidean space; the reader can also see its manifold incarnation in [13]. Theory behind how this algorithm is guaranteed to find a steplength satisfying (strong) Wolfe conditions can be found in [23].\nA good choice of initial step-length α1 can greatly speed up the line-search. We propose the following choice that turns out to be quite effective in our experiments:\nα1 = 2 f(Xk)− f(Xk−1)\nDf(Xk)ξk . (3.3)\nEquation (3.3) is obtained by finding α∗ that minimizes a quadratic approximation of the function along the geodesic through the previous point (based on f(Xk−1), f(Xk) and Df(Xk−1)ξk−1):\nα∗ = 2 f(Xk)− f(Xk−1) Df(Xk−1)ξk−1 . (3.4)\nThen assuming that first-order change will be the same as in the previous step, we write\nα∗Df(Xk−1)ξk−1 ≈ α1Df(Xk)ξk. (3.5)\nCombining (3.4) and (3.5), we obtain our estimate α1 expressed in (3.3). Nocedal and Wright [23] suggest using either α∗ of (3.4) for the initial step-length α1, or using (3.5) where α∗ is set to be the step-length obtained in the line-search in the previous point. We observed that if one instead uses (3.3) instead, one obtains substantially better performance than the other two approaches."
+    }, {
+      "heading" : "4 Experimental Results",
+      "text" : "We have performed numerous experiments to examine effectiveness of our method. Below we report performance comparisons on both real and simulated data. In all experiments, we initialize the mixture parameters for all methods using k-means++ [2]. All methods also use the same termination criteria: they stop either when the difference of average log-likelihood (i.e., 1n log-likelihood) between consecutive iterations falls below 10−6, or when the number of iterations exceeds 1500. More extensive empirical results can be found in the longer version of this paper [13].\nSimulated Data EM’s performance is well-known to depend on the degree of separation of the mixture components [18, 34]. To assess the impact of this separation on our methods, we generate data as proposed in [8, 32]. The distributions are chosen so their means satisfy the following inequality:\n∀i 6=j : ‖mi −mj‖ ≥ cmax i,j {tr(Σi), tr(Σj)},\nwhere c models the degree of separation. Since mixtures with high eccentricity (i.e., the ratio of the largest eigenvalue of the covariance matrix to its smallest eigenvalue) have smaller overlap, in\naddition to high eccentricity e = 10, we also test the (spherical) case where e = 1. We test three levels of separation c = 0.2 (low), c = 1 (medium), and c = 5 (high). We test two different numbers of mixture components K = 2 and K = 5; we consider experiments with larger values of K in our experiments on real data. For e = 10, the results for data with dimensionality d = 20 are given in Table 2. The results are obtained after running with 20 different random choices of parameters for each configuration. It is apparent that the performance of EM and Riemannian optimization with our reformulation is very similar. The variance of computation time shown by Riemmanian optimization is, however, notably smaller. Manifold optimization on the non-reformulated problem (last column) performs the worst.\nIn another set of simulated data experiments, we apply different algorithms to spherical data (e = 1); the results are shown in Table 3. The interesting instance here is the case of low separation c = 0.2, where the condition number of the Hessian becomes large. As predicted by theory, the EM converges very slowly in such a case; Table 3 confirms this claim. It is known that in this case, the performance of powerful optimization approaches like CG and LBFGS also degrades [23]. But both CG and LBFGS suffer less than EM, while LBFGS performs noticeably better than CG.\nCholesky decomposition is a commonly suggested idea for dealing with PD constraint. So, we also compare against unconstrained optimization (using Euclidean CG), where the inverse covariance matrices are Cholesky factorized. The results for the same data as in Tables 2 and 3 are reported in Table 4. Although the Cholesky-factorized problem proves to be much inferior to both EM and the manifold methods, our reformulation seems to also help it in several problem instances.\nReal Data We now present performance evaluation on a natural image dataset, where mixtures of Gaussians were reported to be a good fit to the data [35]. We extracted 200,000 image patches of size 6×6 from images and subtracted the DC component, leaving us with 35-dimensional vectors. Performance of different algorithms are reported in Table 5. Similar to the simulated results, performance of EM and\nmanifold CG on the reformulated parameter space is similar. Manifold LBFGS converges notably faster (except for K = 6) than both EM and CG. Without our reformulation, performance of the manifold methods degrades substantially. Note that for K = 8 and K = 9, CG without reformulation stops prematurely because it hits the bound of a maximum 1500 iterations, and therefore its ALL is smaller than the other two methods. The table also shows results of the Cholesky-factorized (and reformulated) problem. It is more than 10 times slower than manifold optimization. Optimizing the Cholesky-factorized (non-reformulated) problem is the slowest (not shown) and it always reaches the maximum number of iterations before finding the local minimum.\nFig. 3 depicts the typical behavior of our manifold optimization methods versus EM. The X-axis is the number of log-likelihood and gradient evaluations (or the number of E- and M-steps in EM). Fig. 3(a) and Fig. 3(b) are the results of fitting GMMs to the ‘magic telescope’ and ‘year prediction’ datasets7. Fig. 3(c) is the result for the natural image data of Table 5. Apparently in the initial few iterations EM is faster, but manifold optimization methods match EM in a few iterations. This is remarkable, given that manifold optimization methods need to perform line-search."
+    }, {
+      "heading" : "5 Conclusions and future work",
+      "text" : "We introduced Riemannian manifold optimization as an alternative to EM for fitting Gaussian mixture models. We demonstrated that for making manifold optimization succeed, to either match or outperform EM, it is necessary to represent the parameters in a different space and reformulate the cost function accordingly. Extensive experimentation with both experimental and real datasets yielded quite encouraging results, suggesting that manifold optimization could have the potential to open new algorithmic avenues for mixture modeling.\nSeveral strands of practical importance are immediate (and are a part of our ongoing work): (i) extension to large-scale GMMs through stochastic optimization [5]; (ii) use of richer classes of priors with GMMs than the usual inverse Wishart priors (which are typically also used as they make the M-step convenient), which is actually just one instance of a geodesically convex prior that our methods can handle; (iii) incorporation of penalties for avoiding tiny clusters, an idea that fits easily in our framework but not so easily in the EM framework. Finally, beyond GMMs, extension to other mixture models will be fruitful.\n7Available at UCI machine learning dataset repository via https://archive.ics.uci.edu/ml/datasets"
+    } ],
+    "references" : [ {
+      "title" : "Optimization algorithms on matrix manifolds",
+      "author" : [ "P.-A. Absil", "R. Mahony", "R. Sepulchre" ],
+      "venue" : "Princeton University Press",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : null,
+      "year" : 2009
+    }, {
+      "title" : "k-means++: The advantages of careful seeding",
+      "author" : [ "D. Arthur", "S. Vassilvitskii" ],
+      "venue" : "Proceedings of the eighteenth annual ACM-SIAM symposium on Discrete algorithms (SODA), pages 1027–1035",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : null,
+      "year" : 2007
+    }, {
+      "title" : "Positive Definite Matrices",
+      "author" : [ "R. Bhatia" ],
+      "venue" : "Princeton University Press",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : null,
+      "year" : 2007
+    }, {
+      "title" : "Pattern recognition and machine learning",
+      "author" : [ "C.M. Bishop" ],
+      "venue" : "Springer",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : null,
+      "year" : 2007
+    }, {
+      "title" : "Stochastic gradient descent on riemannian manifolds",
+      "author" : [ "S. Bonnabel" ],
+      "venue" : "Automatic Control, IEEE Transactions on, 58(9):2217–2229",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Manopt",
+      "author" : [ "N. Boumal", "B. Mishra", "P.-A. Absil", "R. Sepulchre" ],
+      "venue" : "a matlab toolbox for optimization on manifolds. The Journal of Machine Learning Research, 15(1):1455–1459",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Solving semidefinite programs via nonlinear programming",
+      "author" : [ "S. Burer", "R.D. Monteiro", "Y. Zhang" ],
+      "venue" : "part i: Transformations and derivatives. Technical Report TR99-17, Rice University, Houston TX",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : null,
+      "year" : 1999
+    }, {
+      "title" : "Learning mixtures of gaussians",
+      "author" : [ "S. Dasgupta" ],
+      "venue" : "Foundations of Computer Science, 1999. 40th Annual Symposium on, pages 634–644. IEEE",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : null,
+      "year" : 1999
+    }, {
+      "title" : "Maximum likelihood from incomplete data via the EM algorithm",
+      "author" : [ "A.P. Dempster", "N.M. Laird", "D.B. Rubin" ],
+      "venue" : "Journal of the Royal Statistical Society, Series B, 39:1–38",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : null,
+      "year" : 1977
+    }, {
+      "title" : "Pattern Classification",
+      "author" : [ "R.O. Duda", "P.E. Hart", "D.G. Stork" ],
+      "venue" : "John Wiley & Sons, 2nd edition",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : null,
+      "year" : 2000
+    }, {
+      "title" : "Learning Mixtures of Gaussians in High Dimensions",
+      "author" : [ "R. Ge", "Q. Huang", "S.M. Kakade" ],
+      "venue" : "arXiv:1503.00424",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Mash’al. Mixest: An estimation toolbox for mixture models",
+      "author" : [ "M.R. Hosseini" ],
+      "venue" : "arXiv preprint arXiv:1507.06065,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 2015
+    }, {
+      "title" : "Differential geometric optimization for Gaussian mixture models",
+      "author" : [ "R. Hosseini", "S. Sra" ],
+      "venue" : "arXiv:1506.07677",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Hierarchical mixtures of experts and the em algorithm",
+      "author" : [ "M.I. Jordan", "R.A. Jacobs" ],
+      "venue" : "Neural computation, 6(2):181–214",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : null,
+      "year" : 1994
+    }, {
+      "title" : "Low-rank optimization on the cone of positive semidefinite matrices",
+      "author" : [ "M. Journée", "F. Bach", "P.-A. Absil", "R. Sepulchre" ],
+      "venue" : "SIAM Journal on Optimization, 20(5):2327–2351",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : null,
+      "year" : 2010
+    }, {
+      "title" : "Theoretical Statistics",
+      "author" : [ "R.W. Keener" ],
+      "venue" : "Springer Texts in Statistics. Springer",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : null,
+      "year" : 2010
+    }, {
+      "title" : "Introduction to Smooth Manifolds",
+      "author" : [ "J.M. Lee" ],
+      "venue" : "Number 218 in GTM. Springer",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Asymptotic convergence rate of the em algorithm for gaussian mixtures",
+      "author" : [ "J. Ma", "L. Xu", "M.I. Jordan" ],
+      "venue" : "Neural Computation, 12(12):2881–2907",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : null,
+      "year" : 2000
+    }, {
+      "title" : "Finite mixture models",
+      "author" : [ "G.J. McLachlan", "D. Peel" ],
+      "venue" : "John Wiley and Sons, New Jersey",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : null,
+      "year" : 2000
+    }, {
+      "title" : "Settling the polynomial learnability of mixtures of gaussians",
+      "author" : [ "A. Moitra", "G. Valiant" ],
+      "venue" : "Foundations of Computer Science (FOCS), 2010 51st Annual IEEE Symposium on, pages 93–102. IEEE",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : null,
+      "year" : 2010
+    }, {
+      "title" : "Machine Learning: A Probabilistic Perspective",
+      "author" : [ "K.P. Murphy" ],
+      "venue" : "MIT Press",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Convergence of the EM algorithm for gaussian mixtures with unbalanced mixing coefficients",
+      "author" : [ "I. Naim", "D. Gildea" ],
+      "venue" : "Proceedings of the 29th International Conference on Machine Learning (ICML-12), pages 1655–1662",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Numerical Optimization",
+      "author" : [ "J. Nocedal", "S.J. Wright" ],
+      "venue" : "Springer",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : null,
+      "year" : 2006
+    }, {
+      "title" : "Mixture densities",
+      "author" : [ "R.A. Redner", "H.F. Walker" ],
+      "venue" : "maximum likelihood, and the EM algorithm. Siam Review, 26:195–239",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : null,
+      "year" : 1984
+    }, {
+      "title" : "Optimization methods on riemannian manifolds and their application to shape space",
+      "author" : [ "W. Ring", "B. Wirth" ],
+      "venue" : "SIAM Journal on Optimization, 22(2):596–627",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Optimization with EM and Expectation-Conjugate- Gradient",
+      "author" : [ "R. Salakhutdinov", "S.T. Roweis", "Z. Ghahramani" ],
+      "venue" : "Proceedings of the 20th International Conference on Machine Learning (ICML-03), pages 672–679",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : null,
+      "year" : 2003
+    }, {
+      "title" : "Geometric optimisation on positive definite matrices for elliptically contoured distributions",
+      "author" : [ "S. Sra", "R. Hosseini" ],
+      "venue" : "Advances in Neural Information Processing Systems, pages 2562–2570",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Conic Geometric Optimization on the Manifold of Positive Definite Matrices",
+      "author" : [ "S. Sra", "R. Hosseini" ],
+      "venue" : "SIAM Journal on Optimization, 25(1):713–739",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Convex functions and optimization methods on Riemannian manifolds",
+      "author" : [ "C. Udrişte" ],
+      "venue" : "Kluwer",
+      "citeRegEx" : "29",
+      "shortCiteRegEx" : null,
+      "year" : 1994
+    }, {
+      "title" : "On formulating semidefinite programming problems as smooth convex nonlinear optimization problems",
+      "author" : [ "R.J. Vanderbei", "H.Y. Benson" ],
+      "venue" : "Technical report",
+      "citeRegEx" : "30",
+      "shortCiteRegEx" : null,
+      "year" : 2000
+    }, {
+      "title" : "Low-rank matrix completion by riemannian optimization",
+      "author" : [ "B. Vandereycken" ],
+      "venue" : "SIAM Journal on Optimization, 23(2):1214–1236",
+      "citeRegEx" : "31",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Efficient greedy learning of gaussian mixture models",
+      "author" : [ "J.J. Verbeek", "N. Vlassis", "B. Kröse" ],
+      "venue" : "Neural computation, 15(2):469–485",
+      "citeRegEx" : "32",
+      "shortCiteRegEx" : null,
+      "year" : 2003
+    }, {
+      "title" : "Geodesic convexity and covariance estimation",
+      "author" : [ "A. Wiesel" ],
+      "venue" : "IEEE Transactions on Signal Processing, 60 (12):6182–89",
+      "citeRegEx" : "33",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "On convergence properties of the EM algorithm for Gaussian mixtures",
+      "author" : [ "L. Xu", "M.I. Jordan" ],
+      "venue" : "Neural Computation, 8:129–151",
+      "citeRegEx" : "34",
+      "shortCiteRegEx" : null,
+      "year" : 1996
+    }, {
+      "title" : "Natural images",
+      "author" : [ "D. Zoran", "Y. Weiss" ],
+      "venue" : "gaussian mixtures and dead leaves. In Advances in Neural Information Processing Systems, pages 1736–1744",
+      "citeRegEx" : "35",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 3,
+      "context" : "Gaussian Mixture Models (GMMs) are a mainstay in a variety of areas, including machine learning and signal processing [4, 10, 16, 19, 21].",
+      "startOffset" : 118,
+      "endOffset" : 137
+    }, {
+      "referenceID" : 9,
+      "context" : "Gaussian Mixture Models (GMMs) are a mainstay in a variety of areas, including machine learning and signal processing [4, 10, 16, 19, 21].",
+      "startOffset" : 118,
+      "endOffset" : 137
+    }, {
+      "referenceID" : 15,
+      "context" : "Gaussian Mixture Models (GMMs) are a mainstay in a variety of areas, including machine learning and signal processing [4, 10, 16, 19, 21].",
+      "startOffset" : 118,
+      "endOffset" : 137
+    }, {
+      "referenceID" : 18,
+      "context" : "Gaussian Mixture Models (GMMs) are a mainstay in a variety of areas, including machine learning and signal processing [4, 10, 16, 19, 21].",
+      "startOffset" : 118,
+      "endOffset" : 137
+    }, {
+      "referenceID" : 20,
+      "context" : "Gaussian Mixture Models (GMMs) are a mainstay in a variety of areas, including machine learning and signal processing [4, 10, 16, 19, 21].",
+      "startOffset" : 118,
+      "endOffset" : 137
+    }, {
+      "referenceID" : 8,
+      "context" : "A quick literature search reveals that for estimating parameters of a GMM the Expectation Maximization (EM) algorithm [9] is still the de facto choice.",
+      "startOffset" : 118,
+      "endOffset" : 121
+    }, {
+      "referenceID" : 23,
+      "context" : "Over the decades, other numerical approaches have also been considered [24], but methods such as conjugate gradients, quasi-Newton, Newton, have been noted to be usually inferior to EM [34].",
+      "startOffset" : 71,
+      "endOffset" : 75
+    }, {
+      "referenceID" : 33,
+      "context" : "Over the decades, other numerical approaches have also been considered [24], but methods such as conjugate gradients, quasi-Newton, Newton, have been noted to be usually inferior to EM [34].",
+      "startOffset" : 185,
+      "endOffset" : 189
+    }, {
+      "referenceID" : 6,
+      "context" : ", as exploited in semidefinite programming [7].",
+      "startOffset" : 43,
+      "endOffset" : 46
+    }, {
+      "referenceID" : 29,
+      "context" : "It is believed [30] that in general, the nonconvexity of this decomposition adds more stationary points and possibly spurious local minima.",
+      "startOffset" : 15,
+      "endOffset" : 19
+    }, {
+      "referenceID" : 29,
+      "context" : "1 Another possibility is to formulate the PD constraint via a set of smooth convex inequalities [30] and apply interior-point methods.",
+      "startOffset" : 96,
+      "endOffset" : 100
+    }, {
+      "referenceID" : 26,
+      "context" : "But such sophisticated methods can be extremely slower (on several statistical problems) than simpler EM-like iterations, especially for higher dimensions [27].",
+      "startOffset" : 155,
+      "endOffset" : 159
+    }, {
+      "referenceID" : 0,
+      "context" : "6] and to invoke Riemannian manifold optimization [1, 6].",
+      "startOffset" : 50,
+      "endOffset" : 56
+    }, {
+      "referenceID" : 5,
+      "context" : "6] and to invoke Riemannian manifold optimization [1, 6].",
+      "startOffset" : 50,
+      "endOffset" : 56
+    }, {
+      "referenceID" : 11,
+      "context" : "To aid reproducibility of our results, MATLAB implementations of our methods are available as a part of the MIXEST toolbox developed by our group [12].",
+      "startOffset" : 146,
+      "endOffset" : 150
+    }, {
+      "referenceID" : 5,
+      "context" : "The manifold CG method that we use is directly based on the excellent toolkit MANOPT [6].",
+      "startOffset" : 85,
+      "endOffset" : 88
+    }, {
+      "referenceID" : 33,
+      "context" : "Xu and Jordan [34] examine several aspects of EM for GMMs and counter the claims of Redner and Walker [24], who claimed EM to be inferior to generic secondorder nonlinear programming techniques.",
+      "startOffset" : 14,
+      "endOffset" : 18
+    }, {
+      "referenceID" : 23,
+      "context" : "Xu and Jordan [34] examine several aspects of EM for GMMs and counter the claims of Redner and Walker [24], who claimed EM to be inferior to generic secondorder nonlinear programming techniques.",
+      "startOffset" : 102,
+      "endOffset" : 106
+    }, {
+      "referenceID" : 33,
+      "context" : ", [34]) that EM can attain good likelihood values rapidly, and scales to much larger problems than amenable to secondorder methods.",
+      "startOffset" : 2,
+      "endOffset" : 6
+    }, {
+      "referenceID" : 33,
+      "context" : "Local convergence analysis of EM is available in [34], with more refined results in [18], who show that when data have low overlap, EM can converge locally superlinearly.",
+      "startOffset" : 49,
+      "endOffset" : 53
+    }, {
+      "referenceID" : 17,
+      "context" : "Local convergence analysis of EM is available in [34], with more refined results in [18], who show that when data have low overlap, EM can converge locally superlinearly.",
+      "startOffset" : 84,
+      "endOffset" : 88
+    }, {
+      "referenceID" : 21,
+      "context" : "For GMMs some innovative gradient-based methods have also been suggested [22, 26], where the PD constraint is handled via a Cholesky decomposition of covariance matrices.",
+      "startOffset" : 73,
+      "endOffset" : 81
+    }, {
+      "referenceID" : 25,
+      "context" : "For GMMs some innovative gradient-based methods have also been suggested [22, 26], where the PD constraint is handled via a Cholesky decomposition of covariance matrices.",
+      "startOffset" : 73,
+      "endOffset" : 81
+    }, {
+      "referenceID" : 28,
+      "context" : "A classic reference is [29]; a more recent work is [1]; and even a MATLAB toolbox exists [6].",
+      "startOffset" : 23,
+      "endOffset" : 27
+    }, {
+      "referenceID" : 0,
+      "context" : "A classic reference is [29]; a more recent work is [1]; and even a MATLAB toolbox exists [6].",
+      "startOffset" : 51,
+      "endOffset" : 54
+    }, {
+      "referenceID" : 5,
+      "context" : "A classic reference is [29]; a more recent work is [1]; and even a MATLAB toolbox exists [6].",
+      "startOffset" : 89,
+      "endOffset" : 92
+    }, {
+      "referenceID" : 14,
+      "context" : ", for low-rank optimization [15, 31], or optimization based on geodesic convexity [27, 33].",
+      "startOffset" : 28,
+      "endOffset" : 36
+    }, {
+      "referenceID" : 30,
+      "context" : ", for low-rank optimization [15, 31], or optimization based on geodesic convexity [27, 33].",
+      "startOffset" : 28,
+      "endOffset" : 36
+    }, {
+      "referenceID" : 26,
+      "context" : ", for low-rank optimization [15, 31], or optimization based on geodesic convexity [27, 33].",
+      "startOffset" : 82,
+      "endOffset" : 90
+    }, {
+      "referenceID" : 32,
+      "context" : ", for low-rank optimization [15, 31], or optimization based on geodesic convexity [27, 33].",
+      "startOffset" : 82,
+      "endOffset" : 90
+    }, {
+      "referenceID" : 19,
+      "context" : "1) can in general require exponential time [20].",
+      "startOffset" : 43,
+      "endOffset" : 47
+    }, {
+      "referenceID" : 0,
+      "context" : "Our methods are set in the framework of manifold optimization [1, 29]; so let us now recall some material on manifolds.",
+      "startOffset" : 62,
+      "endOffset" : 69
+    }, {
+      "referenceID" : 28,
+      "context" : "Our methods are set in the framework of manifold optimization [1, 29]; so let us now recall some material on manifolds.",
+      "startOffset" : 62,
+      "endOffset" : 69
+    }, {
+      "referenceID" : 16,
+      "context" : "1 Manifolds and geodesic convexity A smooth manifold is a non-Euclidean space that locally resembles Euclidean space [17].",
+      "startOffset" : 117,
+      "endOffset" : 121
+    }, {
+      "referenceID" : 0,
+      "context" : "These manifolds possess structure that allows one to extend the usual nonlinear optimization algorithms [1, 29] to them.",
+      "startOffset" : 104,
+      "endOffset" : 111
+    }, {
+      "referenceID" : 28,
+      "context" : "These manifolds possess structure that allows one to extend the usual nonlinear optimization algorithms [1, 29] to them.",
+      "startOffset" : 104,
+      "endOffset" : 111
+    }, {
+      "referenceID" : 2,
+      "context" : "This property has been important in some matrix theoretic applications [3, 28], and has gained more extensive coverage in several recent works [25, 27, 33].",
+      "startOffset" : 71,
+      "endOffset" : 78
+    }, {
+      "referenceID" : 27,
+      "context" : "This property has been important in some matrix theoretic applications [3, 28], and has gained more extensive coverage in several recent works [25, 27, 33].",
+      "startOffset" : 71,
+      "endOffset" : 78
+    }, {
+      "referenceID" : 24,
+      "context" : "This property has been important in some matrix theoretic applications [3, 28], and has gained more extensive coverage in several recent works [25, 27, 33].",
+      "startOffset" : 143,
+      "endOffset" : 155
+    }, {
+      "referenceID" : 26,
+      "context" : "This property has been important in some matrix theoretic applications [3, 28], and has gained more extensive coverage in several recent works [25, 27, 33].",
+      "startOffset" : 143,
+      "endOffset" : 155
+    }, {
+      "referenceID" : 32,
+      "context" : "This property has been important in some matrix theoretic applications [3, 28], and has gained more extensive coverage in several recent works [25, 27, 33].",
+      "startOffset" : 143,
+      "endOffset" : 155
+    }, {
+      "referenceID" : 12,
+      "context" : "We omit the proof due to space limits; see [13] for details.",
+      "startOffset" : 43,
+      "endOffset" : 47
+    }, {
+      "referenceID" : 27,
+      "context" : "Alternatively, see [28] for more general results on geodesic convexity.",
+      "startOffset" : 19,
+      "endOffset" : 23
+    }, {
+      "referenceID" : 10,
+      "context" : "Though under very strong assumptions, it has polynomial smoothed complexity [11].",
+      "startOffset" : 76,
+      "endOffset" : 80
+    }, {
+      "referenceID" : 13,
+      "context" : "We do this via a commonly used change of variables [14]: ηk = log ( αk αK ) for k = 1, .",
+      "startOffset" : 51,
+      "endOffset" : 55
+    }, {
+      "referenceID" : 0,
+      "context" : "We refer the reader to [1, 29] for an in depth introduction to manifold optimization.",
+      "startOffset" : 23,
+      "endOffset" : 30
+    }, {
+      "referenceID" : 28,
+      "context" : "We refer the reader to [1, 29] for an in depth introduction to manifold optimization.",
+      "startOffset" : 23,
+      "endOffset" : 30
+    }, {
+      "referenceID" : 27,
+      "context" : "We found that the version developed in [28] gives the best performance, once we combine it with a line-search algorithm satisfying Wolfe conditions.",
+      "startOffset" : 39,
+      "endOffset" : 43
+    }, {
+      "referenceID" : 24,
+      "context" : "1 Line-search algorithm satisfying Wolfe conditions To ensure Riemannian LBFGS always produces a descent direction, it is necessary to ensure that the line-search algorithm satisfies Wolfe conditions [25].",
+      "startOffset" : 200,
+      "endOffset" : 204
+    }, {
+      "referenceID" : 22,
+      "context" : "Similar to the Euclidean case, our line-search algorithm is also divided into two phases: bracketing and zooming [23].",
+      "startOffset" : 113,
+      "endOffset" : 117
+    }, {
+      "referenceID" : 12,
+      "context" : "The algorithm is essentially the same as the line-search in the Euclidean space; the reader can also see its manifold incarnation in [13].",
+      "startOffset" : 133,
+      "endOffset" : 137
+    }, {
+      "referenceID" : 22,
+      "context" : "Theory behind how this algorithm is guaranteed to find a steplength satisfying (strong) Wolfe conditions can be found in [23].",
+      "startOffset" : 121,
+      "endOffset" : 125
+    }, {
+      "referenceID" : 22,
+      "context" : "Nocedal and Wright [23] suggest using either α∗ of (3.",
+      "startOffset" : 19,
+      "endOffset" : 23
+    }, {
+      "referenceID" : 1,
+      "context" : "In all experiments, we initialize the mixture parameters for all methods using k-means++ [2].",
+      "startOffset" : 89,
+      "endOffset" : 92
+    }, {
+      "referenceID" : 12,
+      "context" : "More extensive empirical results can be found in the longer version of this paper [13].",
+      "startOffset" : 82,
+      "endOffset" : 86
+    }, {
+      "referenceID" : 17,
+      "context" : "Simulated Data EM’s performance is well-known to depend on the degree of separation of the mixture components [18, 34].",
+      "startOffset" : 110,
+      "endOffset" : 118
+    }, {
+      "referenceID" : 33,
+      "context" : "Simulated Data EM’s performance is well-known to depend on the degree of separation of the mixture components [18, 34].",
+      "startOffset" : 110,
+      "endOffset" : 118
+    }, {
+      "referenceID" : 7,
+      "context" : "To assess the impact of this separation on our methods, we generate data as proposed in [8, 32].",
+      "startOffset" : 88,
+      "endOffset" : 95
+    }, {
+      "referenceID" : 31,
+      "context" : "To assess the impact of this separation on our methods, we generate data as proposed in [8, 32].",
+      "startOffset" : 88,
+      "endOffset" : 95
+    }, {
+      "referenceID" : 22,
+      "context" : "It is known that in this case, the performance of powerful optimization approaches like CG and LBFGS also degrades [23].",
+      "startOffset" : 115,
+      "endOffset" : 119
+    }, {
+      "referenceID" : 34,
+      "context" : "Real Data We now present performance evaluation on a natural image dataset, where mixtures of Gaussians were reported to be a good fit to the data [35].",
+      "startOffset" : 147,
+      "endOffset" : 151
+    }, {
+      "referenceID" : 4,
+      "context" : "Several strands of practical importance are immediate (and are a part of our ongoing work): (i) extension to large-scale GMMs through stochastic optimization [5]; (ii) use of richer classes of priors with GMMs than the usual inverse Wishart priors (which are typically also used as they make the M-step convenient), which is actually just one instance of a geodesically convex prior that our methods can handle; (iii) incorporation of penalties for avoiding tiny clusters, an idea that fits easily in our framework but not so easily in the EM framework.",
+      "startOffset" : 158,
+      "endOffset" : 161
+    } ],
+    "year" : 2015,
+    "abstractText" : "We take a new look at parameter estimation for Gaussian Mixture Model (GMMs). Specifically, we advance Riemannian manifold optimization (on the manifold of positive definite matrices) as a potential replacement for Expectation Maximization (EM), which has been the de facto standard for decades. An out-of-the-box invocation of Riemannian optimization, however, fails spectacularly: it obtains the same solution as EM, but vastly slower. Building on intuition from geometric convexity, we propose a simple reformulation that has remarkable consequences: it makes Riemannian optimization not only match EM (a nontrivial result on its own, given the poor record nonlinear programming has had against EM), but also outperform it in many settings. To bring our ideas to fruition, we develop a welltuned Riemannian LBFGS method that proves superior to known competing methods (e.g., Riemannian conjugate gradient). We hope that our results encourage a wider consideration of manifold optimization in machine learning and statistics.",
+    "creator" : null
+  }
+}

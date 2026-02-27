@@ -1,0 +1,44 @@
+1. Summary of contributions (positive)
+- Problem: Choose network size automatically within a single training run instead of expensive multi-run architecture search.
+- Method: A “nonparametric” training framework that dynamically adds zero-units and removes redundant units using a group-sparsity regularizer on fan-ins (or fan-outs). Units are deleted when an entire fan becomes zero; new units are added with zero fan-out and random fan-in.
+- Theory: Proves that with an ℓp fan-in/out regularizer (λ>0, 1≤p<∞), the objective attains a global minimum at a finite network size, addressing the risk of unbounded width.
+- Optimization/normalization: Introduces CapNorm (a batch-norm variant compatible with shrinkage) and AdaRad, which decomposes gradients into radial (length-changing) and angular (direction-changing) components, normalizing only the angular part to help newly added units learn before shrinkage.
+- Empirics: On MNIST and rectangles, the approach sometimes outperforms parametric networks of the same size and yields compact models; on poker (1M points), results are strong and compact; on convex, performance lags.
+- Broader vision: The concept is elegant and aligns with lifelong learning and continual capacity allocation.
+
+2. Decision
+Reject. Main reasons: (1) Empirical validation is too limited and omits direct comparisons to state-of-the-art pruning/compression baselines; (2) Practicality is unclear due to multiple sensitive hyperparameters that govern both final model size and training dynamics, with evidence of slowed training and scalability risks.
+
+3. Supporting arguments for the decision
+- What problem is tackled? The paper targets single-run selection of layer widths by growing/shrinking units during training, reducing the need for global hyperparameter search. This is a timely and important problem.
+- Is the approach well motivated and well placed in the literature? The framework is conceptually clean, with a clear link to group sparsity and f-equivalence via zero units. Prior work on pruning and growth is discussed; however, given the stated goal of achieving compact models, the lack of empirical comparison to strong pruning/compression methods (e.g., structured pruning, dynamic network surgery, channel pruning) leaves its competitiveness uncertain.
+- Do the results support the claims?
+  - Theory: The existence theorem is sound and useful—it shows finite-width minimizers with fan-in/out penalties. However, it does not address generalization, over/under-fitting, or whether the proposed dynamic procedure converges to good widths in practice. It also does not analyze when growing/shrinking dynamics will avoid bad minima or width oscillations.
+  - Empirics: Results are encouraging on MNIST/rectangles and a large tabular dataset (poker), but the convex dataset exposes weaknesses. The experiments focus on MLPs; no convolutional models or larger-scale vision tasks are shown. Wall-clock training cost and compute/memory are not systematically reported. Critically, there is no direct comparison to modern size-reduction baselines that start from overparameterized models yet often achieve very compact, accurate networks. Thus, the central claim of obtaining smaller, competitive networks with practical benefits (runtime, power, memory) is not convincingly established.
+  - Practicality: The “nonparametric” approach still needs substantial hyperparameter tuning (λ, αr, αφ, addition rate/frequency, mixing rates, early-stopping/rewind schedules). Several of these implicitly control both final width and training speed, making it nontrivial to tune and risking slow training. The poker study is helpful but remains a single large dataset without convnets.
+
+4. Additional feedback to improve the paper (helpful suggestions)
+- Baselines: Add thorough comparisons to pruning/compression methods that target test-time efficiency (e.g., Molchanov et al. 2017, Wen et al. 2016, structured group-lasso, channel pruning), distillation-based compression, and simple grow-then-prune pipelines. Report accuracy–FLOPs/latency–parameters trade-offs.
+- Ablations and diagnostics:
+  - Show the necessity of CapNorm vs BN variants and the contribution of AdaRad vs Adam/RMSprop with group shrinkage. Include AdaRad-M results and per-step-cost/memory analysis in wall-clock terms.
+  - Provide sensitivity and stability analyses: how final width and accuracy vary with λ, αr, αφ, unit addition rate/frequency, and seeds.
+  - Quantify training speed penalties: report time-to-target-accuracy and compute budgets vs fixed-size baselines.
+- Scale and breadth: Demonstrate on convolutional architectures (CIFAR/ImageNet) with channel-level grouping, and on additional non-vision tasks. If conv layers are deferred, at least provide preliminary results or a clear roadmap.
+- Generalization: Investigate whether the method systematically impedes/encourages overfitting; relate to implicit bias of group regularization. Provide test/train curves and, where possible, capacity-control diagnostics.
+- Algorithmic refinements:
+  - Explore learned or adaptive unit-addition policies (e.g., performance-triggered additions) rather than fixed schedules.
+  - Use better initialization for added units (e.g., Net2Net-like transforms) to reduce warm-up time.
+  - Consider decoupling hyperparameters that govern training speed from those governing final size to ease tuning.
+- Clarity: Summarize the growth/deletion schedule succinctly and give practical defaults. Include a resource table with training compute, peak memory, and test-time metrics.
+
+Questions for the authors
+- How sensitive is final model size to λ, αr, αφ, and the unit addition rate/frequency? Can you provide curves showing size/accuracy vs these hyperparameters and guidance for default settings?
+- What is the wall-clock training overhead to reach a target accuracy compared to parametric baselines and pruning pipelines? Please report compute (GPU-hours), peak memory, and test-time latency/energy.
+- Why did the method underperform on the convex dataset? Was it due to premature shrinkage, insufficient additions, or optimizer/normalization interactions?
+- Can AdaRad’s benefits be replicated with Adam/RMSprop by applying normalization only to the angular component while keeping shrinkage unscaled? What breaks if one tries?
+- How does CapNorm compare empirically to BN-without-learnable-params under group-lasso? Any ablation isolating CapNorm’s contribution?
+- For convolutional layers, do you plan a channel-group fan-in/out penalty and unit addition at the channel level? Any preliminary CIFAR/ImageNet results?
+- Can you separate hyperparameters controlling training dynamics from those controlling final size (e.g., via two-stage training or automated λ annealing), to reduce tuning burden?
+- Have you tried smarter initializations for new units (e.g., Net2Net or copying/perturbing existing units) to shorten the 50-epoch “trial” period?
+- Does the theorem extend or change for residual connections, mixed nonlinearities, or p=∞? Any obstacles to dynamic depth selection?
+- Beyond parameter count, do you achieve consistent test-time FLOPs/latency reductions on hardware, and how do they compare with pruning/compression baselines?

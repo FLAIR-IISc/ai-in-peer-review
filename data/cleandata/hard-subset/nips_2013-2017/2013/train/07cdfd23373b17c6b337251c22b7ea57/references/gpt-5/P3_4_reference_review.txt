@@ -1,0 +1,46 @@
+Summary and relation to prior work
+The paper tackles scalable probabilistic latent space inference for large networks by (i) adopting a succinct bag-of-triangles representation (vs. edges), (ii) proposing a parsimonious latent variable model that ties parameters across large classes of triangle role-configurations, and (iii) developing a stochastic variational inference (SVI) algorithm with structured mean-field and natural-gradient updates. Concretely, the Parsimonious Triangular Model (PTM) reduces the O(K^3) role-interaction tensor in the mixed-membership triangular model (MMTM) to O(K) parameters by collapsing all “three-same,” “two-same,” and “all-distinct” role triplets into groups governed by Bxxx, Bxx, and B0, respectively. The SVI formulation maintains joint variational distributions over the triple of role indicators per triangle, and introduces an O(K) “mixture-of-deltas” approximation that samples O(K) off-diagonal role combinations per triangle to avoid O(K^3) local updates, while using stochastic natural gradients for the global parameters. Empirically, the method claims accuracy comparable to or better than MMSB (edge-based) and MMTM Gibbs, with orders-of-magnitude speedups, including 100 roles on a 1M-node network in 4 hours (8 threads).
+
+This work builds directly on: (a) triangular motif representation and MMTM [Ho et al., NIPS’11], (b) parameter tying as in a-MMSB [Gopalan et al., NIPS’12], and (c) SVI and natural gradients [Hoffman et al., JMLR’13; Amari, 1998]. The structured mean-field over the role triple is sensible in view of the poor rank-1 factorization of naive mean-field.
+
+Strengths
+- Scalability via modeling and inference: The parameter tying reduces model size from O(K^3) to O(K), and the mixture-of-deltas local update achieves O(K) per-triangle complexity. The implementation choices (mini-batches, discarding local variational states, natural gradients) are appropriate for large-scale settings.
+- Clarity of modeling choices: The equivalence classes of triangle types under role configurations are well motivated and clearly explained. The paper is honest about not being a generative network model and focuses on latent space inference.
+- Empirical performance and speed: The reported speedups over MMSB variational and MMTM/PTM Gibbs are substantial. The convergence in a few data passes is appealing, and the 1M-node, 100-role run is a strong result for a single machine.
+- Structured variational posterior for per-triangle roles: Captures higher-order dependencies ignored by naive mean-field; the rationale is sound and consistent with empirical experience.
+
+Weaknesses and concerns
+- Modeling expressiveness vs parsimony: By tying all “inter-role” triangle configurations (all-distinct) to a single B0 and all “two-same” cases to a Bxx independent of the minority role, PTM cannot capture heterogeneity across specific role interactions. This is analogous to a-MMSB’s limitation and can be problematic in networks where particular triplets of roles behave differently (e.g., asymmetric triadic closure among communities).
+- Theoretical guarantees of the approximation: The SVI convergence claims rely on unbiased gradients of the (fixed) ELBO with exact local optima. Here, three approximations interact:
+  1) δ-subsampling of triangles changes the data distribution (authors cite approximate preservation but no correction/weights are used), so the algorithm optimizes a surrogate objective.
+  2) The mixture-of-deltas local family restricts the variational posterior; optimizing over a randomly changing subset A yields ascent on a moving lower bound. The statement “any A yields a valid lower bound” is true, but unbiasedness of the stochastic natural gradient with respect to a fixed objective is not established. A formal argument (e.g., optimizing the expectation of the bound over A or showing monotonic improvement of a fixed surrogate) is missing.
+  3) The local “exact” update (Eq. 6) is given only for distinct x,y,z. The appendix presumably provides the other cases, but the main text does not clarify complexity and stability for those updates.
+- Step-size specification appears incorrect: In Alg. 1, ρt = τ0(τ1 + t)−κ is standard with κ∈(0.5,1], but the experiments report κ = −0.5. With the definition ρt ∝ (τ1 + t)−κ this would make ρt increase with t, violating standard convergence conditions. This needs correction/clarification.
+- Complexity and memory accounting: The paper states O(NK) global update cost per iteration. In SVI, only nodes present in the mini-batch need updates; it would be helpful to clarify whether γ for all N nodes is touched each iteration or updated sparsely. Memory for γ is O(NK), which is large but feasible; the paper should quantify memory usage in the 1M-node experiments and detail precision used.
+- Experimental evaluation gaps:
+  - Baselines: Besides MMSB and MMTM/PTM Gibbs, more scalable latent representations (e.g., spectral/SBM with degree correction, BigCLAM, or even simple embeddings when applicable) would help position the contribution, especially for link prediction and community detection.
+  - Link prediction protocol: The metric (AUC, AP, etc.) is not specified; details of how triangles are re-extracted after edge holdout should be explicit to avoid leakage. Since the model is triangle-based, ensuring that triangles involving a heldout edge are excluded from training is crucial.
+  - Initialization sensitivity: Synthetic experiments seed 2% of nodes with ground-truth roles for all methods. Robustness to unseeded or weaker initializations should be assessed; a brief heuristic is suggested but not evaluated.
+  - Quantitative results absent in the main text: Figures/tables are referenced, but precise numbers, variance across runs, and ablations (effect of δ, choice/size of A, K, mini-batch size) are not presented here.
+- Applicability: Because the model is not an edge-generative model and collapses many inter-role distinctions, downstream tasks that require fine-grained role-role interactions may underperform relative to less parsimonious models.
+
+Questions for the authors
+- Please correct/clarify the step-size κ setting and provide the exact schedule used in the reported runs.
+- Can you provide a formal convergence statement for the SVI with the mixture-of-deltas approximation (e.g., optimizing an expected ELBO over A) or at least a monotonicity guarantee within iterations?
+- How do you prevent leakage in link prediction when triangles are extracted after edge removal?
+- What is the wall-clock time and memory footprint for the 1M-node YouTube experiment (γ storage, B parameters), and what precision is used?
+- Can you report ablations on the size/composition of A and the impact of δ-subsampling on accuracy/speed?
+
+Pros for acceptance
+- Addresses an important scalability bottleneck in probabilistic latent space inference with a principled combination of modeling parsimony and SVI.
+- Strong practical impact: million-scale networks with hundreds of roles in hours on a single machine.
+- Clear ideas, well-motivated use of structured mean-field, and natural gradients.
+- Empirical results suggest competitive or better accuracy with much better speed.
+
+Cons for acceptance
+- Expressiveness loss due to aggressive parameter tying; limited modeling of specific inter-role triad structure.
+- Theoretical justifications for the approximate local updates and subsampling vis-à-vis SVI convergence are insufficient.
+- Some experimental details missing; baselines limited; initialization robustness not demonstrated.
+- Potential errors/typos (step-size κ) and minor inconsistencies in complexity discussion.
+
+Recommendation: Weak reject. The paper is promising and likely impactful, but it needs (i) corrected and clarified optimization details, (ii) stronger theoretical justification for the approximate SVI, and (iii) a more comprehensive and carefully documented empirical evaluation. With these addressed, it could be a solid contribution. Confidence: high.

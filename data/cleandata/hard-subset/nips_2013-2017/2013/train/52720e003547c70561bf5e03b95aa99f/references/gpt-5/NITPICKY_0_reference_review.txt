@@ -1,0 +1,47 @@
+Summary
+The paper proposes a distributed algorithm for sparse precision (inverse covariance) estimation based on CLIME, targeting ultra-high dimensions (up to p = 10^6). The core contributions are: (i) an inexact ADMM variant for CLIME where the quadratic term is linearized and a proximal term is added, yielding elementwise updates for X and Z and reducing the heavy computation to matrix-matrix multiplications; (ii) solving CLIME in column blocks (k columns at a time) to exploit cache-friendly BLAS3 operations; (iii) leveraging either sparsity in iterates or the low-rank factorization C = AA′ (n ≪ p) to replace O(p^2k) multiplies with O(npk); and (iv) a shared- and distributed-memory framework using block-cyclic distribution for load-balancing. The authors give O(1/T) convergence rates (objective gap and residuals under η ≥ ρ λmax(C)^2), propose a covariance “coarsening” via thresholding justified by a deviation bound, and report scalability: estimating a 10^6-dimensional precision matrix in 11 hours using 400 cores.
+
+Relation to prior work
+The work builds on CLIME [Cai, Liu, Luo 2011] and subsequent statistical results, and contrasts with Glasso solvers (e.g., QUIC/DC-QUIC) and TIGER. On the optimization side, it uses inexact/linearized ADMM ideas (e.g., Boyd et al., He & Yuan) and distributed BLAS/ScaLAPACK with block-cyclic distribution, aligning with HPC practices (Goto & Van de Geijn; Lam et al.). The block approach appears new for CLIME and targets distributed scalability, whereas many prior works target single-node or modest parallelism.
+
+Strengths
+- Practical significance: addresses a real bottleneck—memory/compute scaling for CLIME—by avoiding explicit C and relying on A and BLAS3/GEMM-friendly blocking.
+- Algorithmic design: the linearized ADMM per block yields closed-form soft-thresholding and box-projection; the block-cyclic distribution is a sensible strategy for load balance.
+- Convergence: provides O(1/T) rates for both objective and residuals under clear conditions on η and ρ, with proofs (in supplement).
+- Engineering: comprehensive consideration of shared vs distributed memory, blocking, and cache effects; demonstrates near-linear speedups and large-scale runs.
+
+Weaknesses and detailed concerns
+Technical correctness and clarity:
+- Scaled vs unscaled ADMM inconsistency: Eq. (4) uses Lρ = ||X||1 + ρ〈Y, CX − Z〉 + (ρ/2)||CX − Z||^2 while later Y is called a “scaled dual variable,” and the update is Yt+1 = Yt + CXt+1 − Zt+1. In the scaled form, the linear term with ρ〈Y, ·〉 should disappear. This inconsistency needs correction.
+- V update factor error: From (8)–(9), Vt = (ρ/η)C(2Yt − Yt−1) and V̂t = CYt, so Vt = (ρ/η)(2V̂t − V̂t−1). Algorithm 1 (Step 10) shows Vt+1 = ρη(2V̂t+1 − V̂t), which appears dimensionally inconsistent (η should be in the denominator, not multiplied).
+- Box operator signature mismatch: Algorithm 1 Step 7 uses Zt+1 = box(Ut+1 + Yt, λ), but (10) and the definition include E (Z is projected onto ||Z − E||∞ ≤ λ). The pseudocode omits E.
+- Dimensions/sign conventions: In Sec. 4, A is stated as n×p and U ∈ n×k, but earlier A ∈ Rp×n and U = CX ∈ Rp×k (consistent with U = A(A′X)). The dimensionality in Sec. 4 is inconsistent.
+- Convergence statements: Theorem 1 states ||X̄T||1 − ||X||1 ≤ (η||X||^2F)/T “for any CX = Z.” As written, this bound is hard to interpret (it should compare to the optimal feasible X*, not an arbitrary feasible pair, or explicitly clarify the primal-dual gap notion used). Theorem 2 uses a seminorm ||·||η/ρ I − C^2, requiring η ≥ ρλ^2max(C). Please clarify whether the residual bound is on the last iterate or ergodic averages, and whether objective optimality is guaranteed under these assumptions.
+- Symmetry and post-processing: Standard CLIME requires a symmetrization step across columns (e.g., Cai–Liu–Luo rule). The block-based scheme solves independent subproblems; it is unclear how symmetry is enforced across blocks and how the final symmetric estimator is formed and stored.
+- Parameter selection: λ, ρ, η, and k critically affect accuracy and convergence; no guidance is provided (e.g., estimating λmax(C) to set η, stopping criteria, tolerance thresholds). This hinders reproducibility.
+
+Statistical aspects:
+- Covariance “coarsening”: Theorem 3 claims sub-exponential perturbations preserve sup-norm deviation. However, the practical procedure advocated appears to be deterministic thresholding of C at level c√(log p/n). Please clarify whether ∆ is deterministic or random, how constants are chosen, and whether such truncation affects bias in finite samples and the feasibility/accuracy of the CLIME constraints. The result as stated is loose and lacks practical prescription.
+- Comparisons and fairness: Runtime comparisons tune each method to achieve a target sparsity, which can bias wall-time vs. accuracy tradeoffs. Precision-recall plots are provided but details (early stopping, tolerances, choice of λ grid, symmetrization) are missing. TIGER is known to be tuning-insensitive; discussing statistical error (Frobenius/L1/operator) would strengthen claims.
+
+Experimental/reporting issues:
+- Missing/garbled tables/figures: Table 1 and Table 2 are incomplete; numbers like “200×1 0.37 0.68 …” appear out of place; Figures are referenced but not shown here. It is hard to assess empirical support.
+- Storage of outputs at p = 10^6: How is the 10^12-parameter estimate stored? Are results streamed in blocks to disk? What is the sparsity of the final solution? This is critical for credibility at this scale.
+- Implementation details: Termination criteria, iteration counts, precise hardware (memory per node, interconnect), and the exact block sizes (pb×nb×kb) and their tuning rationale are not fully specified.
+
+Presentation and formatting:
+- Numerous typos and grammatical issues (e.g., “achetectures,” “exisiting,” “pertubed,” “colletion,” “spase,” “reguarlized”); incorrect notation (||·||22 instead of ||·||F^2); inconsistent variable shapes and missing arguments in function definitions; several references are incomplete/incorrect. These detract from clarity and hinder reproducibility.
+
+Pros
+- Addresses an important scalability problem with a pragmatic, HPC-aware design.
+- Sensible use of low-rank factorization and block-cyclic distribution; near-linear speedups demonstrated.
+- Closed-form updates via linearized ADMM enable efficient kernels.
+
+Cons
+- Multiple technical inconsistencies/errors in the algorithm derivation and pseudocode (scaled ADMM form, V update, dimensions, box operator).
+- Missing critical details on parameter selection, symmetrization, termination, and output storage at extreme scales.
+- Empirical section is difficult to assess due to missing/garbled tables/figures and limited statistical validation.
+- Numerous presentation/formatting issues and incomplete references.
+
+Recommendation: Reject
+While the engineering idea is promising and potentially impactful, the manuscript in its current form contains enough technical inconsistencies, missing details, and presentation issues to preclude acceptance. With corrected derivations/pseudocode, clarified statistical and implementation details (especially symmetry, parameter choices, and storage), and fully reported experiments, this could become a solid contribution. My recommendation is to revise substantially and resubmit. Confidence: High.

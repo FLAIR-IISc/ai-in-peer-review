@@ -1,0 +1,616 @@
+{
+  "name" : "024d7f84fff11dd7e8d9c510137a2381.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Policy Gradient for Coherent Risk Measures",
+    "authors" : [ "Aviv Tamar", "Yinlam Chow", "Mohammad Ghavamzadeh" ],
+    "emails" : [ "avivt@berkeley.edu", "ychow@stanford.edu", "mohammad.ghavamzadeh@inria.fr", "shie@ee.technion.ac.il" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Risk-sensitive optimization considers problems in which the objective involves a risk measure of the random cost, in contrast to the typical expected cost objective. Such problems are important when the decision-maker wishes to manage the variability of the cost, in addition to its expected outcome, and are standard in various applications of finance and operations research. In reinforcement learning (RL) [27], risk-sensitive objectives have gained popularity as a means to regularize the variability of the total (discounted) cost/reward in a Markov decision process (MDP).\nMany risk objectives have been investigated in the literature and applied to RL, such as the celebrated Markowitz mean-variance model [16], Value-at-Risk (VaR) and Conditional Value at Risk (CVaR) [18, 29, 21, 10, 8, 30]. The view taken in this paper is that the preference of one risk measure over another is problem-dependent and depends on factors such as the cost distribution, sensitivity to rare events, ease of estimation from data, and computational tractability of the optimization problem. However, the highly influential paper of Artzner et al. [2] identified a set of natural properties that are desirable for a risk measure to satisfy. Risk measures that satisfy these properties are termed coherent and have obtained widespread acceptance in financial applications, among others. We focus on such coherent measures of risk in this work.\nFor sequential decision problems, such as MDPs, another desirable property of a risk measure is time consistency. A time-consistent risk measure satisfies a “dynamic programming” style property: if a strategy is risk-optimal for an n-stage problem, then the component of the policy from the t-th time until the end (where t < n) is also risk-optimal (see principle of optimality in [5]). The recently proposed class of dynamic Markov coherent risk measures [24] satisfies both the coherence and time consistency properties.\nIn this work, we present policy gradient algorithms for RL with a coherent risk objective. Our approach applies to the whole class of coherent risk measures, thereby generalizing and unifying previous approaches that have focused on individual risk measures. We consider both static coherent\nrisk of the total discounted return from an MDP and time-consistent dynamic Markov coherent risk. Our main contribution is formulating the risk-sensitive policy-gradient under the coherent-risk framework. More specifically, we provide:\n• A new formula for the gradient of static coherent risk that is convenient for approximation using sampling.\n• An algorithm for the gradient of general static coherent risk that involves sampling with convex programming and a corresponding consistency result.\n• A new policy gradient theorem for Markov coherent risk, relating the gradient to a suitable value function and a corresponding actor-critic algorithm.\nSeveral previous results are special cases of the results presented here; our approach allows to rederive them in greater generality and simplicity.\nRelated Work Risk-sensitive optimization in RL for specific risk functions has been studied recently by several authors. [6] studied exponential utility functions, [18], [29], [21] studied meanvariance models, [8], [30] studied CVaR in the static setting, and [20], [9] studied dynamic coherent risk for systems with linear dynamics. Our paper presents a general method for the whole class of coherent risk measures (both static and dynamic) and is not limited to a specific choice within that class, nor to particular system dynamics.\nReference [19] showed that an MDP with a dynamic coherent risk objective is essentially a robust MDP. The planning for large scale MDPs was considered in [31], using an approximation of the value function. For many problems, approximation in the policy space is more suitable (see, e.g., [15]). Our sampling-based RL-style approach is suitable for approximations both in the policy and value function, and scales-up to large or continuous MDPs. We do, however, make use of a technique of [31] in a part of our method.\nOptimization of coherent risk measures was thoroughly investigated by Ruszczynski and Shapiro [25] (see also [26]) for the stochastic programming case in which the policy parameters do not affect the distribution of the stochastic system (i.e., the MDP trajectory), but only the reward function, and thus, this approach is not suitable for most RL problems. For the case of MDPs and dynamic risk, [24] proposed a dynamic programming approach. This approach does not scale-up to large MDPs, due to the “curse of dimensionality”. For further motivation of risk-sensitive policy gradient methods, we refer the reader to [18, 29, 21, 8, 30]."
+    }, {
+      "heading" : "2 Preliminaries",
+      "text" : "Consider a probability space (Ω,F , Pθ), where Ω is the set of outcomes (sample space), F is a σ-algebra over Ω representing the set of events we are interested in, and Pθ ∈ B, where B :={ ξ : ∫ ω∈Ω ξ(ω) = 1, ξ ≥ 0 } is the set of probability distributions, is a probability measure over F parameterized by some tunable parameter θ ∈ RK . In the following, we suppress the notation of θ in θ-dependent quantities.\nTo ease the technical exposition, in this paper we restrict our attention to finite probability spaces, i.e., Ω has a finite number of elements. Our results can be extended to the Lp-normed spaces without loss of generality, but the details are omitted for brevity.\nDenote by Z the space of random variables Z : Ω 7→ (−∞,∞) defined over the probability space (Ω,F , Pθ). In this paper, a random variable Z ∈ Z is interpreted as a cost, i.e., the smaller the realization of Z, the better. For Z,W ∈ Z , we denote by Z ≤ W the point-wise partial order, i.e., Z(ω) ≤ W (ω) for all ω ∈ Ω. We denote by Eξ[Z] . = ∑ ω∈Ω Pθ(ω)ξ(ω)Z(ω) a ξ-weighted expectation of Z.\nAn MDP is a tuple M = (X ,A, C, P, γ, x0), where X and A are the state and action spaces; C(x) ∈ [−Cmax, Cmax] is a bounded, deterministic, and state-dependent cost; P (·|x, a) is the transition probability distribution; γ is a discount factor; and x0 is the initial state.1 Actions are chosen according to a θ-parameterized stationary Markov2 policy µθ(·|x). We denote by x0, a0, . . . , xT , aT a trajectory of length T drawn by following the policy µθ in the MDP.\n1Our results may easily be extended to random costs, state-action dependent costs, and random initial states. 2For Markov coherent risk, the class of optimal policies is stationary Markov [24], while this is not necessarily true for static risk. Our results can be extended to history-dependent policies or stationary Markov"
+    }, {
+      "heading" : "2.1 Coherent Risk Measures",
+      "text" : "A risk measure is a function ρ : Z → R that maps an uncertain outcome Z to the extended real line R ∪ {+∞,−∞}, e.g., the expectation E [Z] or the conditional value-at-risk (CVaR) minν∈R { ν +\n1 αE [ (Z − ν)+ ]} . A risk measure is called coherent, if it satisfies the following conditions for all Z,W ∈ Z [2]:\nA1 Convexity: ∀λ ∈ [0, 1], ρ ( λZ + (1− λ)W ) ≤ λρ(Z) + (1− λ)ρ(W );\nA2 Monotonicity: if Z ≤W , then ρ(Z) ≤ ρ(W ); A3 Translation invariance: ∀a∈R, ρ(Z + a) = ρ(Z) + a; A4 Positive homogeneity: if λ ≥ 0, then ρ(λZ) = λρ(Z).\nIntuitively, these condition ensure the “rationality” of single-period risk assessments: A1 ensures that diversifying an investment will reduce its risk; A2 guarantees that an asset with a higher cost for every possible scenario is indeed riskier; A3, also known as ‘cash invariance’, means that the deterministic part of an investment portfolio does not contribute to its risk; the intuition behind A4 is that doubling a position in an asset doubles its risk. We further refer the reader to [2] for a more detailed motivation of coherent risk.\nThe following representation theorem [26] shows an important property of coherent risk measures that is fundamental to our gradient-based approach.\nTheorem 2.1. A risk measure ρ : Z → R is coherent if and only if there exists a convex bounded and closed set U ⊂ B such that3\nρ(Z) = max ξ : ξPθ∈U(Pθ)\nEξ[Z]. (1)\nThe result essentially states that any coherent risk measure is an expectation w.r.t. a worst-case density function ξPθ, i.e., a re-weighting of Pθ by ξ, chosen adversarially from a suitable set of test density functions U(Pθ), referred to as risk envelope. Moreover, a coherent risk measure is uniquely represented by its risk envelope. In the sequel, we shall interchangeably refer to coherent risk measures either by their explicit functional representation, or by their corresponding risk-envelope.\nIn this paper, we assume that the risk envelope U(Pθ) is given in a canonical convex programming formulation, and satisfies the following conditions.\nAssumption 2.2 (The General Form of Risk Envelope). For each given policy parameter θ ∈ RK , the risk envelope U of a coherent risk measure can be written as\nU(Pθ) = { ξPθ : ge(ξ, Pθ) = 0, ∀e ∈ E , fi(ξ, Pθ) ≤ 0, ∀i ∈ I, ∑ ω∈Ω ξ(ω)Pθ(ω) = 1, ξ(ω) ≥ 0 } , (2) where each constraint ge(ξ, Pθ) is an affine function in ξ, each constraint fi(ξ, Pθ) is a convex function in ξ, and there exists a strictly feasible point ξ. E and I here denote the sets of equality and inequality constraints, respectively. Furthermore, for any given ξ ∈ B, fi(ξ, p) and ge(ξ, p) are twice differentiable in p, and there exists a M > 0 such that\nmax { max i∈I ∣∣∣∣dfi(ξ, p)dp(ω) ∣∣∣∣ ,maxe∈E ∣∣∣∣dge(ξ, p)dp(ω) ∣∣∣∣} ≤M, ∀ω ∈ Ω.\nAssumption 2.2 implies that the risk envelope U(Pθ) is known in an explicit form. From Theorem 6.6 of [26], in the case of a finite probability space, ρ is a coherent risk if and only if U(Pθ) is a convex and compact set. This justifies the affine assumption of ge and the convex assumption of fi. Moreover, the additional assumption on the smoothness of the constraints holds for many popular coherent risk measures, such as the CVaR, the mean-semi-deviation, and spectral risk measures [1]."
+    }, {
+      "heading" : "2.2 Dynamic Risk Measures",
+      "text" : "The risk measures defined above do not take into account any temporal structure that the random variable might have, such as when it is associated with the return of a trajectory in the case of MDPs. In this sense, such risk measures are called static. Dynamic risk measures, on the other hand,\npolicies on a state space augmented with accumulated cost. The latter has shown to be sufficient for optimizing the CVaR risk [4].\n3When we study risk in MDPs, the risk envelope U(Pθ) in Eq. 1 also depends on the state x.\nexplicitly take into account the temporal nature of the stochastic outcome. A primary motivation for considering such measures is the issue of time consistency, usually defined as follows [24]: if a certain outcome is considered less risky in all states of the world at stage t + 1, then it should also be considered less risky at stage t. Example 2.1 in [13] shows the importance of time consistency in the evaluation of risk in a dynamic setting. It illustrates that for multi-period decision-making, optimizing a static measure can lead to “time-inconsistent” behavior. Similar paradoxical results could be obtained with other risk metrics; we refer the readers to [24] and [13] for further insights.\nMarkov Coherent Risk Measures. Markov risk measures were introduced in [24] and constitute a useful class of dynamic time-consistent risk measures that are important to our study of risk in MDPs. For a T -length horizon and MDPM, the Markov coherent risk measure ρT (M) is\nρT (M) = C(x0) + γρ ( C(x1) + . . .+ γρ ( C(xT−1) + γρ ( C(xT ) ))) , (3)\nwhere ρ is a static coherent risk measure that satisfies Assumption 2.2 and x0, . . . , xT is a trajectory drawn from the MDPM under policy µθ. It is important to note that in (3), each static coherent risk ρ at state x ∈ X is induced by the transition probability Pθ(·|x) = ∑ a∈A P (x\n′|x, a)µθ(a|x). We also define ρ∞(M) . = limT→∞ ρT (M), which is well-defined since γ < 1 and the cost is bounded. We further assume that ρ in (3) is a Markov risk measure, i.e., the evaluation of each static coherent risk measure ρ is not allowed to depend on the whole past."
+    }, {
+      "heading" : "3 Problem Formulation",
+      "text" : "In this paper, we are interested in solving two risk-sensitive optimization problems. Given a random variable Z and a static coherent risk measure ρ as defined in Section 2, the static risk problem (SRP) is given by\nmin θ ρ(Z). (4)\nFor example, in an RL setting, Z may correspond to the cumulative discounted cost Z = C(x0) + γC(x1) + · · ·+ γTC(xT ) of a trajectory induced by an MDP with a policy parameterized by θ. For an MDPM and a dynamic Markov coherent risk measure ρT as defined by Eq. 3, the dynamic risk problem (DRP) is given by\nmin θ\nρ∞(M). (5)\nExcept for very limited cases, there is no reason to hope that neither the SRP in (4) nor the DRP in (5) should be tractable problems, since the dependence of the risk measure on θ may be complex and non-convex. In this work, we aim towards a more modest goal and search for a locally optimal θ. Thus, the main problem that we are trying to solve in this paper is how to calculate the gradients of the SRP’s and DRP’s objective functions\n∇θρ(Z) and ∇θρ∞(M). We are interested in non-trivial cases in which the gradients cannot be calculated analytically. In the static case, this would correspond to a non-trivial dependence of Z on θ. For dynamic risk, we also consider cases where the state space is too large for a tractable computation. Our approach for dealing with such difficult cases is through sampling. We assume that in the static case, we may obtain i.i.d. samples of the random variable Z. For the dynamic case, we assume that for each state and action (x, a) of the MDP, we may obtain i.i.d. samples of the next state x′ ∼ P (·|x, a). We show that sampling may indeed be used in both cases to devise suitable estimators for the gradients.\nTo finally solve the SRP and DRP problems, a gradient estimate may be plugged into a standard stochastic gradient descent (SGD) algorithm for learning a locally optimal solution to (4) and (5). From the structure of the dynamic risk in Eq. 3, one may think that a gradient estimator for ρ(Z) may help us to estimate the gradient ∇θρ∞(M). Indeed, we follow this idea and begin with estimating the gradient in the static risk case."
+    }, {
+      "heading" : "4 Gradient Formula for Static Risk",
+      "text" : "In this section, we consider a static coherent risk measure ρ(Z) and propose sampling-based estimators for ∇θρ(Z). We make the following assumption on the policy parametrization, which is standard in the policy gradient literature [15]. Assumption 4.1. The likelihood ratio∇θ logP (ω) is well-defined and bounded for all ω∈Ω.\nMoreover, our approach implicitly assumes that given some ω ∈ Ω, ∇θ logP (ω) may be easily calculated. This is also a standard requirement for policy gradient algorithms [15] and is satisfied in various applications such as queueing systems, inventory management, and financial engineering (see, e.g., the survey by Fu [11]).\nUsing Theorem 2.1 and Assumption 2.2, for each θ, we have that ρ(Z) is the solution to the convex optimization problem (1) (for that value of θ). The Lagrangian function of (1), denoted by Lθ(ξ, λ P , λE , λI), may be written as\nLθ(ξ, λ P, λE, λI)= ∑ ω∈Ω ξ(ω)Pθ(ω)Z(ω)−λP (∑ ω∈Ω ξ(ω)Pθ(ω)−1 ) − ∑ e∈E λE(e)ge(ξ,Pθ)− ∑ i∈I λI(i)fi(ξ,Pθ). (6) The convexity of (1) and its strict feasibility due to Assumption 2.2 implies that Lθ(ξ, λP , λE , λI) has a non-empty set of saddle points S. The next theorem presents a formula for the gradient ∇θρ(Z). As we shall subsequently show, this formula is particularly convenient for devising sampling based estimators for∇θρ(Z). Theorem 4.2. Let Assumptions 2.2 and 4.1 hold. For any saddle point (ξ∗θ , λ ∗,P θ , λ ∗,E θ , λ ∗,I θ ) ∈ S of (6), we have\n∇θρ(Z) = Eξ∗θ [ ∇θ logP (ω)(Z − λ∗,Pθ ) ] − ∑ e∈E λ∗,Eθ (e)∇θge(ξ ∗ θ ;Pθ)− ∑ i∈I λ∗,Iθ (i)∇θfi(ξ ∗ θ ;Pθ). The proof of this theorem, given in the supplementary material, involves an application of the Envelope theorem [17] and a standard ‘likelihood-ratio’ trick. We now demonstrate the utility of Theorem 4.2 with several examples in which we show that it generalizes previously known results, and also enables deriving new useful gradient formulas."
+    }, {
+      "heading" : "4.1 Example 1: CVaR",
+      "text" : "The CVaR at level α ∈ [0, 1] of a random variable Z, denoted by ρCVaR(Z;α), is a very popular coherent risk measure [23], defined as\nρCVaR(Z;α) . = inf t∈R\n{ t+ α−1E [(Z − t)+] } .\nWhen Z is continuous, ρCVaR(Z;α) is well-known to be the mean of the α-tail distribution of Z, E [Z|Z > qα], where qα is a (1− α)-quantile of Z. Thus, selecting a small α makes CVaR particularly sensitive to rare, but very high costs.\nThe risk envelope for CVaR is known to be [26] U = { ξPθ : ξ(ω) ∈\n[0, α−1], ∑ ω∈Ω ξ(ω)Pθ(ω) = 1 } . Furthermore, [26] show that the saddle points of (6) satisfy ξ∗θ (ω) = α −1 when Z(ω) > λ∗,Pθ , and ξ ∗ θ (ω) = 0 when Z(ω) < λ ∗,P θ , where λ ∗,P θ is any (1− α)quantile of Z. Plugging this result into Theorem 4.2, we can easily show that ∇θρCVaR(Z;α) = E [∇θ logP (ω)(Z − qα)|Z(ω) > qα] .\nThis formula was recently proved in [30] for the case of continuous distributions by an explicit calculation of the conditional expectation, and under several additional smoothness assumptions. Here we show that it holds regardless of these assumptions and in the discrete case as well. Our proof is also considerably simpler."
+    }, {
+      "heading" : "4.2 Example 2: Mean-Semideviation",
+      "text" : "The semi-deviation of a random variable Z is defined as SD[Z] .= ( E [ (Z − E [Z])2+ ])1/2 . The semi-deviation captures the variation of the cost only above its mean, and is an appealing alternative to the standard deviation, which does not distinguish between the variability of upside and downside deviations. For some α ∈ [0, 1], the mean-semideviation risk measure is defined as ρMSD(Z;α) . = E [Z] + αSD[Z], and is a coherent risk measure [26]. We have the following result: Proposition 4.3. Under Assumption 4.1, with ∇θE [Z] = E [∇θ logP (ω)Z], we have\n∇θρMSD(Z;α) = ∇θE [Z] + αE [(Z−E [Z])+(∇θ logP (ω)(Z−E [Z])−∇θE [Z])]\nSD(Z) .\nThis proposition can be used to devise a sampling based estimator for ∇θρMSD(Z;α) by replacing all the expectations with sample averages. The algorithm along with the proof of the proposition are in the supplementary material. In Section 6 we provide a numerical illustration of optimization with a mean-semideviation objective."
+    }, {
+      "heading" : "4.3 General Gradient Estimation Algorithm",
+      "text" : "In the two previous examples, we obtained a gradient formula by analytically calculating the Lagrangian saddle point (6) and plugging it into the formula of Theorem 4.2. We now consider a general coherent risk ρ(Z) for which, in contrast to the CVaR and mean-semideviation cases, the Lagrangian saddle-point is not known analytically. We only assume that we know the structure of the risk-envelope as given by (2). We show that in this case, ∇θρ(Z) may be estimated using a sample average approximation (SAA; [26]) of the formula in Theorem 4.2.\nAssume that we are given N i.i.d. samples ωi ∼ Pθ, i = 1, . . . , N , and let Pθ;N (ω) . = 1 N ∑N i=1 I {ωi = ω} denote the corresponding empirical distribution. Also, let the sample risk envelope U(Pθ;N ) be defined according to Eq. 2 with Pθ replaced by Pθ;N . Consider the following SAA version of the optimization in Eq. 1:\nρN (Z) = max ξ:ξPθ;N∈U(Pθ;N ) ∑ i∈1,...,N Pθ;N (ωi)ξ(ωi)Z(ωi). (7)\nNote that (7) defines a convex optimization problem with O(N) variables and constraints. In the following, we assume that a solution to (7) may be computed efficiently using standard convex programming tools such as interior point methods [7]. Let ξ∗θ;N denote a solution to (7) and λ∗,Pθ;N , λ ∗,E θ;N , λ ∗,I θ;N denote the corresponding KKT multipliers, which can be obtained from the convex programming algorithm [7]. We propose the following estimator for the gradient-based on Theorem 4.2:\n∇θ;Nρ(Z) = N∑ i=1 Pθ;N (ωi)ξ ∗ θ;N (ωi)∇θ logP (ωi)(Z(ωi)− λ ∗,P θ;N ) (8)\n− ∑ e∈E λ∗,Eθ;N (e)∇θge(ξ ∗ θ;N ;Pθ;N )− ∑ i∈I λ∗,Iθ;N (i)∇θfi(ξ ∗ θ;N ;Pθ;N ).\nThus, our gradient estimation algorithm is a two-step procedure involving both sampling and convex programming. In the following, we show that under some conditions on the set U(Pθ), ∇θ;Nρ(Z) is a consistent estimator of∇θρ(Z). The proof has been reported in the supplementary material. Proposition 4.4. Let Assumptions 2.2 and 4.1 hold. Suppose there exists a compact setC = Cξ×Cλ such that: (I) The set of Lagrangian saddle points S ⊂ C is non-empty and bounded. (II) The functions fe(ξ, Pθ) for all e ∈ E and fi(ξ, Pθ) for all i ∈ I are finite-valued and continuous (in ξ) on Cξ. (III) For N large enough, the set SN is non-empty and SN ⊂ C w.p. 1. Further assume that: (IV) If ξNPθ;N ∈ U(Pθ;N ) and ξN converges w.p. 1 to a point ξ, then ξPθ ∈ U(Pθ). We then have that limN→∞ ρN (Z) = ρ(Z) and limN→∞∇θ;Nρ(Z) = ∇θρ(Z) w.p. 1.\nThe set of assumptions for Proposition 4.4 is large, but rather mild. Note that (I) is implied by the Slater condition of Assumption 2.2. For satisfying (III), we need that the risk be well-defined for every empirical distribution, which is a natural requirement. Since Pθ;N always converges to Pθ uniformly on Ω, (IV) essentially requires smoothness of the constraints. We remark that in particular, constraints (I) to (IV) are satisfied for the popular CVaR, mean-semideviation, and spectral risk.\nIt is interesting to compare the performance of the SAA estimator (8) with the analytical-solution based estimator, as in Sections 4.1 and 4.2. In the supplementary material, we report an empirical comparison between the two approaches for the case of CVaR risk, which showed that the two approaches performed very similarly. This is well-expected, since in general, both SAA and standard likelihood-ratio based estimators obey a law-of-large-numbers variance bound of order 1/ √ N [26].\nTo summarize this section, we have seen that by exploiting the special structure of coherent risk measures in Theorem 2.1 and by the envelope-theorem style result of Theorem 4.2, we are able to derive sampling-based, likelihood-ratio style algorithms for estimating the policy gradient ∇θρ(Z) of coherent static risk measures. The gradient estimation algorithms developed here for static risk measures will be used as a sub-routine in our subsequent treatment of dynamic risk measures."
+    }, {
+      "heading" : "5 Gradient Formula for Dynamic Risk",
+      "text" : "In this section, we derive a new formula for the gradient of the Markov coherent dynamic risk measure, ∇θρ∞(M). Our approach is based on combining the static gradient formula of Theorem 4.2, with a dynamic-programming decomposition of ρ∞(M).\nThe risk-sensitive value-function for an MDP M under the policy θ is defined as Vθ(x) = ρ∞(M|x0 = x), where with a slight abuse of notation, ρ∞(M|x0 = x) denotes the Markovcoherent dynamic risk in (3) when the initial state x0 is x. It is shown in [24] that due to the structure of the Markov dynamic risk ρ∞(M), the value function is the unique solution to the risk-sensitive Bellman equation\nVθ(x) = C(x) + γ max ξPθ(·|x)∈U(x,Pθ(·|x))\nEξ[Vθ(x′)], (9)\nwhere the expectation is taken over the next state transition. Note that by definition, we have ρ∞(M) = Vθ(x0), and thus,∇θρ∞(M) = ∇θVθ(x0). We now develop a formula for ∇θVθ(x); this formula extends the well-known “policy gradient theorem” [28, 14], developed for the expected return, to Markov-coherent dynamic risk measures. We make a standard assumption, analogous to Assumption 4.1 of the static case. Assumption 5.1. The likelihood ratio ∇θ logµθ(a|x) is well-defined and bounded for all x ∈ X and a ∈ A. For each state x ∈ X , let (ξ∗θ,x, λ ∗,P θ,x , λ ∗,E θ,x , λ ∗,I θ,x) denote a saddle point of (6), corresponding to the state x, with Pθ(·|x) replacing Pθ in (6) and Vθ replacing Z. The next theorem presents a formula for ∇θVθ(x); the proof is in the supplementary material. Theorem 5.2. Under Assumptions 2.2 and 5.1, we have\n∇Vθ(x) = Eξ∗θ [ ∞∑ t=0 γt∇θ logµθ(at|xt)hθ(xt, at) ∣∣∣∣∣x0 = x ] ,\nwhere Eξ∗θ [·] denotes the expectation w.r.t. trajectories generated by the Markov chain with transition probabilities Pθ(·|x)ξ∗θ,x(·), and the stage-wise cost function hθ(x, a) is defined as hθ(x, a)=C(x)+ ∑ x′∈X P (x′|x, a)ξ∗θ,x(x′) [ γVθ(x ′)−λ∗,Pθ,x − ∑ i∈I λ∗,Iθ,x(i) dfi(ξ ∗ θ,x, p) dp(x′) − ∑ e∈E λ∗,Eθ,x(e) dge(ξ ∗ θ,x, p) dp(x′) ] .\nTheorem 5.2 may be used to develop an actor-critic style [28, 14] sampling-based algorithm for solving the DRP problem (5), composed of two interleaved procedures:\nCritic: For a given policy θ, calculate the risk-sensitive value function Vθ, and Actor: Using the critic’s Vθ and Theorem 5.2, estimate ∇θρ∞(M) and update θ. Space limitation restricts us from specifying the full details of our actor-critic algorithm and its analysis. In the following, we highlight only the key ideas and results. For the full details, we refer the reader to the full paper version, provided in the supplementary material.\nFor the critic, the main challenge is calculating the value function when the state space X is large and dynamic programming cannot be applied due to the ‘curse of dimensionality’. To overcome this, we exploit the fact that Vθ is equivalent to the value function in a robust MDP [19] and modify a recent algorithm in [31] to estimate it using function approximation.\nFor the actor, the main challenge is that in order to estimate the gradient using Thm. 5.2, we need to sample from an MDP with ξ∗θ -weighted transitions. Also, hθ(x, a) involves an expectation for each s and a. Therefore, we propose a two-phase sampling procedure to estimate ∇Vθ in which we first use the critic’s estimate of Vθ to derive ξ∗θ , and sample a trajectory from an MDP with ξ ∗ θ -weighted transitions. For each state in the trajectory, we then sample several next states to estimate hθ(x, a).\nThe convergence analysis of the actor-critic algorithm and the gradient error incurred from function approximation of Vθ are reported in the supplementary material. We remark that our actor-critic algorithm requires a simulator for sampling multiple state-transitions from each state. Extending our approach to work with a single trajectory roll-out is an interesting direction for future research."
+    }, {
+      "heading" : "6 Numerical Illustration",
+      "text" : "In this section, we illustrate our approach with a numerical example. The purpose of this illustration is to emphasize the importance of flexibility in designing risk criteria for selecting an appropriate risk-measure – such that suits both the user’s risk preference and the problem-specific properties.\nWe consider a trading agent that can invest in one of three assets (see Figure 1 for their distributions). The returns of the first two assets, A1 and A2, are normally distributed: A1 ∼ N (1, 1) and A2 ∼\nN (4, 6). The return of the third asset A3 has a Pareto distribution: f(z) = αzα+1 ∀z > 1, with α = 1.5. The mean of the return from A3 is 3 and its variance is infinite; such heavy-tailed distributions are widely used in financial modeling [22]. The agent selects an action randomly, with probability P (Ai) ∝ exp(θi), where θ ∈ R3 is the policy parameter. We trained three different policies π1, π2, and π3. Policy π1 is risk-neutral, i.e., maxθ E [Z], and it was trained using standard policy gradient [15]. Policy π2 is risk-averse and had a mean-semideviation objective maxθ E [Z] − SD[Z], and was trained using the algorithm in Section 4. Policy π3 is also risk-averse, with a mean-standarddeviation objective, as proposed in [29, 21], maxθ E [Z] − √ Var[Z], and was trained using the algorithm of [29]. For each of these policies, Figure 1 shows the probability of selecting each asset vs. training iterations. Although A2 has the highest mean return, the risk-averse policy π2 chooses A3, since it has a lower downside, as expected. However, because of the heavy upper-tail of A3, policy π3 opted to chooseA1 instead. This is counter-intuitive as a rational investor should not avert high returns. In fact, in this case A3 stochastically dominates A1 [12]."
+    }, {
+      "heading" : "7 Conclusion",
+      "text" : "We presented algorithms for estimating the gradient of both static and dynamic coherent risk measures using two new policy gradient style formulas that combine sampling with convex programming. Thereby, our approach extends risk-sensitive RL to the whole class of coherent risk measures, and generalizes several recent studies that focused on specific risk measures.\nOn the technical side, an important future direction is to improve the convergence rate of gradient estimates using importance sampling methods. This is especially important for risk criteria that are sensitive to rare events, such as the CVaR [3].\nFrom a more conceptual point of view, the coherent-risk framework explored in this work provides the decision maker with flexibility in designing risk preference. As our numerical example shows, such flexibility is important for selecting appropriate problem-specific risk measures for managing the cost variability. However, we believe that our approach has much more potential than that.\nIn almost every real-world application, uncertainty emanates from stochastic dynamics, but also, and perhaps more importantly, from modeling errors (model uncertainty). A prudent policy should protect against both types of uncertainties. The representation duality of coherent-risk (Theorem 2.1), naturally relates the risk to model uncertainty. In [19], a similar connection was made between model-uncertainty in MDPs and dynamic Markov coherent risk. We believe that by carefully shaping the risk-criterion, the decision maker may be able to take uncertainty into account in a broad sense. Designing a principled procedure for such risk-shaping is not trivial, and is beyond the scope of this paper. However, we believe that there is much potential to risk shaping as it may be the key for handling model misspecification in dynamic decision making."
+    }, {
+      "heading" : "Acknowledgments",
+      "text" : "The research leading to these results has received funding from the European Research Council under the European Unions Seventh Framework Program (FP7/2007-2013) / ERC Grant Agreement n. 306638. Yinlam Chow is partially supported by Croucher Foundation Doctoral Scholarship."
+    } ],
+    "references" : [ {
+      "title" : "Spectral measures of risk: a coherent representation of subjective risk aversion",
+      "author" : [ "C. Acerbi" ],
+      "venue" : "Journal of Banking & Finance, 26(7):1505–1518",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : null,
+      "year" : 2002
+    }, {
+      "title" : "Coherent measures of risk",
+      "author" : [ "P. Artzner", "F. Delbaen", "J. Eber", "D. Heath" ],
+      "venue" : "Mathematical finance, 9(3):203– 228",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : null,
+      "year" : 1999
+    }, {
+      "title" : "Computing VaR and CVaR using stochastic approximation and adaptive unconstrained importance sampling",
+      "author" : [ "O. Bardou", "N. Frikha", "G. Pagès" ],
+      "venue" : "Monte Carlo Methods and Applications, 15(3):173–210",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : null,
+      "year" : 2009
+    }, {
+      "title" : "Markov decision processes with average-value-at-risk criteria",
+      "author" : [ "N. Bäuerle", "J. Ott" ],
+      "venue" : "Mathematical Methods of Operations Research, 74(3):361–379",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Dynamic programming and optimal control",
+      "author" : [ "D. Bertsekas" ],
+      "venue" : "Athena Scientific, 4th edition",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "A sensitivity formula for risk-sensitive cost and the actor–critic algorithm",
+      "author" : [ "V. Borkar" ],
+      "venue" : "Systems & Control Letters, 44(5):339–346",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : null,
+      "year" : 2001
+    }, {
+      "title" : "Convex optimization",
+      "author" : [ "S. Boyd", "L. Vandenberghe" ],
+      "venue" : "Cambridge university press",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : null,
+      "year" : 2009
+    }, {
+      "title" : "Algorithms for CVaR optimization in MDPs",
+      "author" : [ "Y. Chow", "M. Ghavamzadeh" ],
+      "venue" : "NIPS 27",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "A unifying framework for time-consistent",
+      "author" : [ "Y. Chow", "M. Pavone" ],
+      "venue" : "risk-averse model predictive control: theory and algorithms. In American Control Conference",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Percentile optimization for Markov decision processes with parameter uncertainty",
+      "author" : [ "E. Delage", "S. Mannor" ],
+      "venue" : "Operations Research, 58(1):203213",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : null,
+      "year" : 2010
+    }, {
+      "title" : "Gradient estimation",
+      "author" : [ "M. Fu" ],
+      "venue" : "Simulation, volume 13 of Handbooks in Operations Research and Management Science, pages 575 – 616. Elsevier",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : null,
+      "year" : 2006
+    }, {
+      "title" : "Rules for ordering uncertain prospects",
+      "author" : [ "J. Hadar", "W.R. Russell" ],
+      "venue" : "The American Economic Review, pages 25–34",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : null,
+      "year" : 1969
+    }, {
+      "title" : "Tight approximations of dynamic risk measures",
+      "author" : [ "D. Iancu", "M. Petrik", "D. Subramanian" ],
+      "venue" : "arXiv:1106.6102",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Actor-critic algorithms",
+      "author" : [ "V. Konda", "J. Tsitsiklis" ],
+      "venue" : "NIPS",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : null,
+      "year" : 2000
+    }, {
+      "title" : "Simulation-based optimization of Markov reward processes",
+      "author" : [ "P. Marbach", "J. Tsitsiklis" ],
+      "venue" : "IEEE Transactions on Automatic Control, 46(2):191–209",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : null,
+      "year" : 1998
+    }, {
+      "title" : "Portfolio selection: Efficient diversification of investment",
+      "author" : [ "H. Markowitz" ],
+      "venue" : "John Wiley and Sons",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : null,
+      "year" : 1959
+    }, {
+      "title" : "Envelope theorems for arbitrary choice sets",
+      "author" : [ "P. Milgrom", "I. Segal" ],
+      "venue" : "Econometrica, 70(2):583–601",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : null,
+      "year" : 2002
+    }, {
+      "title" : "Learning to trade via direct reinforcement",
+      "author" : [ "J. Moody", "M. Saffell" ],
+      "venue" : "Neural Networks, IEEE Transactions on, 12(4):875–889",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : null,
+      "year" : 2001
+    }, {
+      "title" : "Robustness and risk-sensitivity in Markov decision processes",
+      "author" : [ "T. Osogami" ],
+      "venue" : "NIPS",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "An approximate solution method for large risk-averse Markov decision processes",
+      "author" : [ "M. Petrik", "D. Subramanian" ],
+      "venue" : "UAI",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Actor-critic algorithms for risk-sensitive MDPs",
+      "author" : [ "L. Prashanth", "M. Ghavamzadeh" ],
+      "venue" : "NIPS 26",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Stable Paretian models in finance",
+      "author" : [ "S. Rachev", "S. Mittnik" ],
+      "venue" : "John Willey & Sons, New York",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : null,
+      "year" : 2000
+    }, {
+      "title" : "Optimization of conditional value-at-risk",
+      "author" : [ "R. Rockafellar", "S. Uryasev" ],
+      "venue" : "Journal of risk, 2:21–42",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : null,
+      "year" : 2000
+    }, {
+      "title" : "Risk-averse dynamic programming for Markov decision processes",
+      "author" : [ "A. Ruszczyński" ],
+      "venue" : "Mathematical Programming, 125(2):235–261",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : null,
+      "year" : 2010
+    }, {
+      "title" : "Optimization of convex risk functions",
+      "author" : [ "A. Ruszczyński", "A. Shapiro" ],
+      "venue" : "Math. OR, 31(3):433–452",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : null,
+      "year" : 2006
+    }, {
+      "title" : "Lectures on stochastic programming",
+      "author" : [ "A. Shapiro", "D. Dentcheva", "A. Ruszczyński" ],
+      "venue" : "chapter 6, pages 253–332. SIAM",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : null,
+      "year" : 2009
+    }, {
+      "title" : "Reinforcement learning: An introduction",
+      "author" : [ "R. Sutton", "A. Barto" ],
+      "venue" : "Cambridge Univ Press",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : null,
+      "year" : 1998
+    }, {
+      "title" : "Policy gradient methods for reinforcement learning with function approximation",
+      "author" : [ "R. Sutton", "D. McAllester", "S. Singh", "Y. Mansour" ],
+      "venue" : "NIPS 13",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : null,
+      "year" : 2000
+    }, {
+      "title" : "Policy gradients with variance related risk criteria",
+      "author" : [ "A. Tamar", "D. Di Castro", "S. Mannor" ],
+      "venue" : "International Conference on Machine Learning",
+      "citeRegEx" : "29",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Optimizing the CVaR via sampling",
+      "author" : [ "A. Tamar", "Y. Glassner", "S. Mannor" ],
+      "venue" : "AAAI",
+      "citeRegEx" : "30",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Scaling up robust MDPs using function approximation",
+      "author" : [ "A. Tamar", "S. Mannor", "H. Xu" ],
+      "venue" : "International Conference on Machine Learning",
+      "citeRegEx" : "31",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 26,
+      "context" : "In reinforcement learning (RL) [27], risk-sensitive objectives have gained popularity as a means to regularize the variability of the total (discounted) cost/reward in a Markov decision process (MDP).",
+      "startOffset" : 31,
+      "endOffset" : 35
+    }, {
+      "referenceID" : 15,
+      "context" : "Many risk objectives have been investigated in the literature and applied to RL, such as the celebrated Markowitz mean-variance model [16], Value-at-Risk (VaR) and Conditional Value at Risk (CVaR) [18, 29, 21, 10, 8, 30].",
+      "startOffset" : 134,
+      "endOffset" : 138
+    }, {
+      "referenceID" : 17,
+      "context" : "Many risk objectives have been investigated in the literature and applied to RL, such as the celebrated Markowitz mean-variance model [16], Value-at-Risk (VaR) and Conditional Value at Risk (CVaR) [18, 29, 21, 10, 8, 30].",
+      "startOffset" : 197,
+      "endOffset" : 220
+    }, {
+      "referenceID" : 28,
+      "context" : "Many risk objectives have been investigated in the literature and applied to RL, such as the celebrated Markowitz mean-variance model [16], Value-at-Risk (VaR) and Conditional Value at Risk (CVaR) [18, 29, 21, 10, 8, 30].",
+      "startOffset" : 197,
+      "endOffset" : 220
+    }, {
+      "referenceID" : 20,
+      "context" : "Many risk objectives have been investigated in the literature and applied to RL, such as the celebrated Markowitz mean-variance model [16], Value-at-Risk (VaR) and Conditional Value at Risk (CVaR) [18, 29, 21, 10, 8, 30].",
+      "startOffset" : 197,
+      "endOffset" : 220
+    }, {
+      "referenceID" : 9,
+      "context" : "Many risk objectives have been investigated in the literature and applied to RL, such as the celebrated Markowitz mean-variance model [16], Value-at-Risk (VaR) and Conditional Value at Risk (CVaR) [18, 29, 21, 10, 8, 30].",
+      "startOffset" : 197,
+      "endOffset" : 220
+    }, {
+      "referenceID" : 7,
+      "context" : "Many risk objectives have been investigated in the literature and applied to RL, such as the celebrated Markowitz mean-variance model [16], Value-at-Risk (VaR) and Conditional Value at Risk (CVaR) [18, 29, 21, 10, 8, 30].",
+      "startOffset" : 197,
+      "endOffset" : 220
+    }, {
+      "referenceID" : 29,
+      "context" : "Many risk objectives have been investigated in the literature and applied to RL, such as the celebrated Markowitz mean-variance model [16], Value-at-Risk (VaR) and Conditional Value at Risk (CVaR) [18, 29, 21, 10, 8, 30].",
+      "startOffset" : 197,
+      "endOffset" : 220
+    }, {
+      "referenceID" : 1,
+      "context" : "[2] identified a set of natural properties that are desirable for a risk measure to satisfy.",
+      "startOffset" : 0,
+      "endOffset" : 3
+    }, {
+      "referenceID" : 4,
+      "context" : "A time-consistent risk measure satisfies a “dynamic programming” style property: if a strategy is risk-optimal for an n-stage problem, then the component of the policy from the t-th time until the end (where t < n) is also risk-optimal (see principle of optimality in [5]).",
+      "startOffset" : 268,
+      "endOffset" : 271
+    }, {
+      "referenceID" : 23,
+      "context" : "The recently proposed class of dynamic Markov coherent risk measures [24] satisfies both the coherence and time consistency properties.",
+      "startOffset" : 69,
+      "endOffset" : 73
+    }, {
+      "referenceID" : 5,
+      "context" : "[6] studied exponential utility functions, [18], [29], [21] studied meanvariance models, [8], [30] studied CVaR in the static setting, and [20], [9] studied dynamic coherent risk for systems with linear dynamics.",
+      "startOffset" : 0,
+      "endOffset" : 3
+    }, {
+      "referenceID" : 17,
+      "context" : "[6] studied exponential utility functions, [18], [29], [21] studied meanvariance models, [8], [30] studied CVaR in the static setting, and [20], [9] studied dynamic coherent risk for systems with linear dynamics.",
+      "startOffset" : 43,
+      "endOffset" : 47
+    }, {
+      "referenceID" : 28,
+      "context" : "[6] studied exponential utility functions, [18], [29], [21] studied meanvariance models, [8], [30] studied CVaR in the static setting, and [20], [9] studied dynamic coherent risk for systems with linear dynamics.",
+      "startOffset" : 49,
+      "endOffset" : 53
+    }, {
+      "referenceID" : 20,
+      "context" : "[6] studied exponential utility functions, [18], [29], [21] studied meanvariance models, [8], [30] studied CVaR in the static setting, and [20], [9] studied dynamic coherent risk for systems with linear dynamics.",
+      "startOffset" : 55,
+      "endOffset" : 59
+    }, {
+      "referenceID" : 7,
+      "context" : "[6] studied exponential utility functions, [18], [29], [21] studied meanvariance models, [8], [30] studied CVaR in the static setting, and [20], [9] studied dynamic coherent risk for systems with linear dynamics.",
+      "startOffset" : 89,
+      "endOffset" : 92
+    }, {
+      "referenceID" : 29,
+      "context" : "[6] studied exponential utility functions, [18], [29], [21] studied meanvariance models, [8], [30] studied CVaR in the static setting, and [20], [9] studied dynamic coherent risk for systems with linear dynamics.",
+      "startOffset" : 94,
+      "endOffset" : 98
+    }, {
+      "referenceID" : 19,
+      "context" : "[6] studied exponential utility functions, [18], [29], [21] studied meanvariance models, [8], [30] studied CVaR in the static setting, and [20], [9] studied dynamic coherent risk for systems with linear dynamics.",
+      "startOffset" : 139,
+      "endOffset" : 143
+    }, {
+      "referenceID" : 8,
+      "context" : "[6] studied exponential utility functions, [18], [29], [21] studied meanvariance models, [8], [30] studied CVaR in the static setting, and [20], [9] studied dynamic coherent risk for systems with linear dynamics.",
+      "startOffset" : 145,
+      "endOffset" : 148
+    }, {
+      "referenceID" : 18,
+      "context" : "Reference [19] showed that an MDP with a dynamic coherent risk objective is essentially a robust MDP.",
+      "startOffset" : 10,
+      "endOffset" : 14
+    }, {
+      "referenceID" : 30,
+      "context" : "The planning for large scale MDPs was considered in [31], using an approximation of the value function.",
+      "startOffset" : 52,
+      "endOffset" : 56
+    }, {
+      "referenceID" : 30,
+      "context" : "We do, however, make use of a technique of [31] in a part of our method.",
+      "startOffset" : 43,
+      "endOffset" : 47
+    }, {
+      "referenceID" : 24,
+      "context" : "Optimization of coherent risk measures was thoroughly investigated by Ruszczynski and Shapiro [25] (see also [26]) for the stochastic programming case in which the policy parameters do not affect the distribution of the stochastic system (i.",
+      "startOffset" : 94,
+      "endOffset" : 98
+    }, {
+      "referenceID" : 25,
+      "context" : "Optimization of coherent risk measures was thoroughly investigated by Ruszczynski and Shapiro [25] (see also [26]) for the stochastic programming case in which the policy parameters do not affect the distribution of the stochastic system (i.",
+      "startOffset" : 109,
+      "endOffset" : 113
+    }, {
+      "referenceID" : 23,
+      "context" : "For the case of MDPs and dynamic risk, [24] proposed a dynamic programming approach.",
+      "startOffset" : 39,
+      "endOffset" : 43
+    }, {
+      "referenceID" : 17,
+      "context" : "For further motivation of risk-sensitive policy gradient methods, we refer the reader to [18, 29, 21, 8, 30].",
+      "startOffset" : 89,
+      "endOffset" : 108
+    }, {
+      "referenceID" : 28,
+      "context" : "For further motivation of risk-sensitive policy gradient methods, we refer the reader to [18, 29, 21, 8, 30].",
+      "startOffset" : 89,
+      "endOffset" : 108
+    }, {
+      "referenceID" : 20,
+      "context" : "For further motivation of risk-sensitive policy gradient methods, we refer the reader to [18, 29, 21, 8, 30].",
+      "startOffset" : 89,
+      "endOffset" : 108
+    }, {
+      "referenceID" : 7,
+      "context" : "For further motivation of risk-sensitive policy gradient methods, we refer the reader to [18, 29, 21, 8, 30].",
+      "startOffset" : 89,
+      "endOffset" : 108
+    }, {
+      "referenceID" : 29,
+      "context" : "For further motivation of risk-sensitive policy gradient methods, we refer the reader to [18, 29, 21, 8, 30].",
+      "startOffset" : 89,
+      "endOffset" : 108
+    }, {
+      "referenceID" : 23,
+      "context" : "(2)For Markov coherent risk, the class of optimal policies is stationary Markov [24], while this is not necessarily true for static risk.",
+      "startOffset" : 80,
+      "endOffset" : 84
+    }, {
+      "referenceID" : 1,
+      "context" : "A risk measure is called coherent, if it satisfies the following conditions for all Z,W ∈ Z [2]:",
+      "startOffset" : 92,
+      "endOffset" : 95
+    }, {
+      "referenceID" : 1,
+      "context" : "We further refer the reader to [2] for a more detailed motivation of coherent risk.",
+      "startOffset" : 31,
+      "endOffset" : 34
+    }, {
+      "referenceID" : 25,
+      "context" : "The following representation theorem [26] shows an important property of coherent risk measures that is fundamental to our gradient-based approach.",
+      "startOffset" : 37,
+      "endOffset" : 41
+    }, {
+      "referenceID" : 25,
+      "context" : "6 of [26], in the case of a finite probability space, ρ is a coherent risk if and only if U(Pθ) is a convex and compact set.",
+      "startOffset" : 5,
+      "endOffset" : 9
+    }, {
+      "referenceID" : 0,
+      "context" : "Moreover, the additional assumption on the smoothness of the constraints holds for many popular coherent risk measures, such as the CVaR, the mean-semi-deviation, and spectral risk measures [1].",
+      "startOffset" : 190,
+      "endOffset" : 193
+    }, {
+      "referenceID" : 3,
+      "context" : "The latter has shown to be sufficient for optimizing the CVaR risk [4].",
+      "startOffset" : 67,
+      "endOffset" : 70
+    }, {
+      "referenceID" : 23,
+      "context" : "A primary motivation for considering such measures is the issue of time consistency, usually defined as follows [24]: if a certain outcome is considered less risky in all states of the world at stage t + 1, then it should also be considered less risky at stage t.",
+      "startOffset" : 112,
+      "endOffset" : 116
+    }, {
+      "referenceID" : 12,
+      "context" : "1 in [13] shows the importance of time consistency in the evaluation of risk in a dynamic setting.",
+      "startOffset" : 5,
+      "endOffset" : 9
+    }, {
+      "referenceID" : 23,
+      "context" : "Similar paradoxical results could be obtained with other risk metrics; we refer the readers to [24] and [13] for further insights.",
+      "startOffset" : 95,
+      "endOffset" : 99
+    }, {
+      "referenceID" : 12,
+      "context" : "Similar paradoxical results could be obtained with other risk metrics; we refer the readers to [24] and [13] for further insights.",
+      "startOffset" : 104,
+      "endOffset" : 108
+    }, {
+      "referenceID" : 23,
+      "context" : "Markov risk measures were introduced in [24] and constitute a useful class of dynamic time-consistent risk measures that are important to our study of risk in MDPs.",
+      "startOffset" : 40,
+      "endOffset" : 44
+    }, {
+      "referenceID" : 14,
+      "context" : "We make the following assumption on the policy parametrization, which is standard in the policy gradient literature [15].",
+      "startOffset" : 116,
+      "endOffset" : 120
+    }, {
+      "referenceID" : 14,
+      "context" : "This is also a standard requirement for policy gradient algorithms [15] and is satisfied in various applications such as queueing systems, inventory management, and financial engineering (see, e.",
+      "startOffset" : 67,
+      "endOffset" : 71
+    }, {
+      "referenceID" : 16,
+      "context" : "The proof of this theorem, given in the supplementary material, involves an application of the Envelope theorem [17] and a standard ‘likelihood-ratio’ trick.",
+      "startOffset" : 112,
+      "endOffset" : 116
+    }, {
+      "referenceID" : 22,
+      "context" : "1 Example 1: CVaR The CVaR at level α ∈ [0, 1] of a random variable Z, denoted by ρCVaR(Z;α), is a very popular coherent risk measure [23], defined as ρCVaR(Z;α) .",
+      "startOffset" : 134,
+      "endOffset" : 138
+    }, {
+      "referenceID" : 25,
+      "context" : "The risk envelope for CVaR is known to be [26] U = { ξPθ : ξ(ω) ∈ [0, α−1], ∑ ω∈Ω ξ(ω)Pθ(ω) = 1 } .",
+      "startOffset" : 42,
+      "endOffset" : 46
+    }, {
+      "referenceID" : 25,
+      "context" : "Furthermore, [26] show that the saddle points of (6) satisfy ξ∗ θ (ω) = α −1 when Z(ω) > λ θ , and ξ ∗ θ (ω) = 0 when Z(ω) < λ ∗,P θ , where λ ∗,P θ is any (1− α)quantile of Z.",
+      "startOffset" : 13,
+      "endOffset" : 17
+    }, {
+      "referenceID" : 29,
+      "context" : "This formula was recently proved in [30] for the case of continuous distributions by an explicit calculation of the conditional expectation, and under several additional smoothness assumptions.",
+      "startOffset" : 36,
+      "endOffset" : 40
+    }, {
+      "referenceID" : 25,
+      "context" : "= E [Z] + αSD[Z], and is a coherent risk measure [26].",
+      "startOffset" : 49,
+      "endOffset" : 53
+    }, {
+      "referenceID" : 25,
+      "context" : "We show that in this case, ∇θρ(Z) may be estimated using a sample average approximation (SAA; [26]) of the formula in Theorem 4.",
+      "startOffset" : 94,
+      "endOffset" : 98
+    }, {
+      "referenceID" : 6,
+      "context" : "In the following, we assume that a solution to (7) may be computed efficiently using standard convex programming tools such as interior point methods [7].",
+      "startOffset" : 150,
+      "endOffset" : 153
+    }, {
+      "referenceID" : 6,
+      "context" : "Let ξ∗ θ;N denote a solution to (7) and λ θ;N , λ ∗,E θ;N , λ ∗,I θ;N denote the corresponding KKT multipliers, which can be obtained from the convex programming algorithm [7].",
+      "startOffset" : 172,
+      "endOffset" : 175
+    }, {
+      "referenceID" : 25,
+      "context" : "This is well-expected, since in general, both SAA and standard likelihood-ratio based estimators obey a law-of-large-numbers variance bound of order 1/ √ N [26].",
+      "startOffset" : 156,
+      "endOffset" : 160
+    }, {
+      "referenceID" : 23,
+      "context" : "It is shown in [24] that due to the structure of the Markov dynamic risk ρ∞(M), the value function is the unique solution to the risk-sensitive Bellman equation Vθ(x) = C(x) + γ max ξPθ(·|x)∈U(x,Pθ(·|x)) Eξ[Vθ(x)], (9)",
+      "startOffset" : 15,
+      "endOffset" : 19
+    }, {
+      "referenceID" : 27,
+      "context" : "We now develop a formula for ∇θVθ(x); this formula extends the well-known “policy gradient theorem” [28, 14], developed for the expected return, to Markov-coherent dynamic risk measures.",
+      "startOffset" : 100,
+      "endOffset" : 108
+    }, {
+      "referenceID" : 13,
+      "context" : "We now develop a formula for ∇θVθ(x); this formula extends the well-known “policy gradient theorem” [28, 14], developed for the expected return, to Markov-coherent dynamic risk measures.",
+      "startOffset" : 100,
+      "endOffset" : 108
+    }, {
+      "referenceID" : 27,
+      "context" : "2 may be used to develop an actor-critic style [28, 14] sampling-based algorithm for solving the DRP problem (5), composed of two interleaved procedures:",
+      "startOffset" : 47,
+      "endOffset" : 55
+    }, {
+      "referenceID" : 13,
+      "context" : "2 may be used to develop an actor-critic style [28, 14] sampling-based algorithm for solving the DRP problem (5), composed of two interleaved procedures:",
+      "startOffset" : 47,
+      "endOffset" : 55
+    }, {
+      "referenceID" : 18,
+      "context" : "To overcome this, we exploit the fact that Vθ is equivalent to the value function in a robust MDP [19] and modify a recent algorithm in [31] to estimate it using function approximation.",
+      "startOffset" : 98,
+      "endOffset" : 102
+    }, {
+      "referenceID" : 30,
+      "context" : "To overcome this, we exploit the fact that Vθ is equivalent to the value function in a robust MDP [19] and modify a recent algorithm in [31] to estimate it using function approximation.",
+      "startOffset" : 136,
+      "endOffset" : 140
+    }, {
+      "referenceID" : 21,
+      "context" : "The mean of the return from A3 is 3 and its variance is infinite; such heavy-tailed distributions are widely used in financial modeling [22].",
+      "startOffset" : 136,
+      "endOffset" : 140
+    }, {
+      "referenceID" : 14,
+      "context" : ", maxθ E [Z], and it was trained using standard policy gradient [15].",
+      "startOffset" : 64,
+      "endOffset" : 68
+    }, {
+      "referenceID" : 28,
+      "context" : "Policy π3 is also risk-averse, with a mean-standarddeviation objective, as proposed in [29, 21], maxθ E [Z] − √ Var[Z], and was trained using the algorithm of [29].",
+      "startOffset" : 87,
+      "endOffset" : 95
+    }, {
+      "referenceID" : 20,
+      "context" : "Policy π3 is also risk-averse, with a mean-standarddeviation objective, as proposed in [29, 21], maxθ E [Z] − √ Var[Z], and was trained using the algorithm of [29].",
+      "startOffset" : 87,
+      "endOffset" : 95
+    }, {
+      "referenceID" : 28,
+      "context" : "Policy π3 is also risk-averse, with a mean-standarddeviation objective, as proposed in [29, 21], maxθ E [Z] − √ Var[Z], and was trained using the algorithm of [29].",
+      "startOffset" : 159,
+      "endOffset" : 163
+    }, {
+      "referenceID" : 11,
+      "context" : "In fact, in this case A3 stochastically dominates A1 [12].",
+      "startOffset" : 53,
+      "endOffset" : 57
+    }, {
+      "referenceID" : 2,
+      "context" : "This is especially important for risk criteria that are sensitive to rare events, such as the CVaR [3].",
+      "startOffset" : 99,
+      "endOffset" : 102
+    }, {
+      "referenceID" : 18,
+      "context" : "In [19], a similar connection was made between model-uncertainty in MDPs and dynamic Markov coherent risk.",
+      "startOffset" : 3,
+      "endOffset" : 7
+    } ],
+    "year" : 2015,
+    "abstractText" : "Several authors have recently developed risk-sensitive policy gradient methods that augment the standard expected cost minimization problem with a measure of variability in cost. These studies have focused on specific risk-measures, such as the variance or conditional value at risk (CVaR). In this work, we extend the policy gradient method to the whole class of coherent risk measures, which is widely accepted in finance and operations research, among other fields. We consider both static and time-consistent dynamic risk measures. For static risk measures, our approach is in the spirit of policy gradient algorithms and combines a standard sampling approach with convex programming. For dynamic risk measures, our approach is actor-critic style and involves explicit approximation of value function. Most importantly, our contribution presents a unified approach to risk-sensitive reinforcement learning that generalizes and extends previous results.",
+    "creator" : null
+  }
+}

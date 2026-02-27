@@ -1,0 +1,56 @@
+Summary and relation to prior work:
+This paper proposes Sparse Access Memory (SAM), a memory-augmented neural network that scales external memory by enforcing sparsity in both reads and writes and by using efficient data structures for content-based addressing. The key ideas are: (i) top-K sparse reads computed via an approximate nearest-neighbor (ANN) index (randomized kd-trees or LSH) to reduce attention from O(N) to O(log N); (ii) sparse writes restricted to previously read locations and a least-recently-used (LRU) location, with a simple usage-tracking scheme; and (iii) an efficient backpropagation-through-time (BPTT) implementation that rolls memory backward by reverting the O(1) sparse modifications per time step, yielding O(1) per-step memory cost and O(T) total. The authors claim asymptotic optimality under reasonable assumptions (supplementary).
+
+Empirically, SAM achieves orders-of-magnitude speed/memory savings over dense NTMs, learns algorithmic tasks (copy, associative recall, priority sort) with comparable or better data efficiency than dense variants, scales via curriculum to millions of memory words and thousands of time steps, performs competitively on bAbI tasks, and improves one-shot learning performance on Omniglot. The authors also outline a sparse version of the Differentiable Neural Computer (SDNC), reporting a 400× speedup and state-of-the-art bAbI performance without supervised memory access.
+
+This work is well situated relative to NTMs, Memory Networks, and DNCs, and contrasts with discrete-addressing approaches trained via RL (e.g., Zaremba & Sutskever). It is the first, to my knowledge, to integrate ANN search into a differentiable memory architecture and to engineer a full sparse read/write and backprop pipeline.
+
+Strengths:
+- Technical contribution: A clear, practical recipe to make content-addressable differentiable memory sublinear in memory size at training time, including (a) top-K attention via ANN, (b) sparse write policy (previously read + LRU), and (c) a memory-rollback BPTT scheme. The complexity analysis and implementation details (ANN maintenance, rebuild schedule) are thoughtful.
+- Empirical significance: Demonstrates up to 100–1600× training speedups and dramatic reductions in memory footprint; enables training with million-word memory and >4000-step untruncated BPTT—well beyond typical MANN regimes.
+- Generality: The approach extends to other MANNs (e.g., SDNC) and maintains competitive or improved performance on synthetic algorithmic tasks, bAbI, and Omniglot.
+- Clarity: The core ideas are concisely explained; equations and design choices (e.g., usage measures, gates) are explicit.
+
+Weaknesses and questions:
+- Non-differentiability and gradient bias: The read weights are obtained via top-K selection with no gradients through the ANN/selection. This introduces a hard, non-smooth gating that discards many small but potentially informative gradients. While results are strong, the paper does not analyze optimization bias/variance introduced by this truncation, nor conditions under which it may fail. A brief discussion or ablation (e.g., effect of K, or annealing K) would strengthen claims of generality.
+- Dependence on ANN quality: Training relies on approximate neighbors; no ablation is shown comparing exact vs. ANN reads on learning speed/accuracy across tasks or word sizes. How sensitive are results to ANN hyperparameters and rebuild frequency? Are there cases where ANN errors derail training?
+- Fairness of large-scale curriculum comparisons: Dense baselines are restricted to 64 memory slots to match physical memory usage rather than capacity, while SAM uses 2M slots. This is a practical comparison but conflates architecture with capacity. It would help to show how far dense models can go with truncated BPTT and/or activation checkpointing, or to include a mid-scale dense baseline to isolate gains from sparsity vs. sheer capacity.
+- Limited analysis of write policy: The “previously read + LRU” scheme is simple and effective, but the paper does not explore tradeoffs (e.g., sparse content-based writes, different usage metrics, number of write heads) or failure cases (tasks requiring updating a location not recently read). Some insights into when this policy works best would be valuable.
+- Reproducibility details: Many crucial engineering components are in the supplement (ANN maintenance, memory rollback, data structure specifics). Open-sourcing code or providing pseudo-code in the main text would aid adoption.
+- Statistical reporting: For several plots (e.g., Figure 2), variance across seeds and significance are not reported. The Omniglot section mentions selecting the “best run,” which may overstate gains; reporting averages with confidence intervals would be preferable.
+
+Quality:
+Overall technically sound and complete, with careful engineering and compelling experiments. The main claims (scaling properties and practical speed/memory gains) are well supported; theoretical optimality relies on supplemental assumptions.
+
+Clarity:
+Generally well organized and readable. Suggestions:
+- Clarify gradient flow: explicitly state that gradients do not pass through ANN/selection and discuss implications.
+- Provide pseudo-code for forward/backward memory rollback in the main paper.
+- Define all symbols when first introduced (e.g., clarify αt, τt gates; ensure consistent notation for write/read weights).
+- Summarize key supplementary results (SDNC, bAbI numbers) in a compact main-text table.
+
+Originality:
+High. While sparsity, LRU, and ANN are known individually, their integration into a differentiable memory with end-to-end training and efficient BPTT is novel and impactful as of the cited literature.
+
+Significance:
+High. The work addresses a central bottleneck in MANNs and enables regimes (memory in the millions, long BPTT) previously infeasible, with promising results on both synthetic and real tasks. It is likely to influence subsequent research and practice on scalable memory architectures.
+
+Pros for acceptance:
+- Strong and novel engineering to make MANNs scalable with clear complexity gains.
+- Broad empirical validation and large practical speed/memory improvements.
+- General approach applicable beyond the specific NTM-like architecture.
+- Advances the state of the art on several benchmarks (incl. bAbI via SDNC).
+
+Cons against acceptance:
+- Limited analysis of the optimization impact of non-differentiable top-K and ANN approximations.
+- Some comparisons favor SAM by constraining dense baselines’ capacity for memory parity rather than capability parity.
+- Key details and results relegated to the supplement; limited statistical reporting.
+
+Questions for authors:
+1) How sensitive are results to K? Can you provide ablations (K=2,4,8,16) on representative tasks?
+2) Do ANN approximations degrade performance vs. exact KNN? Any tradeoff curves of accuracy vs. speed?
+3) Can you provide averages over multiple seeds with confidence intervals for main plots?
+4) Are there tasks where “read+LRU” writes underperform sparse content-based writes?
+5) Will you release code for the ANN-integrated training and memory rollback?
+
+Recommendation: Accept. The paper makes a substantial and timely contribution to scalable differentiable memory with solid empirical support and practical impact, despite some missing ablations and reliance on supplemental details.

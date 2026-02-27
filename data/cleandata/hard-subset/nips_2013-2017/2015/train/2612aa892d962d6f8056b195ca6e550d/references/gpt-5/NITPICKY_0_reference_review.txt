@@ -1,0 +1,54 @@
+Summary and relation to prior work
+The paper proposes an alternating optimization framework that combines direct trajectory optimization (Contact-Invariant Optimization, CIO) with supervised neural policy learning for interactive, real-time control of complex 3D characters. Key ingredients are: (i) adding a quadratic penalty to encourage the optimizer’s trajectories to be compatible with a parametric policy, (ii) injecting Gaussian noise in sensory inputs and hidden units, (iii) deriving local optimal feedback gains “for free” from the trajectory optimizer via a perturbation method that reuses the Gauss–Newton inverse, and (iv) executing the learned policy online by solving a single-step constrained optimization to match desired velocities/forces while softly enforcing physics.
+
+This is close in spirit to Guided Policy Search / trajectory optimization + supervised learning (e.g., Levine & Koltun, 2014; Mordatch & Todorov, 2014), and model-based control with implicit dynamics (MuJoCo). The paper claims improved scalability to 3D locomotion and a new way to extract feedback gains from a direct optimizer. The application to diverse morphologies (swimmer, bird, biped, quadruped) is appealing.
+
+Strengths
+- Ambitious scope: a single pipeline producing interactive controllers for multiple 3D morphologies with the same architecture and hyperparameters.
+- Practical training system: asynchronous distributed trajectory optimization + GPU policy fitting; branching dataset generation for interactive goals; sensible noise injection for robustness.
+- Technical contribution: perturbation-based computation of feedback gains that reuses CXX−1 from the Gauss–Newton solver, potentially avoiding ill-conditioned LQG post-processing.
+- Clear articulation of the alternating objective and the rationale for injecting input noise paired with linear feedback targets a + as ε.
+- Implementation uses standard components (MuJoCo, Newton/GAuss–Newton) and could be of interest to practitioners.
+
+Weaknesses and detailed concerns
+Quality and empirical support
+- Evaluation is largely qualitative and video-dependent; quantitative metrics and comparisons are insufficient. The “two orders of magnitude” improvement in Fig. 2 is referenced but the metric (units, definition, test conditions) is not defined. No statistics (means/variances over seeds), no sample efficiency, and no generalization tests (e.g., to unseen goal distributions).
+- Baselines: There is no systematic comparison to standard RL/model-based methods for continuous control (e.g., TRPO [14], GPS variants, iLQG-based MPC with learned policies) on the same tasks. The MPC comparison is qualitative and on a single bird example.
+- Real-time execution relies on a T=1 optimization with soft physics constraints and explicitly allows root forces. This undermines claims about physical realism and robotics relevance; contact forces are Lagrange multipliers, not controllable actions, and permitting root forces makes evaluation incomparable to true physics-based control.
+
+Technical clarity and correctness
+- State/action definitions are inconsistent with dynamics: s_t = [q_t, r_t, q̇_{t−1}, f_{t−1}] and a_t = [q̇_t, ṙ_t, f_t]. Velocities are not included in the “state” q, yet the EoM (6) use q̇ and q̈. How τ is obtained at execution time is unclear; the one-step objective does not penalize τ but the constraints include τ. The use of previous-step velocities/forces in s_t vs current in a_t is unusual and could introduce off-by-one artifacts.
+- Treating contact forces as action variables is physically questionable; on hardware they are consequences of state/torque under contact constraints. CIO’s contact-invariant formulation makes this workable offline, but online execution with soft constraints and desired f potentially yields unphysical solutions.
+- Feedback gains derivation: the Woodbury-based expression for X̃_s̄ seems dimensionally plausible, but the algebra as written likely misses a factor of λ in the final form (check λ(CXX + λ sX^T sX)−1 sX^T = CXX−1 sX^T((1/λ)I + sX CXX−1 sX^T)−1). Sensitivity to λ (set to 10^2) and numerical conditioning are not analyzed. No ablation shows the benefit of these gains vs. simple finite-difference Jacobians or no gains.
+- Algorithm 1 lacks precision: proximal terms are written as “η2 ||·||2” with unclear scaling; freezing ε during NN training breaks the stated stochastic objective (3)–(4) and the paper does not justify the bias introduced or its effect on convergence.
+- The “recurrent memory state” r is central but underspecified: dimension, initialization beyond “null,” and its role in the network (external continuous memory vs. internal recurrent units) are not detailed. The network appears feedforward with r fed back via s, but the paper calls the controller “recurrent” without architectural specifics.
+- Many crucial training details are missing for reproducibility: trajectory horizon T, frame count per trial/segment, exact costs and weights in C(X), learning rates, batch sizes, normalization, gradient clipping, line search/trust region for Newton steps, stopping criteria, and the numerical tolerances that enable real-time T=1 solves at 50 ms timesteps.
+
+Originality and significance
+- The high-level alternating framework and noise-injected supervised learning from optimized trajectories are not new (GPS family). The novel part is the feedback-gain extraction from CIO and the system integration to 3D characters. Without rigorous quantitative evidence and stronger comparisons, it is hard to assess the substantive advance over prior work.
+
+Clarity and presentation
+- References are incomplete and inconsistently formatted (missing years/venues/pages; e.g., [1], [2], many entries). Several typos/grammar issues: “unity these disparate approaches” → unify; “changed changed”; “controller learned”; “patter” → pattern; missing articles throughout. Figures/tables (Fig. 2, 3; Table 1) are referenced but not provided in the text I saw.
+- Some notation is sloppy: x vs X, q̇ defined as qt+1 − qt but later used in continuous EoM; missing “des” superscript in one place; ambiguous use of norms without weights/units.
+
+Questions for the authors
+- Provide precise definitions and units for the evaluation metric(s) in Fig. 2; include full numerical results and comparisons to TRPO/GPS baselines on identical tasks.
+- Clarify the role and dimension of r, and provide full training hyperparameters (learning rate schedule, batch size, optimizer details).
+- Analyze sensitivity to λ, α, σε, σγ, η; show effect on stability and performance.
+- Quantify physical realism: what fraction of timesteps require nonzero root forces during execution? How often are friction cone and no-penetration constraints violated?
+- Report real-time performance (fps), horizon lengths T, per-iteration timings for the T=1 solver, and total dataset size in frames.
+
+Pros
+- Ambitious system with diverse 3D results; practical engineering contributions.
+- Clever reuse of Gauss–Newton inverse for feedback gains.
+- Clear motivation for noise-injected targets and alternating optimization.
+
+Cons
+- Insufficient quantitative evaluation and weak baselines.
+- Physical/action modeling mismatch (contact forces as actions; soft root forces).
+- Several technical/notation issues and missing details that hinder reproducibility.
+- Presentation and references need substantial polishing.
+
+Recommendation: Reject. Interesting direction with promising ideas, but the current submission lacks rigorous evaluation, has several technical ambiguities, and requires significant clarification and polishing to meet NIPS standards.
+
+Confidence: High.

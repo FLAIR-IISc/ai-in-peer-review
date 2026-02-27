@@ -1,0 +1,56 @@
+Summary
+The paper targets large-scale sparse precision matrix estimation via CLIME, proposing a distributed inexact ADMM variant that solves column-blocks concurrently, exploits low-rank structure (C = AA′ with n << p) to replace O(p2k) matvecs by O(npk) matmuls, and uses block-cyclic distribution to improve load balance on distributed-memory systems. The authors give O(1/T) convergence rates for objective suboptimality and feasibility residuals for the linearized ADMM scheme, discuss how iterate/sample-covariance sparsity could be leveraged (including a perturb-and-threshold idea), and present scalability experiments on shared-memory and distributed clusters, including a run with p = 10^6 (claiming 11 hours on 400 cores). They compare against CLIME (interior point / ADMM), TIGER, and DC-QUIC on synthetic and two real datasets.
+
+Relation to prior work
+The formulation builds on CLIME [Cai et al.], and the ADMM approach is well-studied for constrained problems (e.g., Boyd et al.; previous CLIME solvers via ADMM and interior-point). QUIC and DC-QUIC address graphical lasso with different objectives and extensive engineering. GPBS (Parikh & Boyd) and other distributed ADMM frameworks are related; block-cyclic distribution is standard in ScaLAPACK/HPC. The paper’s contributions are primarily algorithm-engineering for CLIME at ultra-scale, with linearized ADMM and column-block GEMM.
+
+Strengths
+- Clear identification of a relevant scalability bottleneck (p up to millions; quadratic parameter explosion).
+- Sensible algorithmic choices: linearized ADMM updates with closed-form soft-thresholding and box projection; grouping columns to use BLAS-3 operations; block-cyclic data distribution to mitigate load imbalance; low-rank multiplies via A(ATX) when n << p.
+- Convergence guarantees consistent with linearized/inexact ADMM literature; conditions (η ≥ ρ λ_max^2(C)) are explicit.
+- Empirical scalability results on both shared- and distributed-memory systems, including near-linear speedups and a very large run (p=10^6), are potentially impactful for practitioners who need CLIME at scale.
+
+Weaknesses
+- Novelty is incremental. ADMM for CLIME is known; linearized ADMM with O(1/T) rates is standard; batching columns to leverage GEMM and block-cyclic layouts is a well-known HPC technique. The paper reads as a careful engineering of existing ideas rather than a new algorithmic or theoretical advance.
+- Theoretical results focus on optimization residuals, not on statistical accuracy vs. CLIME’s baseline when using inexact updates and low-rank/sparse tricks. No finite-sample statistical guarantees are established for the proposed approximate solve (e.g., how ADMM inexactness affects the CLIME estimator error).
+- The “perturb-and-threshold” argument (Theorem 3) is weak/hand-wavy. Assuming an independent sub-exponential perturbation to retain the same ∞-norm deviation bound is unrealistic in practice; the “special case” of deterministic truncation merely constrains |Δij| ≤ c√(log p/n), which is tautological and lacks guidance on constants and their effect on tuning λ and downstream statistical error. No empirical validation of this coarsening is provided.
+- Experimental validation focuses on runtime and speedups more than accuracy. Matching sparsity levels across different estimators is not a principled basis for fairness, given differing objectives/regularizers. Precision–recall curves are only briefly shown for synthetics; no systematic analysis of estimation error (Frobenius/L1/spectral) vs. n, p, and λ; no optimality gap or constraint residuals for solutions. TIGER outperforms in recall, and statistical quality of the proposed method is not demonstrated at scale.
+- Comparisons are incomplete. QUIC/DC-QUIC are included, but other strong baselines (e.g., well-tuned graphical lasso variants with covariance thresholding, more recent big-graphical-lasso solvers) are missing. The distributed comparison uses 1 core per node; communication overheads, network details, and ablations of distribution strategies are not quantified.
+- Practical concerns underexplained:
+  - Memory: at p=10^6 and moderate k, storing X, Z, Y, V, etc., even in blocks, can be substantial. How are outputs stored (a trillion parameters)? Is the final Ω written sparsely? Peak memory and I/O behavior are not reported.
+  - Tuning: No guidance for λ, ρ, η, block size k beyond heuristics; sensitivity analyses are missing.
+  - Stopping criteria and accuracy–time tradeoffs are not reported.
+
+Quality
+Technically sound in the optimization engineering and convergence analysis for the linearized ADMM scheme. However, the statistical aspects (especially around covariance perturbation and the effect of inexact solves) are underdeveloped. Experimental methodology emphasizes speed rather than accuracy and fairness.
+
+Clarity
+Generally readable, though there are typos and some notation inconsistencies (e.g., norms/typesetting). Theorems are stated, but proofs are elsewhere. Algorithm 1 is clear. Some figures/tables are incomplete in the draft (e.g., table fragment) and details (network, data sizes for the 10^6 run, stopping criteria) are missing.
+
+Originality
+Moderate to low. The main ideas (linearized ADMM, column batching to exploit GEMM, block-cyclic distribution, low-rank multiplies) are not new; the contribution is their integration for CLIME at very large scale.
+
+Significance
+Potentially useful for practitioners who specifically need CLIME on very large problems. From a research perspective, significance is limited without stronger novelty or deeper theoretical/statistical insight. The lack of rigorous and comprehensive accuracy evaluation weakens impact.
+
+Questions and suggestions
+- Provide statistical accuracy evaluations (matrix L1/Frobenius/spectral errors, support recovery) vs. n, p, λ, with stop tolerances reported. Include constraint residuals and objective gaps.
+- Ablations: per-column vs column-block, low-rank vs dense multiplies, block-cyclic vs simple partitioning, effect of k, ρ, η.
+- Clarify memory footprint and I/O for the 10^6 run; how is Ω stored/output?
+- Justify Theorem 3 more carefully or move it to discussion; empirically validate truncation and show end-to-end statistical performance and speed gains.
+- Expand baselines with strong graphical lasso solvers at scale; ensure fair comparisons at matched accuracy (e.g., equal FPR/TPR or equal objective/duality gaps), not just matched sparsity.
+- Provide guidance for parameter tuning and stopping criteria.
+
+Pros for acceptance
+- Addresses an important scalability problem with a practical, implementable system.
+- Solid engineering and clear speedups on large clusters.
+- Convergence analysis for the proposed linearized ADMM variant.
+
+Cons for acceptance
+- Limited novelty; much is known or standard in ADMM/HPC.
+- Insufficient statistical validation and fairness of comparisons.
+- Questionable/underjustified covariance perturbation claim.
+- Missing details on memory/I/O and reproducibility at p=10^6.
+
+Recommendation
+Borderline reject. The systems engineering is competent and potentially useful, but the contribution is incremental and the empirical/statistical validation is not yet rigorous enough for NeurIPS standards. Strengthening the experimental rigor, clarifying memory/IO, and either solidifying or removing the perturbation claim would significantly improve the paper.

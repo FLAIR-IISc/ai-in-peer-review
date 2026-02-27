@@ -1,0 +1,61 @@
+Summary and relation to prior work
+The paper proposes LoSST, an online heuristic for learning time-varying graphical structure (linear-Gaussian SEMs/DAGs). It maintains weighted sufficient statistics (means, covariances, an “effective” sample size) updated per datapoint, where weights a_r increase when recent data are unlikely under the current estimated covariance (quantified via Mahalanobis distances and a pooled p-value using Liptak’s method). Structure is relearned intermittently (PC algorithm) using a probabilistic trigger that depends on the pooled p-values. The authors argue LoSST matches batch performance when the structure is stable, and adapts quickly after changes. They sketch a “convergence vs. diligence” tradeoff governed by hyperparameters T and γ, present synthetic experiments, and a small CPI volatility case study.
+
+This sits at the intersection of online learning/CPD (e.g., Adams & MacKay; Desobry et al.), time-varying graphical models (Talih & Hengartner for undirected; Siracusa & Fisher for Bayesian DAGs), and constraint-based learning (PC; Spirtes et al.). The contribution is a frequentist, single-pass heuristic that avoids storing history and combines change detection with structure relearning.
+
+Strengths
+- Important problem: online structure learning with structural drift is underexplored.
+- Simple, implementable idea (adaptive weights + online sufficient stats + periodic PC).
+- Reasonable intuition for using pooled p-values to avoid overreacting to single outliers.
+- Some theoretical discussion of long-run behavior (convergence vs. diligence).
+- Synthetic results suggest improved recovery post-change compared to naively batching over mixtures; the CPI example is interesting.
+
+Weaknesses and detailed concerns
+Technical/statistical correctness
+1) Distributional assumptions for p-values are questionable/inconsistent. The text states “Mahalanobis distance … is distributed as Hotelling’s T^2 with p=V and m=N−1,” but then defines pr+1 via T^2(· | p=N, m=Sr−1). Using p=N (sample size) is incorrect; p should be dimensionality V. Moreover, when µ and C are estimated (especially with adaptive, non-i.i.d., weighted statistics), the exact reference distribution is not Hotelling’s T^2 with those degrees of freedom. The standard mapping uses F with (V, N−V) d.o.f., not T^2 directly; and Sr may be non-integer. These issues undermine the validity/calibration of pr and therefore ρr and ar.
+
+2) Independence required by Liptak’s method is violated. The pooled p-values assume independence (or specific dependence structures). The Dr are serially dependent because they are computed from recursively updated µr, Cr and overlapping data. No correction or justification is provided.
+
+3) Effective sample size update (Eq. 3) appears ad hoc. Sr+1 = (ar/ar+1) Sr + 1 is chosen to satisfy two constraints, but it is not derived from a likelihood-equivalent sample size for weighted MLEs. Using Sr in statistical tests (PC; T^2/F distributions; Fisher Z) is then unjustified.
+
+4) Covariance update (Eq. 2) is given “after some algebra,” but derivation and guarantees are missing. With adaptive weights and changing means, ensuring the updated covariance remains symmetric PSD is non-trivial. No regularization/shrinkage is discussed. Inverses of Cr are required for Mahalanobis distance; what happens when Sr ≤ V or Cr is ill-conditioned? Numerical stability and PSD maintenance are critical.
+
+5) Using PC with weighted sufficient statistics is underspecified. Consistent conditional independence testing for partial correlations requires correct variance and d.o.f. accounting. How are test statistics adjusted for weights and Sr? What α-levels are used? Without this, the claims about equivalence to batch in stationary regimes are not substantiated.
+
+6) “Convergence vs. diligence” claims are informal. The “proof sketches” rely on strong, unenumerated assumptions (e.g., PC’s probability-1 consistency under faithfulness and consistent CI tests) and include implausible parameter regimes. In particular, treating T as a p-value threshold >1 to obtain diligence is conceptually inconsistent (p-values ∈ (0,1)), even if the algebra makes ar strictly increasing. The stated upper bound on effective sample size under γ>1, T>1 is thus not meaningful in the intended semantics.
+
+Methodological design and evaluation
+7) Baselines are weak. Comparing LoSST to batch PC on the full mixed dataset stacks the deck. A fair baseline is PC (or score-based search) on a sliding window, or with exponential forgetting, or with a CPD-triggered reset; also compare to undirected graphical lasso with forgetting for structure estimation. No such baselines are included.
+
+8) Experimental details are insufficient for reproducibility and interpretation:
+- Data-generating SEMs: coefficient distributions, noise variances, edge weights, sparsity generation, faithfulness checks are missing.
+- PC settings: independence test, α, max conditioning set, orientation rules, handling of errors.
+- Error metrics: precise definitions of addition/removal/orientation errors and how mixed Markov equivalence classes are scored.
+- Variability: no error bars, significance tests, or sensitivity to hyperparameters (T, γ, ν).
+- Computational cost: per-step complexity (matrix inverse O(V^3) per step?), use of Sherman-Morrison/Woodbury? Runtime vs. baselines?
+
+9) CPI case study is anecdotal. No structural interpretability, no external validation (e.g., regime labels), no robustness checks (e.g., different ν, T, γ, lagged variables, regularization). The “Great Moderation” interpretation is vague (and arguably early if the detection is “around 1980”).
+
+10) The claim “no additional costs in normal settings” is not substantiated. With γ>1, T<1 (used in simulations), weights and Sr evolve; any deviation from constant weights breaks exact equality with batch sufficient statistics. An explicit analysis or experiment under true stationarity is needed.
+
+Clarity/organization
+- Several indexing and notation inconsistencies (e.g., sub/superscripts r vs. r+1; C^r_{Vi,Vj} vs. C^r_{Xi,Xj}; p=N vs. V; mixing ηr and pr updates).
+- Footnotes embedded in the main text disrupt flow (“graph2,” “3Recall…”).
+- Some typos: “TDL” (usually TD), “occcurs,” subject-verb agreement, missing spaces/superscripts.
+- No algorithm box or clear step-by-step pseudocode; initial conditions (µ0, C0, S0, a0, b0, η0, τ0, ρ0) unspecified.
+
+References
+- Many entries lack years/venues/pages; some seem off-scope (e.g., MEMMs for IE/segmentation). Please complete and correct bibliographic details.
+
+Pros for acceptance
+- Addresses an important, timely problem.
+- Simple heuristic that could be practically useful.
+- Promising simulation trends.
+
+Cons for acceptance
+- Core statistical components (p-value calibration, ESS, CI testing with weights) are not theoretically justified; potential miscalibration.
+- Missing derivations, stability guarantees, and key implementation details.
+- Weak baselines; limited, non-reproducible experiments; no runtime analysis.
+- Numerous clarity/formatting issues.
+
+Recommendation: Reject. The idea is interesting, but the accumulation of technical and presentation issues (many fixable) undermines confidence. Strengthening the statistical foundations (proper reference distributions under weighting, PSD/stability guarantees, correctly weighted CI tests), adding fair baselines (sliding window/forgetting), thorough sensitivity/runtime analyses, and improved clarity would make this much stronger.

@@ -1,0 +1,724 @@
+{
+  "name" : "5dd9db5e033da9c6fb5ba83c7a7ebea9.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Reflection methods for user-friendly submodular optimization",
+    "authors" : [ "Stefanie Jegelka", "Francis Bach" ],
+    "emails" : [ ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Submodularity is a rich combinatorial concept that expresses widely occurring phenomena such as diminishing marginal costs and preferences for grouping. A set function F : 2V → R on a set V is submodular if for all subsets S, T ⊆ V , we have F (S ∪ T ) + F (S ∩ T ) ≤ F (S) + F (T ). Submodular functions underlie the goals of numerous problems in machine learning, computer vision and signal processing [1]. Several problems in these areas can be phrased as submodular optimization tasks: notable examples include graph cut-based image segmentation [7], sensor placement [30], or document summarization [31]. A longer list of examples may be found in [1].\nThe theoretical complexity of submodular optimization is well-understood: unconstrained minimization of submodular set functions is polynomial-time [19] while submodular maximization is NP-hard. Algorithmically, however, the picture is different. Generic submodular maximization admits efficient algorithms that can attain approximate optima with global guarantees; these algorithms are typically based on local search techniques [16, 35]. In contrast, although polynomial-time solvable, submodular function minimization (SFM) which seeks to solve\nmin S⊆V F (S), (1)\nposes substantial algorithmic difficulties. This is partly due to the fact that one is commonly interested in an exact solution (or an arbitrarily close approximation thereof), and “polynomial-time” is not necessarily equivalent to “practically fast”.\nSubmodular minimization algorithms may be obtained from two main perspectives: combinatorial and continuous. Combinatorial algorithms for SFM typically use close connections to matroid and\nmaximum flow methods; the currently theoretically fastest combinatorial algorithm for SFM scales as O(n6 + n5τ), where τ is the time to evaluate the function oracle [37] (for an overview of other algorithms, see e.g., [33]). These combinatorial algorithms are typically nontrivial to implement.\nContinuous methods offer an alternative by instead minimizing a convex extension. This idea exploits the fundamental connection between a submodular function F and its Lovász extension f [32], which is continuous and convex. The SFM problem (1) is then equivalent to\nmin x∈[0,1]n f(x). (2)\nThe Lovász extension f is nonsmooth, so we might have to resort to subgradient methods. While a fundamental result of Edmonds [15] demonstrates that a subgradient of f can be computed in O(n log n) time, subgradient methods can be sensitive to choices of the step size, and can be slow. They theoreticaly converge at a rate of O(1/ √ t) (after t iterations). The “smoothing technique” of [36] does not in general apply here because computing a smoothed gradient is equivalent to solving the submodular minimization problem. We discuss this issue further in Section 2.\nAn alternative to minimizing the Lovász extension directly on [0, 1]n is to consider a slightly modified convex problem. Specifically, the exact solution of the discrete problem minS⊆V F (S) and of its nonsmooth convex relaxation minx∈[0,1]n f(x) may be found as a level set S0 = {k | x∗k > 0} of the unique point x∗ that minimizes the strongly convex function [1, 10]:\nf(x) + 12‖x‖ 2. (3)\nWe will refer to the minimization of (3) as the proximal problem due to its close similarity to proximity operators used in convex optimization [12]. When F is a cut function, (3) becomes a total variation problem (see, e.g., [9] and references therein) that also occurs in other regularization problems [1]. Two noteworthy points about (3) are: (i) addition of the strongly convex component 12‖x‖\n2; (ii) the ensuing removal of the box-constraints x ∈ [0, 1]n. These changes allow us to consider a convex dual which is amenable to smooth optimization techniques.\nTypical approaches to generic SFM include Frank-Wolfe methods [17] that have cheap iterations and O(1/t) convergence, but can be quite slow in practice (Section 5); or the minimum-normpoint/Fujishige-Wolfe algorithm [20] that has expensive iterations but finite convergence. Other recent methods are approximate [24]. In contrast to several iterative methods based on convex relaxations, we seek to obtain exact discrete solutions.\nTo the best of our knowledge, all generic algorithms that use only submodularity are several orders of magnitude slower than specialized algorithms when they exist (e.g., for graph cuts). However, the submodular function is not always generic and given via a black-box, but has known structure. Following [28, 29, 38, 41], we make the assumption that F (S) = ∑r i=1 Fi(S) is a sum of sufficiently “simple” functions (see Sec. 3). This structure allows the use of (parallelizable) dual decomposition techniques for the problem in Eq. (2), with [11, 38] or without [29] Nesterov’s smoothing technique, or with direct smoothing [41] techniques. But existing approaches typically have two drawbacks: (1) they use smoothing or step-size parameters whose selection may be critical and quite tedious; and (2) they still exhibit slow convergence (see Section 5).\nThese drawbacks arise from working with formulation (2). Our main insight is that, despite seemingly counter-intuitive, the proximal problem (3) offers a much more user-friendly tool for solving (1) than its natural convex counterpart (2), both in implementation and running time. We approach problem (3) via its dual. This allows decomposition techniques which combine well with orthogonal projection and reflection methods that (a) exhibit faster convergence, (b) are easily parallelizable, (c) require no extra hyperparameters, and (d) are extremely easy to implement.\nThe main three algorithms that we consider are: (i) dual block-coordinate descent (equivalently, primal-dual proximal-Dykstra), which was already shown to be extremely efficient for total variation problems [2] that are special cases of Problem (3); (ii) Douglas-Rachford splitting using the careful variant of [4], which for our formulation (Section 4.2) requires no hyper-parameters; and (iii) accelerated projected gradient [5]. We will see these alternative algorithms can offer speedups beyond known efficiencies. Our observations have two implications: first, from the viewpoint of solving Problem (3), they offers speedups for often occurring denoising and reconstruction problems that employ total variation. Second, our experiments suggest that projection and reflection methods can work very well for solving the combinatorial problem (1).\nIn summary, we make the following contributions: (1) In Section 3, we cast the problem of minimizing decomposable submodular functions as an orthogonal projection problem and show how existing optimization techniques may be brought to bear on this problem, to obtain fast, easy-to-code and easily parallelizable algorithms. In addition, we show examples of classes of functions amenable to our approach. In particular, for simple functions, i.e., those for which minimizing F (S)− a(S) is easy for all vectors1 a ∈ Rn, the problem in Eq. (3) may be solved in O(log 1ε ) calls to such minimization routines, to reach a precision ε (Section 2,3). (2) In Section 5, we demonstrate the empirical gains of using accelerated proximal methods, Douglas-Rachford and block coordinate descent methods over existing approaches: fewer hyperparameters and faster convergence."
+    }, {
+      "heading" : "2 Review of relevant results from submodular analysis",
+      "text" : "The relevant concepts we review here are the Lovász extension, base polytopes of submodular functions, and relationships between proximal and discrete problems. For more details, see [1, 19].\nLovász extension and convexity. The power set 2V may be naturally identified with the vertices of the hypercube, i.e., {0, 1}n. The Lovász extension f of any set function is defined by linear interpolation, so that for any S ⊂ V , F (S) = f(1S). It may be computed in closed form once the components of x are sorted: if xσ(1) > · · · > xσ(n), then f(x) =∑n k=1 xσ(k) [ F ({σ(1), . . . , σ(k)})− F ({σ(1), . . . , σ(k − 1)}) ] [32]. For the graph cut function, f is the total variation.\nIn this paper, we are going to use two important results: (a) if the set function F is submodular, then its Lovász extension f is convex, and (b) minimizing the set function F is equivalent to minimizing f(x) with respect to x ∈ [0, 1]n. Given x ∈ [0, 1]n, all of its level sets may be considered and the function may be evaluated (at most n times) to obtain a set S. Moreover, for a submodular function, the Lovász extension happens to be the support function of the base polytope B(F ) defined as\nB(F ) = {y ∈ Rn | ∀S ⊂ V, y(S) 6 F (S) and y(V ) = F (V )}, that is f(x) = maxy∈B(F ) y>x [15]. A maximizer of y>x (and hence the value of f(x)), may be computed by the “greedy algorithm”, which first sorts the components of w in decreasing order xσ(1) > · · · > xσ(n), and then compute yσ(k) = F ({σ(1), . . . , σ(k)})− F ({σ(1), . . . , σ(k − 1)}). In other words, a linear function can be maximized over B(F ) in time O(n log n+ nτ) (note that the term nτ may be improved in many special cases). This is crucial for exploiting convex duality.\nDual of discrete problem. We may derive a dual problem to the discrete problem in Eq. (1) and the convex nonsmooth problem in Eq. (2), as follows:\nmin S⊆V F (S) = min x∈[0,1]n f(x) = min x∈[0,1]n max y∈B(F ) y>x = max y∈B(F ) min x∈[0,1]n y>x = max y∈B(F ) (y)−(V ), (4)\nwhere (y)− = min{y, 0} applied elementwise. This allows to obtain dual certificates of optimality from any y ∈ B(F ) and x ∈ [0, 1]n.\nProximal problem. The optimization problem (3), i.e., minx∈Rn f(x) + 12‖x‖ 2, has intricate relations to the SFM problem [10]. Given the unique optimal solution x∗ of (3), the maximal (resp. minimal) optimizer of the SFM problem is the set S∗ of nonnegative (resp. positive) elements of x∗. More precisely, solving (3) is equivalent to minimizing F (S) + µ|S| for all µ ∈ R. A solution Sµ ⊆ V is obtained from a solution x∗ as S∗µ = {i | x∗i > µ}. Conversely, x∗ may be obtained from all S∗µ as x ∗ k = sup{µ ∈ R | k ∈ S∗µ} for all k ∈ V . Moreover, if x is an ε-optimal solution\nof Eq. (3), then we may construct √ εn-optimal solutions for all Sµ [1; Prop. 10.5]. In practice, the duality gap of the discrete problem is usually much lower than that of the proximal version of the same problem, as we will see in Section 5. Note that the problem in Eq. (3) provides much more information than Eq. (2), as all µ-parameterized discrete problems are solved.\nThe dual problem of Problem (3) reads as follows:\nmin x∈Rn\nf(x)+ 12‖x‖ 2 2 = min\nx∈Rn max y∈B(F )\ny>x+ 12‖x‖ 2 2 = max\ny∈B(F ) min x∈Rn\ny>x+ 12‖x‖ 2 2 = max y∈B(F ) − 12‖y‖ 2 2,\nwhere primal and dual variables are linked as x = −y. Observe that this dual problem is equivalent to finding the orthogonal projection of 0 onto B(F ).\n1Every vector a ∈ Rn may be viewed as a modular (linear) set function: a(S) , ∑\ni∈S a(i).\nDivide-and-conquer strategies for the proximal problems. Given a solution x∗ of the proximal problem, we have seen how to get S∗µ for any µ by simply thresholding x\n∗ at µ. Conversely, one can recover x∗ exactly from at most n well-chosen values of µ. A known divide-and-conquer strategy [19, 21] hinges upon the fact that for any µ, one can easily see which components of x∗ are greater or smaller than µ by computing S∗µ. The resulting algorithm makes O(n) calls to the submodular function oracle. In [25], we extend an alternative approach by Tarjan et al. [42] for cuts to general submodular functions and obtain a solution to (3) up to precision ε in O(min{n, log 1ε}) iterations. This result is particularly useful if our function F is a sum of functions for each of which by itself the SFM problem is easy. Beyond squared `2-norms, our algorithm equally applies to computing all minimizers of f(x) + ∑p j=1 hj(xj) for arbitrary smooth strictly convex functions hj , j = 1, . . . , n."
+    }, {
+      "heading" : "3 Decomposition of submodular functions",
+      "text" : "Following [28, 29, 38, 41], we assume that our function F may be decomposed as the sum F (S) =∑r j=1 Fj(S) of r “simple” functions. In this paper, by “simple” we mean functions G for which G(S)− a(S) can be minimized efficiently for all vectors a ∈ Rn (more precisely, we require that S 7→ G(S ∪T )− a(S) can be minimized efficiently over all subsets of V \\T , for any T ⊆ V and a). Efficiency may arise from the functional form of G, or from the fact that G has small support. For such functions, Problems (1) and (3) become\nmin S⊆V ∑r j=1 Fj(S) = min x∈[0,1]n ∑r j=1 fj(x) min x∈Rn ∑r j=1 fj(x) + 1 2‖x‖ 2 2. (5)\nThe key to the algorithms presented here is to be able to minimize 12‖x−z‖ 2 2 +fj(x), or equivalently, to orthogonally project z onto B(Fj): min 12‖y − z‖ 2 2 subject to y ∈ B(Fj).\nWe next sketch some examples of functions F and their decompositions into simple functions Fj . As shown at the end of Section 2, projecting ontoB(Fj) is easy as soon as the corresponding submodular minimization problems are easy. Here we outline some cases for which specialized fast algorithms are known.\nGraph cuts. A widely used class of submodular functions are graph cuts. Graphs may be decomposed into substructures such as trees, simple paths or single edges. Message passing algorithms apply to trees, while the proximal problem for paths is very efficiently solved by [2]. For single edges, it is solvable in closed form. Tree decompositions are common in graphical models, whereas path decompositions are frequently used for TV problems [2]. Concave functions. Another important class of submodular functions is that of concave functions of cardinality, i.e., Fj(S) = h(|S|) for a concave function h. Problem (3) for such functions may be solved in O(n log n) time (see [18] and our appendix in [25]). Functions of this class have been used in [24, 27, 41]. Such functions also include covering functions [41]. Hierarchical functions. Here, the ground set corresponds to the leaves of a rooted, undirected tree. Each node has a weight, and the cost of a set of nodes S ⊆ V is the sum of the weights of all nodes in the smallest subtree (including the root) that spans S. This class of functions too admits to solve the proximal problem in O(n log n) time [22, 23, 26]. Small support. Any general, potentially slower algorithm such as the minimum-norm-point algorithm can be applied if the support of each Fj is only a small subset of the ground set."
+    }, {
+      "heading" : "3.1 Dual decomposition of the nonsmooth problem",
+      "text" : "We first review existing dual decomposition techniques for the nonsmooth problem (1). We always assume that F = ∑r j=1 Fj , and define Hr := ∏r j=1 Rn ' Rn×r. We follow [29] to derive a dual formulation (see appendix in [25]): Lemma 1. The dual of Problem (1) may be written in terms of variables λ1, . . . , λr ∈ Rn as\nmax ∑r\nj=1 gj(λj) s.t. λ ∈\n{ (λ1, . . . , λr) ∈ Hr | ∑r j=1 λj = 0 }\n(6)\nwhere gj(λj) = minS⊂V Fj(S)− λj(S) is a nonsmooth concave function.\nThe dual is the maximization of a nonsmooth concave function over a convex set, onto which it is easy to project: the projection of a vector y has j-th block equal to yj − 1r ∑r k=1 yk. Moreover, in our setup, functions gj and their subgradients may be computed efficiently through SFM.\nWe consider several existing alternatives for the minimization of f(x) on x ∈ [0, 1]n, most of which use Lemma 1. Computing subgradients for any fj means calling the greedy algorithm, which runs in time O(n log n). All of the following algorithms require the tuning of an appropriate step size.\nPrimal subgradient descent (primal-sgd): Agnostic to any decomposition properties, we may apply a standard simple subgradient method to f . A subgradient of f may be obtained from the subgradients of the components fj . This algorithm converges at rate O(1/ √ t).\nDual subgradient descent (dual-sgd) [29]: Applying a subgradient method to the nonsmooth dual in Lemma 1 leads to a convergence rate of O(1/ √ t). Computing a subgradient requires minimizing the submodular functions Fj individually. In simulations, following [29], we consider a step-size rule similar to Polyak’s rule (dual-sgd-P) [6], as well as a decaying step-size (dual-sgd-F), and use discrete optimization for all Fj . Primal smoothing (primal-smooth) [41]: The nonsmooth primal may be smoothed in several ways by smoothing the fj individually; one example is f̃εj (xj) = maxyj∈B(Fj) y > j xj − ε2‖yj‖\n2. This leads to a function that is (1/ε)-smooth. Computing f̃εj means solving the proximal problem for Fj . The convergence rate is O(1/t), but, apart from step size which may be set relatively easily, the smoothing constant ε needs to be defined. Dual smoothing (dual-smooth): Instead of the primal, the dual (6) may be smoothed, e.g., by entropy [8, 38] applied to each gj as g̃εj (λj) = minx∈[0,1]n fj(x) + εh(x) where h(x) is a negative entropy. Again, the convergence rate is O(1/t) but there are two free parameters (in particular the smoothing constant ε which is hard to tune). This method too requires solving proximal problems for all Fj in each iteration.\nDual smoothing with entropy also admits coordinate descent methods [34] that exploit the decomposition, but we do not compare to those here."
+    }, {
+      "heading" : "3.2 Dual decomposition methods for proximal problems",
+      "text" : "We may also consider Eq. (3) and first derive a dual problem using the same technique as in Section 3.1. Lemma 2 (proved in the appendix in [25]) formally presents our dual formulation as a best approximation problem. The primal variable can be recovered as x = − ∑ j yj . Lemma 2. The dual of Eq. (3) may be written as the best approximation problem\nmin λ,y\n‖y − λ‖22 s.t. λ ∈ { (λ1, . . . , λr) ∈ Hr | ∑r\nj=1 λj = 0\n} , y ∈ ∏r j=1 B(Fj). (7)\nWe can actually eliminate the λj and obtain the simpler looking dual problem\nmax y −1 2 ∥∥∥∑r j=1 yj ∥∥∥2 2\ns.t. yj ∈ B(Fj), j ∈ {1, . . . , r} (8)\nSuch a dual was also used in [40]. In Section 5, we will see the effect of solving one of these duals or the other. For the simpler dual (8) the case r = 2 is of special interest; it reads\nmax y1∈B(F1), y2∈B(F2) −1 2 ‖y1 + y2‖22 ⇐⇒ min y1∈B(F1),−y2∈−B(F2) ‖y1 − (−y2)‖2. (9)\nWe write problem (9) in this suggestive form to highlight its key geometric structure: it is, like (7), a best approximation problem: i.e., the problem of finding the closest point between the polytopes B(F1) and −B(F2). Notice, however, that (7) is very different from (9)—the former operates in a product space while the latter does not, a difference that can have impact in practice (see Section 5). We are now ready to present algorithms that exploit our dual formulations."
+    }, {
+      "heading" : "4 Algorithms",
+      "text" : "We describe a few competing methods for solving our smooth dual formulations. We describe the details for the special 2-block case (9); the same arguments apply to the block dual from Lemma 2."
+    }, {
+      "heading" : "4.1 Block coordinate descent or proximal-Dykstra",
+      "text" : "Perhaps the simplest approach to solving (9) (viewed as a minimization problem) is to use a block coordinate descent (BCD) procedure, which in this case performs the alternating projections: yk+11 ← argminy1∈B(F1) ‖y1 − (−y k 2 )‖22; yk+12 ← argminy2∈B(F2) ‖y2 − (−y k+1 1 )‖2. (10)\nThe iterations for solving (8) are analogous. This BCD method (applied to (9)) is equivalent to applying the so-called proximal-Dykstra method [12] to the primal problem. This may be seen by comparing the iterates. Notice that the BCD iteration (10) is nothing but alternating projections onto the convex polyhedra B(F1) and B(F2). There exists a large body of literature studying method of alternating projections—we refer the interested reader to the monograph [13] for further details.\nHowever, despite its attractive simplicity, it is known that BCD (in its alternating projections form), can converge arbitrarily slowly [4] depending on the relative orientation of the convex sets onto which one projects. Thus, we turn to a potentially more effective method."
+    }, {
+      "heading" : "4.2 Douglas-Rachford splitting",
+      "text" : "The Douglas-Rachford (DR) splitting method [14] includes algorithms like ADMM as a special case [12]. It avoids the slowdowns alluded to above by replacing alternating projections with alternating “reflections”. Formally, DR applies to convex problems of the form [3, 12]\nminx φ1(x) + φ2(x), (11)\nsubject to the qualification ri(domφ1) ∩ ri(domφ2) 6= ∅. To solve (11), DR starts with some z0, and performs the three-step iteration (for k ≥ 0):\n1. xk = proxφ2(zk); 2. vk = proxφ1(2xk − zk); 3. zk+1 = zk + γk(vk − zk), (12) where γk ∈ [0, 2] is a sequence of scalars that satisfy ∑ k γk(2 − γk) = ∞. The sequence {xk} produced by iteration (12) can be shown to converge to a solution of (11) [3; Thm. 25.6].\nIntroducing the reflection operator Rφ := 2 proxφ− I,\nand setting γk = 1, the DR iteration (12) may be written in a more symmetric form as\nxk = proxφ2(zk), zk+1 = 1 2 [Rφ1Rφ2 + I]zk, k ≥ 0. (13)\nApplying DR to the duals (7) or (9), requires first putting them in the form (11), either by introducing extra variables or by going back to the primal, which is unnecessary. This is where the special structure of our dual problem proves crucial, a recognition that is subtle yet remarkably important.\nInstead of applying DR to (9), consider the closely related problem\nminy δ1(y) + δ − 2 (y), (14)\nwhere δ1, δ−2 are indicator functions for B(F1) and −B(F2), respectively. Applying DR directly to (14) does not work because usually ri(dom δ1) ∩ ri(dom δ2) = ∅. Indeed, applying DR to (14) generates iterates that diverge to infinity [4; Thm. 3.13(ii)]. Fortunately, even though the DR iterates for (14) may diverge, Bauschke et al. [4] show how to extract convergent sequences from these iterates, which actually solve the corresponding best approximation problem; for us this is nothing but the dual (9) that we wanted to solve in the first place. Theorem 3, which is a simplified version of [4; Thm. 3.13], formalizes the above discussion.\nTheorem 3. [4] Let A and B be nonempty polyhedral convex sets. Let ΠA (ΠB) denote orthogonal projection onto A (B), and let RA := 2ΠA − I (similarly RB) be the corresponding reflection operator. Let {zk} be the sequence generated by the DR method (13) applied to (14). If A ∩ B 6= ∅, then {zk}k≥0 converges weakly to a fixed-point of the operator T := 12 [RARB + I]; otherwise ‖zk‖2 →∞. The sequences {xk} and {ΠAΠBzk} are bounded; the weak cluster points of either of the two sequences\n{(ΠARBzk, xk)}k≥0 {(ΠAxk, xk)}k≥0, (15) are solutions best approximation problem mina,b ‖a− b‖ such that a ∈ A and b ∈ B.\nThe key consequence of Theorem 3 is that we can apply DR with impunity to (14), and extract from its iterates the optimal solution to problem (9) (from which recovering the primal is trivial). The most important feature of solving the dual (9) in this way is that absolutely no stepsize tuning is required, making the method very practical and user friendly."
+    }, {
+      "heading" : "5 Experiments",
+      "text" : "We empirically compare the proposed projection methods2 to the (smoothed) subgradient methods discussed in Section 3.1. For solving the proximal problem, we apply block coordinate descent (BCD) and Douglas-Rachford (DR) to Problem (8) if applicable, and also to (7) (BCD-para, DR-para). In addition, we use acceleration to solve (8) or (9) [5]. The main iteration cost of all methods except for the primal subgradient method is the orthogonal projection onto polytopes B(Fj). The primal subgradient method uses the greedy algorithm in each iteration, which runs in O(n log n). However, as we will see, its convergence is so slow to counteract any benefit that may arise from not using projections. We do not include Frank-Wolfe methods here, since FW is equivalent to a subgradient descent on the primal and converges correspondingly slowly.\nAs benchmark problems, we use (i) graph cut problems for segmentation, or MAP inference in a 4-neighborhood grid-structured MRF, and (ii) concave functions similar to [41], but together with graph cut functions. The functions in (i) decompose as sums over vertical and horizontal paths. All horizontal paths are independent and can be solved together in parallel, and similarly all vertical paths. The functions in (ii) are constructed by extracting regions Rj via superpixels and, for each Rj , defining the function Fj(S) = |S||Rj \\ S|. We use 200 and 500 regions. The problems have size 640 × 427. Hence, for (i) we have r = 640 + 427 (but solve it as r = 2) and for (ii) r = 640 + 427 + 500 (solved as r = 3). More details and experimental results may be found in [25].\nTwo functions (r = 2). Figure 2 shows the duality gaps for the discrete and smooth (where applicable) problems for two instances of segmentation problems. The algorithms working with the proximal problems are much faster than the ones directly solving the nonsmooth problem. In particular DR converges extremely fast, faster even than BCD which is known to be a state-of-the-art algorithms for this problem [2]. This, in itself, is a new insight for solving TV. If we aim for parallel methods, then again DR outperforms BCD. Figure 3 (right) shows the speedup gained from parallel processing. Using 8 cores, we obtain a 5-fold speed-up. We also see that the discrete gap shrinks faster than the smooth gap, i.e., the optimal discrete solution does not require to solve the smooth problem to extremely high accuracy. Figure 1 illustrates example results for different gaps.\nMore functions (r > 2). Figure 3 shows example results for four problems of sums of concave and cut functions. Here, we can only run DR-para. Overall, BCD, DR-para and the accelerated gradient method perform very well.\nIn summary, our experiments suggest that projection methods can be extremely useful for solving the combinatorial submodular minimization problem. Of the tested methods, DR, cyclic BCD and accelerated gradient perform very well. For parallelism, applying DR on (9) converges much faster than BCD on the same problem. Moreover, in terms of running times, running the DR method with a mixed Matlab/C implementation until convergence on a single core is only 3-8 times slower than the optimized efficient C code of [7], and only 2-4 times on 2 cores. These numbers should be read while considering that, unlike [7], the projection methods naturally lead to parallel implementations, and are able to integrate a large variety of functions."
+    }, {
+      "heading" : "6 Conclusion",
+      "text" : "We have presented a novel approach to submodular function minimization based on the equivalence with a best approximation problem. The use of reflection methods avoids any hyperparameters and reduce the number of iterations significantly, suggesting the suitability of reflection methods\n2Code and data corresponding to this paper are available at https://sites.google.com/site/mloptstat/drsubmod\nfor combinatorial problems. Given the natural parallelization abilities of our approach, it would be interesting to perform detailed empirical comparisons with existing parallel implementations of graph cuts (e.g., [39]). Moreover, a generalization beyond submodular functions of the relationships between combinatorial optimization problems and convex problems would enable the application of our framework to other common situations such as multiple labels (see, e.g., [29]).\nAcknowledgments. This research was in part funded by the Office of Naval Research under contract/grant number N00014-11-1-0688, by NSF CISE Expeditions award CCF-1139158, by DARPA XData Award FA875012-2-0331, and the European Research Council (SIERRA project), as well as gifts from Amazon Web Services, Google, SAP, Blue Goji, Cisco, Clearstory Data, Cloudera, Ericsson, Facebook, General Electric, Hortonworks, Intel, Microsoft, NetApp, Oracle, Samsung, Splunk, VMware and Yahoo!."
+    } ],
+    "references" : [ {
+      "title" : "Learning with submodular functions: A convex optimization perspective",
+      "author" : [ "F. Bach" ],
+      "venue" : "Arxiv preprint arXiv:1111.6453v2",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Fast Newton-type methods for total variation regularization",
+      "author" : [ "A. Barbero", "S. Sra" ],
+      "venue" : "ICML",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Convex Analysis and Monotone Operator Theory in Hilbert Spaces",
+      "author" : [ "H.H. Bauschke", "P.L. Combettes" ],
+      "venue" : "Springer",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Finding best approximation pairs relative to two closed convex sets in Hilbert spaces",
+      "author" : [ "H.H. Bauschke", "P.L. Combettes", "D.R. Luke" ],
+      "venue" : "J. Approx. Theory, 127(2):178–192",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : null,
+      "year" : 2004
+    }, {
+      "title" : "A fast iterative shrinkage-thresholding algorithm for linear inverse problems",
+      "author" : [ "A. Beck", "M. Teboulle" ],
+      "venue" : "SIAM Journal on Imaging Sciences, 2(1):183–202",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : null,
+      "year" : 2009
+    }, {
+      "title" : "Nonlinear programming",
+      "author" : [ "D.P. Bertsekas" ],
+      "venue" : "Athena Scientific",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : null,
+      "year" : 1999
+    }, {
+      "title" : "Fast approximate energy minimization via graph cuts",
+      "author" : [ "Y. Boykov", "O. Veksler", "R. Zabih" ],
+      "venue" : "IEEE TPAMI, 23(11):1222–1239",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : null,
+      "year" : 2001
+    }, {
+      "title" : "Efficient MRF energy minimization via adaptive diminishing smoothing",
+      "author" : [ "B.Savchynskyy", "S.Schmidt", "J.H.Kappes", "C.Schnörr" ],
+      "venue" : "In UAI,",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : "8",
+      "year" : 2012
+    }, {
+      "title" : "An algorithm for total variation minimization and applications",
+      "author" : [ "A. Chambolle" ],
+      "venue" : "J Math. Imaging and Vision, 20(1):89–97",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : null,
+      "year" : 2004
+    }, {
+      "title" : "On total variation minimization and surface evolution using parametric maximum flows",
+      "author" : [ "A. Chambolle", "J. Darbon" ],
+      "venue" : "Int. Journal of Comp. Vision, 84(3):288–307",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : null,
+      "year" : 2009
+    }, {
+      "title" : "Efficient solutions to relaxations of combinatorial problems with submodular penalties via the Lovász extension and non-smooth convex optimization",
+      "author" : [ "F. Chudak", "K. Nagano" ],
+      "venue" : "SODA",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : null,
+      "year" : 2007
+    }, {
+      "title" : "Proximal Splitting Methods in Signal Processing",
+      "author" : [ "P.L. Combettes", "J.-C. Pesquet" ],
+      "venue" : "Fixed-Point Algorithms for Inverse Problems in Science and Engineering, pages 185–212. Springer",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Best Approximation in Inner Product Spaces",
+      "author" : [ "F.R. Deutsch" ],
+      "venue" : "Springer Verlag, first edition",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : null,
+      "year" : 2001
+    }, {
+      "title" : "On the numerical solution of the heat conduction problem in 2 and 3 space variables",
+      "author" : [ "J. Douglas", "H.H. Rachford" ],
+      "venue" : "Tran. Amer. Math. Soc., 82:421–439",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : null,
+      "year" : 1956
+    }, {
+      "title" : "Submodular functions",
+      "author" : [ "J. Edmonds" ],
+      "venue" : "matroids, and certain polyhedra. In Combinatorial optimization - Eureka, you shrink!, pages 11–26. Springer",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : null,
+      "year" : 2003
+    }, {
+      "title" : "Maximizing non-monotone submodular functions",
+      "author" : [ "U. Feige", "V.S. Mirrokni", "J. Vondrak" ],
+      "venue" : "SIAM J Comp, 40(4):1133–1153",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "An algorithm for quadratic programming",
+      "author" : [ "M. Frank", "P. Wolfe" ],
+      "venue" : "Naval Research Logistics Quarterly, 3: 95–110",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : null,
+      "year" : 1956
+    }, {
+      "title" : "Lexicographically optimal base of a polymatroid with respect to a weight vector",
+      "author" : [ "S. Fujishige" ],
+      "venue" : "Mathematics of Operations Research, pages 186–196",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : null,
+      "year" : 1980
+    }, {
+      "title" : "Submodular Functions and Optimization",
+      "author" : [ "S. Fujishige" ],
+      "venue" : "Elsevier",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : null,
+      "year" : 2005
+    }, {
+      "title" : "A submodular function minimization algorithm based on the minimum-norm base",
+      "author" : [ "S. Fujishige", "S. Isotani" ],
+      "venue" : "Pacific Journal of Optimization, 7:3–17",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Two algorithms for maximizing a separable concave function over a polymatroid feasible region",
+      "author" : [ "H. Groenevelt" ],
+      "venue" : "European Journal of Operational Research, 54(2):227–236",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : null,
+      "year" : 1991
+    }, {
+      "title" : "About strongly polynomial time algorithms for quadratic optimization over submodular constraints",
+      "author" : [ "D.S. Hochbaum", "S.-P. Hong" ],
+      "venue" : "Math. Prog., pages 269–309",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : null,
+      "year" : 1995
+    }, {
+      "title" : "A network flow approach to cost allocation for rooted trees",
+      "author" : [ "S. Iwata", "N. Zuiki" ],
+      "venue" : "Networks, 44:297–301",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : null,
+      "year" : 2004
+    }, {
+      "title" : "On fast approximate submodular minimization",
+      "author" : [ "S. Jegelka", "H. Lin", "J. Bilmes" ],
+      "venue" : "NIPS",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Reflection methods for user-friendly submodular optimization (extended version)",
+      "author" : [ "S. Jegelka", "F. Bach", "S. Sra" ],
+      "venue" : "arXiv",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Proximal methods for hierarchical sparse coding",
+      "author" : [ "R. Jenatton", "J. Mairal", "G. Obozinski", "F. Bach" ],
+      "venue" : "Journal of Machine Learning Research, pages 2297–2334",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Robust higher order potentials for enforcing label consistency",
+      "author" : [ "P. Kohli", "L. Ladický", "P. Torr" ],
+      "venue" : "Int. Journal of Comp. Vision, 82",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : null,
+      "year" : 2009
+    }, {
+      "title" : "Minimizing a sum of submodular functions",
+      "author" : [ "V. Kolmogorov" ],
+      "venue" : "Disc. Appl. Math., 160(15)",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "MRF energy minimization and beyond via dual decomposition",
+      "author" : [ "N. Komodakis", "N. Paragios", "G. Tziritas" ],
+      "venue" : "IEEE TPAMI, 33(3):531–552",
+      "citeRegEx" : "29",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Submodularity and its applications in optimized information gathering",
+      "author" : [ "A. Krause", "C. Guestrin" ],
+      "venue" : "ACM Transactions on Intelligent Systems and Technology, 2(4)",
+      "citeRegEx" : "30",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "A class of submodular functions for document summarization",
+      "author" : [ "H. Lin", "J. Bilmes" ],
+      "venue" : "NAACL/HLT",
+      "citeRegEx" : "31",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Submodular functions and convexity",
+      "author" : [ "L. Lovász" ],
+      "venue" : "Mathematical programming: the state of the art, Bonn, pages 235–257",
+      "citeRegEx" : "32",
+      "shortCiteRegEx" : null,
+      "year" : 1982
+    }, {
+      "title" : "Submodular function minimization",
+      "author" : [ "S.T. McCormick" ],
+      "venue" : "Discrete Optimization, 12:321–391",
+      "citeRegEx" : "33",
+      "shortCiteRegEx" : null,
+      "year" : 2005
+    }, {
+      "title" : "Convergence rate analysis of MAP coordinate minimization algorithms",
+      "author" : [ "O. Meshi", "T. Jaakkola", "A. Globerson" ],
+      "venue" : "NIPS",
+      "citeRegEx" : "34",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "An analysis of approximations for maximizing submodular set functions–I",
+      "author" : [ "G.L. Nemhauser", "L.A. Wolsey", "M.L. Fisher" ],
+      "venue" : "Math. Prog., 14(1):265–294",
+      "citeRegEx" : "35",
+      "shortCiteRegEx" : null,
+      "year" : 1978
+    }, {
+      "title" : "Smooth minimization of non-smooth functions",
+      "author" : [ "Y. Nesterov" ],
+      "venue" : "Math. Prog., 103(1):127–152",
+      "citeRegEx" : "36",
+      "shortCiteRegEx" : null,
+      "year" : 2005
+    }, {
+      "title" : "A faster strongly polynomial time algorithm for submodular function minimization",
+      "author" : [ "J.B. Orlin" ],
+      "venue" : "Math. Prog., 118(2):237–251",
+      "citeRegEx" : "37",
+      "shortCiteRegEx" : null,
+      "year" : 2009
+    }, {
+      "title" : "A study of Nesterov’s scheme for Lagrangian decomposition and MAP labeling",
+      "author" : [ "B. Savchynskyy", "S. Schmidt", "J. Kappes", "C. Schnörr" ],
+      "venue" : "CVPR",
+      "citeRegEx" : "38",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "A distributed mincut/maxflow algorithm combining path augmentation and push-relabel",
+      "author" : [ "A. Shekhovtsov", "V. Hlavác" ],
+      "venue" : "Energy Minimization Methods in Computer Vision and Pattern Recognition",
+      "citeRegEx" : "39",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Convex Analysis for Minimizing and Learning Submodular Set functions",
+      "author" : [ "P. Stobbe" ],
+      "venue" : "PhD thesis, California Institute of Technology",
+      "citeRegEx" : "40",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Efficient minimization of decomposable submodular functions",
+      "author" : [ "P. Stobbe", "A. Krause" ],
+      "venue" : "NIPS",
+      "citeRegEx" : "41",
+      "shortCiteRegEx" : null,
+      "year" : 2010
+    }, {
+      "title" : "Balancing applied to maximum network flow problems",
+      "author" : [ "R. Tarjan", "J. Ward", "B. Zhang", "Y. Zhou", "J. Mao" ],
+      "venue" : "European Symp. on Algorithms (ESA), pages 612–623",
+      "citeRegEx" : "42",
+      "shortCiteRegEx" : null,
+      "year" : 2006
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 0,
+      "context" : "Submodular functions underlie the goals of numerous problems in machine learning, computer vision and signal processing [1].",
+      "startOffset" : 120,
+      "endOffset" : 123
+    }, {
+      "referenceID" : 6,
+      "context" : "Several problems in these areas can be phrased as submodular optimization tasks: notable examples include graph cut-based image segmentation [7], sensor placement [30], or document summarization [31].",
+      "startOffset" : 141,
+      "endOffset" : 144
+    }, {
+      "referenceID" : 29,
+      "context" : "Several problems in these areas can be phrased as submodular optimization tasks: notable examples include graph cut-based image segmentation [7], sensor placement [30], or document summarization [31].",
+      "startOffset" : 163,
+      "endOffset" : 167
+    }, {
+      "referenceID" : 30,
+      "context" : "Several problems in these areas can be phrased as submodular optimization tasks: notable examples include graph cut-based image segmentation [7], sensor placement [30], or document summarization [31].",
+      "startOffset" : 195,
+      "endOffset" : 199
+    }, {
+      "referenceID" : 0,
+      "context" : "A longer list of examples may be found in [1].",
+      "startOffset" : 42,
+      "endOffset" : 45
+    }, {
+      "referenceID" : 18,
+      "context" : "The theoretical complexity of submodular optimization is well-understood: unconstrained minimization of submodular set functions is polynomial-time [19] while submodular maximization is NP-hard.",
+      "startOffset" : 148,
+      "endOffset" : 152
+    }, {
+      "referenceID" : 15,
+      "context" : "Generic submodular maximization admits efficient algorithms that can attain approximate optima with global guarantees; these algorithms are typically based on local search techniques [16, 35].",
+      "startOffset" : 183,
+      "endOffset" : 191
+    }, {
+      "referenceID" : 34,
+      "context" : "Generic submodular maximization admits efficient algorithms that can attain approximate optima with global guarantees; these algorithms are typically based on local search techniques [16, 35].",
+      "startOffset" : 183,
+      "endOffset" : 191
+    }, {
+      "referenceID" : 36,
+      "context" : "maximum flow methods; the currently theoretically fastest combinatorial algorithm for SFM scales as O(n(6) + n(5)τ), where τ is the time to evaluate the function oracle [37] (for an overview of other algorithms, see e.",
+      "startOffset" : 169,
+      "endOffset" : 173
+    }, {
+      "referenceID" : 31,
+      "context" : "This idea exploits the fundamental connection between a submodular function F and its Lovász extension f [32], which is continuous and convex.",
+      "startOffset" : 105,
+      "endOffset" : 109
+    }, {
+      "referenceID" : 14,
+      "context" : "While a fundamental result of Edmonds [15] demonstrates that a subgradient of f can be computed in O(n log n) time, subgradient methods can be sensitive to choices of the step size, and can be slow.",
+      "startOffset" : 38,
+      "endOffset" : 42
+    }, {
+      "referenceID" : 35,
+      "context" : "The “smoothing technique” of [36] does not in general apply here because computing a smoothed gradient is equivalent to solving the submodular minimization problem.",
+      "startOffset" : 29,
+      "endOffset" : 33
+    }, {
+      "referenceID" : 0,
+      "context" : "Specifically, the exact solution of the discrete problem minS⊆V F (S) and of its nonsmooth convex relaxation minx∈[0,1]n f(x) may be found as a level set S0 = {k | xk > 0} of the unique point x∗ that minimizes the strongly convex function [1, 10]: f(x) + 1 2‖x‖ (2).",
+      "startOffset" : 239,
+      "endOffset" : 246
+    }, {
+      "referenceID" : 9,
+      "context" : "Specifically, the exact solution of the discrete problem minS⊆V F (S) and of its nonsmooth convex relaxation minx∈[0,1]n f(x) may be found as a level set S0 = {k | xk > 0} of the unique point x∗ that minimizes the strongly convex function [1, 10]: f(x) + 1 2‖x‖ (2).",
+      "startOffset" : 239,
+      "endOffset" : 246
+    }, {
+      "referenceID" : 11,
+      "context" : "We will refer to the minimization of (3) as the proximal problem due to its close similarity to proximity operators used in convex optimization [12].",
+      "startOffset" : 144,
+      "endOffset" : 148
+    }, {
+      "referenceID" : 8,
+      "context" : ", [9] and references therein) that also occurs in other regularization problems [1].",
+      "startOffset" : 2,
+      "endOffset" : 5
+    }, {
+      "referenceID" : 0,
+      "context" : ", [9] and references therein) that also occurs in other regularization problems [1].",
+      "startOffset" : 80,
+      "endOffset" : 83
+    }, {
+      "referenceID" : 16,
+      "context" : "Typical approaches to generic SFM include Frank-Wolfe methods [17] that have cheap iterations and O(1/t) convergence, but can be quite slow in practice (Section 5); or the minimum-normpoint/Fujishige-Wolfe algorithm [20] that has expensive iterations but finite convergence.",
+      "startOffset" : 62,
+      "endOffset" : 66
+    }, {
+      "referenceID" : 19,
+      "context" : "Typical approaches to generic SFM include Frank-Wolfe methods [17] that have cheap iterations and O(1/t) convergence, but can be quite slow in practice (Section 5); or the minimum-normpoint/Fujishige-Wolfe algorithm [20] that has expensive iterations but finite convergence.",
+      "startOffset" : 216,
+      "endOffset" : 220
+    }, {
+      "referenceID" : 23,
+      "context" : "Other recent methods are approximate [24].",
+      "startOffset" : 37,
+      "endOffset" : 41
+    }, {
+      "referenceID" : 27,
+      "context" : "Following [28, 29, 38, 41], we make the assumption that F (S) = ∑r i=1 Fi(S) is a sum of sufficiently “simple” functions (see Sec.",
+      "startOffset" : 10,
+      "endOffset" : 26
+    }, {
+      "referenceID" : 28,
+      "context" : "Following [28, 29, 38, 41], we make the assumption that F (S) = ∑r i=1 Fi(S) is a sum of sufficiently “simple” functions (see Sec.",
+      "startOffset" : 10,
+      "endOffset" : 26
+    }, {
+      "referenceID" : 37,
+      "context" : "Following [28, 29, 38, 41], we make the assumption that F (S) = ∑r i=1 Fi(S) is a sum of sufficiently “simple” functions (see Sec.",
+      "startOffset" : 10,
+      "endOffset" : 26
+    }, {
+      "referenceID" : 40,
+      "context" : "Following [28, 29, 38, 41], we make the assumption that F (S) = ∑r i=1 Fi(S) is a sum of sufficiently “simple” functions (see Sec.",
+      "startOffset" : 10,
+      "endOffset" : 26
+    }, {
+      "referenceID" : 10,
+      "context" : "(2), with [11, 38] or without [29] Nesterov’s smoothing technique, or with direct smoothing [41] techniques.",
+      "startOffset" : 10,
+      "endOffset" : 18
+    }, {
+      "referenceID" : 37,
+      "context" : "(2), with [11, 38] or without [29] Nesterov’s smoothing technique, or with direct smoothing [41] techniques.",
+      "startOffset" : 10,
+      "endOffset" : 18
+    }, {
+      "referenceID" : 28,
+      "context" : "(2), with [11, 38] or without [29] Nesterov’s smoothing technique, or with direct smoothing [41] techniques.",
+      "startOffset" : 30,
+      "endOffset" : 34
+    }, {
+      "referenceID" : 40,
+      "context" : "(2), with [11, 38] or without [29] Nesterov’s smoothing technique, or with direct smoothing [41] techniques.",
+      "startOffset" : 92,
+      "endOffset" : 96
+    }, {
+      "referenceID" : 1,
+      "context" : "The main three algorithms that we consider are: (i) dual block-coordinate descent (equivalently, primal-dual proximal-Dykstra), which was already shown to be extremely efficient for total variation problems [2] that are special cases of Problem (3); (ii) Douglas-Rachford splitting using the careful variant of [4], which for our formulation (Section 4.",
+      "startOffset" : 207,
+      "endOffset" : 210
+    }, {
+      "referenceID" : 3,
+      "context" : "The main three algorithms that we consider are: (i) dual block-coordinate descent (equivalently, primal-dual proximal-Dykstra), which was already shown to be extremely efficient for total variation problems [2] that are special cases of Problem (3); (ii) Douglas-Rachford splitting using the careful variant of [4], which for our formulation (Section 4.",
+      "startOffset" : 311,
+      "endOffset" : 314
+    }, {
+      "referenceID" : 4,
+      "context" : "2) requires no hyper-parameters; and (iii) accelerated projected gradient [5].",
+      "startOffset" : 74,
+      "endOffset" : 77
+    }, {
+      "referenceID" : 14,
+      "context" : "Moreover, for a submodular function, the Lovász extension happens to be the support function of the base polytope B(F ) defined as B(F ) = {y ∈ R | ∀S ⊂ V, y(S) 6 F (S) and y(V ) = F (V )}, that is f(x) = maxy∈B(F ) y>x [15].",
+      "startOffset" : 220,
+      "endOffset" : 224
+    }, {
+      "referenceID" : 9,
+      "context" : ", minx∈Rn f(x) + 1 2‖x‖ (2), has intricate relations to the SFM problem [10].",
+      "startOffset" : 72,
+      "endOffset" : 76
+    }, {
+      "referenceID" : 18,
+      "context" : "A known divide-and-conquer strategy [19, 21] hinges upon the fact that for any μ, one can easily see which components of x∗ are greater or smaller than μ by computing S∗ μ.",
+      "startOffset" : 36,
+      "endOffset" : 44
+    }, {
+      "referenceID" : 20,
+      "context" : "A known divide-and-conquer strategy [19, 21] hinges upon the fact that for any μ, one can easily see which components of x∗ are greater or smaller than μ by computing S∗ μ.",
+      "startOffset" : 36,
+      "endOffset" : 44
+    }, {
+      "referenceID" : 24,
+      "context" : "In [25], we extend an alternative approach by Tarjan et al.",
+      "startOffset" : 3,
+      "endOffset" : 7
+    }, {
+      "referenceID" : 41,
+      "context" : "[42] for cuts to general submodular functions and obtain a solution to (3) up to precision ε in O(min{n, log 1ε}) iterations.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 27,
+      "context" : "Following [28, 29, 38, 41], we assume that our function F may be decomposed as the sum F (S) = ∑r j=1 Fj(S) of r “simple” functions.",
+      "startOffset" : 10,
+      "endOffset" : 26
+    }, {
+      "referenceID" : 28,
+      "context" : "Following [28, 29, 38, 41], we assume that our function F may be decomposed as the sum F (S) = ∑r j=1 Fj(S) of r “simple” functions.",
+      "startOffset" : 10,
+      "endOffset" : 26
+    }, {
+      "referenceID" : 37,
+      "context" : "Following [28, 29, 38, 41], we assume that our function F may be decomposed as the sum F (S) = ∑r j=1 Fj(S) of r “simple” functions.",
+      "startOffset" : 10,
+      "endOffset" : 26
+    }, {
+      "referenceID" : 40,
+      "context" : "Following [28, 29, 38, 41], we assume that our function F may be decomposed as the sum F (S) = ∑r j=1 Fj(S) of r “simple” functions.",
+      "startOffset" : 10,
+      "endOffset" : 26
+    }, {
+      "referenceID" : 1,
+      "context" : "Message passing algorithms apply to trees, while the proximal problem for paths is very efficiently solved by [2].",
+      "startOffset" : 110,
+      "endOffset" : 113
+    }, {
+      "referenceID" : 1,
+      "context" : "Tree decompositions are common in graphical models, whereas path decompositions are frequently used for TV problems [2].",
+      "startOffset" : 116,
+      "endOffset" : 119
+    }, {
+      "referenceID" : 17,
+      "context" : "Problem (3) for such functions may be solved in O(n log n) time (see [18] and our appendix in [25]).",
+      "startOffset" : 69,
+      "endOffset" : 73
+    }, {
+      "referenceID" : 24,
+      "context" : "Problem (3) for such functions may be solved in O(n log n) time (see [18] and our appendix in [25]).",
+      "startOffset" : 94,
+      "endOffset" : 98
+    }, {
+      "referenceID" : 23,
+      "context" : "Functions of this class have been used in [24, 27, 41].",
+      "startOffset" : 42,
+      "endOffset" : 54
+    }, {
+      "referenceID" : 26,
+      "context" : "Functions of this class have been used in [24, 27, 41].",
+      "startOffset" : 42,
+      "endOffset" : 54
+    }, {
+      "referenceID" : 40,
+      "context" : "Functions of this class have been used in [24, 27, 41].",
+      "startOffset" : 42,
+      "endOffset" : 54
+    }, {
+      "referenceID" : 40,
+      "context" : "Such functions also include covering functions [41].",
+      "startOffset" : 47,
+      "endOffset" : 51
+    }, {
+      "referenceID" : 21,
+      "context" : "This class of functions too admits to solve the proximal problem in O(n log n) time [22, 23, 26].",
+      "startOffset" : 84,
+      "endOffset" : 96
+    }, {
+      "referenceID" : 22,
+      "context" : "This class of functions too admits to solve the proximal problem in O(n log n) time [22, 23, 26].",
+      "startOffset" : 84,
+      "endOffset" : 96
+    }, {
+      "referenceID" : 25,
+      "context" : "This class of functions too admits to solve the proximal problem in O(n log n) time [22, 23, 26].",
+      "startOffset" : 84,
+      "endOffset" : 96
+    }, {
+      "referenceID" : 28,
+      "context" : "We follow [29] to derive a dual formulation (see appendix in [25]): Lemma 1.",
+      "startOffset" : 10,
+      "endOffset" : 14
+    }, {
+      "referenceID" : 24,
+      "context" : "We follow [29] to derive a dual formulation (see appendix in [25]): Lemma 1.",
+      "startOffset" : 61,
+      "endOffset" : 65
+    }, {
+      "referenceID" : 28,
+      "context" : "Dual subgradient descent (dual-sgd) [29]: Applying a subgradient method to the nonsmooth dual in Lemma 1 leads to a convergence rate of O(1/ √ t).",
+      "startOffset" : 36,
+      "endOffset" : 40
+    }, {
+      "referenceID" : 28,
+      "context" : "In simulations, following [29], we consider a step-size rule similar to Polyak’s rule (dual-sgd-P) [6], as well as a decaying step-size (dual-sgd-F), and use discrete optimization for all Fj .",
+      "startOffset" : 26,
+      "endOffset" : 30
+    }, {
+      "referenceID" : 5,
+      "context" : "In simulations, following [29], we consider a step-size rule similar to Polyak’s rule (dual-sgd-P) [6], as well as a decaying step-size (dual-sgd-F), and use discrete optimization for all Fj .",
+      "startOffset" : 99,
+      "endOffset" : 102
+    }, {
+      "referenceID" : 40,
+      "context" : "Primal smoothing (primal-smooth) [41]: The nonsmooth primal may be smoothed in several ways by smoothing the fj individually; one example is f̃ j (xj) = maxyj∈B(Fj) y > j xj − ε 2‖yj‖ (2).",
+      "startOffset" : 33,
+      "endOffset" : 37
+    }, {
+      "referenceID" : 7,
+      "context" : ", by entropy [8, 38] applied to each gj as g̃ j (λj) = minx∈[0,1]n fj(x) + εh(x) where h(x) is a negative entropy.",
+      "startOffset" : 13,
+      "endOffset" : 20
+    }, {
+      "referenceID" : 37,
+      "context" : ", by entropy [8, 38] applied to each gj as g̃ j (λj) = minx∈[0,1]n fj(x) + εh(x) where h(x) is a negative entropy.",
+      "startOffset" : 13,
+      "endOffset" : 20
+    }, {
+      "referenceID" : 33,
+      "context" : "Dual smoothing with entropy also admits coordinate descent methods [34] that exploit the decomposition, but we do not compare to those here.",
+      "startOffset" : 67,
+      "endOffset" : 71
+    }, {
+      "referenceID" : 24,
+      "context" : "Lemma 2 (proved in the appendix in [25]) formally presents our dual formulation as a best approximation problem.",
+      "startOffset" : 35,
+      "endOffset" : 39
+    }, {
+      "referenceID" : 11,
+      "context" : "This BCD method (applied to (9)) is equivalent to applying the so-called proximal-Dykstra method [12] to the primal problem.",
+      "startOffset" : 97,
+      "endOffset" : 101
+    }, {
+      "referenceID" : 12,
+      "context" : "There exists a large body of literature studying method of alternating projections—we refer the interested reader to the monograph [13] for further details.",
+      "startOffset" : 131,
+      "endOffset" : 135
+    }, {
+      "referenceID" : 3,
+      "context" : "However, despite its attractive simplicity, it is known that BCD (in its alternating projections form), can converge arbitrarily slowly [4] depending on the relative orientation of the convex sets onto which one projects.",
+      "startOffset" : 136,
+      "endOffset" : 139
+    }, {
+      "referenceID" : 13,
+      "context" : "The Douglas-Rachford (DR) splitting method [14] includes algorithms like ADMM as a special case [12].",
+      "startOffset" : 43,
+      "endOffset" : 47
+    }, {
+      "referenceID" : 11,
+      "context" : "The Douglas-Rachford (DR) splitting method [14] includes algorithms like ADMM as a special case [12].",
+      "startOffset" : 96,
+      "endOffset" : 100
+    }, {
+      "referenceID" : 2,
+      "context" : "Formally, DR applies to convex problems of the form [3, 12]",
+      "startOffset" : 52,
+      "endOffset" : 59
+    }, {
+      "referenceID" : 11,
+      "context" : "Formally, DR applies to convex problems of the form [3, 12]",
+      "startOffset" : 52,
+      "endOffset" : 59
+    }, {
+      "referenceID" : 3,
+      "context" : "[4] show how to extract convergent sequences from these iterates, which actually solve the corresponding best approximation problem; for us this is nothing but the dual (9) that we wanted to solve in the first place.",
+      "startOffset" : 0,
+      "endOffset" : 3
+    }, {
+      "referenceID" : 3,
+      "context" : "[4] Let A and B be nonempty polyhedral convex sets.",
+      "startOffset" : 0,
+      "endOffset" : 3
+    }, {
+      "referenceID" : 4,
+      "context" : "In addition, we use acceleration to solve (8) or (9) [5].",
+      "startOffset" : 53,
+      "endOffset" : 56
+    }, {
+      "referenceID" : 40,
+      "context" : "As benchmark problems, we use (i) graph cut problems for segmentation, or MAP inference in a 4-neighborhood grid-structured MRF, and (ii) concave functions similar to [41], but together with graph cut functions.",
+      "startOffset" : 167,
+      "endOffset" : 171
+    }, {
+      "referenceID" : 24,
+      "context" : "More details and experimental results may be found in [25].",
+      "startOffset" : 54,
+      "endOffset" : 58
+    }, {
+      "referenceID" : 1,
+      "context" : "In particular DR converges extremely fast, faster even than BCD which is known to be a state-of-the-art algorithms for this problem [2].",
+      "startOffset" : 132,
+      "endOffset" : 135
+    }, {
+      "referenceID" : 6,
+      "context" : "Moreover, in terms of running times, running the DR method with a mixed Matlab/C implementation until convergence on a single core is only 3-8 times slower than the optimized efficient C code of [7], and only 2-4 times on 2 cores.",
+      "startOffset" : 195,
+      "endOffset" : 198
+    }, {
+      "referenceID" : 6,
+      "context" : "These numbers should be read while considering that, unlike [7], the projection methods naturally lead to parallel implementations, and are able to integrate a large variety of functions.",
+      "startOffset" : 60,
+      "endOffset" : 63
+    } ],
+    "year" : 2013,
+    "abstractText" : "Recently, it has become evident that submodularity naturally captures widely occurring concepts in machine learning, signal processing and computer vision. Consequently, there is need for efficient optimization procedures for submodular functions, especially for minimization problems. While general submodular minimization is challenging, we propose a new method that exploits existing decomposability of submodular functions. In contrast to previous approaches, our method is neither approximate, nor impractical, nor does it need any cumbersome parameter tuning. Moreover, it is easy to implement and parallelize. A key component of our method is a formulation of the discrete submodular minimization problem as a continuous best approximation problem that is solved through a sequence of reflections, and its solution can be easily thresholded to obtain an optimal discrete solution. This method solves both the continuous and discrete formulations of the problem, and therefore has applications in learning, inference, and reconstruction. In our experiments, we illustrate the benefits of our method on two image segmentation tasks.",
+    "creator" : null
+  }
+}

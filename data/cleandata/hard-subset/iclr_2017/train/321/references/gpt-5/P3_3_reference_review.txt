@@ -1,0 +1,41 @@
+Summary and contributions
+The paper proposes a two-phase hierarchical RL framework to tackle sparse-reward tasks. In a pretraining phase, a single stochastic neural network (SNN) policy is trained with a simple proxy reward (e.g., speed) while conditioning on a discrete latent code z to induce multiple skills. To prevent mode collapse and promote interpretable, distinct skills, the authors add a mutual information (MI) bonus between z and a subset of the state (the agent’s center-of-mass (CoM) position), estimated via a simple discretized posterior p̂(z|c). A bilinear integration of z with observations (effectively FiLM-like modulation of the first layer) is found to be crucial for expressivity over vanilla concatenation. In downstream sparse tasks, a high-level “Manager” policy selects a skill (latent z) and commits for T steps; low-level skills are frozen. Both phases use TRPO. The paper provides ablations (concatenation vs bilinear, with/without MI), a “multi-policy” baseline (six independently trained policies), and experiments on Swimmer and Snake in Maze and Gather tasks, plus a discussion of failure modes on Ant. Code and videos are provided.
+
+Decision: Weak accept
+Key reasons:
+- The approach is simple, well-motivated, and empirically effective: learning multi-modal skills with SNNs and an MI bonus provides substantially better exploration and solves sparse tasks that standard exploration fails on.
+- The design choices (bilinear modulation and MI regularization) are novel in this context and carefully ablated; the framework is reproducible and yields interpretable, temporally consistent skills.
+
+Supporting arguments
+- Problem fit and motivation: The paper targets a challenging setting—multiple downstream tasks with sparse rewards—where learning reusable skills in a proxy environment can amortize exploration and reduce sample complexity. The assumption of a shared agent subspace Sagent is reasonable in many robotics scenarios.
+- Methodology:
+  - Using a categorical latent z fed into a policy and sampling it once per rollout encourages temporally coherent “skills.” Treating z as part of the observation avoids mixture-of-Gaussians complications in TRPO.
+  - The MI bonus I(Z;C) implemented as a per-step log p̂(z|c) reward is a pragmatic, low-variance regularizer that directly drives skill-state disambiguation. The choice to maximize MI on a low-dimensional, behaviorally salient subspace (CoM (x,y)) is sensible for locomotion and easy to compute with counts.
+  - Bilinear integration is a key architectural insight: it increases skill expressivity by conditioning the first-layer weights on z, which the ablations demonstrate is critical for obtaining diverse, interpretable skills.
+- Empirical support:
+  - The pretraining results convincingly show diverse, interpretable skills (forward, backward, sideways, turning), with MI further reducing overlap between skills.
+  - The hierarchical manager substantially improves exploration coverage vs Gaussian noise and a multi-policy baseline, even though the latter uses more pretraining data.
+  - On sparse mazes and Gather, the proposed method outperforms a strong “proxy reward in downstream task” baseline and VIME (reported in the appendix), especially with longer horizons where temporal abstraction matters. Results are shown across multiple seeds; the paper is transparent about variance and how skill diversity affects success rates.
+  - Snake experiments demonstrate scalability to higher-dimensional agents and study the effect of switch time T. The Ant failure analysis is honest and highlights an important limitation (instability under skill switches).
+
+Reservations and limitations
+- Generality and domain knowledge: The MI regularizer requires handpicking c (CoM (x,y)) and a grid, which is task-specific. While minimal for locomotion, it weakens the “minimal supervision” claim and leaves open how to select c in manipulation or visual domains.
+- Baselines: Comparisons to contemporary hierarchical methods relying on external rewards (e.g., Option-Critic) are absent; even a qualitative comparison or a small-scale empirical baseline would strengthen the case. The “multi-policy” baseline is helpful but has significantly higher pretraining sample usage, complicating sample-efficiency claims.
+- Stability and scaling: Ant struggles due to instability when switching skills, limiting applicability to more complex agents. End-to-end finetuning (or learning termination/transition policies) is left to future work.
+- Theory: The MI term is used purely as a heuristic shaping bonus; there is no analysis of bias introduced by batch-based posterior estimation or how it interacts with TRPO’s guarantees.
+
+Feedback to improve the paper (not decisive for acceptance)
+- Clarify sample efficiency: report total environment steps amortized across pretraining and downstream tasks and analyze trade-offs as K varies. Include learning curves vs total steps (pretrain + downstream).
+- Sensitivity analyses: provide results varying K, α for the MI bonus, grid resolution, and T. Add a metric of skill diversity beyond CoM visitation (e.g., state-occupancy overlap, action KL).
+- MI estimator: consider learning p(z|s) with a classifier (as in InfoGAN/DIAYN-style variational lower bounds) instead of count grids, especially for higher-dimensional c; discuss stability vs bias.
+- Baselines: add Option-Critic or a feudal-style high-level policy baseline on at least one domain, to contextualize gains beyond exploration-only methods.
+- Generality: show a non-locomotion pretrain proxy (e.g., manipulation with contact/force proxies) or at least a simulation with different c choices to demonstrate portability of the MI scheme.
+- Manager design: discuss/try learned termination (options) or variable T, and simple safety/shielding to reduce instability when switching on Ant.
+
+Questions for the authors
+- How sensitive is performance to K? Does increasing K beyond 6 yield diminishing returns or instability in manager training?
+- How do you select c in domains without obvious low-dimensional kinematics (e.g., manipulation from vision)? Have you tried learning p(z|s) with a discriminator rather than grid counts?
+- Can you report aggregate sample complexity including pretraining, and how many downstream tasks are needed before pretraining amortizes?
+- Did you try finetuning the low-level SNN concurrently with manager training (e.g., with Gumbel-Softmax), and if so, does it help Ant stability?
+- How robust are results to different random initial orientations in pretraining (to avoid directional bias), and does that further diversify skills?
+- Could you provide success rates (not just mean returns) and per-seed outcomes to quantify the effect of pretrain variance on downstream performance?

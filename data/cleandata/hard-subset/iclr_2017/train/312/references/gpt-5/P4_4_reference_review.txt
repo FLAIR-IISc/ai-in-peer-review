@@ -1,0 +1,56 @@
+1. Summary of contributions
+The paper proposes Neural Architecture Search (NAS), a reinforcement learning framework that uses a recurrent controller to generate variable-length descriptions of neural network architectures. A sampled “child” architecture is trained to convergence on a training set; its validation accuracy serves as the reward to update the controller via REINFORCE with a moving-average baseline. The framework is extended to:
+- Convolutional architectures with skip connections and multiple layer types (via set-selection attention over previous layers), with mechanisms to ensure valid connectivity.
+- Recurrent cell architectures generated as trees of operations over (x_t, h_{t-1}), including decisions about activation functions, combination operators, and how to connect memory variables c_{t-1}, c_t.
+
+Training is accelerated with large-scale asynchronous distributed infrastructure: many controller replicas sample architectures, train them in parallel, and send gradients to a parameter server. Experiments show:
+- On CIFAR-10, NAS discovers CNNs achieving down to 3.65% test error, competitive with or better than most human-designed architectures, and with favorable speed vs. a strong DenseNet baseline in one setting.
+- On Penn Treebank, NAS discovers a recurrent cell that outperforms LSTM-based baselines, improving test perplexity by ~3.6, and transfers well to character-level language modeling and MT (GNMT) with modest BLEU gains.
+- Control studies: enlarging the search space and comparing to random search indicate the policy-gradient controller finds better architectures and improves over time.
+
+2. Decision
+Accept. Key reasons: (i) strong, multi-domain empirical results demonstrating that a learned controller can discover competitive-to-SOTA architectures; (ii) a well-motivated, flexible formulation that searches variable-length, structured spaces beyond conventional hyperparameter optimization.
+
+3. Supporting arguments
+Clarity:
+- The high-level method, controller design, reward, and training loop are clearly described. The extension for skip connections and recurrent cells is well motivated and illustrated.
+- Training details and hyperparameters for both controller and child models are spelled out, including depth schedules and reward shaping.
+
+Technical soundness:
+- Using REINFORCE with a baseline to optimize a non-differentiable objective (validation accuracy) is appropriate. The attention-based set-selection for skip connections is a reasonable probabilistic mechanism, keeping the search differentiable w.r.t. controller parameters via log-prob gradients.
+- Practical concerns (invalid graphs, size mismatches) are addressed with deterministic fallbacks (e.g., using the image if a layer has no inputs, concatenating unused outputs at the end, zero-padding for concatenation).
+- Distributed asynchronous training is standard and is used correctly to scale the search.
+- Empirical methodology avoids test set leakage: models are selected based on validation and evaluated once on the test set.
+
+Novelty and placement:
+- Prior work on hyperparameter optimization typically handles fixed-length search spaces; neuroevolution handles flexible architectures but often scales poorly. Using an auto-regressive controller trained by policy gradient to generate variable-length architectures is a substantial and well-placed idea that unifies flexibility with scalable learning.
+- The extension to learning RNN cell structures at scale further broadens the novelty beyond CNN topology search.
+
+Empirical support and rigor:
+- Results on CIFAR-10 and PTB are competitive or superior to strong baselines. The paper includes (i) comparisons to random search showing the controller’s advantage; (ii) robustness to enlarged search spaces; and (iii) transfer to character LM and GNMT without bespoke tuning.
+- Training setups, hyperparameters, and selection protocols are documented. The use of validation accuracy as reward and a post-search grid search are standard.
+
+Caveats:
+- Compute intensity is very high (e.g., up to 800 GPUs training child models; 400 CPUs for RNN cells), raising concerns about accessibility and reproducibility without similar resources.
+- Some comparisons mix architectural changes post-search (e.g., adding 40 filters) and different training budgets; speed/accuracy comparisons to DenseNet are not perfectly matched (e.g., 1x1 convolutions not used here), limiting strict fairness.
+- Reward shaping (cubing accuracy) and architectural fallbacks (e.g., auto-injecting the image when no inputs) are heuristic and would benefit from ablations.
+- The CNN search space is still partially hand-designed (e.g., discrete filter sizes, depth growth schedule), and the RNN cell search fixes many hyperparameters; the contribution is strongest in topology search rather than fully end-to-end automated design.
+
+Overall, the strengths on novelty and empirical validation outweigh these limitations.
+
+4. Additional feedback (to help improve the paper; not all are decision-critical)
+- Report total search cost (GPU/CPU days) and wall-clock times for both CIFAR and PTB, and how many architectures were trained to convergence. Provide learning curves of controller reward vs. time/architectures evaluated.
+- Provide ablations on: (i) reward shaping (e.g., raw accuracy vs. cubed), (ii) depth-schedule design, (iii) skip-connection selection mechanism vs. simpler schemes, and (iv) the fallback rules for invalid graphs.
+- Clarify search space details for CNNs (e.g., exact tokenization, stride prediction across H/W, normalization/pooling choices) and quantify the space size to contextualize sample efficiency.
+- Strengthen fairness in comparisons: align data augmentation, training epochs, parameter counts, and FLOPs with baselines where feasible; report variability across seeds.
+- For PTB, ensure reported perplexities are comparable to contemporaneous baselines with the same regularization and embedding-tying assumptions; include variance across runs.
+- Discuss limits of generalization: how well do discovered cells/CNNs transfer across datasets without search/tuning?
+
+Questions for the authors
+- Compute budget: How many total GPU/CPU days were used for CIFAR-10 and PTB searches? What was the average training time per child model?
+- Sensitivity: How sensitive is the controller’s performance to (a) the reward shaping (cubing), (b) the moving-average baseline, and (c) the number of epochs used to train child models?
+- Search space: What is the approximate size of the CNN search space in your main CIFAR experiments (with/without stride/pooling)? How often do “compilation failures” occur, and how much do the fallback rules influence final architectures?
+- Depth schedule: How critical is the schedule that increases allowed depth over time? What happens if the maximum depth is fixed?
+- Comparisons: For the 3.65% CIFAR model, can you report exact parameter counts and FLOPs, and match training protocols with DenseNet to validate the 1.05x speedup claim?
+- PTB transfer: How robust is the discovered RNN cell across different model sizes and datasets without re-search? Can you share results on additional corpora?
+- Reproducibility: Will you release the controller code and the exact search spaces used, including seeds and configuration, to enable replication on smaller budgets?

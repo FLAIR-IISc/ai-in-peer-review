@@ -1,0 +1,62 @@
+Summary and relation to prior work
+The paper tackles the problem of describing an image stream with a sequence of sentences. The proposed coherent recurrent convolutional network (CRCN) combines: (i) CNN image features (VGG fc7), (ii) a BRNN over sentence representations (doc2vec) to capture content flow, and (iii) an entity-grid based local coherence model (Barzilay & Lapata) to encourage coherent sentence transitions. Training data are constructed from blogs by heuristically aligning images to text segments via paragraph proximity and summarizing each segment to a key sentence (LSA); top-κ sentences are used as data augmentation. The model learns a max-margin ranking loss over image-stream / sentence-sequence pairs. At test time, it retrieves K nearest training images for each query image, forms combinatorial candidate sentence sequences, and uses a divide-and-conquer beam search to pick the best-scoring paragraph. Evaluation is on large NYC/Disneyland blog datasets using BLEU/CIDEr/METEOR, retrieval metrics, and AMT.
+
+This extends image captioning (e.g., Karpathy & Fei-Fei; Vinyals et al.) to streams and incorporates a classical local coherence model, which is novel in this vision-language context. It differs from video captioning (e.g., Donahue et al.) by focusing on disjoint photo streams and from sequence retrieval (Kim et al. 2014) by producing text.
+
+Strengths
+- Addresses a timely and interesting problem: image-stream-to-paragraph generation.
+- Novel integration of entity-grid coherence with a multimodal alignment model.
+- Large-scale data collection and an approximate search strategy for combinatorial decoding.
+- Clear motivation that coherence matters more for longer passages; the AMT study is aligned with this claim.
+- Attempts to compare against strong captioning baselines.
+
+Weaknesses and detailed concerns
+
+Quality/technical soundness
+- Scoring function and length bias: Eq. (3) Skl = ∑t skt·vlt + gk·vlt appears to add the same coherence term gk·vlt for every t, effectively Skl = ∑t skt·vlt + ∑t gk·vlt = ∑t (skt+gk)·vlt. This (a) duplicates the coherence contribution N times and (b) creates a strong dependence on sequence length. There is no stated length normalization, yet negatives have “random length,” which biases training and evaluation. Please clarify whether the intended form was gk·(∑t vlt) or a separate stream-level image representation.
+- Retrieval metrics unclear: The text says training and test are disjoint, and the ground-truth TG is the test post’s summarized sentences. Then “top-K recall” and “median rank” are described as if retrieving ground truth from training, which would be impossible under disjoint splits. What exactly is being retrieved for R@K/MedR and over which candidate pool? This needs precise definition.
+- Possible train/test leakage via doc2vec: “We learn 300-d paragraph vectors separately from the two classes of the blog dataset.” It is unclear whether doc2vec was trained only on training text or on the full corpus (including test). Using unsupervised representations trained on test text would inflate results.
+- Coherence model integration is ad hoc: A 64-d entity transition vector is zero-padded to 300 and fed through shared FC layers with the BRNN outputs. Zero-padding is arbitrary; why not learn a projection? No ablation of history length, coreference quality, or alternative coherence encodings. The benefit beyond the RNN is reported as small on language metrics; numbers and statistical significance are not discussed.
+- Candidate generation relies on KNN over fc7 features; there is no deduplication analysis. In travel blogs, near-duplicate photos across posts are common. If visually near-duplicates exist across splits, the task reduces to sentence transfer. The paper should include near-duplicate filtering and report performance with/without it.
+- Heuristic preprocessing (segmentation by index distance, LSA summarization) is noisy. No quantitative validation of alignment quality is provided, yet the model treats these as ground truth. This undermines the training signal and the claim of “unsupervised” learning (it is weakly supervised by heuristic alignments).
+- Loss formulation (Eq. 4) lacks details: How are negatives sampled for variable-length sequences? Are lengths matched? Are both image-stream and sentence-sequence negatives balanced? How sensitive are results to 100 negatives?
+- Search complexity: The divide-and-conquer/beam approach is described informally, and the complexity expression KN/2^Q is not rigorous. No runtime analysis or comparison to standard beam search is provided.
+
+Clarity
+- Several notation/typo issues hinder reproducibility: In Eq. (1), inconsistent subscripts (Wfh vs Wf, Wbh vs Wb); dimensions for Wo are not fully justified; several grammar issues (“hike of interest,” etc.). The text says “we drop the bias” for FC layers without justification. Some references lack years and complete bibliographic data. Please proofread and standardize notation.
+- Evaluation details are insufficient: exact splits, hyperparameter tuning, κ sensitivity, K and M sensitivity, optimizer settings per component, and compute/hours are missing. Figures referred to are essential to understand the pipeline but not described in full detail. No code or dataset release plan is mentioned.
+
+Originality
+- Framing image-stream-to-paragraph with entity-grid coherence is new in this context. However, the core pipeline is a combination of known components (CNN features + KNN retrieval + RNN over sentence embeddings + entity-grid), and the technical novelty resides mostly in the way the coherence vector is fused via shared FC layers.
+- Related work is reasonably covered up to 2015, but fairness requires stronger baselines for multi-sentence coherence beyond concatenation (e.g., sequence models over retrieved sentences, CRFs/HMMs over candidate sets).
+
+Significance
+- The problem is important, but the methodological issues (length bias, evaluation ambiguity, potential leakage, and fairness of baselines) make it hard to trust the reported gains. Without clearer, length-normalized scoring, rigorous evaluation definitions, and stronger baselines (e.g., non-coherence CRCN variants with proper normalization, or a paragraph-level retrieval baseline using pooled image features), the impact is limited.
+
+Questions for authors
+1. Precisely define Eq. (3). Is gk applied once to a pooled image-stream vector or N times? How do you normalize for sequence length?
+2. How are R@K/MedR computed given disjoint splits? What is the candidate pool and the target?
+3. Was doc2vec trained only on training text? Were any test texts used to learn representations?
+4. Did you remove near-duplicate images across train/val/test? Please quantify.
+5. Provide ablations for κ, K, M, entity-grid history, and removing zero-padding vs learned projection.
+6. Report runtime and search complexity empirically.
+
+Minor comments and formatting
+- Numerous typos and inconsistent notation (e.g., “hike of interest,” “coherent” vs “coherence,” Wfh/Wbh). 
+- References often missing years and venues; RMSprop citation incomplete.
+- “Completely unsupervised” is overstated; this is weakly supervised with heuristic alignments.
+- The description that two FC layers “do not reduce to a single linear mapping thanks to dropout” is misleading; nonlinearity comes from ReLU, not dropout.
+
+Pros
+- Interesting problem and dataset scale.
+- Sensible integration of a classical coherence model.
+- User study suggests coherence matters for longer sequences.
+
+Cons
+- Ambiguous/possibly flawed scoring leading to length bias.
+- Unclear and potentially misleading retrieval metrics.
+- Risk of representation or visual near-duplicate leakage.
+- Weak/uneven baseline comparisons and limited ablations.
+- Clarity and formatting issues impede reproducibility.
+
+Recommendation: Reject (lean). The idea is promising, but the current version has substantial methodological and evaluation ambiguities that need to be resolved, along with stronger baselines and ablations. I would encourage a revision addressing the above points. Confidence: high.

@@ -1,0 +1,567 @@
+{
+  "name" : "52720e003547c70561bf5e03b95aa99f.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Large Scale Distributed Sparse Precision Estimation",
+    "authors" : [ "Huahua Wang", "Arindam Banerjee", "Cho-Jui Hsieh", "Pradeep Ravikumar", "Inderjit S. Dhillon" ],
+    "emails" : [ "huwang@cs.umn.edu", "banerjee@cs.umn.edu", "cjhsieh@cs.utexas.edu", "pradeepr@cs.utexas.edu", "inderjit@cs.utexas.edu" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Consider a p-dimensional probability distribution with true covariance matrix Σ0 ∈ Sp++ and true precision (or inverse covariance) matrix Ω0 = Σ−10 ∈ S p ++. Let [R1 · · · Rn] ∈ <p×n be n independent and identically distributed random samples drawn from this p-dimensional distribution. The centered normalized sample matrix A = [a1 · · ·an] ∈ <p×n can be obtained as ai = 1√n (Ri− R̄), where R̄ = 1n ∑ iRi, so that the sample covariance matrix can be computed as C = AA\nT . In recent years, considerable effort has been invested in obtaining an accurate estimate of the precision matrix Ω̂ based on the sample covariance matrix C in the ‘low sample, high dimensions’ setting, i.e., n p, especially when the true precision Ω0 is assumed to be sparse [28]. Suitable estimators and corresponding statistical convergence rates have been established for a variety of settings, including distributions with sub-Gaussian tails, polynomial tails [25, 3, 19]. Recent advances have also established parameter-free methods which achieve minimax rates of convergence [4, 19].\nSpurred by these advances in the statistical theory of precision matrix estimation, there has been considerable recent work on developing computationally efficient optimization methods for solving the corresponding statistical estimation problems: see [1, 8, 14, 21, 13], and references therein. While these methods are able to efficiently solve problems up to a few thousand variables, ultralarge-scale problems with millions of variables remain a challenge. Note further that in precision matrix estimation, the number of parameters scales quadratically with the number of variables; so that with a million dimensions p = 106, the total number of parameters to be estimated is a trillion, p2 = 1012. The focus of this paper is on designing an efficient distributed algorithm for precision matrix estimation under such ultra-large-scale dimensional settings.\nWe focus on the CLIME statistical estimator [3], which solves the following linear program (LP):\nmin ‖Ω̂‖1 s.t. ‖CΩ̂− I‖∞ ≤ λ , (1)\nwhere λ > 0 is a tuning parameter. The CLIME estimator not only has strong statistical guarantees [3], but also comes with inherent computational advantages. First, the LP in (1) does not explicitly enforce positive definiteness of Ω̂, which can be a challenge to handle efficiently in highdimensions. Secondly, it can be seen that (1) can be decomposed into p independent LPs, one for each column of Ω̂. This separable structure has motivated solvers for (1) which solve the LP column-by-column using interior point methods [3, 28] or the alternating direction method of multipliers (ADMM) [18]. However, these solvers do not scale well to ultra-high-dimensional problems: they are not designed to run on hundreds to thousands of cores, and in particular require the entire sample covariance matrix C to be loaded into the memory of a single machine, which is impractical even for moderate sized problems.\nIn this paper, we present an efficient CLIME-ADMM variant along with a scalable distributed framework for the computations [2, 26]. The proposed CLIME-ADMM algorithm can scale up to millions of dimensions, and can use up to thousands of cores in a shared-memory or distributed-memory architecture. The scalability of our method relies on the following key innovations. First, we propose an inexact ADMM [27, 12] algorithm targeted to CLIME, where each step is either elementwise parallel or involves suitable matrix multiplications. We show that the rates of convergence of the objective to the optimum as well as residuals of constraint violation are both O(1/T ). Second, we solve (1) in column-blocks of the precision matrix at a time, rather than one column at a time. Since (1) already decomposes columnwise, solving multiple columns together in blocks might not seem worthwhile. However, as we show our CLIME-ADMM working with column-blocks uses matrixmatrix multiplications which, building on existing literature [15, 5, 11] and the underlying low rank and sparse structure inherent in the precision matrix estimation problem, can be made substantially more efficient than repeated matrix-vector multiplications. Moreover, matrix multiplication can be further simplified as block-by-block operations, which allows choosing optimal block sizes to minimize cache misses, leading to high scalability and performance [16, 5, 15]. Lastly, since the core computations can be parallelized, CLIME-ADMM scales almost linearly with the number of cores. We experiment with shared-memory and distributed-memory architectures to illustrate this point. Empirically, CLIME-ADMM is shown to be much faster than existing methods for precision estimation, and scales well to high-dimensional problems, e.g., we estimate a precision matrix of one million dimension and one trillion parameters in 11 hours by running the algorithm on 400 cores.\nOur framework can be positioned as a part of the recent surge of effort in scaling up machine learning algorithms [29, 22, 6, 7, 20, 2, 23, 9] to “Big Data”. Scaling up machine learning algorithms through parallelization and distribution has been heavily explored on various architectures, including shared-memory architectures [22], distributed memory architectures [23, 6, 9] and GPUs [24]. Since MapReduce [7] is not efficient for optimization algorithms, [6] proposed a parameter server that can be used to parallelize gradient descent algorithms for unconstrained optimization problems. However, this framework is ill-suited for the constrained optimization problems we consider here, because gradient descent methods require the projection at each iteration which involves all variables and thus ruins the parallelism. In other recent related work based on ADMM, [23] introduce graph projection block splitting (GPBS) to split data into blocks so that examples and features can be distributed among multiple cores. Our framework uses a more general blocking scheme (block cyclic distribution), which provides more options in choosing the optimal block size to improve the efficiency in the use of memory hierarchies and minimize cache misses [16, 15, 5]. ADMM has also been used to solve constrained optimization in a distributed framework [9] for graphical model inference, but they consider local constraints, in contrast to the global constraints in our framework.\nNotation: A matrix is denoted by a bold face upper case letter, e.g., A. An element of a matrix is denoted by a upper case letter with row index i and column index j, e.g., Aij is the ij-th element of A. A block of matrix is denoted by a bold face lower case letter indexed by ij, e.g., Aij . ~Aij represents a collection of blocks of matrix A on the ij-th core (see block cyclic distribution in Section 4). A′ refers the transpose of A. Matrix norms used are all elementwise norms, e.g., ‖A‖1 = ∑p i=1 ∑n j=1 |Aij |, ‖A‖22 = ∑p i=1 ∑n j=1A 2 ij , ‖A‖∞ = max1≤i≤p,1≤j≤n |Aij |. The\nmatrix inner product is defined in elementwise, e.g., 〈A,B〉 = ∑p i=1 ∑n j=1AijBij . X ∈ <p×k denotes k(1 ≤ k ≤ p) columns of the precision matrix Ω̂, and E ∈ <p×k denotes the same k columns of the identity matrix I ∈ <p×p. Let λmax(C) be the largest eigenvalue of covariance matrix C.\nAlgorithm 1 Column Block ADMM for CLIME 1: Input: C, λ, ρ, η 2: Output: X 3: Initialization: X0,Z0,Y0,V0, V̂0 = 0 4: for t = 0 to T − 1 do 5: X-update: Xt+1 = soft(Xt −Vt, 1η ), where\n6: Mat-Mul: { sparse : Ut+1 = CXt+1 low rank : Ut+1 = A(A′Xt+1) 7: Z-update: Zt+1 = box(Ut+1 + Yt, λ), where 8: Y-update: Yt+1 = Yt + Ut+1 − Zt+1\n9: Mat-Mul: { sparse : V̂t+1 = CYt+1\nlow rank : V̂t+1 = A(A′Yt+1) 10: V-update: Vt+1 = ρη (2V̂\nt+1 − V̂t) 11: end for\nsoft(X, γ) = { Xij − γ , if Xij > γ , Xij + γ , if Xij < −γ , 0 , otherwise\nbox(X,E, λ) = { Eij + λ, if Xij − Eij > λ, Xij , if |Xij − Eij | ≤ λ, Eij − λ, if Xij − Eij < −λ,"
+    }, {
+      "heading" : "2 Column Block ADMM for CLIME",
+      "text" : "In this section, we propose an algorithm to estimate the precision matrix in terms of column blocks instead of column-by-column. Assuming a column block contains k(1 ≤ k ≤ p) columns, the sparse precision matrix estimation amounts to solving dp/ke independent linear programs. Denoting X ∈ <p×k be k columns of Ω̂, (1) can be written as\nmin ‖X‖1 s.t. ‖CX−E‖∞ ≤ λ , (2) which can be rewritten in the following equality-constrained form:\nmin ‖X‖1 s.t. ‖Z−E‖∞ ≤ λ,CX = Z . (3)\nThrough the splitting variable Z ∈ <p×k, the infinity norm constraint becomes a box constraint and is separated from the `1 norm objective. We use ADMM to solve (3). The augmented Lagrangian of (3) is\nLρ = ‖X‖1 + ρ〈Y,CX− Z〉+ ρ\n2 ‖CX− Z‖22 , (4)\nwhere Y ∈ <p×k is a scaled dual variable and ρ > 0. ADMM yields the following iterates [2]:\nXt+1 = argminX ‖X‖1 + ρ\n2 ‖CX− Zt + Yt‖22 , (5)\nZt+1 = argmin ‖Z−E‖∞≤λ\nρ 2 ‖CXt+1 − Z + Yt‖22 , (6)\nYt+1 = Yt + CXt+1 − Zt+1 . (7) As a Lasso problem, (5) can be solved using exisiting Lasso algorithms, but that will lead to a double-loop algorithm. (5) does not have a closed-form solution since C in the quadratic penalty term makes X coupled. We decouple X by linearizing the quadratic penalty term and adding a proximal term as follows:\nXt+1 = argminX ‖X‖1 + η〈Vt,X〉+ η\n2 ‖X−Xt‖22 , (8)\nwhere Vt = ρηC(Y t + CXt − Zt) and η > 0. (8) is usually called an inexact ADMM update. Using (7), Vt = ρηC(2Y t −Yt−1). Let V̂t = CYt, we have Vt = ρη (2V̂\nt − V̂t−1) . (8) has the following closed-form solution:\nXt+1 = soft(Xt −Vt, 1 η ) , (9)\nwhere soft denotes the soft-thresholding and is defined in Step 5 of Algorithm 1.\nLet Ut+1 = CXt+1. (6) is a box constrained quadratic programming which has the following closed-form solution:\nZt+1 = box(Ut+1 + Yt,E, λ) , (10)\nwhere box denotes the projection onto the infinity norm constraint ‖Z − E‖∞ ≤ λ and is defined in Step 7 of Algorithm 1. In particular, if ‖Ut+1 + Yt − E‖∞ ≤ λ, Zt+1 = Ut+1 + Yt and thus Yt+1 = Yt + Ut+1 − Zt+1 = 0. The ADMM algorithm for CLIME is summarized in Algorithm 1. In Algorithm 1, while step 5, 7, 8 and 10 amount to elementwise operations which costO(pk) operations, steps 6 and 9 involve matrix multiplication which is the most computationally intensive part and costs O(p2k) operations. The memory requirement includes O(pn) for A and O(pk) for the other six variables.\nAs the following results show, Algorithm 1 has a O(1/T ) convergence rate for both the objective function and the residuals of optimality conditions. The proof technique is similar to [26]. [12] shows a similar result as Theorem 2 but uses a different proof technique. For proofs, please see Appendix A in the supplement. Theorem 1 Let {Xt,Zt,Yt} be generated by Algorithm 1 and X̄T = 1T ∑T t=1 X\nt. Assume X0 = Z0 = Y0 = 0 and η ≥ ρλ2max(C). For any CX = Z, we have\n‖X̄T ‖1 − ‖X‖1 ≤ η‖X‖22\n2T . (11)\nTheorem 2 Let {Xt,Zt,Yt} be generated by Algorithm 1 and {X∗,Z∗,Y∗} be a KKT point for the Lagrangian of (3). Assume X0 = Z0 = Y0 = 0 and η ≥ ρλ2max(C). We have\n‖CXT − ZT ‖22 + ‖ZT − ZT−1‖22 + ‖XT −XT−1‖2η ρ I−C2\n≤ ‖Y∗‖22 + η ρ‖X ∗‖22 T . (12)"
+    }, {
+      "heading" : "3 Leveraging Sparse, Low-Rank Structure",
+      "text" : "In this section, we consider a few possible directions that can further leverage the underlying structure of the problem; specifically sparse and low-rank structure."
+    }, {
+      "heading" : "3.1 Sparse Structure",
+      "text" : "As we detail here, there could be sparsity in the intermediate iterates, or the sample covariance matrix itself (or a perturbed version thereof); which can be exploited to make our CLIME-ADMM variant more efficient.\nIterate Sparsity: As the iterations progress, the soft-thresholding operation will yield a sparse Xt+1, which can help speed up step 6: Ut+1 = CXt+1, via sparse matrix multiplication. Further, the box-thresholding operation will yield a sparse Yt+1. In the ideal case, if ‖Ut+1+Yt−E‖∞ ≤ λ in step 7, then Zt+1 = Ut+1 + Yt. Thus, Ŷt+1 = Yt + Ut+1 −Zt+1 = 0. More generally, Yt+1 will become sparse as the iterations proceed, which can help speed up step 9: V̂t+1 = CYt+1.\nSample Covariance Sparsity: We show that one can “perturb” the sample covariance to obtain a sparse and coarsened matrix, solve CLIME with this pertubed matrix, and yet have strong statistical guarantees. The statistical guarantees for CLIME [3], including convergence in spectral, matrix L1, and Frobenius norms, only require from the sample covariance matrix C a deviation bound of the form ‖C − Σ0‖∞ ≤ c √ log p/n, for some constant c. Accordingly, if we perturb the matrix C with a perturbation matrix ∆ so that the perturbed matrix (C + ∆) continues to satisfy the deviation bound, the statistical guarantees for CLIME would hold even if we used the perturbed matrix (C + ∆). The following theorem (for details, please see Appendix B in the supplement) illustrates some perturbations ∆ that satisfy this property:\nTheorem 3 Let the original random variables Ri be sub-Gaussian, with sample covariance C. Let ∆ be a random perturbation matrix, where ∆ij are independent sub-exponential random variables. Then, for positive constants c1, c2, c3, P (‖C + ∆− Σ0‖∞ ≥ c1 √ log p n ) ≤ c2p −c3 .\nAs a special case, one can thus perturb elements of Cij with suitable constants ∆ij with |∆ij | ≤ c √ log p/n, so that the perturbed matrix is sparse, i.e., if |Cij | ≤ c √ log p/n, then it can be safely\ntruncated to 0. Thus, in practice, even if sample covariance matrix is only close to a sparse matrix [21, 13], or if it is close to being block diagonal [21, 13], the complexity of matrix multiplication in steps 6 and 9 can be significantly reduced via the above perturbations."
+    }, {
+      "heading" : "3.2 Low Rank Structure",
+      "text" : "Although one can use sparse structures of matrices participating in the matrix multiplication to accelerate the algorithm, the implementation requires substantial work since dynamic sparsity of X and Y is unknown upfront and static sparsity of the sample covariance matrix may not exist. Since the method will operate in a low-sample setting, we can alternatively use the low rank of the sample covariance matrix to reduce the complexity of matrix multiplication. Since C = AAT and p n, CX = A(ATX), and thus the computational complexity of matrix multiplication reduces from O(p2k) to O(npk), which can achieve significant speedup for small n. We use such low-rank multiplications for the experiments in Section 5."
+    }, {
+      "heading" : "4 Scalable Parallel Computation Framework",
+      "text" : "In this section, we elaborate on scalable frameworks for CLIME-ADMM in both shared-memory and distributed-memory achitectures.\nIn a shared-memory architecture (e.g., a single machine), data A is loaded to the memory and shared by q cores, as shown in Figure 1(a). Assume the p × p precision matrix Ω̂ is evenly divided into l = p/k (≥ q) column blocks, e.g., X1, · · · ,Xq, · · · ,Xl, and thus each column block contains k columns. The column blocks are assigned to q cores cyclically, which means the j-th column block is assigned to the mod(j, q)-th core. The q cores can solve q column blocks in parallel without communication and synchronization, which can be simply implemented via multithreading. Meanwhile, another q column blocks are waiting in their respective queues. Figure 1(a) gives an example of how to solve 8 column blocks on 4 cores in a shared-memory environment. While the 4 cores are solving the first 4 column blocks, the next 4 column blocks are waiting in queues (red arrows).\nAlthough the shared-memory framework is free from communication and synchronization, the limited resources prevent it from scaling up to datasets with millions of dimensions, which can not be loaded to the memory of a single machine or solved by tens of cores in a reasonble time. As more memory and computing power are needed for high dimensional datasets, we implement a framework for CLIME-ADMM in a distributed-memory architecture, which automatically distributes data among machines, parallelizes computation, and manages communication and synchronization among machines, as shown in Figure 1(b). Assume q processes are formed as a r × c process grid and the p × p precision matrix Ω̂ is evenly divided into l = p/k (≥ q) column blocks, e.g., Xj , 1 ≤ j ≤ l. We solve a column block Xj at a time in the process grid. Assume the data matrix A has been evenly distributed into the process grid and ~Aij is the data on the ij-th core, i.e., A is colletion of ~Aij under a mapping scheme, which we will discuss later. Figure 1(b) illustrates that the 2 × 2 process grid is computing the first column block X1 while the second column block X2 is waiting in queues (red lines), assuming X1,X2 are distributed into the process grid in the same way as A and ~X1ij is the block of X 1 assigned to the ij-th core.\nA typical issue in parallel computation is load imbalance, which is mainly caused by the computational disparity among cores and leads to unsatisfactory speedups. Since each step in CLIMEADMM are basic operations like matrix multiplication, the distribution of sub-matrices over processes has a major impact on the load balance and scalability. The following discussion focuses on the matrix multiplication in the step 6 in Algorithm 1. Other steps can be easily incorporated into the framework. The matrix multiplication U = A(A′X1) can be decomposed into two steps, i.e., W = A′X1 and U = AW, where A ∈ <n×p, X1 ∈ <p×k, W ∈ <n×k and U ∈ <n×k. Dividing matrices A,X evenly into r × c large consecutive blocks like [23] will lead to load imbalance. First, since the sparse structure of X changes over time (Section 3.1), large consecutive blocks may assign dense blocks to some processes and sparse blocks to the other processes. Second, there will be no blocks in some processes after the multiplication using large blocks since W is a small matrix compared to A,X, e.g., p could be millions and n, k are hundreds. Third, large blocks may not be fit in the cache, leading to cache misses. Therefore, we use block cyclic data distribution which uses a small nonconsecutive blocks and thus can largely achieve load balance and scalability. A matrix is first divided into consecutive blocks of size pb × nb. Then blocks are distributed into the process\ngrid cyclically. Figure 1(c) illustrates how to distribute the matrix to a 2 × 2 process grid. A is divided into 3× 2 consecutive blocks, where each block is of size pb×nb. Blocks of the same color will be assigned to the same process. Green blocks will be assigned to the upper left process, i.e., ~A11 = {a11,a13,a31,a33,a51,a53} in Figure 1(b). The distribution of X1 can be done in a similar way except the block size should be pb × kb, where pb is to guarantee that matrix multiplication A′X1 works. In particular, we denote pb × nb × kb as the block size for matrix multiplication. To distribute the data in a block cyclic manner, we use a parallel I/O scheme, where processes can access the data in parallel and only read/write the assigned blocks."
+    }, {
+      "heading" : "5 Experimental Results",
+      "text" : "In this section, we present experimental results to compare CLIME-ADMM with existing algorithms and show its scalability. In all experiments, we use the low rank property of the sample covariance matrix and do not assume any other special structures. Our algorithm is implemented in a shared-memory architecture using OpenMP (http://openmp.org/wp/) and a distributed-memory architecture using OpenMPI (http://www.open-mpi.org) and ScaLAPACK [15] (http://www.netlib.org/scalapack/)."
+    }, {
+      "heading" : "5.1 Comparision with Existing Algorithms",
+      "text" : "We compare CLIME-ADMM with three other methods for estimating the inverse covariance matrix, including CLIME, Tiger in package flare1 and divide and conquer QUIC (DC-QUIC) [13]. The comparisons are run on an Intel Zeon E5540 2.83GHz CPU with 32GB main memory.\nWe test the efficiency of the above methods on both synthetic and real datasets. For synthetic datasets, we generate the underlying graphs with random nonzero pattern by the same way as in [14]. We control the sparsity of the underlying graph to be 0.05, and generate random graphs with various dimension. Since each estimator has different parameters to control the sparsity, we set them individually to recover the graph with sparsity 0.05, and compare the time to get the solution. The column block size k for CLIME-ADMM is 100. Figure 2(a) shows that CLIME-ADMM is the most scalable estimator for large graphs. We compare the precision and recall for different methods on recovering the groud truth graph structure. We run each method using different parameters (which controls the sparsity of the solution), and plot the precision and recall for each solution in Figure 2(b). As Tiger is parameter tuning free and achieves the minimax optimal rate [19], it achieves the best performance in terms of recall. The other three methods have the similar performance. CLIME can also be free of parameter tuning and achieve the optimal minimax rate by solving an additional linear program which is similar to (1) [4]. We refer the readers to [3, 4, 19] for detailed comparisons between the two models CLIME and Tiger, which is not the focus of this paper.\nWe further test the efficiency of the above algorithms on two real datasets, Leukemia and Climate (see Table 1). Leukemia is gene expression data provided by [10], and the pre-processing was done by [17]. Climate dataset is the temperature data in year 2001 recorded by NCEP/NCAR Reanalysis data2and preprocessed by [13]. Since the ground truth for real datasets are unknown, we test the time taken for each method to recover graphs with 0.1 and 0.01 sparsity. The results are presented in Table 1. Although Tiger is faster than CLIME-ADMM on small dimensional dataset Leukemia,\n1The interior point method in [3] is written in R and extremely slow. Therefore, we use flare which is implemented in C with R interface. http://cran.r-project.org/web/packages/flare/index.html\n2www.esrl.noaa.gov/psd/data/gridded/data.ncep.reanalysis.surface.html\n(a) Runtime\n(b) Precision and recall\nFigure 2: Synthetic datasets\n(a) Speedup Scolk\n(b) Speedup Scoreq\nFigure 3: Shared-Memory.\n(a) Speedup Scolk\n(b) Speedup Scoreq\nFigure 4: Distributed-Memory.\nit does not scale well on the high dimensional dataset as CLIME-ADMM, which is mainly due to the fact that ADMM is not competitive with other methods on small problems but has superior scalability on big datasets [2]. DC-QUIC runs faster than other methods for small sparsity but dramatically slows down when sparsity increases. DC-QUIC essentially works on a block-diagonal matrix by thresholding the off-diagonal elements of the sample covariance matrix. A small sparsity generally leads to small diagonal blocks, which helps DC-QUIC to make a giant leap forward in the computation. A block-diagonal structure in the sample covariance matrix can be easily incorporated into the matrix multiplication in CLIME-ADMM to achieve a sharp computational gain. On a single core, CLIME-ADMM is faster than flare ADMM. We also show the results of CLIME-ADMM on 8 cores, showing CLIME-ADMM achieves a linear speedup (more results will be seen in Section 5.2). Note Tiger can estimate the spase precision matrix column-by-column in parallel, while CLIMEADMM solves CLIME in column-blocks in parallel."
+    }, {
+      "heading" : "5.2 Scalability of CLIME ADMM",
+      "text" : "We evaluate the scalability of CLIME-ADMM in a shared memory and a distributed memory architecture in terms of two kinds of speedups. The first speedup is defined as the time on 1 core T core1 over q cores T core q , i.e., S core q = T core 1 /T core q . The second speedup is caused by the use of column blocks. Assume the total time for solving CLIME column-by-column (k = 1) is T col1 , which is considered as the baseline. The speedup of solving CLIME in column block with size k over a single column is defined as Scolk = T col 1 /T col k . The experiments are done on synthetic data which is generated in the same way as in Section 5.1. The number of samples is fixed to be n = 200.\nShared-memory We estimate a precision matrix with p = 104 dimensions on a server with 20 cores and 64G memory. We use OpenMP to parallelize column blocks. We run the algorithm on different number of cores q = 1, 5, 10, 20, and with different column block size k. The speedup Scolk is plotted in Figure 3(a), which shows the results on three different number of cores. When k ≤ 20, the speedups keep increasing with increasing number of columns k in each block. For k ≥ 20, the speedups are maintained on 1 core and 5 cores, but decreases on 10 and 20 cores. The total number of columns in the shared-memory is k× q. For a fixed k, more columns are involved in the computation when more cores are used, leading to more memory consumption and competition for the usage of shared cache. The speedup Scoreq is plotted in Figure 3(b), where T core 1 is the time on a single core. The ideal linear speedups are archived on 5 cores for all block sizes k. On 10 cores, while small and medium column block sizes can maintain the ideal linear speedups, the large column block sizes fail to scale linearly. The failure to achieve a linear speedup propagate to small and medium column block sizes on 20 cores, although their speedups are larger than large column block size. As more and more column blocks are participating in the computation, the speed-ups decrease possibly because of the competition for resources (e.g., L2 cache) in the shared-memory environment."
+    }, {
+      "heading" : "200×1 0.37 0.68 1.12 3.48 6.76 33.95 70.59",
+      "text" : "Distributed-memory We estimate a precision matrix with one million dimensions (p = 106), which contains one trillion parameters (p2 = 1012). The experiments are run on a cluster with 400 computing nodes. We use 1 core per node to avoid the competition for the resources as we observed in the shared-memory case. For q cores, we use the process grid q2 × 2 since p n. The block size pb×nb×kb for matrix multiplication is 10×10×1 for k ≤ 10 and 10×10×10 for k > 10. Since the column block CLIME problems are totally independent, we report the speedups on solving a single column block. The speedup Scolk is plotted in Figure 4(a), where the speedups are larger and more stable than that in the shared-memory environment. The speedup keeps increasing before arriving at a certain number as column block size increases. For any column block size, the speedup also increases as the number of cores increases. The speedup Scoreq is plotted in Figure 4(b), where T core 1 is the time on 50 cores. A single column (k = 1) fails to achieve linear speedups when hundreds of cores are used. However, if using a column block k > 1, the ideal linear speedups are achieved with increasing number of cores. Note that due to distributed memory, the larger column block sizes also scale linearly, unlike in the shared memory setting, where the speedups were limited due to resource sharing. As we have seen, k depends on the size of process grid, block size in matrix multiplication, cache size and probably the sparsity pattern of matrices. In Table 2, we compare the performance of 1 core per node to that of using 4 cores per node, which mixes the effects of shared-memory and distributed-memory architectures. For small column block size (k = 1, 5), the use of multiple cores in a node is almost two times slower than the use of a single core in a node. For other column block sizes, it is still 30% slower. Finally, we ran CLIME-ADMM on 400 cores with one node per core and block size k = 500, and the entire computation took about 11 hours."
+    }, {
+      "heading" : "6 Conclusions",
+      "text" : "In this paper, we presented a large scale distributed framework for the estimation of sparse precision matrix using CLIME. Our framework can scale to millions of dimensions and run on hundreds of machines. The framework is based on inexact ADMM, which decomposes the constrained optimization problem into elementary matrix multiplications and elementwise operations. Convergence rates for both the objective and optimality conditions are established. The proposed framework solves the CLIME in column-blocks and uses block cyclic distribution to achieve load balancing. We evaluate our algorithm on both shared-memory and distributed-memory architectures. Experimental results show that our algorithm is substantially more scalable than state-of-the-art methods and scales almost linearly with the number of cores. The framework presented can be useful for a variety of other large scale constrained optimization problems and will be explored in future work."
+    }, {
+      "heading" : "Acknowledgment",
+      "text" : "H. W. and A. B. acknowledge the support of NSF via IIS-0953274, IIS-1029711, IIS- 0916750, IIS-0812183, and the technical support from the University of Minnesota Supercomputing Institute. H. W. acknowledges the support of DDF (2013-2014) from the University of Minnesota. C.-J.H. and I.S.D was supported by NSF grants CCF-1320746 and CCF-1117055. C.-J.H also acknowledge the support of IBM PhD fellowship. P.R. acknowledges the support of NSF via IIS-1149803, DMS1264033 and ARO via W911NF-12-1-0390."
+    } ],
+    "references" : [ {
+      "title" : "dAspremont. Model selection through sparse maximum likelihood estimation for multivariate Gaussian or binary data",
+      "author" : [ "O. Banerjee", "L.E. Ghaoui" ],
+      "venue" : null,
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : "1",
+      "year" : 2008
+    }, {
+      "title" : "Distributed optimization and statistical learning via the alternating direction method of multipliers",
+      "author" : [ "S. Boyd", "E. Chu N. Parikh", "B. Peleato", "J. Eckstein" ],
+      "venue" : "Foundation and Trends Machine Learning,",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 2011
+    }, {
+      "title" : "A constrained `1 minimization approach to sparse precision matrix estimation",
+      "author" : [ "T. Cai", "W. Liu", "X. Luo" ],
+      "venue" : "Journal of American Statistical Association,",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 2011
+    }, {
+      "title" : "Estimating sparse precision matrix: Optimal rates of convergence and adaptive estimation",
+      "author" : [ "T. Cai", "W. Liu", "H. Zhou" ],
+      "venue" : null,
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : "4",
+      "year" : 2012
+    }, {
+      "title" : "A new parallel matrix multiplication algorithm on distributed-memory concurrent computers",
+      "author" : [ "J. Choi" ],
+      "venue" : "In High Performance Computing on the Information Superhighway,",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : "5",
+      "year" : 1997
+    }, {
+      "title" : "Large scale distributed deep networks",
+      "author" : [ "J. Dean", "G. Corrado", "R. Monga", "K. Chen", "M. Devin", "Q. Le", "M. Mao", "M. Ranzato", "A. Senior", "P. Tucker", "K. Yang", "A.Y. Ng" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : "6",
+      "year" : 2012
+    }, {
+      "title" : "Map-Reduce: simplified data processing on large clusters",
+      "author" : [ "J. Dean", "S. Ghemawat" ],
+      "venue" : "In CACM,",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : "7",
+      "year" : 2008
+    }, {
+      "title" : "Model selection through sparse maximum likelihood estimation for multivariate gaussian or binary data",
+      "author" : [ "J. Friedman", "T. Hastie", "R. Tibshirani" ],
+      "venue" : null,
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : "8",
+      "year" : 2008
+    }, {
+      "title" : "Bethe-ADMM for tree decomposition based parallel MAP inference",
+      "author" : [ "Q. Fu", "H. Wang", "A. Banerjee" ],
+      "venue" : "In UAI,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 2013
+    }, {
+      "title" : "Molecular classication of cancer: class discovery and class prediction by gene expression monitoring",
+      "author" : [ "T.R. Golub", "D.K. Slonim", "P. Tamayo", "C. Huard", "M. Gaasenbeek", "J.P. Mesirov", "H. Coller", "M.L. Loh", "J.R. Downing", "M.A. Caligiuri", "C.D. Bloomfield" ],
+      "venue" : "Science, pages 531–537,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : "10",
+      "year" : 1999
+    }, {
+      "title" : "Highperformance implementation of the level-3 BLAS",
+      "author" : [ "K. Goto", "R. Van De Geijn" ],
+      "venue" : "ACM Transactions on Mathematical Software,",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 2008
+    }, {
+      "title" : "On non-ergodic convergence rate of Douglas-Rachford alternating direction method of multipliers",
+      "author" : [ "B. He", "X. Yuan" ],
+      "venue" : null,
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 2012
+    }, {
+      "title" : "A divide-and-conquer method for sparse inverse covariance estimation",
+      "author" : [ "C. Hsieh", "I. Dhillon", "P. Ravikumar", "A. Banerjee" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 2012
+    }, {
+      "title" : "Sparse inverse covariance matrix estimation using quadratic approximation",
+      "author" : [ "C. Hsieh", "M. Sustik", "I. Dhillon", "P. Ravikumar" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 2011
+    }, {
+      "title" : "The cache performance and optimization of blocked algorithms",
+      "author" : [ "M. Lam", "E. Rothberg", "M. Wolf" ],
+      "venue" : "In Architectural Support for Programming Languages and Operating Systems,",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : "16",
+      "year" : 1991
+    }, {
+      "title" : "An inexact interior point method for L1-reguarlized sparse covariance selection",
+      "author" : [ "L. Li", "K.-C. Toh" ],
+      "venue" : "Mathematical Programming Computation,",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : "17",
+      "year" : 2010
+    }, {
+      "title" : "An R package flare for high dimensional linear regression and precision matrix estimation",
+      "author" : [ "X. Li", "T. Zhao", "X. Yuan", "H. Liu" ],
+      "venue" : "http://cran.r-project.org/web/packages/flare,",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : "18",
+      "year" : 2013
+    }, {
+      "title" : "Tiger: A tuning-insensitive approach for optimally estimating Gaussian graphical models",
+      "author" : [ "H. Liu", "L. Wang" ],
+      "venue" : null,
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : "19",
+      "year" : 2012
+    }, {
+      "title" : "Distributed graphlab: A framework for machine learning in the cloud",
+      "author" : [ "Y. Low", "J. Gonzalez", "A. Kyrola", "D. Bickson", "C. Guestrin", "J. Hellerstein" ],
+      "venue" : "In VLDB,",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : "20",
+      "year" : 2012
+    }, {
+      "title" : "Exact covariance thresholding into connected components for large-scale graphical lasso",
+      "author" : [ "R. Mazumder", "T. Hastie" ],
+      "venue" : "JMLR, 13:723–736,",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : "21",
+      "year" : 2012
+    }, {
+      "title" : "Hogwild! a lock-free approach to parallelizing stochastic gradient descent",
+      "author" : [ "F. Niu", "B. Retcht", "C. Re", "S.J. Wright" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : "22",
+      "year" : 2011
+    }, {
+      "title" : "Graph projection block splitting for distributed optimization",
+      "author" : [ "N. Parikh", "S. Boyd" ],
+      "venue" : null,
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : "23",
+      "year" : 2012
+    }, {
+      "title" : "Large-scale deep unsupervised learning using graphics processors",
+      "author" : [ "R. Raina", "A. Madhavan", "A.Y. Ng" ],
+      "venue" : "In ICML,",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : "24",
+      "year" : 2009
+    }, {
+      "title" : "High-dimensional covariance estimation by minimizing l1-penalized log-determinant divergence",
+      "author" : [ "P. Ravikumar", "M.J. Wainwright", "G. Raskutti", "B. Yu" ],
+      "venue" : "Electronic Journal of Statistics,",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : "25",
+      "year" : 2011
+    }, {
+      "title" : "Online alternating direction method",
+      "author" : [ "H. Wang", "A. Banerjee" ],
+      "venue" : "In ICML,",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : "26",
+      "year" : 2012
+    }, {
+      "title" : "Alternating direction algorithms for L1-problems in compressive sensing",
+      "author" : [ "J. Yang", "Y. Zhang" ],
+      "venue" : "ArXiv,",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : "27",
+      "year" : 2009
+    }, {
+      "title" : "Sparse inverse covariance matrix estimation via linear programming",
+      "author" : [ "M. Yuan" ],
+      "venue" : null,
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : "28",
+      "year" : 2010
+    }, {
+      "title" : "Parallelized stochastic gradient descent",
+      "author" : [ "M. Zinkevich", "M. Weimer", "A. Smola", "L. Li" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "29",
+      "shortCiteRegEx" : "29",
+      "year" : 2010
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 26,
+      "context" : ", n p, especially when the true precision Ω0 is assumed to be sparse [28].",
+      "startOffset" : 69,
+      "endOffset" : 73
+    }, {
+      "referenceID" : 23,
+      "context" : "Suitable estimators and corresponding statistical convergence rates have been established for a variety of settings, including distributions with sub-Gaussian tails, polynomial tails [25, 3, 19].",
+      "startOffset" : 183,
+      "endOffset" : 194
+    }, {
+      "referenceID" : 2,
+      "context" : "Suitable estimators and corresponding statistical convergence rates have been established for a variety of settings, including distributions with sub-Gaussian tails, polynomial tails [25, 3, 19].",
+      "startOffset" : 183,
+      "endOffset" : 194
+    }, {
+      "referenceID" : 17,
+      "context" : "Suitable estimators and corresponding statistical convergence rates have been established for a variety of settings, including distributions with sub-Gaussian tails, polynomial tails [25, 3, 19].",
+      "startOffset" : 183,
+      "endOffset" : 194
+    }, {
+      "referenceID" : 3,
+      "context" : "Recent advances have also established parameter-free methods which achieve minimax rates of convergence [4, 19].",
+      "startOffset" : 104,
+      "endOffset" : 111
+    }, {
+      "referenceID" : 17,
+      "context" : "Recent advances have also established parameter-free methods which achieve minimax rates of convergence [4, 19].",
+      "startOffset" : 104,
+      "endOffset" : 111
+    }, {
+      "referenceID" : 0,
+      "context" : "Spurred by these advances in the statistical theory of precision matrix estimation, there has been considerable recent work on developing computationally efficient optimization methods for solving the corresponding statistical estimation problems: see [1, 8, 14, 21, 13], and references therein.",
+      "startOffset" : 252,
+      "endOffset" : 270
+    }, {
+      "referenceID" : 7,
+      "context" : "Spurred by these advances in the statistical theory of precision matrix estimation, there has been considerable recent work on developing computationally efficient optimization methods for solving the corresponding statistical estimation problems: see [1, 8, 14, 21, 13], and references therein.",
+      "startOffset" : 252,
+      "endOffset" : 270
+    }, {
+      "referenceID" : 13,
+      "context" : "Spurred by these advances in the statistical theory of precision matrix estimation, there has been considerable recent work on developing computationally efficient optimization methods for solving the corresponding statistical estimation problems: see [1, 8, 14, 21, 13], and references therein.",
+      "startOffset" : 252,
+      "endOffset" : 270
+    }, {
+      "referenceID" : 19,
+      "context" : "Spurred by these advances in the statistical theory of precision matrix estimation, there has been considerable recent work on developing computationally efficient optimization methods for solving the corresponding statistical estimation problems: see [1, 8, 14, 21, 13], and references therein.",
+      "startOffset" : 252,
+      "endOffset" : 270
+    }, {
+      "referenceID" : 12,
+      "context" : "Spurred by these advances in the statistical theory of precision matrix estimation, there has been considerable recent work on developing computationally efficient optimization methods for solving the corresponding statistical estimation problems: see [1, 8, 14, 21, 13], and references therein.",
+      "startOffset" : 252,
+      "endOffset" : 270
+    }, {
+      "referenceID" : 2,
+      "context" : "We focus on the CLIME statistical estimator [3], which solves the following linear program (LP):",
+      "startOffset" : 44,
+      "endOffset" : 47
+    }, {
+      "referenceID" : 2,
+      "context" : "The CLIME estimator not only has strong statistical guarantees [3], but also comes with inherent computational advantages.",
+      "startOffset" : 63,
+      "endOffset" : 66
+    }, {
+      "referenceID" : 2,
+      "context" : "This separable structure has motivated solvers for (1) which solve the LP column-by-column using interior point methods [3, 28] or the alternating direction method of multipliers (ADMM) [18].",
+      "startOffset" : 120,
+      "endOffset" : 127
+    }, {
+      "referenceID" : 26,
+      "context" : "This separable structure has motivated solvers for (1) which solve the LP column-by-column using interior point methods [3, 28] or the alternating direction method of multipliers (ADMM) [18].",
+      "startOffset" : 120,
+      "endOffset" : 127
+    }, {
+      "referenceID" : 16,
+      "context" : "This separable structure has motivated solvers for (1) which solve the LP column-by-column using interior point methods [3, 28] or the alternating direction method of multipliers (ADMM) [18].",
+      "startOffset" : 186,
+      "endOffset" : 190
+    }, {
+      "referenceID" : 1,
+      "context" : "In this paper, we present an efficient CLIME-ADMM variant along with a scalable distributed framework for the computations [2, 26].",
+      "startOffset" : 123,
+      "endOffset" : 130
+    }, {
+      "referenceID" : 24,
+      "context" : "In this paper, we present an efficient CLIME-ADMM variant along with a scalable distributed framework for the computations [2, 26].",
+      "startOffset" : 123,
+      "endOffset" : 130
+    }, {
+      "referenceID" : 25,
+      "context" : "First, we propose an inexact ADMM [27, 12] algorithm targeted to CLIME, where each step is either elementwise parallel or involves suitable matrix multiplications.",
+      "startOffset" : 34,
+      "endOffset" : 42
+    }, {
+      "referenceID" : 11,
+      "context" : "First, we propose an inexact ADMM [27, 12] algorithm targeted to CLIME, where each step is either elementwise parallel or involves suitable matrix multiplications.",
+      "startOffset" : 34,
+      "endOffset" : 42
+    }, {
+      "referenceID" : 4,
+      "context" : "However, as we show our CLIME-ADMM working with column-blocks uses matrixmatrix multiplications which, building on existing literature [15, 5, 11] and the underlying low rank and sparse structure inherent in the precision matrix estimation problem, can be made substantially more efficient than repeated matrix-vector multiplications.",
+      "startOffset" : 135,
+      "endOffset" : 146
+    }, {
+      "referenceID" : 10,
+      "context" : "However, as we show our CLIME-ADMM working with column-blocks uses matrixmatrix multiplications which, building on existing literature [15, 5, 11] and the underlying low rank and sparse structure inherent in the precision matrix estimation problem, can be made substantially more efficient than repeated matrix-vector multiplications.",
+      "startOffset" : 135,
+      "endOffset" : 146
+    }, {
+      "referenceID" : 14,
+      "context" : "Moreover, matrix multiplication can be further simplified as block-by-block operations, which allows choosing optimal block sizes to minimize cache misses, leading to high scalability and performance [16, 5, 15].",
+      "startOffset" : 200,
+      "endOffset" : 211
+    }, {
+      "referenceID" : 4,
+      "context" : "Moreover, matrix multiplication can be further simplified as block-by-block operations, which allows choosing optimal block sizes to minimize cache misses, leading to high scalability and performance [16, 5, 15].",
+      "startOffset" : 200,
+      "endOffset" : 211
+    }, {
+      "referenceID" : 27,
+      "context" : "Our framework can be positioned as a part of the recent surge of effort in scaling up machine learning algorithms [29, 22, 6, 7, 20, 2, 23, 9] to “Big Data”.",
+      "startOffset" : 114,
+      "endOffset" : 142
+    }, {
+      "referenceID" : 20,
+      "context" : "Our framework can be positioned as a part of the recent surge of effort in scaling up machine learning algorithms [29, 22, 6, 7, 20, 2, 23, 9] to “Big Data”.",
+      "startOffset" : 114,
+      "endOffset" : 142
+    }, {
+      "referenceID" : 5,
+      "context" : "Our framework can be positioned as a part of the recent surge of effort in scaling up machine learning algorithms [29, 22, 6, 7, 20, 2, 23, 9] to “Big Data”.",
+      "startOffset" : 114,
+      "endOffset" : 142
+    }, {
+      "referenceID" : 6,
+      "context" : "Our framework can be positioned as a part of the recent surge of effort in scaling up machine learning algorithms [29, 22, 6, 7, 20, 2, 23, 9] to “Big Data”.",
+      "startOffset" : 114,
+      "endOffset" : 142
+    }, {
+      "referenceID" : 18,
+      "context" : "Our framework can be positioned as a part of the recent surge of effort in scaling up machine learning algorithms [29, 22, 6, 7, 20, 2, 23, 9] to “Big Data”.",
+      "startOffset" : 114,
+      "endOffset" : 142
+    }, {
+      "referenceID" : 1,
+      "context" : "Our framework can be positioned as a part of the recent surge of effort in scaling up machine learning algorithms [29, 22, 6, 7, 20, 2, 23, 9] to “Big Data”.",
+      "startOffset" : 114,
+      "endOffset" : 142
+    }, {
+      "referenceID" : 21,
+      "context" : "Our framework can be positioned as a part of the recent surge of effort in scaling up machine learning algorithms [29, 22, 6, 7, 20, 2, 23, 9] to “Big Data”.",
+      "startOffset" : 114,
+      "endOffset" : 142
+    }, {
+      "referenceID" : 8,
+      "context" : "Our framework can be positioned as a part of the recent surge of effort in scaling up machine learning algorithms [29, 22, 6, 7, 20, 2, 23, 9] to “Big Data”.",
+      "startOffset" : 114,
+      "endOffset" : 142
+    }, {
+      "referenceID" : 20,
+      "context" : "Scaling up machine learning algorithms through parallelization and distribution has been heavily explored on various architectures, including shared-memory architectures [22], distributed memory architectures [23, 6, 9] and GPUs [24].",
+      "startOffset" : 170,
+      "endOffset" : 174
+    }, {
+      "referenceID" : 21,
+      "context" : "Scaling up machine learning algorithms through parallelization and distribution has been heavily explored on various architectures, including shared-memory architectures [22], distributed memory architectures [23, 6, 9] and GPUs [24].",
+      "startOffset" : 209,
+      "endOffset" : 219
+    }, {
+      "referenceID" : 5,
+      "context" : "Scaling up machine learning algorithms through parallelization and distribution has been heavily explored on various architectures, including shared-memory architectures [22], distributed memory architectures [23, 6, 9] and GPUs [24].",
+      "startOffset" : 209,
+      "endOffset" : 219
+    }, {
+      "referenceID" : 8,
+      "context" : "Scaling up machine learning algorithms through parallelization and distribution has been heavily explored on various architectures, including shared-memory architectures [22], distributed memory architectures [23, 6, 9] and GPUs [24].",
+      "startOffset" : 209,
+      "endOffset" : 219
+    }, {
+      "referenceID" : 22,
+      "context" : "Scaling up machine learning algorithms through parallelization and distribution has been heavily explored on various architectures, including shared-memory architectures [22], distributed memory architectures [23, 6, 9] and GPUs [24].",
+      "startOffset" : 229,
+      "endOffset" : 233
+    }, {
+      "referenceID" : 6,
+      "context" : "Since MapReduce [7] is not efficient for optimization algorithms, [6] proposed a parameter server that can be used to parallelize gradient descent algorithms for unconstrained optimization problems.",
+      "startOffset" : 16,
+      "endOffset" : 19
+    }, {
+      "referenceID" : 5,
+      "context" : "Since MapReduce [7] is not efficient for optimization algorithms, [6] proposed a parameter server that can be used to parallelize gradient descent algorithms for unconstrained optimization problems.",
+      "startOffset" : 66,
+      "endOffset" : 69
+    }, {
+      "referenceID" : 21,
+      "context" : "In other recent related work based on ADMM, [23] introduce graph projection block splitting (GPBS) to split data into blocks so that examples and features can be distributed among multiple cores.",
+      "startOffset" : 44,
+      "endOffset" : 48
+    }, {
+      "referenceID" : 14,
+      "context" : "Our framework uses a more general blocking scheme (block cyclic distribution), which provides more options in choosing the optimal block size to improve the efficiency in the use of memory hierarchies and minimize cache misses [16, 15, 5].",
+      "startOffset" : 227,
+      "endOffset" : 238
+    }, {
+      "referenceID" : 4,
+      "context" : "Our framework uses a more general blocking scheme (block cyclic distribution), which provides more options in choosing the optimal block size to improve the efficiency in the use of memory hierarchies and minimize cache misses [16, 15, 5].",
+      "startOffset" : 227,
+      "endOffset" : 238
+    }, {
+      "referenceID" : 8,
+      "context" : "ADMM has also been used to solve constrained optimization in a distributed framework [9] for graphical model inference, but they consider local constraints, in contrast to the global constraints in our framework.",
+      "startOffset" : 85,
+      "endOffset" : 88
+    }, {
+      "referenceID" : 1,
+      "context" : "ADMM yields the following iterates [2]: X = argminX ‖X‖1 + ρ",
+      "startOffset" : 35,
+      "endOffset" : 38
+    }, {
+      "referenceID" : 24,
+      "context" : "The proof technique is similar to [26].",
+      "startOffset" : 34,
+      "endOffset" : 38
+    }, {
+      "referenceID" : 11,
+      "context" : "[12] shows a similar result as Theorem 2 but uses a different proof technique.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 2,
+      "context" : "The statistical guarantees for CLIME [3], including convergence in spectral, matrix L1, and Frobenius norms, only require from the sample covariance matrix C a deviation bound of the form ‖C − Σ0‖∞ ≤ c √ log p/n, for some constant c.",
+      "startOffset" : 37,
+      "endOffset" : 40
+    }, {
+      "referenceID" : 19,
+      "context" : "Thus, in practice, even if sample covariance matrix is only close to a sparse matrix [21, 13], or if it is close to being block diagonal [21, 13], the complexity of matrix multiplication in steps 6 and 9 can be significantly reduced via the above perturbations.",
+      "startOffset" : 85,
+      "endOffset" : 93
+    }, {
+      "referenceID" : 12,
+      "context" : "Thus, in practice, even if sample covariance matrix is only close to a sparse matrix [21, 13], or if it is close to being block diagonal [21, 13], the complexity of matrix multiplication in steps 6 and 9 can be significantly reduced via the above perturbations.",
+      "startOffset" : 85,
+      "endOffset" : 93
+    }, {
+      "referenceID" : 19,
+      "context" : "Thus, in practice, even if sample covariance matrix is only close to a sparse matrix [21, 13], or if it is close to being block diagonal [21, 13], the complexity of matrix multiplication in steps 6 and 9 can be significantly reduced via the above perturbations.",
+      "startOffset" : 137,
+      "endOffset" : 145
+    }, {
+      "referenceID" : 12,
+      "context" : "Thus, in practice, even if sample covariance matrix is only close to a sparse matrix [21, 13], or if it is close to being block diagonal [21, 13], the complexity of matrix multiplication in steps 6 and 9 can be significantly reduced via the above perturbations.",
+      "startOffset" : 137,
+      "endOffset" : 145
+    }, {
+      "referenceID" : 21,
+      "context" : "Dividing matrices A,X evenly into r × c large consecutive blocks like [23] will lead to load imbalance.",
+      "startOffset" : 70,
+      "endOffset" : 74
+    }, {
+      "referenceID" : 12,
+      "context" : "We compare CLIME-ADMM with three other methods for estimating the inverse covariance matrix, including CLIME, Tiger in package flare1 and divide and conquer QUIC (DC-QUIC) [13].",
+      "startOffset" : 172,
+      "endOffset" : 176
+    }, {
+      "referenceID" : 13,
+      "context" : "For synthetic datasets, we generate the underlying graphs with random nonzero pattern by the same way as in [14].",
+      "startOffset" : 108,
+      "endOffset" : 112
+    }, {
+      "referenceID" : 17,
+      "context" : "As Tiger is parameter tuning free and achieves the minimax optimal rate [19], it achieves the best performance in terms of recall.",
+      "startOffset" : 72,
+      "endOffset" : 76
+    }, {
+      "referenceID" : 3,
+      "context" : "CLIME can also be free of parameter tuning and achieve the optimal minimax rate by solving an additional linear program which is similar to (1) [4].",
+      "startOffset" : 144,
+      "endOffset" : 147
+    }, {
+      "referenceID" : 2,
+      "context" : "We refer the readers to [3, 4, 19] for detailed comparisons between the two models CLIME and Tiger, which is not the focus of this paper.",
+      "startOffset" : 24,
+      "endOffset" : 34
+    }, {
+      "referenceID" : 3,
+      "context" : "We refer the readers to [3, 4, 19] for detailed comparisons between the two models CLIME and Tiger, which is not the focus of this paper.",
+      "startOffset" : 24,
+      "endOffset" : 34
+    }, {
+      "referenceID" : 17,
+      "context" : "We refer the readers to [3, 4, 19] for detailed comparisons between the two models CLIME and Tiger, which is not the focus of this paper.",
+      "startOffset" : 24,
+      "endOffset" : 34
+    }, {
+      "referenceID" : 9,
+      "context" : "Leukemia is gene expression data provided by [10], and the pre-processing was done by [17].",
+      "startOffset" : 45,
+      "endOffset" : 49
+    }, {
+      "referenceID" : 15,
+      "context" : "Leukemia is gene expression data provided by [10], and the pre-processing was done by [17].",
+      "startOffset" : 86,
+      "endOffset" : 90
+    }, {
+      "referenceID" : 12,
+      "context" : "Climate dataset is the temperature data in year 2001 recorded by NCEP/NCAR Reanalysis data2and preprocessed by [13].",
+      "startOffset" : 111,
+      "endOffset" : 115
+    }, {
+      "referenceID" : 2,
+      "context" : "The interior point method in [3] is written in R and extremely slow.",
+      "startOffset" : 29,
+      "endOffset" : 32
+    }, {
+      "referenceID" : 1,
+      "context" : "it does not scale well on the high dimensional dataset as CLIME-ADMM, which is mainly due to the fact that ADMM is not competitive with other methods on small problems but has superior scalability on big datasets [2].",
+      "startOffset" : 213,
+      "endOffset" : 216
+    } ],
+    "year" : 2013,
+    "abstractText" : "We consider the problem of sparse precision matrix estimation in high dimensions using the CLIME estimator, which has several desirable theoretical properties. We present an inexact alternating direction method of multiplier (ADMM) algorithm for CLIME, and establish rates of convergence for both the objective and optimality conditions. Further, we develop a large scale distributed framework for the computations, which scales to millions of dimensions and trillions of parameters, using hundreds of cores. The proposed framework solves CLIME in columnblocks and only involves elementwise operations and parallel matrix multiplications. We evaluate our algorithm on both shared-memory and distributed-memory architectures, which can use block cyclic distribution of data and parameters to achieve load balance and improve the efficiency in the use of memory hierarchies. Experimental results show that our algorithm is substantially more scalable than state-of-the-art methods and scales almost linearly with the number of cores.",
+    "creator" : null
+  }
+}

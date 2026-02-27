@@ -1,0 +1,68 @@
+Summary and relation to prior work
+This paper introduces Deep Attention Selective Networks (dasNet), a convolutional architecture augmented with internal selective attention via learned feedback connections. After training a standard Maxout CNN, the authors add multiplicative gates on feature maps that are adjusted over multiple passes on the same image. A deterministic policy maps observations (summaries of per-layer activations and current class probabilities) to gating actions; the policy parameters are learned by Separable Natural Evolution Strategies (SNES), optimizing a boosted log-likelihood objective that emphasizes misclassified examples. On CIFAR-10/100, dasNet improves over a strong Maxout baseline and reports state-of-the-art results for unaugmented test-time evaluation.
+
+The work is situated at the intersection of deep CNNs, recurrent processing, and attention. It is related to biologically inspired top-down modulation and recurrence (e.g., Lamme & Roelfsema; Bar; Wyatte et al.), and to RL-driven selective attention and “glimpse”-style models (e.g., Denil et al.; Larochelle & Hinton). The novelty here is to (i) apply internal, feature-map-level attention to a high-performing CNN, (ii) learn the feedback policy via NES/SNES in a million-parameter regime, and (iii) demonstrate measurable gains on CIFAR-10/100.
+
+Strengths
+- Clear and interesting idea: learned feedback that re-weights internal features across time to correct initial mistakes.
+- Technically straightforward augmentation of Maxout CNNs; integrates cleanly with existing architectures.
+- Strong empirical results on CIFAR-10/100 without test-time ensembling or multi-view augmentation.
+- Practical policy search with SNES for a very high-dimensional controller; the training procedure is simple to implement.
+
+Weaknesses and areas for improvement
+- Limited analysis/interpretability: the method largely remains a black box. The qualitative example (cat vs. dog) does not convincingly explain what the policy learns or how dynamics lead to corrections.
+- Ambiguity about the learning signal: the setup is closer to deterministic policy optimization for a recurrent system than to standard RL; the immediate “reward” is supervised cross-entropy at the final pass. This perspective and its implications are not fully explored.
+- Missing ablations: no comparison to simpler controllers (e.g., linear policy), gradient-based policy learning, or end-to-end BPTT through feedback.
+- Algorithmic details need clarification (indexing, definitions, gradient update, role of regularization).
+- Computational cost vs. gain not quantified (e.g., extra passes per image, wall-clock overhead, parameter counts).
+
+Quality
+- The approach is sound and the training objective is well motivated. The use of SNES is reasonable given the parameter count, though an empirical comparison to gradient-based policy training would be informative.
+- Claims are supported by CIFAR-10/100 results, and some dynamics analysis (performance vs. number of steps) is provided. However, deeper diagnostics are missing: convergence of gates, fixed points, stability, and per-layer contributions.
+- The “unaugmented” claim should be reconciled with the statement that the base Maxout model is trained with data augmentation. Please clarify whether “unaugmented” refers to test-time augmentation and/or ensemble averaging only.
+
+Clarity
+- The paper reads well overall, but several equations/algorithmic steps need fixing (see detailed comments below).
+- The policy/observation/action definitions are clear, but h(·) should be explicitly defined when introduced.
+- Figures would benefit from clearer legends and quantitative summaries (e.g., norms of gate changes per layer across time).
+
+Originality
+- Combining internal attention with a learned feedback controller at the feature-map level and training it via SNES at CIFAR scale is novel for the period, beyond earlier small-scale or toy demonstrations. The work advances the paradigm beyond purely feedforward CNNs.
+
+Significance
+- Demonstrates that learned recurrence/attention can yield measurable gains over strong feedforward baselines on standard benchmarks, likely to influence subsequent work on recurrent CNNs and learned top-down modulation.
+
+Specific suggestions and questions
+- Recurrent/dynamical-system viewpoint: Recast dasNet explicitly as a recurrent network unrolled over T steps, with a deterministic policy providing time-varying gains. Analyze stability (do gates converge/oscillate?), fixed points, and sensitivity (e.g., Jacobian of one step w.r.t. gates). Report statistics of gate distributions (per-layer means/variances, sparsity) and their correlation with correction success.
+- Interpretability: Beyond the single cat example, aggregate analyses on “difficult” cases would be valuable. For instances corrected by dasNet but misclassified by the base CNN, show (i) per-layer gate change norms vs. confidence change, (ii) which layers matter most, and (iii) whether gates focus or diffuse across time.
+- Ablations:
+  - Policy capacity: compare SNES-trained linear vs. one-hidden-layer policies; report performance vs. parameter count.
+  - Learning method: compare SNES to gradient-based training of the policy (e.g., backprop through time while freezing CNN).
+  - Observations: remove subsets of o (e.g., exclude ȳ or v) to assess which signals drive improvements.
+  - Actions: test alternative constraints (allow negative gates; remove softmax normalization) and report stability/accuracy.
+  - Number of steps: report accuracy and calibration vs. T and at test-time steps > T.
+- Baselines: Compare to a simple post-hoc logit corrector (e.g., a small MLP on v and ȳ only) with the same parameter budget; and to fine-tuning the base CNN with additional feedforward capacity matched to the controller’s parameter count.
+
+Minor comments and clarifications
+- Algorithm 1:
+  - Define h(M) explicitly when first used; it constructs the observation vector by concatenating per-map average activations, intermediate classification activations, and class probabilities.
+  - As written, F[i] and Θ[i] are updated inside the loop over images j; this suggests overwriting per image. Please clarify: typically fitness should be accumulated over the n images for each candidate θi, then a single F[i] recorded.
+- Equation indexing:
+  - Eq. 8 appears to define the loss for a single image; please index it by image j and timestep T (e.g., Lij). Then in Eq. 11, make explicit that f(θi) sums over j=1..n (the batch).
+  - After Eq. 11, clarify symbols: x is the input image; d is the correct class label (one-hot or index).
+- Regularization: Explain why L2 on θ is needed given sampling from N(μ, Σ). Is regularization applied to policy weights or to distribution parameters (μ)? State whether it improves generalization/stability and provide a sensitivity analysis.
+- SNES update: Briefly describe how the natural gradient of expected fitness w.r.t. μ and diagonal Σ is estimated from sampled θi and F[i], including learning rates and any fitness shaping used, or provide a precise pointer to the algorithmic variant employed in [19].
+- Scaling/invariance: Since actions are softmax-normalized to have mean 1, does a global scaling of all gates leave outputs invariant? If not, please discuss how normalization affects dynamics and stability, and why layer-1 activations increase on the first feedback iteration in Fig. 3.
+- Computational cost: Report training and inference overhead relative to the base CNN (T passes per image, controller forward cost), and the total parameter count added by the policy.
+
+Pros for acceptance
+- Novel and practically effective integration of learned feedback/attention into a strong CNN.
+- State-of-the-art results on CIFAR-10/100 (test-time unaugmented) with a clear training recipe.
+- Timely contribution highlighting the value of recurrence in deep vision models.
+
+Cons for acceptance
+- Limited interpretability and analysis of the learned dynamics; key algorithmic details need clarification.
+- Missing ablations and comparisons to simpler/gradient-based alternatives.
+- Computational trade-offs not fully quantified.
+
+Overall, this is a compelling and well-executed step toward recurrent, attention-driven deep vision models. With clearer algorithmic exposition and stronger analysis/ablations, the paper would make a valuable NIPS contribution.

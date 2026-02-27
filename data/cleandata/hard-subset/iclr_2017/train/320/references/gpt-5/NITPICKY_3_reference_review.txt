@@ -1,0 +1,53 @@
+Summary and contributions
+The paper tackles visual servoing by combining pre-trained deep visual features, a learned bilinear predictive model of feature dynamics, and a sample-efficient fitted Q-iteration (FQI) scheme that learns per-feature and per-scale weights for a one-step lookahead servoing controller. The contributions are: (1) using modified VGG features (with pooling removed and dilations) as spatially sensitive feature maps for servoing; (2) learning multi-scale bilinear dynamics over these features (linear in control), enabling analytic one-step predictions and quadratic control objectives; (3) a linear Q-function approximator tied to the servoing objective, enabling efficient FQI to learn feature weights and control regularization; (4) empirical evaluation on a synthetic quadrotor car-following benchmark, showing improved performance and claimed sample efficiency over pixel-based servoing, keypoint-based IBVS, and model-free RL baselines.
+
+Decision: Reject
+Key reasons:
+1) Empirical support and sample-efficiency claims are not convincing: the reinforcement learning uses only 20 trajectories, but the approach depends critically on a separate 10,000-sample dynamics dataset and fixed ImageNet features; comparisons to model-free methods do not control for this substantial extra supervision. Results are only in simulation, with missing statistical rigor and several crucial ablations absent.
+2) Technical clarity and consistency issues: ambiguities about which bilinear model is ultimately used for semantic features, the validity of using pre-trained VGG weights after architectural changes (pooling removal + dilation), the details of the constrained optimization in FQI (θ ≥ 0), and incomplete treatment of identifiability/scaling in the weighted objective. Numerous formatting and referencing problems further hinder assessment.
+
+Supporting arguments
+- Fairness of comparisons and sample efficiency:
+  - Dynamics are trained with 10,000 transitions (100 trajectories), plus access to large-scale pre-trained ImageNet features. The headline “20 trajectories” pertains only to the RL weighting, not total data. Model-free TRPO baselines must learn perception and control end-to-end without that auxiliary dynamics dataset. The claimed “two orders of magnitude” sample-efficiency advantage is therefore not apples-to-apples.
+  - The cost function uses ground-truth car pose during training (Appendix B). This privileged signal is not available to end-to-end baselines unless explicitly provided; how this affects learning efficiency is not discussed.
+  - No real-robot or real-world validation. Claims of robustness to occlusions/lighting/viewpoint are based solely on simulation.
+
+- Methodological clarity and consistency:
+  - Section 4.2 proposes both fully connected and locally connected bilinear dynamics. Later (C.2) the locally connected model is used only for pixels due to memory limits; which exact model is used for conv4_3 (the best-performing feature) is not crisply stated. This matters for reproducibility and for understanding performance/complexity trade-offs.
+  - The VGG modification removes pooling and introduces dilations but reuses original weights. This alters strides/receptive fields; the paper should justify why transferring weights from a different topology is valid, and whether any fine-tuning was performed (it appears not). A small ablation comparing original VGG vs modified-dilated (with/without fine-tuning) is needed.
+  - The weighted objective has scale non-identifiability between feature weights w and control penalties λ. The FQI step introduces a global scaling α and bias b, but it is unclear how non-negativity constraints (θ ≥ 0) are enforced in practice (projection? non-negative least squares?), and whether this yields stable, identifiable solutions. No sensitivity to ν (regularization) is reported.
+
+- Experimental reporting:
+  - Tables and figures referenced (e.g., Fig. 5–6, Table 1–6) are not present here; no standard deviations/confidence intervals; no statistical tests. It’s hard to assess robustness.
+  - Generalization to “novel cars” is promising but under-specified: how many novel models, how different from training, what texture/shape diversity, domain randomization, lighting/weather variation?
+  - The selection protocol “choose parameters that achieved the best performance on 10 validation trajectories” at each sampling iteration risks implicit overfitting; please clarify whether the same validation set was reused and how test-time leakage is avoided.
+  - Runtime: 16 Hz for conv4_3 policy vs 1 Hz C-COT tracker. Is this on GPU/CPU? What are hardware specs? Since VGG feature extraction dominates, alternatives (e.g., MobileNet/ResNet-18) could change conclusions.
+
+- Baselines:
+  - IBVS baselines use ground-truth depth; tracker baseline is given a ground-truth initial box. These are strong oracles, but still the method wins. However, the central claim is about data/sample efficiency vs deep RL; here, the advantage is confounded by the large auxiliary dynamics dataset and pre-trained features.
+  - Missing ablations: learned bilinear dynamics vs simple image-space warping/flow; learned weights vs uniform weights; effect of number of scales; conv layer choice; role of λ regularizers; removing ν; training with fewer dynamics samples.
+
+- Practicality:
+  - Training relies on cost derived from ground-truth pose; how would one obtain a dense supervisory signal in real-world servoing when only a goal image is provided?
+  - Policy uses the first frame as target image; discuss resilience if the initial view is imperfect or the target changes.
+
+- Formatting and citation issues:
+  - The bibliography contains numerous malformed entries (e.g., “?, \Q2015\E”), duplicate author tokens, missing venues/years, inconsistent styles. Footnotes are inlined; several typos and minor notational inconsistencies appear.
+
+Additional feedback to improve the paper
+- Recast the sample-efficiency narrative to separate: (i) data for learning dynamics, (ii) pre-training on ImageNet, and (iii) data for RL weighting. Provide controlled comparisons where model-free baselines are given access to the same 10k dynamics dataset (e.g., behavior cloning from the one-step controller) or where your method is restricted to the same total interaction budget.
+- Add ablations on: dynamics sample size (1k/5k/10k), ν regularization, number of scales, conv layer choice, locally vs fully connected bilinear models, and with/without modified VGG (pooling/dilation).
+- Report mean ± std (or 95% CI) over seeds, and include success rates/early termination stats.
+- Clarify and justify the VGG architectural modification and confirm whether any fine-tuning is performed.
+- Detail the solver for (5)–(6) with θ ≥ 0: optimization method, projection, convergence behavior.
+- Discuss how the training cost would be obtained in real deployments, and add a small real-world demo or sim-to-real stress test.
+
+Questions for the authors
+1) Which bilinear variant is used for the best-performing conv4_3 features in Section 6? Fully connected per-channel or locally connected? What is the parameter count and memory footprint?
+2) How exactly do you enforce θ ≥ 0 in (6)? Do you use NNLS, projected GD, or reparameterization (e.g., softplus)?
+3) Can you provide sensitivity curves for ν, number of scales L, and the choice of VGG layer?
+4) Did you fine-tune the VGG features after removing pooling and adding dilations? If not, why is transferring weights across a changed topology justified?
+5) Please decompose data usage: dynamics samples, RL samples, total environment steps. Can you match total environment interactions with TRPO and re-run the comparison?
+6) How is the training cost obtained in practice without access to ground-truth pose? Can your FQI be trained from sparse task rewards (e.g., distance threshold) or image-only metrics?
+7) How many “novel cars” are used, and what is the diversity in geometry/appearance/lighting? Any robustness to background changes or camera intrinsics perturbations?
+8) What hardware was used for the reported 16 Hz? CPU vs GPU? Could a lighter backbone achieve similar performance?

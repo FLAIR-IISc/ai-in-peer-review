@@ -1,0 +1,645 @@
+{
+  "name" : "1943102704f8f8f3302c2b730728e023.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "YASS: Yet Another Spike Sorter",
+    "authors" : [ "JinHyung Lee", "David Carlson", "Hooshmand Shokri", "Weichi Yao", "Georges Goetz", "Espen Hagen", "Eleanor Batty", "EJ Chichilnisky", "Gaute Einevoll", "Liam Paninski" ],
+    "emails" : [ ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "The analysis of large-scale multineuronal spike train data is crucial for current and future neuroscience research. These analyses are predicated on the existence of reliable and reproducible methods that feasibly scale to the increasing rate of data acquisition. A standard approach for collecting these data is to use dense multi-electrode array (MEA) recordings followed by “spike sorting” algorithms to turn the obtained raw electrical signals into spike trains.\nA crucial consideration going forward is the ability to scale to massive datasets: MEAs currently scale up to the order of 104 electrodes, but efforts are underway to increase this number to 106 electrodes1. At this scale any manual processing of the obtained data is infeasible. Therefore, automatic spike sorting for dense MEAs has enjoyed significant recent attention [15, 9, 51, 24, 36, 20, 33, 12]. Despite these efforts, spike sorting remains the major computational bottleneck in the scientific pipeline when using dense MEAs, due both to the high computational cost of the algorithms and the human time spent on manual postprocessing.\nTo accelerate progress on this critical scientific problem, our proposed methodology is guided by several main principles. First, robustness is critical, since hand-tuning and post-processing is not\n1DARPA Neural Engineering System Design program BAA-16-09\n31st Conference on Neural Information Processing Systems (NIPS 2017), Long Beach, CA, USA.\nAlgorithm 1 Pseudocode for the complete proposed pipeline. Input: time-series of electrophysiological data V 2 RT⇥C , locations 2 R3 [waveforms, timestamps] Detection(V) % (Section 2.2) % “Triage” noisy waveforms and collisions (Section 2.4): [cleanWaveforms, cleanTimestamps] Triage(waveforms, timestamps) % Build a set of representative waveforms and summary statistics (Section 2.5) [representativeWaveforms, sufficientStatistics] coresetConstruction(cleanWaveforms) % DP-GMM clustering via divide-and-conquer (Sections 2.6 and 2.7) [{representativeWaveforms\ni\n, sufficientStatistics i } i=1,... ]\nsplitIntoSpatialGroups(representativeWaveforms, sufficientStatistics, locations) for i=1,. . . do % Run efficient inference for the DP-GMM\n[clusterAssignments i ] SplitMergeDPMM(representativeWaveforms i , sufficientStatistics i )\nend for % Merge spatial neighborhoods and similar templates [allClusterAssignments, templates] mergeTemplates({clusterAssignments\ni\n} i=1,... , {representativeWaveforms i } i=1,...\n, locations) % Pursuit stage to recover collision and noisy waveforms [finalTimestamps, finalClusterAssignments] deconvolution(templates) return [finalTimestamps, finalClusterAssignments]\nfeasible at scale. Second, scalability is key. To feasibly process the oncoming data deluge, we use efficient data summarizations wherever possible and focus computational power on the “hard cases,” using cheap fast methods to handle easy cases. Next, the pipeline should be modular. Each stage in the pipeline has many potential feasible solutions, and the pipeline is improved by rapidly iterating and updating each stage as methodology develops further. Finally, prior information is leveraged as much as possible; we share information across neurons, electrodes, and experiments in order to extract information from the MEA datastream as efficiently as possible.\nWe will first outline the methodology that forms the core of our pipeline in Section 2.1, and then we demonstrate the improvements in performance on simulated data and a 512-electrode recording in Section 3. Further supporting results appear in the appendix."
+    }, {
+      "heading" : "2 Methods",
+      "text" : ""
+    }, {
+      "heading" : "2.1 Overview",
+      "text" : "The inputs to the pipeline are the band-pass filtered voltage recordings from all C electrodes and their spatial layout, and the end result of the pipeline is the set of K (where K is determined by the algorithm) binary neural spike trains, where a “1” in the time series reflects a neural action potential from the kth neuron at the corresponding time point. The voltage signals are spatially whitened prior to processing and are modeled as the superposition of action potentials and background Gaussian noise [12]. Spatial whitening is performed by removing potential spikes using amplitude thresholding and estimating the whitening filter under a Gaussianity assumption. Succinctly, the pipeline is a multistage procedure as follows: (i) detecting waveforms and extracting features, (ii) screening outliers and collided waveforms, (iii) clustering, and (iv) inferring missed and collided spikes. Pseudocode for the flow of the pipeline can be found in Algorithm 1. A brief overview is below, followed by additional details.\nOur overall strategy can be considered a hybrid of a matching pursuit approach (similar to that employed by [36]) and a classical clustering approach, generalized and adapted to the large dense MEA setting. Our guiding philosophy is that it is essential to properly handle “collisions” between simultaneous spikes [37, 12], since collisions distort the extracted feature space and hinder clustering. A typical approach to this issue utilizes matching pursuit methods (or other sparse deconvolution strategies), but these methods are relatively computationally expensive compared to clustering primitives. This led us to a “triage-then-cluster-then-pursuit” approach: we “triage” collided or overly noisy waveforms, putting them aside during the feature extraction and clustering stages, and later recover these spikes during a final “pursuit” or deconvolution stage. The triaging begins during the detection stage in Section 2.2, where we develop a neural network based detection method that\nsignificantly improves sensitivity and selectivity. For example, on a simulated 30 electrode dataset with low SNR, the new approach reduces false positives and collisions by 90% for the same rate of true positives. Furthermore, the neural network is significantly better at the alignment of signals, which improves the feature space and signal-to-noise power. The detected waveforms then are projected to a feature space and restricted to a local spatial subset of electrodes as in [24] in Section 2.3. Next, in Section 2.4 an outlier detection method further “triages” the detected waveforms and reduces false positives and collisions by an additional 70% while removing only a small percentage of real detections. All of these steps are achievable in nearly linear time. Simulations demonstrate that this large reduction in false positives and collisions dramatically improves accuracy and stability.\nFollowing the above steps, the remaining waveforms are partitioned into distinct neurons via clustering. Our clustering framework is based on the Dirichlet Process Gaussian Mixture Model (DP-GMM) approach [48, 9], and we modify existing inference techniques to improve scalability and performance. Succinctly, each neuron is represented by a distinct Gaussian distribution in the feature space. Directly calculating the clustering on all of the channels and all of the waveforms is computationally infeasible. Instead, the inference first utilizes the spatial locality via masking [24] from Section 2.3. Second, the inference procedure operates on a coreset of representative points [13] and the resulting approximate sufficient statistics are used in lieu of the full dataset (Section 2.5). Remarkably, we can reduce a dataset with 100k points to a coreset of ' 10k points with trivial accuracy loss. Next, split and merge methods are adapted to efficiently explore the clustering space [21, 24] in Section 2.6. Using these modern scalable inference techniques is crucial for robustness because they empirically find much more sensible and accurate optima and permit Bayesian characterization of posterior uncertainty.\nFor very large arrays, instead of operating on all channels simultaneously, each distinct spatial neighborhood is processed by a separate clustering algorithm that may be run in parallel. This parallelization is crucial for processing very large arrays because it allows greater utilization of computer resources (or multiple machines). It also helps improve the efficacy of the split-merge inference by limiting the search space. This divide-and-conquer approach and the post-processing to stitch the results together is discussed in Section 2.7. The computational time required for the clustering algorithm scales nearly linearly with the number of electrodes C and the experiment time.\nAfter the clustering stage is completed, the means of clusters are used as templates and collided and missed spikes are inferred using the deconvolution (or “pursuit” [37]) algorithm from Kilosort [36], which recovers the final set of binary spike trains. We limit this computationally expensive approach only to sections of the data that are not well handled by the rest of the pipeline, and use the faster clustering approach to fill in the well-explained (i.e. easy) sections.\nWe note finally that when memory is limited compared to the size of the dataset, the preprocessing, spike detection, and final deconvolution steps are performed on temporal minibatches of data; the other stages operate on significantly reduced data representations, so memory management issues typically do not arise here. See Section B.4 for further details on memory management."
+    }, {
+      "heading" : "2.2 Detection",
+      "text" : "The detection stage extracts temporal and spatial windows around action potentials from the noisy raw electrophysiological signal V to use as inputs in the following clustering stage. The number of clean waveform detections (true positives) should be maximized for a given level of detected collision and noise events (false positives). Because collisions corrupt feature spaces [37, 12] and will simply be recovered during pursuit stage, they are not included as true positives at this stage. In contrast to the plethora of prior work on hand-designed detection rules (detailed in Section C.1), we use a data-driven approach with neural networks to dramatically improve both detection efficacy and alignment quality. The neural network is trained to return only clean waveforms on real data, not collisions, so it de facto performs a preliminary triage prior to the main triage stage in Section 2.4.\nThe crux of the data-driven approach is the availability of prior training data. We are targeting the typical case that an experimental lab performs repeated experiments using the same recording setup from day to day. In this setting hand-curated or otherwise validated prior sorts are saved, resulting in abundant training data for a given experimental preparation. In the supplemental material, we discuss the construction of a training set (including data augmentation approaches) in Section C.2, the architecture and training of the network in Section C.3, the detection using the network in Section C.4, empirical performance in Section C.5, and scalability in Section C.5. This strategy is effective when\nthis training data exists; however, many research groups are currently using single electrodes and do not have dense MEA training data. Thus it is worth emphasizing that here we train the detector only on a single electrode. We have also experimented with training and evaluating on multiple electrodes with good success; however, these results are more specialized and are not shown here.\nA key result is that our neural network dramatically improves both the temporal and spatial alignment of detected waveforms. This improved alignment improves the fidelity of the feature space and the signal-to-noise power, and the result of the improved feature space can clearly be seen by comparing the detected waveform features from one standard detection approach (SpikeDetekt [24]) in Figure 1 (left) to the detected waveform features from our neural network in Figure 1 (middle). Note that the output of the neural net detection is remarkably more Gaussian compared to SpikeDetekt."
+    }, {
+      "heading" : "2.3 Feature Extraction and Mask Creation",
+      "text" : "Following detection we have a collection of N events defined as X n 2 RR⇥C for n = 1, . . . , N , each with an associated detection time t\nn . Recall that C is the total number of electrodes, and R is the number of time samples, in our case chosen to correspond to 1.5ms. Next features are extracted by using uncentered Principal Components Analysis (PCA) on each channel separately with P features per channel. Each waveform X\nn is transformed to the feature space Y n . To handle duplicate spikes, Y\nn is kept only if c n = argmax{||y nc || c2N\nc\nn\n}, where N c\nn contains all electrodes in the local neighborhood of electrode c\nn . To address the increasing dimensionality, spikes are localized by using the sparse masking vector {m\nn } 2 [0, 1]C method of [24], where the mask should be set to 1 only where the signal exists. The sparse vector reduces the dimensionality and facilitates sparse updates to improve computational efficiency. We give additional mathematical details in Supplemental Section D. We have also experimented with an autoencoder framework to standardize the feature extraction across channels and facilitate online inference. This approach performed similarly to PCA and is not shown here, but will be addressed in depth in future work."
+    }, {
+      "heading" : "2.4 Collision Screening and Outlier Triaging",
+      "text" : "Many collisions and outliers remain even after our improved detection algorithm. Because these events destabilize the clustering algorithms, the pipeline benefits from a “triage” stage to further screen collisions and noise events. Note that triaging out a small fraction of true positives is a minor concern at this stage because they will be recovered in the final deconvolution step.\nWe use a two-fold approach to perform this triaging. First, obvious collisions with nearly overlapping spike times and spatial locations are removed. Second, k-Nearest Neighbors (k-NN) is used to detect outliers in the masked feature space based on [27]. To develop a computationally efficient and effective approach, waveforms are grouped based on their primary (highest-energy) channel, and then k-NN is run for each channel. Empirically, these approximations do not suffer in efficacy compared to using the full spatial area. When the dimensionality of P , the number of features per channel, is low, a kd-tree can find neighbors in O(N logN) average time. We demonstrate that this method is effective for triaging false positives and collisions in Figure 1 (middle)."
+    }, {
+      "heading" : "2.5 Coreset Construction",
+      "text" : "“Big data” improves density estimates for clustering, but the cost per iteration naively scales with the amount of data. However, often data has some redundant features, and we can take advantage of these redundancies to create more efficient summarizations of the data. Then running the clustering algorithm on the summarized data should scale only with the number of summary points. By choosing representative points (or a “coreset\") carefully we can potentially describe huge datasets accurately with a relatively small number of points [19, 13, 2].\nThere is a sizable literature on the construction of coresets for clustering problems; however, the number of required representative points to satisfy the theoretical guarantees is infeasible in this problem domain. Instead, we propose a simple approach to build coresets that empirically outperforms existing approaches in our experiments by forcing adequate coverage of the complete dataset. We demonstrate in Supplemental Figure S6 that this approach can cover clusters completely missed by existing approaches, and show the chosen representative points on data in Figure 1 (right). This algorithm is based on recursively performing k-means; we provide pseudocode and additional details\nin in Supplemental Section E. The worst case time complexity is nearly linear with respect to the number of representative points, the number of detected spikes, and the number of channels. The algorithm ends by returning G representative points, their sufficient statistics, and masks."
+    }, {
+      "heading" : "2.6 Efficient Inference for the Dirichlet Process Gaussian Mixture Model",
+      "text" : "For the clustering step we use a Dirichlet Process Gaussian Mixture Model (DP-GMM) formulation, which has been previously used in spike sorting [48, 9], to adaptively choose the number of mixture components (visible neurons). In contrast to these prior approaches, here we adopt a Variational Bayesian split-merge approach to explore the clustering space [21] and to find a more robust and higher-likelihood optimum. We address the high computational cost of this approach with several key innovations. First, following [24], we fit a mixture model on the virtual masked data to exploit the localized nature of the data. Second, following [9, 24], the covariance structure is approximated as a block-diagonal to reduce the parameter space and computation. Finally, we adapted the methodology to work with the representative points (coreset) rather than the raw data, resulting in a highly scalable algorithm. A more complete description of this stage can be found in Supplemental Section F, with pseudocode in Supplemental Algorithm S2.\nIn terms of computational costs, the dominant cost per iteration in the DPMM algorithm is the calculation of data to cluster assignments, which in our framework will scale at O(Gm̄P 2K), where m̄ is the average number of channels maintained in the mask for each of the representative points, G is the number of representative points, and P is the number of features per channel. This is in stark contrast to a scaling of O(NC2P 2K + P 3) without our above modifications. Both K and G are expected to scale linearly with the number of electrodes and sublinearly with the length of the recording. Without further modification, the time complexity in the above clustering algorithm would depend on the square of the number of electrodes for each iteration; fortunately, this can be reduced to a linear dependency based on a divide-and-conquer approach discussed below in Section 2.7."
+    }, {
+      "heading" : "2.7 Divide and Conquer and Template Merging",
+      "text" : "Neural action potentials have a finite spatial extent [6]. Therefore, the spikes can be divided into distinct groups based on the geometry of the MEA and the local position of each neuron, and each group is then processed independently. Thus, each group can be processed in parallel, allowing for high data throughput. This is crucial for exploiting parallel computer resources and limited memory structures. Second, the split-and-merge approach in a DP-GMM is greatly hindered when the numbers of clusters is very high [21]. The proposed divide and conquer approach addresses this problem by greatly reducing the number of clusters within each subproblem, allowing the split and merge algorithm to be targeted and effective.\nTo divide the data based on the spatial location of each spike, the primary channel c n is determined for every point in the coreset based on the channel with maximum energy, and clustering is applied on each channel. Because neurons may now end up on multiple channels, it is necessary to merge templates from nearby channels as a post-clustering step. When the clustering is completed, the mean of each cluster is taken as a template. Because waveforms are limited to their primary channel, some neurons may have “overclustered” and have a distinct mixture component on distinct channels. Also, overclustering can occur from model mismatch (non-Gaussianity). Therefore, it is necessary to merge waveforms. Template merging is performed based on two criteria, the angle and the amplitude of templates, using the best alignment on all temporal shifts between two templates. The pseudocode to perform this merging is shown in Supplemental Algorithm S3. Additional details can be found in Supplemental Section G."
+    }, {
+      "heading" : "2.8 Recovering Triaged Waveforms and Collisions",
+      "text" : "After the previous steps, we apply matching pursuit [36] to recover triaged waveforms and collisions. We detail the available choices for this stage in Supplemental Section I."
+    }, {
+      "heading" : "3 Performance Comparison",
+      "text" : "We evaluate performance to compare several algorithms (detailed in Section 3.1) to our proposed methodology on both synthetic (Section 3.2) and real (Section 3.3) dense MEA recordings. For each synthetic dataset we evaluate the ability to capture ground truth in addition to the per-cluster stability metrics. For the ground truth, inferred clusters are matched with ground truth clusters via the Hungarian algorithm, and then the per-cluster accuracy is calculated as the number of assignments shared between the inferred cluster and the ground truth cluster over the total number of waveforms in the inferred cluster. For the per-cluster stability metric, we use the method from Section 3.3 of [5] with the rate scaling parameter of the Poisson processes set to 0.25. This method evaluates how robust individual clusters are to perturbations of the dataset. In addition, we provide runtime information to empirically evaluate the computational scaling of each approach. The CPU runtime was calculated on a single core of a six-core i7 machine with 32GB of RAM. GPU runtime is given from a Nvidia Titan X within the same machine."
+    }, {
+      "heading" : "3.1 Competing Algorithms",
+      "text" : "We compare our proposed pipeline to three recently proposed approaches for dense MEA spike sorting: KiloSort [36], Spyking Circus [51], and MountainSort [31]. Kilosort, Spyking Cricus, and MountainSort were downloaded on January 30, 2017, May 26th, 2017, and June 7th, 2017, respectively. We dub our algorithm Yet Another Spike Sorter (YASS). We discuss additional details on the relationships between these approaches and our pipeline in Supplemental Section I. All results are shown with no manual post-processing."
+    }, {
+      "heading" : "3.2 Synthetic Datasets",
+      "text" : "First, we used the biophysics-based spike activity generator ViSAPy [18] to generate multiple 30- channel datasets with different noise levels and collision rates. The detection network was trained on the ground truth from a low signal-to-noise level recording. Then, the trained neural network is applied to all signal-to-noise levels. The neural network dramatically outperforms existing detection methodologies on these datasets. For a given level of true positives, the number of false positives can be reduced by an order of magnitude. The properties of the learned network are shown in Supplemental Figures S4 and S5.\nPerformance is evaluated on the known ground truth. For each level of accuracy, the number of clusters that pass that threshold is calculated to demonstrate the relative quality of the competing\nalgorithms on this dataset. Empirically, our pipeline (YASS) outperforms other methods. This is especially true in low SNR settings, as shown in Figure 2. The per-cluster stability metric is also shown in Figure 2. The stability result demonstrates that YASS has significantly fewer low-quality clusters than competing methods."
+    }, {
+      "heading" : "3.3 Real Datasets",
+      "text" : "To examine real data, we focused on 30 minutes of extracellular recordings of the peripheral primate retina, obtained ex-vivo using a high-density 512-channel recording array [30]. The half-hour recording was taken while the retina was stimulated with spatiotemporal white noise. A “gold standard\" sort was constructed for this dataset by extensive hand validation of automated techniques, as detailed in Supplemental Section H. Nonstationarity effects (time-evolution of waveform shapes) were found to be minimal in this recording (data not shown).\nWe evaluate the performance of YASS and competing algorithms using 4 distinct sets of 49 spatially contiguous electrodes. Note that the gold standard sort here uses the information from the full 512-electrode array, while we examine the more difficult problem of sorting the 49-electrode data; we have less information about the cells near the edges of this 49-electrode subset, allowing us to quantify the performance of the algorithms over a range of effective SNR levels. By comparing the inferred results to the gold standard, the cluster-specific true positives are determined in addition to the stability metric. The results are shown in Figure 3 for one of the four sets of electrodes, and the remaining three sets are shown in Supplemental Section B.1. As in the simulated data, compared to KiloSort, which had the second-best overall performance on this dataset, YASS has dramatically fewer low-stability clusters.\nFinally, we evaluate the time required for each step in the YASS pipeline (Table 1). Importantly, we found that YASS is highly robust to data limitations: as shown in Supplemental Figure S3 and Section B.3, using only a fraction of the 30 minute dataset has only a minor impact on performance. We exploit this to speed up the pipeline. Remarkably, running primarily on a single CPU core (only the detect step utilizes a GPU here), YASS achieves a several-fold speedup in template and cluster estimation compared to the next fastest competitor2, Kilosort, which was run in full GPU mode and spent about 30 minutes on this dataset. We plan to further parallelize and GPU-ize the remaining steps in our pipeline next, and expect to achieve significant further speedups."
+    }, {
+      "heading" : "4 Conclusion",
+      "text" : "YASS has demonstrated state-of-the-art performance in accuracy, stability, and computational efficiency; we believe the tools presented here will have a major practical and scientific impact in large-scale neuroscience. In our future work, we plan to continue iteratively updating our modular pipeline to better handle template drift, refractory violations, and dense collisions.\nLastly, YASS is available online at https://github.com/paninski-lab/yass\n2Spyking Circus took over a day to process this dataset. Assuming linear scaling based on smaller-scale experiments, Mountainsort is expected to take approximately 10 hours."
+    }, {
+      "heading" : "Acknowledgements",
+      "text" : "This work was partially supported by NSF grants IIS-1546296 and IIS-1430239, and DARPA Contract No. N66001-17-C-4002."
+    } ],
+    "references" : [ {
+      "title" : "k-means++: The advantages of careful seeding",
+      "author" : [ "D. Arthur", "S. Vassilvitskii" ],
+      "venue" : "In ACM-SIAM Symposium on Discrete Algorithms. Society for Industrial and Applied Mathematics,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : "1",
+      "year" : 2007
+    }, {
+      "title" : "Coresets for nonparametric estimation-the case of dp-means",
+      "author" : [ "O. Bachem", "M. Lucic", "A. Krause" ],
+      "venue" : "In ICML,",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 2015
+    }, {
+      "title" : "Scalable k-means++",
+      "author" : [ "B. Bahmani", "B. Moseley", "A. Vattani", "R. Kumar", "S. Vassilvitskii" ],
+      "venue" : "Proceedings of the VLDB Endowment,",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 2012
+    }, {
+      "title" : "Optimal detection, classification, and superposition resolution in neural waveform recordings",
+      "author" : [ "I.N. Bankman", "K.O. Johnson", "W. Schneider" ],
+      "venue" : "IEEE Trans. Biomed. Eng",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : "4",
+      "year" : 1993
+    }, {
+      "title" : "Validation of neural spike sorting algorithms without ground-truth information",
+      "author" : [ "A.H. Barnett", "J.F. Magland", "L.F. Greengard" ],
+      "venue" : "J. Neuro",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : "5",
+      "year" : 2016
+    }, {
+      "title" : "Large-scale recording of neuronal ensembles",
+      "author" : [ "G. Buzsáki" ],
+      "venue" : "Nature neuroscience,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : "6",
+      "year" : 2004
+    }, {
+      "title" : "Streaming, Distributed Variational Inference for Bayesian Nonparametrics",
+      "author" : [ "T. Campbell", "J. Straub", "J.W.F. III", "J.P. How" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : "7",
+      "year" : 2015
+    }, {
+      "title" : "Real-Time Inference for a Gamma Process Model of Neural Spiking",
+      "author" : [ "D. Carlson", "V. Rao", "J. Vogelstein", "L. Carin" ],
+      "venue" : null,
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : "8",
+      "year" : 2013
+    }, {
+      "title" : "Multichannel electrophysiological spike sorting via joint dictionary learning and mixture modeling",
+      "author" : [ "D.E. Carlson", "J.T. Vogelstein", "Q. Wu", "W. Lian", "M. Zhou", "C.R. Stoetzner", "D. Kipke", "D. Weber", "D.B. Dunson", "L. Carin" ],
+      "venue" : "IEEE TBME,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 2014
+    }, {
+      "title" : "On the analysis of multi-channel neural spike data",
+      "author" : [ "B. Chen", "D.E. Carlson", "L. Carin" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : "10",
+      "year" : 2011
+    }, {
+      "title" : "Fireworks in the primate retina: in vitro photodynamics reveals diverse lgn-projecting ganglion cell",
+      "author" : [ "D.M. Dacey", "B.B. Peterson", "F.R. Robinson", "P.D. Gamlin" ],
+      "venue" : null,
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 2003
+    }, {
+      "title" : "A unified framework and method for automatic neural spike identification",
+      "author" : [ "C. Ekanadham", "D. Tranchina", "E.P. Simoncelli" ],
+      "venue" : "J. Neuro. Methods",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 2014
+    }, {
+      "title" : "Scalable training of mixture models via coresets",
+      "author" : [ "D. Feldman", "M. Faulkner", "A. Krause" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 2011
+    }, {
+      "title" : "Consensus-based sorting of neuronal spike waveforms",
+      "author" : [ "J. Fournier", "C.M. Mueller", "M. Shein-Idelson", "M. Hemberger", "G. Laurent" ],
+      "venue" : "PloS one,",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 2016
+    }, {
+      "title" : "An online spike detection and spike classification algorithm capable of instantaneous resolution of overlapping spikes",
+      "author" : [ "F. Franke", "M. Natora", "C. Boucsein", "M.H.J. Munk", "K. Obermayer" ],
+      "venue" : "J. Comp. Neuro",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : "15",
+      "year" : 2010
+    }, {
+      "title" : "Spike Sorting: The first step in decoding the brain",
+      "author" : [ "S. Gibson", "J.W. Judy", "D. Markovi" ],
+      "venue" : "IEEE Signal Processing Magazine,",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : "16",
+      "year" : 2012
+    }, {
+      "title" : "Deep learning",
+      "author" : [ "I. Goodfellow", "Y. Bengio", "A. Courville" ],
+      "venue" : null,
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : "17",
+      "year" : 2016
+    }, {
+      "title" : "ViSAPy: a Python tool for biophysics-based generation of virtual spiking activity for evaluation of spike-sorting algorithms",
+      "author" : [ "E. Hagen", "T.V. Ness", "A. Khosrowshahi", "C. Sørensen", "M. Fyhn", "T. Hafting", "F. Franke", "G.T. Einevoll" ],
+      "venue" : "J. Neuro. Methods",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : "18",
+      "year" : 2015
+    }, {
+      "title" : "On coresets for k-means and k-median clustering",
+      "author" : [ "S. Har-Peled", "S. Mazumdar" ],
+      "venue" : "In ACM Theory of Computing",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : "19",
+      "year" : 2004
+    }, {
+      "title" : "Unsupervised spike sorting for large scale, high density multielectrode arrays",
+      "author" : [ "G. Hilgen", "M. Sorbaro", "S. Pirmoradian", "J.-O. Muthmann", "I. Kepiro", "S. Ullo", "C.J. Ramirez", "A. Maccione", "L. Berdondini", "V. Murino" ],
+      "venue" : "Cell Reports,",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : "20",
+      "year" : 2017
+    }, {
+      "title" : "Memoized Online Variational Inference for Dirichlet Process Mixture Models",
+      "author" : [ "M.C. Hughes", "E. Sudderth" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : "21",
+      "year" : 2013
+    }, {
+      "title" : "Gibbs sampling methods for stick-breaking priors",
+      "author" : [ "H. Ishwaran", "L.F. James" ],
+      "venue" : "JASA,",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : "22",
+      "year" : 2001
+    }, {
+      "title" : "Real-time spike sorting platform for high-density extracellular probes with ground-truth validation and drift correction",
+      "author" : [ "J.J. Jun", "C. Mitelut", "C. Lai", "S. Gratiy", "C. Anastassiou", "T.D. Harris" ],
+      "venue" : "bioRxiv,",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : "23",
+      "year" : 2017
+    }, {
+      "title" : "High-dimensional cluster analysis with the masked EM algorithm",
+      "author" : [ "S.N. Kadir", "D.F.M. Goodman", "K.D. Harris" ],
+      "venue" : "Neural computation",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : "24",
+      "year" : 2014
+    }, {
+      "title" : "Neural spike sorting under nearly 0-db signal-to-noise ratio using nonlinear energy operator and artificial neural-network classifier",
+      "author" : [ "K.H. Kim", "S.J. Kim" ],
+      "venue" : "IEEE TBME,",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : "25",
+      "year" : 2000
+    }, {
+      "title" : "Adam: A method for stochastic optimization",
+      "author" : [ "D. Kingma", "J. Ba" ],
+      "venue" : "ICLR,",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : "26",
+      "year" : 2015
+    }, {
+      "title" : "Algorithms for mining distance-based outliers in large datasets",
+      "author" : [ "E.M. Knox", "R.T. Ng" ],
+      "venue" : "In VLDB. Citeseer,",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : "27",
+      "year" : 1998
+    }, {
+      "title" : "Inferring sparse representations of continuous signals with continuous orthogonal matching pursuit",
+      "author" : [ "K.C. Knudson", "J. Yates", "A. Huk", "J.W. Pillow" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : "28",
+      "year" : 2014
+    }, {
+      "title" : "A review of methods for spike sorting: the detection and classification of neural action potentials",
+      "author" : [ "M.S. Lewicki" ],
+      "venue" : "Network: Computation in Neural Systems,",
+      "citeRegEx" : "29",
+      "shortCiteRegEx" : "29",
+      "year" : 1998
+    }, {
+      "title" : "What does the eye tell the brain?: Development of a system for the large-scale recording of retinal output activity",
+      "author" : [ "A. Litke", "N. Bezayiff", "E. Chichilnisky", "W. Cunningham", "W. Dabrowski", "A. Grillo", "M. Grivich", "P. Grybos", "P. Hottowy", "S. Kachiguine" ],
+      "venue" : "IEEE Trans. Nuclear Science,",
+      "citeRegEx" : "30",
+      "shortCiteRegEx" : "30",
+      "year" : 2004
+    }, {
+      "title" : "Unimodal clustering using isotonic regression: Iso-split",
+      "author" : [ "J.F. Magland", "A.H. Barnett" ],
+      "venue" : "arXiv preprint arXiv:1508.04841,",
+      "citeRegEx" : "31",
+      "shortCiteRegEx" : "31",
+      "year" : 2015
+    }, {
+      "title" : "A new interpretation of nonlinear energy operator and its efficacy in spike detection",
+      "author" : [ "S. Mukhopadhyay", "G.C. Ray" ],
+      "venue" : "IEEE TBME",
+      "citeRegEx" : "32",
+      "shortCiteRegEx" : "32",
+      "year" : 1998
+    }, {
+      "title" : "Spike detection for large neural populations using high density multielectrode arrays",
+      "author" : [ "J.-O. Muthmann", "H. Amin", "E. Sernagor", "A. Maccione", "D. Panas", "L. Berdondini", "U.S. Bhalla", "M.H. Hennig" ],
+      "venue" : "Frontiers in neuroinformatics,",
+      "citeRegEx" : "33",
+      "shortCiteRegEx" : "33",
+      "year" : 2015
+    }, {
+      "title" : "Markov chain sampling methods for dirichlet process mixture models",
+      "author" : [ "R.M. Neal" ],
+      "venue" : "Journal of computational and graphical statistics,",
+      "citeRegEx" : "34",
+      "shortCiteRegEx" : "34",
+      "year" : 2000
+    }, {
+      "title" : "Fast and accurate spike sorting of high-channel count probes with kilosort",
+      "author" : [ "M. Pachitariu", "N.A. Steinmetz", "S.N. Kadir", "M. Carandini", "K.D. Harris" ],
+      "venue" : null,
+      "citeRegEx" : "36",
+      "shortCiteRegEx" : "36",
+      "year" : 2016
+    }, {
+      "title" : "A model-based spike sorting algorithm for removing correlation artifacts in multi-neuron recordings",
+      "author" : [ "J.W. Pillow", "J. Shlens", "E.J. Chichilnisky", "E.P. Simoncelli" ],
+      "venue" : null,
+      "citeRegEx" : "37",
+      "shortCiteRegEx" : "37",
+      "year" : 2013
+    }, {
+      "title" : "Unsupervised spike detection and sorting with wavelets and superparamagnetic clustering",
+      "author" : [ "R.Q. Quiroga", "Z. Nadasdy", "Y. Ben-Shaul" ],
+      "venue" : "Neural computation",
+      "citeRegEx" : "38",
+      "shortCiteRegEx" : "38",
+      "year" : 2004
+    }, {
+      "title" : "Past, present and future of spike sorting techniques",
+      "author" : [ "H.G. Rey", "C. Pedreira", "R.Q. Quiroga" ],
+      "venue" : "Brain research bulletin,",
+      "citeRegEx" : "39",
+      "shortCiteRegEx" : "39",
+      "year" : 2015
+    }, {
+      "title" : "Clustering by fast search and find of density peaks",
+      "author" : [ "A. Rodriguez", "A. Laio" ],
+      "venue" : null,
+      "citeRegEx" : "40",
+      "shortCiteRegEx" : "40",
+      "year" : 2014
+    }, {
+      "title" : "Computer separation of multi-unit neuroelectric data: a review",
+      "author" : [ "E.M. Schmidt" ],
+      "venue" : "J. Neuro. Methods",
+      "citeRegEx" : "41",
+      "shortCiteRegEx" : "41",
+      "year" : 1984
+    }, {
+      "title" : "Depth-first search and linear graph algorithms",
+      "author" : [ "R. Tarjan" ],
+      "venue" : "SIAM journal on computing,",
+      "citeRegEx" : "42",
+      "shortCiteRegEx" : "42",
+      "year" : 1972
+    }, {
+      "title" : "Statistical modelling of spike libraries for simulation of extracellular recordings in the cerebellum",
+      "author" : [ "P.T. Thorbergsson", "M. Garwicz", "J. Schouenborg", "A.J. Johansson" ],
+      "venue" : "In IEEE EMBC. IEEE,",
+      "citeRegEx" : "43",
+      "shortCiteRegEx" : "43",
+      "year" : 2010
+    }, {
+      "title" : "Automatic Spike Sorting Using Tuning Information",
+      "author" : [ "V. Ventura" ],
+      "venue" : "Neural Computation,",
+      "citeRegEx" : "44",
+      "shortCiteRegEx" : "44",
+      "year" : 2009
+    }, {
+      "title" : "Spike sorting with support vector machines",
+      "author" : [ "R.J. Vogelstein", "K. Murari", "P.H. Thakur", "C. Diehl", "S. Chakrabartty", "G. Cauwenberghs" ],
+      "venue" : "In IEEE EMBS,",
+      "citeRegEx" : "45",
+      "shortCiteRegEx" : "45",
+      "year" : 2004
+    }, {
+      "title" : "Fast bayesian inference in dirichlet process mixture models",
+      "author" : [ "L. Wang", "D.B. Dunson" ],
+      "venue" : "J. Comp. and Graphical Stat.,",
+      "citeRegEx" : "46",
+      "shortCiteRegEx" : "46",
+      "year" : 2011
+    }, {
+      "title" : "Wavelet filtering before spike detection preserves waveform shape and enhances single-unit discrimination",
+      "author" : [ "A.B. Wiltschko", "G.J. Gage", "J.D. Berke" ],
+      "venue" : "J. Neuro. Methods,",
+      "citeRegEx" : "47",
+      "shortCiteRegEx" : "47",
+      "year" : 2008
+    }, {
+      "title" : "A nonparametric bayesian alternative to spike sorting",
+      "author" : [ "F. Wood", "M.J. Black" ],
+      "venue" : "J. Neuro. Methods,",
+      "citeRegEx" : "48",
+      "shortCiteRegEx" : "48",
+      "year" : 2008
+    }, {
+      "title" : "On the variability of manual spike sorting",
+      "author" : [ "F. Wood", "M.J. Black", "C. Vargas-Irwin", "M. Fellows", "J.P. Donoghue" ],
+      "venue" : "IEEE TBME",
+      "citeRegEx" : "49",
+      "shortCiteRegEx" : "49",
+      "year" : 2004
+    }, {
+      "title" : "A totally automated system for the detection and classification of neural spikes",
+      "author" : [ "X. Yang", "S.A. Shamma" ],
+      "venue" : "IEEE Trans. Biomed. Eng",
+      "citeRegEx" : "50",
+      "shortCiteRegEx" : "50",
+      "year" : 1988
+    }, {
+      "title" : "Fast and accurate spike sorting in vitro and in vivo for up to thousands of electrodes",
+      "author" : [ "P. Yger", "G.L. Spampinato", "E. Esposito", "B. Lefebvre", "S. Deny", "C. Gardella", "M. Stimberg", "F. Jetter", "G. Zeck", "S. Picaud" ],
+      "venue" : "bioRxiv,",
+      "citeRegEx" : "51",
+      "shortCiteRegEx" : "51",
+      "year" : 2016
+    }, {
+      "title" : "Self-tuning spectral clustering",
+      "author" : [ "L. Zelnik-Manor", "P. Perona" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "52",
+      "shortCiteRegEx" : "52",
+      "year" : 2004
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 14,
+      "context" : "Therefore, automatic spike sorting for dense MEAs has enjoyed significant recent attention [15, 9, 51, 24, 36, 20, 33, 12].",
+      "startOffset" : 91,
+      "endOffset" : 122
+    }, {
+      "referenceID" : 8,
+      "context" : "Therefore, automatic spike sorting for dense MEAs has enjoyed significant recent attention [15, 9, 51, 24, 36, 20, 33, 12].",
+      "startOffset" : 91,
+      "endOffset" : 122
+    }, {
+      "referenceID" : 49,
+      "context" : "Therefore, automatic spike sorting for dense MEAs has enjoyed significant recent attention [15, 9, 51, 24, 36, 20, 33, 12].",
+      "startOffset" : 91,
+      "endOffset" : 122
+    }, {
+      "referenceID" : 23,
+      "context" : "Therefore, automatic spike sorting for dense MEAs has enjoyed significant recent attention [15, 9, 51, 24, 36, 20, 33, 12].",
+      "startOffset" : 91,
+      "endOffset" : 122
+    }, {
+      "referenceID" : 34,
+      "context" : "Therefore, automatic spike sorting for dense MEAs has enjoyed significant recent attention [15, 9, 51, 24, 36, 20, 33, 12].",
+      "startOffset" : 91,
+      "endOffset" : 122
+    }, {
+      "referenceID" : 19,
+      "context" : "Therefore, automatic spike sorting for dense MEAs has enjoyed significant recent attention [15, 9, 51, 24, 36, 20, 33, 12].",
+      "startOffset" : 91,
+      "endOffset" : 122
+    }, {
+      "referenceID" : 32,
+      "context" : "Therefore, automatic spike sorting for dense MEAs has enjoyed significant recent attention [15, 9, 51, 24, 36, 20, 33, 12].",
+      "startOffset" : 91,
+      "endOffset" : 122
+    }, {
+      "referenceID" : 11,
+      "context" : "Therefore, automatic spike sorting for dense MEAs has enjoyed significant recent attention [15, 9, 51, 24, 36, 20, 33, 12].",
+      "startOffset" : 91,
+      "endOffset" : 122
+    }, {
+      "referenceID" : 11,
+      "context" : "The voltage signals are spatially whitened prior to processing and are modeled as the superposition of action potentials and background Gaussian noise [12].",
+      "startOffset" : 151,
+      "endOffset" : 155
+    }, {
+      "referenceID" : 34,
+      "context" : "Our overall strategy can be considered a hybrid of a matching pursuit approach (similar to that employed by [36]) and a classical clustering approach, generalized and adapted to the large dense MEA setting.",
+      "startOffset" : 108,
+      "endOffset" : 112
+    }, {
+      "referenceID" : 35,
+      "context" : "Our guiding philosophy is that it is essential to properly handle “collisions” between simultaneous spikes [37, 12], since collisions distort the extracted feature space and hinder clustering.",
+      "startOffset" : 107,
+      "endOffset" : 115
+    }, {
+      "referenceID" : 11,
+      "context" : "Our guiding philosophy is that it is essential to properly handle “collisions” between simultaneous spikes [37, 12], since collisions distort the extracted feature space and hinder clustering.",
+      "startOffset" : 107,
+      "endOffset" : 115
+    }, {
+      "referenceID" : 23,
+      "context" : "The detected waveforms then are projected to a feature space and restricted to a local spatial subset of electrodes as in [24] in Section 2.",
+      "startOffset" : 122,
+      "endOffset" : 126
+    }, {
+      "referenceID" : 46,
+      "context" : "Our clustering framework is based on the Dirichlet Process Gaussian Mixture Model (DP-GMM) approach [48, 9], and we modify existing inference techniques to improve scalability and performance.",
+      "startOffset" : 100,
+      "endOffset" : 107
+    }, {
+      "referenceID" : 8,
+      "context" : "Our clustering framework is based on the Dirichlet Process Gaussian Mixture Model (DP-GMM) approach [48, 9], and we modify existing inference techniques to improve scalability and performance.",
+      "startOffset" : 100,
+      "endOffset" : 107
+    }, {
+      "referenceID" : 23,
+      "context" : "Instead, the inference first utilizes the spatial locality via masking [24] from Section 2.",
+      "startOffset" : 71,
+      "endOffset" : 75
+    }, {
+      "referenceID" : 12,
+      "context" : "Second, the inference procedure operates on a coreset of representative points [13] and the resulting approximate sufficient statistics are used in lieu of the full dataset (Section 2.",
+      "startOffset" : 79,
+      "endOffset" : 83
+    }, {
+      "referenceID" : 20,
+      "context" : "Next, split and merge methods are adapted to efficiently explore the clustering space [21, 24] in Section 2.",
+      "startOffset" : 86,
+      "endOffset" : 94
+    }, {
+      "referenceID" : 23,
+      "context" : "Next, split and merge methods are adapted to efficiently explore the clustering space [21, 24] in Section 2.",
+      "startOffset" : 86,
+      "endOffset" : 94
+    }, {
+      "referenceID" : 35,
+      "context" : "After the clustering stage is completed, the means of clusters are used as templates and collided and missed spikes are inferred using the deconvolution (or “pursuit” [37]) algorithm from Kilosort [36], which recovers the final set of binary spike trains.",
+      "startOffset" : 167,
+      "endOffset" : 171
+    }, {
+      "referenceID" : 34,
+      "context" : "After the clustering stage is completed, the means of clusters are used as templates and collided and missed spikes are inferred using the deconvolution (or “pursuit” [37]) algorithm from Kilosort [36], which recovers the final set of binary spike trains.",
+      "startOffset" : 197,
+      "endOffset" : 201
+    }, {
+      "referenceID" : 35,
+      "context" : "Because collisions corrupt feature spaces [37, 12] and will simply be recovered during pursuit stage, they are not included as true positives at this stage.",
+      "startOffset" : 42,
+      "endOffset" : 50
+    }, {
+      "referenceID" : 11,
+      "context" : "Because collisions corrupt feature spaces [37, 12] and will simply be recovered during pursuit stage, they are not included as true positives at this stage.",
+      "startOffset" : 42,
+      "endOffset" : 50
+    }, {
+      "referenceID" : 23,
+      "context" : "This improved alignment improves the fidelity of the feature space and the signal-to-noise power, and the result of the improved feature space can clearly be seen by comparing the detected waveform features from one standard detection approach (SpikeDetekt [24]) in Figure 1 (left) to the detected waveform features from our neural network in Figure 1 (middle).",
+      "startOffset" : 257,
+      "endOffset" : 261
+    }, {
+      "referenceID" : 23,
+      "context" : "n } 2 [0, 1]C method of [24], where the mask should be set to 1 only where the signal exists.",
+      "startOffset" : 24,
+      "endOffset" : 28
+    }, {
+      "referenceID" : 26,
+      "context" : "Second, k-Nearest Neighbors (k-NN) is used to detect outliers in the masked feature space based on [27].",
+      "startOffset" : 99,
+      "endOffset" : 103
+    }, {
+      "referenceID" : 18,
+      "context" : "By choosing representative points (or a “coreset\") carefully we can potentially describe huge datasets accurately with a relatively small number of points [19, 13, 2].",
+      "startOffset" : 155,
+      "endOffset" : 166
+    }, {
+      "referenceID" : 12,
+      "context" : "By choosing representative points (or a “coreset\") carefully we can potentially describe huge datasets accurately with a relatively small number of points [19, 13, 2].",
+      "startOffset" : 155,
+      "endOffset" : 166
+    }, {
+      "referenceID" : 1,
+      "context" : "By choosing representative points (or a “coreset\") carefully we can potentially describe huge datasets accurately with a relatively small number of points [19, 13, 2].",
+      "startOffset" : 155,
+      "endOffset" : 166
+    }, {
+      "referenceID" : 46,
+      "context" : "For the clustering step we use a Dirichlet Process Gaussian Mixture Model (DP-GMM) formulation, which has been previously used in spike sorting [48, 9], to adaptively choose the number of mixture components (visible neurons).",
+      "startOffset" : 144,
+      "endOffset" : 151
+    }, {
+      "referenceID" : 8,
+      "context" : "For the clustering step we use a Dirichlet Process Gaussian Mixture Model (DP-GMM) formulation, which has been previously used in spike sorting [48, 9], to adaptively choose the number of mixture components (visible neurons).",
+      "startOffset" : 144,
+      "endOffset" : 151
+    }, {
+      "referenceID" : 20,
+      "context" : "In contrast to these prior approaches, here we adopt a Variational Bayesian split-merge approach to explore the clustering space [21] and to find a more robust and higher-likelihood optimum.",
+      "startOffset" : 129,
+      "endOffset" : 133
+    }, {
+      "referenceID" : 23,
+      "context" : "First, following [24], we fit a mixture model on the virtual masked data to exploit the localized nature of the data.",
+      "startOffset" : 17,
+      "endOffset" : 21
+    }, {
+      "referenceID" : 8,
+      "context" : "Second, following [9, 24], the covariance structure is approximated as a block-diagonal to reduce the parameter space and computation.",
+      "startOffset" : 18,
+      "endOffset" : 25
+    }, {
+      "referenceID" : 23,
+      "context" : "Second, following [9, 24], the covariance structure is approximated as a block-diagonal to reduce the parameter space and computation.",
+      "startOffset" : 18,
+      "endOffset" : 25
+    }, {
+      "referenceID" : 4,
+      "context" : "(Top) stability metric (following [5]) and percentage of total discovered clusters above a certain stability measure.",
+      "startOffset" : 34,
+      "endOffset" : 37
+    }, {
+      "referenceID" : 5,
+      "context" : "Neural action potentials have a finite spatial extent [6].",
+      "startOffset" : 54,
+      "endOffset" : 57
+    }, {
+      "referenceID" : 20,
+      "context" : "Second, the split-and-merge approach in a DP-GMM is greatly hindered when the numbers of clusters is very high [21].",
+      "startOffset" : 111,
+      "endOffset" : 115
+    }, {
+      "referenceID" : 34,
+      "context" : "After the previous steps, we apply matching pursuit [36] to recover triaged waveforms and collisions.",
+      "startOffset" : 52,
+      "endOffset" : 56
+    }, {
+      "referenceID" : 4,
+      "context" : "3 of [5] with the rate scaling parameter of the Poisson processes set to 0.",
+      "startOffset" : 5,
+      "endOffset" : 8
+    }, {
+      "referenceID" : 34,
+      "context" : "We compare our proposed pipeline to three recently proposed approaches for dense MEA spike sorting: KiloSort [36], Spyking Circus [51], and MountainSort [31].",
+      "startOffset" : 109,
+      "endOffset" : 113
+    }, {
+      "referenceID" : 49,
+      "context" : "We compare our proposed pipeline to three recently proposed approaches for dense MEA spike sorting: KiloSort [36], Spyking Circus [51], and MountainSort [31].",
+      "startOffset" : 130,
+      "endOffset" : 134
+    }, {
+      "referenceID" : 30,
+      "context" : "We compare our proposed pipeline to three recently proposed approaches for dense MEA spike sorting: KiloSort [36], Spyking Circus [51], and MountainSort [31].",
+      "startOffset" : 153,
+      "endOffset" : 157
+    }, {
+      "referenceID" : 17,
+      "context" : "First, we used the biophysics-based spike activity generator ViSAPy [18] to generate multiple 30channel datasets with different noise levels and collision rates.",
+      "startOffset" : 68,
+      "endOffset" : 72
+    }, {
+      "referenceID" : 29,
+      "context" : "To examine real data, we focused on 30 minutes of extracellular recordings of the peripheral primate retina, obtained ex-vivo using a high-density 512-channel recording array [30].",
+      "startOffset" : 175,
+      "endOffset" : 179
+    } ],
+    "year" : 2017,
+    "abstractText" : "Spike sorting is a critical first step in extracting neural signals from large-scale electrophysiological data. This manuscript describes an efficient, reliable pipeline for spike sorting on dense multi-electrode arrays (MEAs), where neural signals appear across many electrodes and spike sorting currently represents a major computational bottleneck. We present several new techniques that make dense MEA spike sorting more robust and scalable. Our pipeline is based on an efficient multistage “triage-then-cluster-then-pursuit” approach that initially extracts only clean, high-quality waveforms from the electrophysiological time series by temporarily skipping noisy or “collided” events (representing two neurons firing synchronously). This is accomplished by developing a neural network detection method followed by efficient outlier triaging. The clean waveforms are then used to infer the set of neural spike waveform templates through nonparametric Bayesian clustering. Our clustering approach adapts a “coreset” approach for data reduction and uses efficient inference methods in a Dirichlet process mixture model framework to dramatically improve the scalability and reliability of the entire pipeline. The “triaged” waveforms are then finally recovered with matching-pursuit deconvolution techniques. The proposed methods improve on the state-of-the-art in terms of accuracy and stability on both real and biophysically-realistic simulated MEA data. Furthermore, the proposed pipeline is efficient, learning templates and clustering faster than real-time for a ' 500-electrode dataset, largely on a single CPU core.",
+    "creator" : null
+  }
+}

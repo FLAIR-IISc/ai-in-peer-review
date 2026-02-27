@@ -1,0 +1,39 @@
+### **Summary of Claims**
+
+This paper introduces a framework called "nonparametric neural networks" to automatically determine the width of hidden layers during a single training run. The core idea is to start with a small network and dynamically add new units, while simultaneously using a group-sparsity regularizer (specifically, a fan-in L2 norm penalty) to prune away unnecessary units. The authors prove that their proposed objective function is guaranteed to have a global minimum at a finite network size. To facilitate this dynamic process, the paper also introduces two novel components: 1) "Capped Batch Normalization" (CapNorm), a modification of batch normalization designed not to interfere with the regularizer's effect, and 2) "Adaptive Radial-Angular Gradient Descent" (AdaRad), a new optimization algorithm that decouples the update to a neuron's fan-in vector into a length-altering (radial) component and a direction-altering (angular) component. The authors claim their method can find good network architectures automatically, and that the resulting models can outperform parametrically-trained networks of the same size, sometimes even achieving better performance than models found via random search.
+
+### **Decision and Key Reasons**
+
+**Decision:** Reject
+
+**Key Reasons:**
+
+1.  **Introduction of Confounding and Unproven Methodological Components:** The paper's primary contribution—dynamic network sizing—is evaluated in a setting that is fundamentally confounded by the simultaneous introduction of a novel normalization scheme (CapNorm) and a novel, complex optimizer (AdaRad). The claimed benefits cannot be cleanly attributed to the dynamic sizing procedure itself, but may instead stem from these new, unevaluated components. The justification for needing an entirely new optimizer is not sufficiently compelling.
+2.  **Inconsistent and Unconvincing Empirical Results:** The method's performance is highly inconsistent across the benchmark datasets. While it shows promise on MNIST and rectangles-images, it fails significantly on the convex dataset, where it underperforms even a parametric network of the same suboptimal size it converges to. This failure undermines the central claim of providing a general and robust method for *automatic* model selection. An automatic method that requires careful dataset selection to be effective is not truly automatic.
+
+### **Supporting Arguments**
+
+The central premise of using group-sparsity regularization to prune neurons is well-established, and applying it in a dynamic "grow-and-prune" setting is a logical extension. The theoretical guarantee of a finite-sized minimum is a solid, albeit not entirely surprising, contribution. However, the practical realization and evaluation of this idea are fraught with issues.
+
+My primary concern is the introduction of the AdaRad optimizer. The authors argue that standard adaptive optimizers like RMSprop or Adam are incompatible with their framework because their per-parameter normalization would interfere with the regularizer's shrinkage mechanism. While this is a valid concern, the solution of creating a completely new optimizer is extreme and introduces a major confounding variable. It is unclear whether the observed performance gains are due to the dynamic network sizing or the specific properties of AdaRad. A more rigorous approach would have been to adapt a standard optimizer. For instance, one could apply Adam to the gradient of the loss term and then apply the proximal operator for the group L2 norm (the shrinkage step) separately. This would have isolated the contribution of the core idea. As it stands, the paper bundles at least three novelties (dynamic architecture, CapNorm, AdaRad), making it impossible to assess the value of the main one.
+
+Furthermore, the empirical validation is not strong enough to support the paper's claims. The stark failure on the "convex" dataset is a critical weakness. The paper notes this failure but provides no analysis or insight as to *why* the method converges to a small, poorly performing network. Does the fan-in regularizer interact poorly with the data distribution? Does the unit addition schedule need to be different? Without this analysis, the method appears brittle and unreliable. For a method that adds significant complexity over standard training, its performance must be robust.
+
+Even on the datasets where it performs well, the results are not a clear-cut victory. On MNIST, the best nonparametric network is "close in performance to the best parametric network" found by random search. While achieving this with a smaller network is valuable, it does not demonstrate clear superiority. The results on the "poker" scalability test are similarly limited; the comparison is against parametric networks of the *same size*, not against a proper hyperparameter search, which is the baseline this method aims to replace.
+
+Finally, the training process itself appears to be a significant drawback. As shown in Figure 3A, the nonparametric network converges much more slowly than its parametric counterparts. While the authors argue this is because it has to wait for units to be added, this remains a practical disadvantage. The complexity of the training procedure, with its many new hyperparameters (αr, αφ, ν, νfreq) in addition to the standard ones (λ), seems to contradict the goal of simplifying model selection.
+
+### **Additional Feedback and Questions**
+
+The core idea of dynamic network sizing is interesting and worth pursuing. To strengthen the paper, I would recommend the following:
+
+1.  **Disentangle the Contributions:** The most critical improvement would be to re-run the experiments using a standard, well-understood optimizer like Adam or SGD with momentum, adapted to handle the proximal update for the group L2 regularizer. This would provide a much clearer picture of the value of the dynamic sizing procedure itself.
+2.  **Analyze Failure Modes:** A thorough investigation into why the method fails on the convex dataset is essential. Understanding the limitations of the approach is as important as demonstrating its successes.
+3.  **Strengthen Baselines:** For the scalability experiment on the Poker dataset, including results from even a modest random search over network size and learning rate for a standard parametric network would provide a much more meaningful baseline.
+4.  **Ablation on CapNorm:** While the motivation for CapNorm is clear, its impact is not ablated. How does the system perform with standard Batch Normalization (accepting the interference) or with no normalization at all?
+
+**Questions for the Authors:**
+
+*   Could you provide an argument for why adapting an existing optimizer (e.g., via a proximal gradient step) would be insufficient, thus necessitating the development of AdaRad? Have you performed any experiments comparing AdaRad to such a composite approach?
+*   What are your hypotheses for the poor performance on the convex dataset? Does the method prematurely converge to a small network because the initial, randomly added units are not useful enough to overcome the strong regularization pressure on this specific task?
+*   How sensitive is the final architecture to the unit addition schedule (ν and νfreq)? The paper uses a fixed schedule of adding one unit per layer per epoch, which seems arbitrary. How does this choice influence the trade-off between exploration (adding units) and exploitation (pruning units)?

@@ -1,0 +1,46 @@
+Summary of contributions
+- Problem and framing: The paper tackles single-image super-resolution (SR) by aiming for amortised MAP inference rather than empirical risk minimization with convex losses (e.g., MSE), arguing that MAP solutions better align with natural image priors and perceptual plausibility. The key insight is to enforce exact data consistency via an affine projection onto the subspace defined by the degradation model x = Ay, thereby turning amortised MAP into minimising the cross-entropy H[qθ, pY] between the model output distribution and the HR data distribution.
+- Architecture: An affine projection layer ŷ = (I − A+A)fθ(x) + A+x ensures Aŷ = x exactly, where A+ is the Moore–Penrose pseudoinverse of the known downsampling operator A. This can be inserted into standard CNNs and empirically improves training and enforces consistency.
+- Learning approaches: Three routes to approximate minimisation of H[qθ, pY]:
+  1) AffGAN: a GAN variant with a modified generator update to target KL[qθ‖pY], plus “instance noise” (adding noise to both real and generated samples) to address support mismatch and stabilise training.
+  2) AffDG: denoiser-guided training that backpropagates score estimates ∇y log pY(y) obtained from a DAE trained at gradually annealed noise levels.
+  3) AffLL: density-guided training using a differentiable PixelCNN-style model with MCGSM likelihood to provide tractable log pY(y) gradients.
+- Theory: Derivations show the amortised MAP objective reduces to H[qθ, pY] with affine projection; the GAN update corresponds to KL[q‖p] under a Bayes-optimal discriminator; instance noise minimises KL between convolved distributions. An appendix connects a stochastic AffGAN to amortised variational inference by showing KL[qY‖pY] equals Ex KL[qY|X‖pY|X].
+- Empirics: On a 2D Swiss-roll toy, AffGAN/AffDG approximate MAP (low cross-entropy), whereas MSE/MAE target means/medians in low-density regions. On images (grass textures, CelebA, ImageNet, 4× SR), AffGAN yields sharper, perceptually plausible outputs; affine projection preserves exact consistency; AffDG/AffLL produce blurry results and are harder to train.
+
+Decision: Reject
+Key reasons: (1) The empirical validation is limited and does not rigorously support the central MAP/perceptual quality claims (few quantitative perceptual metrics, no human studies, limited baselines/ablations). (2) The theoretical connection to MAP is partial in the main practical method (AffGAN minimises KL[q‖p] on convolved distributions rather than directly H[q, p] or the exact MAP objective), and the success of denoiser/density-guided variants is not demonstrated on real images.
+
+Supporting arguments
+- Specific question/problem: Clear and relevant. The paper aims to replace MSE-based empirical risk with amortised MAP for SR by matching a learned output distribution to the natural image prior while enforcing exact data consistency. This is a well-motivated problem given MSE’s known perceptual shortcomings.
+- Placement and motivation: The paper is well-positioned in the literature (GANs/f-GANs, SRGAN, denoising–score connections, PixelCNNs, AMP denoising). The rationale for affine projection and leaving the supervised paired setting is clear and technically sound.
+- Technical soundness:
+  - The affine projection construction and use of A+ is correct and practically implementable; gradients are straightforward. The identity turning Eq. (6) into minimising H[qθ, pY] via qθ(y) = Ex δ(y − ΠAx fθ(x)) is sound.
+  - The GAN variant’s derivation of minimising KL[q‖p] via a modified generator objective is plausible; instance noise and its effect on support overlap and divergences is reasonable and aligns with later developments.
+  - The denoiser-guided gradient uses standard score estimation results; applying the score through the affine projection to optimise cross-entropy is correct in principle.
+  - The amortised VI identity in the appendix follows from the affine consistency constraint and Bayes’ rule.
+  - However, AffGAN minimises KL[q‖p] (or the noisy KL), not H[q, p] directly; since H[q, p] = KL[q‖p] + H[q], the method introduces an entropy bias and is not optimizing the MAP objective per se. This discrepancy is acknowledged but undermines the central MAP claim for the main practical method.
+- Empirical support:
+  - Toy data convincingly demonstrates the distinction between mode-seeking and mean/median estimates and reports cross-entropy estimates.
+  - For images, evidence is primarily qualitative. There is no human perceptual evaluation, limited quantitative perceptual metrics (e.g., LPIPS), no comparison to strong SR baselines of the time (e.g., SRGAN beyond citation, or later EDSR-like MSE baselines), and no assessment on standard SR benchmarks with established protocols. The denoiser and density-guided methods do not yield competitive image results, weakening the generality of the proposed amortised MAP framework.
+  - The “instance noise” contribution lacks systematic ablations (e.g., noise schedule, magnitude, comparison against label smoothing and other stabilizers).
+  - The approach assumes known A and noise-free observations; robustness to misspecified or unknown degradations is not studied.
+
+Additional feedback to improve the paper (helpful, not all decision-critical)
+- Provide rigorous perceptual evaluation: user studies (2AFC), LPIPS, FID/KID vs. ground-truth or recent SR methods; report data-consistency errors and visual artifacts trade-offs.
+- Compare to contemporary strong SR methods (e.g., SRGAN with and without content loss, and MSE-optimised state-of-the-art) on standard datasets (Set5/Set14/Urban100/Div2K).
+- Ablate the affine projection: fixed A+ vs. learnable; effect of incorrect A+; stability and convergence speed; performance when A is unknown or mismatched.
+- Instance noise: add ablations (noise type, schedule, annealing rule), and comparisons to other GAN stabilizers (label smoothing, gradient penalty).
+- Strengthen AffDG/AffLL: use more powerful score/density models (modern score-based models, improved PixelCNN variants), and study why they fail (e.g., inaccurate scores off-manifold, peaky likelihoods). Consider continuation schemes and regularization to avoid blur.
+- Clarify the scope of the “MAP” claim: explicitly separate the exact amortised MAP objective from the practical surrogates (KL vs. cross-entropy), and state conditions under which the surrogate aligns with MAP solutions.
+- Discuss and test noisy observation models (x = Ay + ε) and how constraints become soft; include experiments under realistic degradations and with unknown A.
+- Release code and A+/A estimation procedure, and detail computational costs.
+
+Questions for the authors
+1) How sensitive are results to misspecification of A and to observation noise? Can the affine projection be adapted for x = Ay + ε with known/unknown ε?
+2) Can you provide quantitative perceptual metrics (e.g., LPIPS, FID/KID) and human studies to substantiate “perceptually superior” claims, and comparisons to SRGAN and strong MSE baselines on standard benchmarks?
+3) What is the empirical impact of the entropy term when using AffGAN (KL minimization) versus directly descending cross-entropy via AffDG/AffLL? Do you observe mode-covering behavior detrimental to MAP?
+4) For instance noise, how was the variance schedule chosen in practice? How do outcomes vary with different noise types and schedules versus label smoothing or gradient penalties?
+5) Why do AffDG and AffLL produce blurry outputs on images despite optimizing the desired cross-entropy surrogate? Is this due to inaccurate scores/likelihoods off the data manifold, optimization issues, or architectural choices?
+6) How does the method perform under unknown A? Could A+ be learned jointly while ensuring data consistency (e.g., via plug-and-play or bilevel optimization)?
+7) Can you quantify the improvement from affine projection alone under MSE (e.g., final PSNR/SSIM, convergence speed) across multiple datasets and architectures?

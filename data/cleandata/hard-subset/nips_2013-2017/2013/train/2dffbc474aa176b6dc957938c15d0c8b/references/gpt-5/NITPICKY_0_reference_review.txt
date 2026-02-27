@@ -1,0 +1,50 @@
+Summary
+The paper studies fully Bayesian learning and inference in Gaussian Process State-Space Models (GP-SSMs). The key idea is to place a GP prior over the transition function f and to marginalize f analytically, yielding a non-Markovian prior over state trajectories. The state smoothing distribution and hyperparameters are then inferred jointly using Particle MCMC, specifically Particle Gibbs with Ancestor Sampling (PGAS). The paper further proposes a sparse variant using the FIC prior to reduce computational cost from O(T^3) to O(M^2 T). Implementation details are given for reusing Cholesky factorizations and performing rank-1 updates/downdates. Experiments include a nonlinear 1D benchmark with multimodal smoothing and a 4D cart-pole system, showing that the approach can recover dynamics and provide calibrated predictive uncertainty.
+
+Relation to prior work: This sits at the intersection of GP dynamical models (e.g., Wang et al. NIPS’05; Turner et al. AISTATS’10; Deisenroth et al.) and PMCMC (Andrieu et al.; Lindsten et al. NIPS’12). The novelty claimed is the exact marginalization of f and the use of PGAS to tackle the induced non-Markovian latent process, plus an FIC prior instantiation tailored to this setting.
+
+Strengths
+- Principled Bayesian treatment: collapsing f removes strong x–f coupling and yields a clean PGAS-based sampler with potentially good mixing.
+- Clear articulation of the non-Markovian smoothing distribution induced by marginalizing f and how to handle it with CPF-AS/ancestor sampling.
+- Sparse GP construction (FIC) integrated into the SSM setting with a concrete complexity analysis and practical guidance on factor reuse.
+- The “mixture of GP posteriors” for predictive dynamics and the discussion of compressing to a single GP (with sampled latent function values) are practically useful.
+- Conceptually valuable demonstration that smoothing is feasible without committing to a fixed parametric f.
+
+Weaknesses and detailed concerns
+Technical clarity and correctness:
+- Vector-valued outputs: It is unclear how multi-output GP dynamics are modeled. Eq. (2a) suggests a GP over f(xt) ∈ R^{nx}, but the covariance definition kθx(xt,x′t) is scalar. Later K0:t−1 is an (nxt)×(nxt) matrix with blocks [K]i,j = k(xi−1,xj−1) but no statement whether this is k(·,·)⊗Inx, independent GPs per dimension, or a coregionalization model. Cross-output correlations between state dimensions are ignored or assumed via Q? This needs to be explicit; as written, the model specification is incomplete.
+- Eq. (5) proposal: You state xit ∼ p(xt | θ, x^{a_i}_{0:t−1}, y0:t), yet later you weight by p(yt | θ, xit), which implies the proposal is the prior p(xt | θ, x^{a_i}_{0:t−1}). The dependence on y0:t in (5) is inconsistent and likely incorrect. Please clarify the actual proposal; if it is the prior, write it as such.
+- Eq. (4) exponent appears to be missing a factor 1/2: exp(−(x−m)ᵀK̃−1(x−m)) instead of exp(−1/2 …). Also the power of (2π) is written as (2π)^{nx t} but spacing is inconsistent elsewhere. These are small but pervasive issues.
+- Indexing consistency is problematic throughout: e.g., targeting p(θ, x0:T | y1:T) vs p(·|y0:T); in (3b) mt−1 is a vector but later m0:t−1 denotes the vector; K̃t−1 vs K̃0:t−2 usage; µ1(x0)=m0 and Σ1(x0)=K̃0 are defined without making explicit that K̃0 = k(x0,x0)⊗Inx + Q. Off-by-one indices make reproduction difficult.
+- Sampling θx: stating that slice sampling is “straightforward” is optimistic; the collapsed marginal p(x0:T | θx, Q) has a nontrivial dependence on θx through K̃(x1:T−1; θx, Q). Which slice sampler is used (classic slice vs elliptical slice; tuning, gradients)? Agarwal & Gelfand (2005) is not the standard reference for slice sampling in GP contexts. Consider Neal (2003) or Murray & Adams (2010, elliptical slice).
+- Numerical stability of repeated rank-1 downdates in Cholesky factors is nontrivial. No discussion of jitter, conditioning, or failure modes is given. Memory complexity of storing N factorizations of size (n_x T)×(n_x T) is also not addressed.
+- FIC derivations: The definitions in (8) require care. Λ0:t−2 = diag[K̃0:t−2 − S0:t−2] with “diag” becoming block-diag if Q is non-diagonal is unconventional; what happens if Q couples outputs (non-diagonal) and the diagonal correction assumption of FIC breaks? Please justify or bound the error introduced by this block-diagonalization step. Dimensions of P and updates should be explicitly stated.
+
+Experimental evaluation:
+- The synthetic experiment reports RMSEs in Table 1 but the table is not included here, and details are lacking: error bars/variance across runs, sensitivity to N (particles), number of PGAS iterations (50 seems small for convergence), and to kernel hyperpriors. No wall-clock timings or ESS/mixing diagnostics are provided.
+- The cart-pole experiment lacks baselines (e.g., PILCO/GPSSM filtering/smoothing methods, parametric SSMs, GP-NARX). Reporting one-step-ahead predictions on a single run is insufficient; multi-step rollout error, calibration (PIT or coverage), and robustness to limited data should be quantified. The paper claims the model expresses uncertainty better near the training region but provides no quantitative measure.
+- No ablation on FIC vs full GP (accuracy vs M) or on the benefit of the parametric mean function. No study of state dimension scaling or computational constants.
+- Claims of “very good mixing” are not supported with ACF plots or R-hat, nor are the number of effective samples reported.
+
+Presentation and formatting:
+- Several typos and inconsistencies (examples above). Reference list contains missing years/pages and inconsistent formatting; many entries have placeholders (commas and blanks). This does not meet NeurIPS formatting standards.
+- Figures/tables are referenced but not properly described (e.g., axes/units not stated), and the experimental setup (priors, kernel choices, inducing point selection) is underspecified.
+
+Questions for the authors
+1. Precisely specify the multi-output GP structure. Are outputs conditionally independent given inputs (k⊗Inx), or do you model cross-output correlations? How does Q interact with this?
+2. Clarify the proposal distribution in the SMC/CPF-AS steps and fix Eq. (5).
+3. Provide mixing diagnostics and runtime/complexity measurements for both full and FIC models; include memory usage.
+4. How are inducing inputs selected in practice? Greedy selection can interact with hyperparameter updates; how is this mitigated across PGAS iterations?
+5. Can you quantify the approximation introduced by the block-diagonal Λ in the presence of non-diagonal Q?
+
+Pros
+- Principled Bayesian framework; insightful use of collapsing and PGAS for non-Markovian smoothing.
+- Potentially impactful if delivered with solid experiments; sparse instantiation practical.
+- Useful implementation insights on factor reuse.
+
+Cons
+- Several technical inconsistencies/omissions (multi-output GP, Eq. (5), stability).
+- Experimental evaluation is thin, missing strong baselines, diagnostics, and quantitative analysis.
+- Numerous notation/formatting issues hinder reproducibility.
+
+Recommendation: Reject (borderline). The core idea is promising and relevant, but the paper, as written, has too many technical and presentational shortcomings, and the experiments are not strong enough to support the claims. Strengthening the specification, fixing inconsistencies, and providing a more rigorous empirical study could make this a solid contribution.

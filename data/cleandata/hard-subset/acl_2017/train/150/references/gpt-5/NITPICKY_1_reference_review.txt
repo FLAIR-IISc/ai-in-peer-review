@@ -1,0 +1,39 @@
+Summary and claimed contributions
+- The paper proposes a “deep character-level NMT” (DCNMT) with a hierarchical pipeline: character→subword→word→source sentence→target word→target character. Two main components are highlighted: (1) a word encoder that composes characters into word vectors via two RNNs—one producing prefix representations rt and another producing scalar weights wt—to implicitly learn morphemes; (2) a hierarchical decoder: a word-level RNN produces states s_t that initialize a character-level “HGRU” which generates characters until a delimiter, with a batching trick (matrix R) to “unfold” word-level states across character positions for efficient training.
+- The authors claim competitive BLEU on En–Fr, En–Cs, and Cs–En versus BPE and other character-level systems, faster training than some prior fully character-level models, and qualitative evidence that the encoder learns morphology (PCA plots, “energy” peaks at morpheme boundaries) and is robust to misspellings/nonce forms.
+
+Strengths
+- Clear motivation: Open-vocabulary handling and morphological generalization are important; character-level models often struggle with efficiency and attention training. The hierarchical decoding approach is a reasonable way to control sequence lengths and conditioning granularity.
+- Architectural idea in the encoder is interesting: a decoupled scheme that computes prefix states and position-dependent weights to form a weighted sum can be seen as a simple, parameter-efficient, self-attentive character-to-word composition. If well-specified, this could be a useful alternative to CNN/C2W encoders.
+- Practical batching trick: the “unfolding” matrix R to broadcast word-level states across character timesteps is a pragmatic contribution for efficient batched training of hierarchical decoders.
+- Some empirical evidence of robustness: qualitative examples show handling of misspellings/nonce forms and boundary-like energy patterns. The PCA plots, while anecdotal, suggest the encoder captures morphological regularities. Reported single-GPU training durations are modest compared to some prior fully character-level work.
+
+Weaknesses
+- Technical clarity/correctness issues in core method:
+  - The encoder’s weighting is ill-specified. wt = exp(aff(ht)) and r_word = tanh(sum_t w_t r_t). Not normalizing weights (the text explicitly says they avoid normalization) makes the representation length- and scale-biased; wrapping tanh around the sum does not substitute for normalization. This undermines the “morpheme weighting” interpretation and could be unstable.
+  - HGRU equations contain indexing and definitional inconsistencies. Eq. (2) defines g_{t-1} in terms of itself (“g_{t-1} = (1−a_{t−1}) g_{t−1} + a_{t−1} s_i^t”), which is circular as written. Notation such as s_i^t, [·]^j, φ, and qt gt−1 (is that elementwise product?) is undefined/ambiguous. Dimensions are not specified. This prevents reproducibility and makes the decoder unclear.
+  - The “settable state” mechanism seems very close to known hierarchical/stacked RNNs with boundary resets (e.g., hierarchical multiscale RNN; hybrid word-char decoders). The novelty relative to prior hierarchical decoders (Luong & Manning 2016; Chung et al. 2016a/b; Lee et al. 2016) is not disentangled.
+- Experimental rigor and comparability:
+  - Dataset/version inconsistencies: En–Fr text cites WMT’14, but dev/test are WMT’15 (newstest2013/newstest2015). Training sizes are stated (12.1M En–Fr, 15.8M En–Cs) but not matched to baselines; some cited baselines used different corpora or preprocessing. Multi-way/multilingual baselines are not directly comparable. No controlled same-data reimplementations of BPE/char baselines.
+  - Table 1 is difficult to parse and contains duplicated/incomplete rows. The model names (CNMT/DCNMT) and reported “after 1 epoch” vs “final” numbers appear interleaved. It’s not clear which numbers correspond to which system and dataset. There are no significance tests or variance across runs.
+  - Inference details are missing: beam size, length normalization/penalties, EOS handling at character level, and decoding speed/latency. Claiming efficiency without decoding-time metrics is incomplete.
+  - Character vocabulary limited to 120 most frequent characters with out-of-set chars mapped to <unk> conflicts with the “open vocabulary” claim, especially for Czech diacritics and punctuation—no analysis of coverage or impact.
+  - Google Translate and an online demo (“LISA”) are used as qualitative baselines—these are not comparable baselines in ACL standards due to unknown training data, models, and decoding settings.
+- Ablations and analysis gaps:
+  - No ablation isolating the encoder’s weighting scheme vs. a standard char-CNN/C2W encoder on the same model; a “CNMT” baseline is mentioned but not clearly described or compared in controlled conditions.
+  - No quantitative morphology evaluation (e.g., segmentation F1 vs. a gold morphological analyzer, or probing tasks).
+  - No analysis of the batching trick’s contribution to speed; no wall-clock profiling; training-time comparisons across papers are confounded by different hardware and codebases.
+- Writing, formatting, and references:
+  - Numerous grammatical errors and typos throughout; several equations ambiguous; figures referenced but not clearly described; the references list contains placeholders (“?, \Q2015\E”), missing years/venues, duplicated author tags, and inconsistent citation formatting.
+  - Footnotes and URLs are embedded awkwardly; some claims are unsubstantiated (“we can train perfectly well”).
+
+Questions to authors
+- Encoder weighting: Why not normalize weights (softmax over positions) if the goal is to attend to morphemic boundaries? Did you try normalized variants or gating? Can you provide an ablation showing the benefit of your unnormalized weighting?
+- HGRU: Please provide corrected, unambiguous equations with defined symbols, dimensions, and operations (including φ, qt gt−1). How exactly is the reset performed at delimiters during training and decoding? How is the auxiliary sequence a_t obtained at test time?
+- Batching trick: Can you formalize the unfolding matrix R and its construction, and quantify its impact on training speed vs. a naive implementation?
+- Data and evaluation: Which exact training sets for each language pair (list corpora, sizes after filtering)? Are all baselines trained on the same data and tokenization? What beam size and length normalization were used? Please remove comparisons to Google Translate and use standard baselines trained under your setup.
+- Open vocabulary: What is the exact character set per language, and what percentage of training/dev/test characters map to <unk>? How are diacritics and casing handled?
+- Morphology: Can you provide quantitative evaluation (e.g., segmentation F1 against a morphological analyzer; probing tasks predicting affixes), beyond PCA/energy plots?
+- Code/reproducibility: Will you release code and scripts? Please include full hyperparameters (dropout, gradient clipping, init, early stopping), training schedules, and seeds.
+
+Given the number of technical ambiguities, comparability issues, and incomplete presentation, I cannot recommend acceptance in its current form despite the promising direction. A cleaned-up, reproducible version with rigorous comparisons and corrected equations could be much stronger.

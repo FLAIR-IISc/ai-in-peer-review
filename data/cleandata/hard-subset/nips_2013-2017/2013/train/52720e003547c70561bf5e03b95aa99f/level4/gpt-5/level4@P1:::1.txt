@@ -1,0 +1,42 @@
+This paper tackles sparse precision (inverse covariance) estimation at extreme scale via the CLIME estimator. The authors propose an inexact ADMM algorithm tailored to CLIME that operates on column-blocks rather than single columns, with per-iteration steps reduced to elementwise operations and matrix multiplications. They establish O(1/T) rates for both objective suboptimality and constraint residuals, discuss how to exploit iterate sparsity and the low-rank structure of the sample covariance (C = AA′ with n ≪ p), and present a scalable implementation on shared-memory and distributed-memory systems using block-cyclic data distribution. Empirically, they compare against CLIME (flare), TIGER, and DC-QUIC, and report near-linear speedups and an instance with p = 10^6 (≈10^12 parameters) solved in about 11 hours on 400 cores.
+
+Relation to prior work: The paper builds on CLIME’s statistical guarantees and separability, prior ADMM methods for related constrained problems, and large-scale systems work (parameter servers, GraphLab, block-cyclic distribution/BLAS/ScaLAPACK). Compared to DC-QUIC and graphical lasso variants, the focus here is on a CLIME-specific decomposition and a distributed systems design that emphasizes column-block updates and communication-friendly matrix multiplications exploiting A’s low rank.
+
+Strengths
+- Scalability-focused design: The column-block ADMM variant reduces the main cost to matrix-matrix products that are efficient on modern architectures and amenable to block-cyclic distribution and cache-friendly blocking.
+- Theory: O(1/T) convergence guarantees for both the objective and feasibility residuals with a clear condition η ≥ ρ λ_max^2(C); column-block structure retains CLIME’s statistical separability; the perturbation result (Theorem 3) justifies truncation-based sparsification of C without losing deviation guarantees.
+- Systems implementation: Shared-memory and distributed-memory implementations with OpenMP, OpenMPI, and ScaLAPACK; a compelling large-scale demonstration at p = 10^6.
+- Empirical results: Competitive to superior scalability versus flare ADMM and DC-QUIC at larger scales; analysis of speedups versus cores and block size k; clear discussion of shared-memory contention versus distributed gains.
+
+Weaknesses and suggestions
+- Clarity/notation: Notation is scattered across Sections 1–3. Several symbols (e.g., ρ and η) are used before being clearly defined. A consolidated notation table would improve readability. In Theorem 2, the weighted norm term ‖XT − XT−1‖^2_{(η/ρ)I − C^2} should explicitly state the positive semidefinite condition ((η/ρ)I − C^2 ⪰ 0), and how η ≥ ρ λ_max^2(C) ensures this.
+- “Distributed” versus “parallel”: The paper emphasizes distribution but provides limited detail on communication patterns, collectives, or message passing in the ADMM loop. Please describe the communication/computation breakdown per iteration (e.g., data redistribution, broadcast/allreduce costs for A′X, AX, and dual updates), and clarify consistency/aggregation of Y, Z across processes. As written, it reads more as a parallel implementation with distributed storage than a fully developed distributed optimization algorithm.
+- Block-cyclic distribution: The narrative argues that block-cyclic distribution yields load balance and better cache behavior than large contiguous blocks. However, there is no ablation that isolates this effect. Please add experiments comparing cyclic versus block-cyclic versus contiguous partitioning, reporting load balance metrics (e.g., per-process FLOPs/time variance), cache miss rates, and end-to-end runtime.
+- Choice of column-block size k: The choice appears ad hoc and workload dependent. The paper notes interactions with process grid size, block sizes (pb × nb × kb), cache, and sparsity. Provide guidance or heuristics for choosing k (and block sizes), e.g., a roofline-style model relating arithmetic intensity, memory bandwidth, cache size, and communication cost; or empirical rules based on n, p, and architecture characteristics.
+- Evaluation details: The comparisons tune each method to match a target sparsity. Please report the resulting objective values, constraint residuals, and any differences in solution quality (e.g., precision-recall integrated metrics) to ensure fairness. For the trillion-parameter experiment, include a breakdown of time per major step (A′X, AX, soft, box, communication) and per iteration, as well as memory usage per node. Since DC-QUIC benefits from covariance thresholding into blocks, consider an ablation where CLIME-ADMM exploits the same block structure to quantify the potential speedup.
+- Theorem 3 scope: The perturbation result is appealing, but its practical use would benefit from guidance on setting truncation thresholds and an explicit statement of how λ should be adjusted when using perturbed C + Δ, to preserve CLIME’s statistical guarantees.
+
+Assessment by criteria
+- Quality: The algorithmic design is sound; the O(1/T) rates for the linearized (inexact) ADMM are standard and appropriate here. Some theoretical details (e.g., exact assumptions for Theorem 2’s norm weighting, and the practical implications of Theorem 3 for tuning λ) need clarification. The empirical evaluation is strong on scale but could better isolate systems choices (block-cyclic) and communication costs.
+- Clarity: Overall readable, but organization and notation need attention. A notation table, explicit parameter definitions, and a more precise description of distributed operations would help significantly.
+- Originality: Combining column-block CLIME with a linearized ADMM, low-rank multiplications via A, and a block-cyclic distributed implementation is a useful synthesis. The individual components are known, but their integration for ultra-high-dimensional CLIME is novel and practically important.
+- Significance: High practical significance for large-scale Gaussian graphical model estimation and potentially other constrained problems with similar structure. The scale demonstrated is noteworthy.
+
+Pros for acceptance
+- Addresses an important scalability bottleneck with a practical, well-engineered solution.
+- Provides convergence guarantees and a clear algorithmic path to distribution.
+- Demonstrates impressive scale and near-linear speedups on large clusters.
+
+Cons for acceptance
+- Insufficient detail on distributed communication and no ablation validating the claimed benefits of block-cyclic distribution.
+- Limited guidance on choosing k and block sizes; selection appears empirical.
+- Clarity/notation issues and minor theoretical ambiguities.
+
+Minor comments
+- Section 1: “tunning” → “tuning.”
+- Section 5.1: “parameter tunning free” → “parameter tuning free.”
+- Section 2: “summerized” → “summarized.”
+- Throughout: “Scalapak” → “ScaLAPACK.”
+- Consider adding a consolidated notation table and defining ρ and η on first use.
+
+Overall, this is a promising systems-meets-optimization paper with strong scalability results. With clearer exposition of the distributed mechanics, an ablation of data distribution schemes, and guidance on block sizing, it would be a solid contribution.

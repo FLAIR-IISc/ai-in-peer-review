@@ -1,0 +1,47 @@
+Summary and relation to prior work
+The paper targets large-scale estimation of sparse precision (inverse covariance) matrices in the low-sample, high-dimensional regime using the CLIME estimator. CLIME solves an l1-minimization with ∞-norm constraints and decouples column-wise. Prior computational work on CLIME has relied on column-by-column interior-point or ADMM solvers that do not scale to ultra-high dimensions and typically require the full sample covariance to reside on a single machine. There is extensive related work on scalable graphical model estimation for the log-det (graphical lasso) objective (e.g., QUIC/DC-QUIC), as well as distributed optimization frameworks (ADMM, parameter server, GraphLab), and HPC matrix multiplication/blocking.
+
+The paper proposes: (1) a linearized (inexact) ADMM variant for CLIME that updates a block of columns at a time (k columns), enabling the use of matrix-matrix multiplies (BLAS-3) rather than repeated matrix-vector multiplies; (2) leveraging the low-rank structure of the sample covariance C = A A^T (with n ≪ p) to compute CX and CY as A(A^T X) and A(A^T Y), reducing complexity from O(p^2 k) to O(n p k); (3) a distributed implementation with block-cyclic data distribution for load balance and cache efficiency on a process grid; and (4) convergence guarantees of O(1/T) for objective suboptimality and primal/dual residuals under standard conditions (η ≥ ρ λ_max(C)^2). The paper further discusses exploiting sparsity in iterates and proposes perturbing/thresholding the sample covariance to induce sparsity while maintaining deviation bounds relevant for CLIME’s statistical guarantees.
+
+Empirical results show strong scalability in shared-memory and distributed-memory settings; notably, a 10^6-dimensional precision matrix (10^12 parameters) is estimated in ~11 hours on 400 cores. Comparisons against CLIME (flare), TIGER, and DC-QUIC demonstrate runtime advantages for large p and acceptable accuracy trade-offs.
+
+Quality
+- Algorithmic correctness: The overall linearized ADMM design and O(1/T) analysis follow established templates and appear sound, contingent on proper step-size choices (η ≥ ρ λ_max^2(C)). However, there is an apparent scaling inconsistency in the X-update. For linearized ADMM with g(X) = (ρ/2)||C X − Z^t + Y^t||_F^2, the update should be X^{t+1} = soft(X^t − (ρ/η) C(CX^t − Z^t + Y^t), 1/η). In Algorithm 1, V_t is defined as ρ η C(⋯) and then used as X^{t+1} = soft(X^t − V_t, 1/η), which seems off by a factor η^2. Please clarify; if this is a typo, it is easy to fix, but as written it is confusing and potentially incorrect.
+- Convergence results: The O(1/T) bounds are plausible and consistent with non-ergodic linearized ADMM literature; the seminorm in Theorem 2 requires η ≥ ρ λ_max^2(C), which is stated.
+- Statistical claims: The discussion that thresholding C within O(√(log p/n)) in ∞-norm preserves CLIME’s guarantees is correct by triangle inequality. Theorem 3, however, states a high-probability bound for C + Δ under sub-exponential Δ without specifying the scaling of Δ with n and p; as written, this seems too general. Clarify independence assumptions and precise scaling (e.g., entrywise bounds of order √(log p/n)) required for the deviation bound to hold.
+- Experiments: The large-scale demonstration is compelling. Runtime scaling and speedup figures are thorough. However, important details are missing: stopping criteria/tolerances, actual number of iterations, parameter settings for ρ, η, and λ, and whether post-symmetrization (standard for CLIME) is applied. Statistical accuracy is only briefly addressed; TIGER is acknowledged to be tuning-free and superior in recall, but more systematic accuracy comparisons (e.g., ROC/PR across parameter grids) and results on real data would strengthen the picture.
+
+Clarity
+- The paper is generally well-organized with clear motivation and system design. The algorithm pseudocode is helpful but includes the scaling issue noted above and some notation inconsistencies (e.g., step numbering/labels, V vs V̂ updates). The constraint splitting and box projection are clearly presented. The HPC implementation details (block-cyclic distribution, process grid, block sizes) are described clearly, with useful practical guidance.
+- The section on perturbing C would benefit from sharper statements (deterministic thresholding and its effect on the deviation bound suffices; the sub-exponential noise result is less essential and currently underspecified).
+
+Originality
+- ADMM variants and linearized ADMM are well-known, and CLIME has been solved by ADMM in prior work. The novelty here lies in batching columns, exploiting BLAS-3 and low-rank multiplies in a carefully engineered distributed framework with block-cyclic data layout, and showing ultra-large-scale runs. The O(1/T) analysis for this specific linearized ADMM instantiation is incremental but appropriate. The practical system design and demonstrated scale are the main contributions.
+
+Significance
+- The ability to estimate CLIME at p = 10^6 with near-linear scaling across hundreds of cores is significant for practitioners who need inverse covariance estimates in extreme dimensions. The design principles (column-block updates, low-rank multiplications, block-cyclic distribution) are broadly applicable to other constrained problems, increasing potential impact. On the statistical side, CLIME’s lack of PD constraints and potential need for symmetrization/PD projection are not discussed; acknowledging and addressing this would improve practical significance.
+
+Pros
+- Clear, principled system design enabling BLAS-3 compute, good cache behavior, and distributed scalability.
+- Low-rank multiplication to exploit n ≪ p is well-justified and impactful.
+- Solid convergence guarantees under standard conditions.
+- Strong empirical scalability; impressive 10^6-dimensional demonstration.
+- Careful discussion of load balancing and block-cyclic distribution.
+
+Cons
+- Apparent scaling inconsistency in the linearized ADMM X-update; needs correction/clarification.
+- Theorem 3 is underspecified; the random perturbation claim should precisely state conditions on Δ.
+- Limited discussion of post-processing (symmetrization/PD enforcement) and its cost/effects.
+- Baselines include graphical lasso methods (DC-QUIC) with different objectives; accuracy comparisons are not apples-to-apples, and statistical evaluation is light.
+- Reproducibility details (tolerances, iterations, parameter selection, code availability) are insufficient.
+
+Suggestions for improvement
+- Fix/clarify the X-update scaling (V_t definition) and align pseudocode with standard linearized ADMM derivations.
+- Provide explicit stopping criteria, parameter settings, and iteration counts; consider releasing code or detailed pseudocode plus scripts.
+- Clarify Theorem 3 or focus on the simpler deterministic thresholding argument; specify independence and magnitude scaling assumptions precisely.
+- Discuss symmetrization/PD projection for CLIME outputs, and include its runtime cost if applied.
+- Expand statistical evaluations (ROC/PR curves) on synthetic and real data; include comparisons to ADMM-based CLIME solvers and large-scale graphical lasso where appropriate.
+- Add communication-cost analysis per iteration and guidance on choosing k and block sizes as a function of hardware/cache.
+
+Overall
+The paper presents a well-engineered, scalable framework for CLIME with convincing large-scale experiments and appropriate convergence analysis. Addressing the noted algorithmic scaling inconsistency and clarifying statistical perturbation claims are important. With those fixes and modest additions on reproducibility and statistical evaluation, this would be a strong systems-oriented contribution. I lean toward acceptance contingent on correcting the X-update and clarifying Theorem 3.

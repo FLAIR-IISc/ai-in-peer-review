@@ -1,0 +1,61 @@
+Summary and relation to prior work
+The paper proposes Supervised Word Mover’s Distance (S-WMD), a supervised variant of WMD that learns (i) a linear transformation A applied to word embeddings (i.e., a Mahalanobis ground metric M=A^T A) and (ii) a nonnegative word-importance vector w that reweights document histograms. The objective is a stochastic leave-one-out kNN loss (NCA-style) defined on the document distances. Since exact WMD is cubic in the number of unique words, the method uses the entropically-regularized optimal transport (Sinkhorn) relaxation to approximately compute distances and gradients efficiently; dual potentials α, β are recovered from the Sinkhorn scaling vectors u, v to obtain gradients with respect to w. Training is accelerated with (a) initialization by running NCA on word centroids (WCD) to initialize A, and (b) minibatching and neighbor subsampling using WCD for fast candidate selection. Experiments on 8 datasets compare against 26 baselines (unsupervised and supervised on various representations), reporting superior average rank and best performance on 5/8 datasets.
+
+This work sits at the intersection of optimal transport for text (WMD: Kusner et al.) and metric learning (NCA/LMNN/ITML). It is closely related to supervised EMD learning in vision (e.g., Wang & Guibas; Wang et al.), but applies it to text with word embeddings and introduces learned histogram reweighting, while optimizing a kNN/NCA objective and using Sinkhorn for efficiency.
+
+Strengths
+- Clear high-level idea: learn a Mahalanobis ground metric in embedding space plus per-word weights to adapt WMD to the label space.
+- Sound use of entropic OT to obtain differentiable, fast approximations and dual potentials for gradients; envelope theorem arguments make Eq. (8) plausible under strong convexity.
+- Reasonable acceleration tricks: WCD-based initialization and neighbor subsampling reduce cost substantially without changing the overall algorithmic structure.
+- Broad empirical comparison across many baselines on multiple datasets; results suggest consistent gains over unsupervised WMD and strong supervised baselines in the kNN setting.
+
+Weaknesses and technical concerns
+- Notational/technical inconsistencies:
+  - The symbol p is used for both the Lp norm exponent (p=1 or 2) and later for a dimension/size (e.g., “p-dimensional all-ones vector” for dual potentials; complexity O(p^2)), while q is also used for vocabulary support size. This creates confusion in Eqns. (1–2), the Sinkhorn section, the dual, and the complexity discussion. Please unify symbols (e.g., use m or s for support size, keep p strictly for norm).
+  - Eq. (2) switches to ‖xi−xj‖^2 without p; Kij=exp(−λ‖xi−xj‖^2) also fixes p=2 silently. Be explicit and consistent.
+  - The definition of α*, β* from u, v mixes in a centering term with “1 is the p-dimensional all-ones vector”; the dimension should match the support size of each document, not the norm exponent. The constant offset (due to dual non-uniqueness) should be explained more carefully.
+- Gradient with respect to w (Eq. (10)) appears incorrect as written. With d̃=(w◦d)/(w^T d), the quotient rule implies a factor 1/(w^T d) multiplying the first term (and an analogous normalization for the second); in the current typesetting this factor is missing/ambiguous. Please derive ∂d̃/∂w explicitly and show the complete expression, including the projection needed to maintain nonnegativity of d̃.
+- Constraints/regularization not specified:
+  - Are w constrained to be nonnegative? Without w≥0, d̃ can become invalid. No projection step is described.
+  - Any regularization on A or w (e.g., Frobenius norm on A, L1/L2 on w) to avoid degenerate solutions (e.g., A→large norm to saturate NCA; w concentrating mass on a few words)? Rank r of A is not specified or tuned.
+- Objective approximation and gradient bias:
+  - The NCA probabilities require summing over all neighbors; the paper replaces sums with top-N based on WCD (Eq. (11)). This introduces a biased gradient and optimizes a different objective. No analysis or empirical study quantifies the impact of N on performance/stability or offers an unbiased/importance-sampling alternative.
+  - It is unclear whether training and evaluation distances use the same OT variant. Are test-time distances computed with exact WMD using learned A,w, or the entropic approximation? If the latter, S-WMD is not a metric and is not directly comparable to exact WMD; if the former, runtime may be prohibitive. Please clarify and ensure fair comparisons.
+- Metric claims: With entropic regularization, DA,w is not a true metric (triangle inequality may fail). The paper repeatedly refers to a “distance” without caveats or discussion.
+- Initialization and lower bound claim: The statement that WCD lower-bounds WMD “after the transformation with A” should be stated with conditions (holds for Euclidean ground metrics; please provide a proof or citation that it remains a lower bound for ‖A(·)‖_2).
+- Experimental details insufficient for reproducibility:
+  - Embedding source and preprocessing unspecified (dimension, corpus, lowercasing, tokenization, vocabulary cutoff, stopword handling, OOV policy).
+  - k in kNN not reported; not clear if tuned per dataset.
+  - Sinkhorn parameters: number of iterations, stopping criteria, ε/λ tradeoffs, and stabilization technique (log-domain updates) not given. λ is fixed to 10 without sensitivity analysis; the trade-off between accuracy and convergence speed needs empirical justification.
+  - Training hyperparameters (ηA, ηw schedules, batch size justification, convergence criterion, number of epochs) absent.
+  - Ablations: no results for only-A vs only-w to disentangle contributions; S-WCD shows effect of A on centroid space, but there is no “WMD + w only” or “WMD + A only” under OT.
+- Fairness and protocol issues:
+  - Baselines: LDA is trained transductively on train+test, which is nonstandard and may inflate baseline results (in either direction). The rationale for allowing transductive baselines should be clarified and consistently applied.
+  - Comparisons limited to kNN; practitioners often use linear SVM/logistic regression with TF-IDF. Including such baselines would strengthen significance claims.
+- Formatting, clarity, and anonymity:
+  - Numerous typos and broken references (e.g., “[5, 21?]”), inconsistent notation, missing section number “3.2”, and incomplete bibliography entries hinder readability and reproducibility.
+  - Code and author-identifying links violate double-blind policy; footnotes reveal affiliations. This is a serious procedural issue.
+
+Pros
+- Conceptually clean extension of WMD with supervised ground metric and word weights.
+- Sensible use of Sinkhorn to enable learning; gradient formulas mostly standard under entropic OT.
+- Strong empirical performance across multiple datasets and many baselines.
+
+Cons
+- Multiple technical/notation errors and missing derivations (especially ∂/∂w and dual potentials).
+- Unclear constraints/regularization; potential degeneracies not addressed.
+- Biased neighbor subsampling without analysis; unclear train/test distance consistency.
+- Incomplete experimental details and limited baselines (no SVM), making reproducibility and significance harder to assess.
+- Formatting/anonymity violations.
+
+Questions for authors
+1. Provide the exact, fully-parenthesized expression for ∂DA,w/∂w including normalization factors, and specify the projection enforcing w≥0 (if any).
+2. Do you evaluate with exact WMD or entropic OT at test time? If exact, report runtimes; if entropic, clarify that the result is an approximation and not a metric.
+3. What is r, how is it chosen, and do you regularize A,w? Any constraints to prevent A from exploding?
+4. Sensitivity to λ and to N (neighbor subset size); can you provide ablations?
+5. Full preprocessing/embedding details and k in kNN.
+6. Add ablations for only-A and only-w under OT.
+7. Replace transductive LDA with inductive training, and add linear SVM TF-IDF baselines.
+
+Recommendation: Weak reject
+The idea is promising and likely useful, but the accumulation of technical/notation errors, missing constraints/derivations, biased optimization without analysis, and reproducibility gaps outweighs the empirical gains at this stage. Addressing the above issues would make a much stronger submission. Confidence: high.

@@ -1,0 +1,361 @@
+{
+  "name" : "fec8d47d412bcbeece3d9128ae855a7a.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "NeuralFDR: Learning Discovery Thresholds from Hypothesis Features",
+    "authors" : [ "Fei Xia", "Martin J. Zhang", "James Zou", "David Tse" ],
+    "emails" : [ "feixia@stanford.edu", "jinye@stanford.edu", "jamesz@stanford.edu", "dntse@stanford.edu" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "In modern data science, the analyst is often swarmed with a large number of hypotheses — e.g. is a mutation associated with a certain trait or is this ad effective for that section of the users. Deciding which hypothesis to statistically accept or reject is a ubiquitous task. In standard multiple hypothesis testing, each hypothesis is boiled down to one number, a p-value computed against some null distribution, with a smaller value indicating less likely to be null. We have powerful procedures to systematically reject hypotheses while controlling the false discovery rate (FDR) Note that here the convention is that a “discovery” corresponds to a “rejected” null hypothesis.\nThese FDR procedures are widely used but they ignore additional information that is often available in modern applications. Each hypothesis, in addition to the p-value, could also contain a set of features pertinent to the objects being tested in the hypothesis. In the genetic association setting above, each hypothesis tests whether a mutation is correlated with the trait and we have a p-value for this. Moreover, we also have other features about both the mutation (e.g. its location, epigenetic status, conservation etc.) and the trait (e.g. if the trait is gene expression then we have features on the gene). Together these form a feature representation of the hypothesis. This feature vector is ignored by the standard multiple hypotheses testing procedures.\nIn this paper, we present a flexible method using neural networks to learn a nonlinear mapping from hypothesis features to a discovery threshold. Popular procedures for multiple hypotheses\n⇤These authors contributed equally to this work and are listed in alphabetical order. †These authors contributed equally.\n31st Conference on Neural Information Processing Systems (NIPS 2017), Long Beach, CA, USA.\ntesting correspond to having one constant threshold for all the hypotheses (BH [3]), or a constant for each group of hypotheses (group BH [13], IHW [14, 15]). Our algorithm takes account of all the features to automatically learn different thresholds for different hypotheses. Our deep learning architecture enables efficient optimization and gracefully handles both continuous and discrete multidimensional hypothesis features. Our theoretical analysis shows that we can control false discovery proportion (FDP) with high probability. We provide extensive simulation on synthetic and real datasets to demonstrate that our algorithm makes more discoveries while controlling FDR compared to state-of-the-art methods.\nContribution. As shown in Fig. 1, we provide NeuralFDR, a practical end-to-end algorithm to the multiple hypotheses testing problem where the hypothesis features can be continuous and multi-dimensional. In contrast, the currently widely-used algorithms either ignore the hypothesis features (BH [3], Storey’s BH [21]) or are designed for simple discrete features (group BH [13], IHW [15]). Our algorithm has several innovative features. We learn a multi-layer perceptron as the discovery threshold and use a mirroring technique to robustly estimate false discoveries. We show that NeuralFDR controls false discovery with high probability for independent hypotheses and asymptotically under weak dependence [13, 21], and we demonstrate on both synthetic and real datasets that it controls FDR while making substantially more discoveries. Another advantage of our end-to-end approach is that the learned discovery threshold are directly interpretable. We will illustrate in Sec. 4 how the threshold conveys biological insights.\nRelated works. Holm [12] investigated the use of p-value weights, where a larger weight suggests that the hypothesis is more likely to be an alternative. Benjamini and Hochberg [4] considered assigning different losses to different hypotheses according to their importance. Some more recent works are [9, 10, 13]. In these works, the features are assumed to have some specific forms, either prespecified weights for each hypothesis or the grouping information. The more general formulation considered in this paper was purposed quite recently [15, 16, 18, 19]. It assumes that for each hypothesis, we observe not only a p-value Pi but also a feature Xi lying in some generic space X . The feature is meant to capture some side information that might bear on the likelihood of a hypothesis to be significant, or on the power of Pi under the alternative, but the nature of this relationship is not fully known ahead of time and must be learned from the data.\nThe recent work most relevant to ours is IHW [15]. In IHW, the data is grouped into G groups based on the features and the decision threshold is a constant for each group. IHW is similar to NeuralFDR in that both methods optimize the parameters of the decision rule to increase the number of discoveries while using cross validation for asymptotic FDR control. IHW has several limitations: first, binning the data into G groups can be difficult if the feature space X is multi-dimensional; second, the decision rule, restricted to be a constant for each group, is artificial for continuous features; and third, the asymptotic FDR control guarantee requires the number of groups going to infinity, which can be unrealistic. In contrast, NeuralFDR uses a neural network to parametrize the decision rule which is much more general and fits the continuous features. As demonstrated in the empirical results, it works well with multi-dimensional features. In addition to asymptotic FDR control, NeuralFDR also has high-probability false discovery proportion control guarantee with a finite number of hypotheses.\nSABHA [19] and AdaPT [16] are two recent FDR control frameworks that allow flexible methods to explore the data and compute the feature dependent decision rules. The focus there is the framework rather than the end-to-end algorithm as compared to NueralFDR. For the empirical experiment, SABHA estimates the null proportion using non-parametric methods while AdaPT estimates the\ndistribution of the p-value and the features with a two-group Gamma GLM mixture model and spline regression. The multi-dimensional case is discussed without empirical validation. Hence both methods have a similar limitation to IHW in that they do not provide an empirically validated end-to-end approach for multi-dimensional features. This issue is addressed in [5], where the null proportion is modeled as a linear combination of some hand-crafted transformation of the features. NeuralFDR models this relation in a more flexible way."
+    }, {
+      "heading" : "2 Preliminaries",
+      "text" : "We have n hypotheses and each hypothesis i is characterized by a tuple (Pi,Xi, Hi), where Pi 2 (0, 1) is the p-value, Xi 2 X is the hypothesis feature, and Hi 2 {0, 1} indicates if this hypothesis is null ( Hi = 0) or alternative ( Hi = 1). The p-value Pi represents the probability of observing an equally or more extreme value compared to the testing statistic when the hypothesis is null, and is calculated based on some data different from Xi. The alternate hypotheses (Hi = 1) are the true signals that we would like to discover. A smaller p-value presents stronger evidence for a hypothesis to be alternative. In practice, we observe Pi and Xi but do not know Hi. We define the null proportion ⇡0(x) to be the probability that the hypothesis is null conditional on the feature Xi = x. The standard assumption is that under the null (Hi = 0), the p-value is uniformly distributed in (0, 1). Under the alternative (Hi = 1), we denote the p-value distribution by f1(p|x). In most applications, the p-values under the alternative are systematically smaller than those under the null. A detailed discussion of the assumptions can be found in Sec. 5.\nThe general goal of multiple hypotheses testing is to claim a maximum number of discoveries based on the observations {(Pi,Xi)}ni=1 while controlling the false positives. The most popular quantities that conceptualize the false positives are the family-wise error rate (FWER) [8] and the false discovery rate (FDR) [3]. We specifically consider FDR in this paper. FDR is the expected proportion of false discoveries, and one closely related quantity, the false discovery proportion (FDP), is the actual proportion of false discoveries. We note that FDP is the actual realization of FDR. Formally, Definition 1. (FDP and FDR) For any decision rule t, let D(t) and FD(t) be the number of discoveries and the number of false discoveries. The false discovery proportion FDP (t) and the false discovery rate FDR(t) are defined as FDP (t) , FD(t)/D(t) and FDR(t) , E[FDP (t)].\nIn this paper, we aim to maximize D(t) while controlling FDP (t)  ↵ with high probability. This is a stronger statement than those in FDR control literature of controlling FDR under the level ↵.\nMotivating example. Consider a genetic association study where the genotype and phenotype (e.g. height) are measured in a population. Hypothesis i corresponds to testing the correlation between the variant i and the individual’s height. The null hypothesis is that there is no correlation, and Pi is the probability of observing equally or more extreme values than the empirically observed correlation conditional on the hypothesis is null Hi = 0. Small Pi indicates that the null is unlikely. Here Hi = 1 (or 0) corresponds to the variant truly is (or is not) associated with height. The features Xi could include the location, conservation, etc. of the variant. Note that Xi is not used to compute Pi, but it could contain information about how likely the hypotheses is to be an alternative. Careful readers may notice that the distribution of Pi given Xi is uniform between 0 and 1 under the null and f1(p|x) under the alternative, which depends on x. This implies that Pi and Xi are independent under the null and dependent under the alternative.\nTo illustrate why modeling the features could improve discovery power, suppose hypothetically that all the variants truly associated with height reside on a single chromosome j⇤ and the feature is the chromosome index of each SNP (see Fig. 2 (a)). Standard multiple testing methods ignore this feature and assign the same discovery threshold to all the chromosomes. As there are many purely noisy chromosomes, the p-value threshold must be very small in order to control FDR. In contrast, a method that learns the threshold t(x) could learn to assign a higher threshold to chromosome j⇤ and 0 to other chromosomes. As a higher threshold leads to more discoveries and vice versa, this would effectively ignore much of the noise and make more discoveries under the same FDR."
+    }, {
+      "heading" : "3 Algorithm Description",
+      "text" : "Since a smaller p-value presents stronger evidence against the null hypothesis, we consider the threshold decision rule without loss of generality. As the null proportion ⇡0(x) and the alternative\ndistribution f1(p|x) vary with x, the threshold should also depend on x. Therefore, we can write the rule as t(x) in general, which claims hypothesis i to be significant if Pi < t(Xi). Let I be the indicator function. For t(x), the number of discoveries D(t) and the number of false discoveries FD(t) can be expressed as D(t) = P n i=1 I{Pi<t(Xi)} and FD(t) = P n\ni=1 I{Pi<t(Xi),Hi=0}. Note that computing FD(t) requires the knowledge of Hi, which is not available from the observations. Ideally we want to solve t for the following problem:\nmaximizet D(t), s.t. FDP (t)  ↵. (1)\nDirectly solving (1) is not possible. First, without a parametric representation, t can not be optimized. Second, while D(t) can be calculated from the data, FD(t) can not, which is needed for evaluating FDP (t). Third, while each decision rule candidate tj controls FDP, optimizing over them may yield a rule that overfits the data and loses FDP control. We next address these three difficulties in order.\nFirst, the representation of the decision rule t(x) should be flexible enough to address different structures of the data. Intuitively, to have maximal discoveries, the landscape of t(x) should be similar to that of the alternative proportion ⇡1(x): t(x) is large in places where the alternative hypotheses abound. As discussed in detail in Sec. 4, two structures of ⇡1(x) are typical in practice. The first is bumps at a few locations, and the second is slopes that vary with x. Hence the representation should at least be able to address these two structures. In addition, the number of parameters needed for the representation should not grow exponentially with the dimensionality of x. Hence non-parametric models, such as the spline-based methods or the kernel based methods, are infeasible. Take kernel density estimation in 5D as example. If we let the kernel width be 0.1, each kernel contains on average 0.001% of the data. Then we need at least a million alternative hypothesis data to have a reasonable estimate of the landscape of ⇡1(x). In this work, we investigate the idea of modeling t(x) using a multilayer perceptron (MLP), which has a high expressive power and has a number of parameters that does not grow exponentially with the dimensionality of the features. As demonstrated in Sec. 4, it can efficiently recover the two common structures, bumps and slopes, and yield promising results in all real data experiments.\nSecond, although FD(t) can not be calculated from the data, if it can be overestimated by some dFD(t), then the corresponding estimate of FDP, namely \\FDP (t) = dFD(t)/D(t), is also an overestimate. Then if \\FDP (t)  ↵, then FDP (t)  ↵, yielding the desired FDP control. Moreover, if dFD(t) is close to FD(t), the FDP control is tight. Conditional on X = x, the rejection region of p, namely (0, t(x)), contains a mixture of nulls and alternatives. As the null distribution Unif(0, 1) is symmetrical w.r.t. p = 0.5 while the alternative distribution f1(p|x) is highly asymmetrical, the mirrored region (1 t(x), 1) will contain roughly the same number of nulls but very few alternatives. Then the number of hypothesis in (t(x), 1) can be a proxy of the number of nulls in (0, t(x)). This idea is illustrated in Fig. 2 (b) and we refer to this estimator as the mirroring estimator. This estimator is also used in [1, 16, 17]. Definition 2. (The mirroring estimator) For any decision rule t, let C(t) = {(p,x) : p < t(x)} be the rejection region of t over (Pi,Xi) and let its mirrored region be CM (t) = {(p,x) : p > 1 t(x)}.The mirroring estimator of FD(t) is defined as dFD(t) = P i I{(Pi,Xi)2CM (t)}.\nThe mirroring estimator overestimates the number of false discoveries in expectation:\nLemma 1. (Positive bias of the mirroring estimator)\nE[dFD(t)] E[FD(t)] = nX\ni=1\nP ⇥ (Pi,Xi) 2 CM (t), Hi = 1 ⇤ 0. (2)\nRemark 1. In practice, t(x) is always very small and f1(p|x) approaches 0 very fast as p ! 1. Then for any hypothesis with (Pi,Xi) 2 CM (t), Pi is very close to 1 and hence P(Hi = 1) is very small. In other words, the bias in (2) is much smaller than E[FD(t)]. Thus the estimator is accurate. In addition, dFD(t) and FD(t) are both sums of n terms. Under mild conditions, they concentrate well around their means. Thus we should expect that dFD(t) approximates FD(t) well most of the times. We make this precise in Sec. 5 in the form of the high probability FDP control statement.\nThird, we use cross validation to address the overfitting problem introduced by optimization. To be more specific, we divide the data into M folds. For fold j, the decision rule tj(x;✓), before applied on fold j, is trained and cross validated on the rest of the data. The cross validation is done by rescaling the learned threshold tj(x) by a factor j so that the corresponding mirror estimate \\FDP on the CV set is ↵. This will not introduce much of additional overfitting since we are only searching over a scalar . The discoveries in all M folds are merged as the final result. We note here distinct folds correspond to subsets of hypotheses rather than samples used to compute the corresponding p-values. This procedure is shown in Fig. 2 (c). The details of the procedure as well as the FDP control property are also presented in Sec. 5.\nAlgorithm 1 NeuralFDR 1: Randomly divide the data {(Pi,Xi)}ni=1 into M folds. 2: for fold j = 1, · · · , M do 3: Let the testing data be fold j, the CV data be fold j0 6= j, and the training data be the rest. 4: Train tj(x;✓) based on the training data by optimizing\nmaximize✓ D(t(✓)) s.t. \\FDP (t⇤j (✓))  ↵. (3)\n5: Rescale t⇤ j (x;✓) by ⇤ j so that the estimated FDP on the CV data \\FDP ( ⇤ j t⇤ j (✓)) = ↵. 6: Apply ⇤ j t⇤ j (✓) on the data in fold j (the testing data).\n7: Report the discoveries in all M folds.\nThe proposed method NeuralFDR is summarized as Alg. 1. There are two techniques that enabled robust training of the neural network. First, to have non-vanishing gradients, the indicator functions in (3) are substituted by sigmoid functions with the intensity parameters automatically chosen based on the dataset. Second, the training process of the neural network may be unstable if we use random initialization. Hence, we use an initialization method called the k-cluster initialization: 1) use k-means clustering to divide the data into k clusters based on the features; 2) compute the optimal threshold for each cluster based on the optimal group threshold condition ((7) in Sec. 5); 3) initialize the neural network by training it to fit a smoothed version of the computed thresholds. See Supp. Sec. 2 for more implementation details."
+    }, {
+      "heading" : "4 Empirical Results",
+      "text" : "We evaluate our method using both simulated data and two real-world datasets3. The implementation details are in Supp. Sec. 2. We compare NeuralFDR with three other methods: BH procedure (BH) [3], Storey’s BH procedure (SBH) with threshold = 0.4 [21], and Independent Hypothesis Weighting (IHW) with number of bins and folds set as default [15]. BH and SBH are two most popular methods without using the hypothesis features and IHW is the state-of-the-art method that utilizes hypothesis features. For IHW, in the multi-dimensional feature case, k-means is used to group the hypotheses. In all experiments, k is set to 20 and the group index is provided to IHW as the hypothesis feature. Other than the FDR control experiment, we set the nominal FDR level ↵ = 0.1.\n3We released the software at https://github.com/fxia22/NeuralFDR"
+    }, {
+      "heading" : "5/19/17, 12)45 AM",
+      "text" : "5/19/17, 12)44 AM\nSimulated data. We first consider DataIHW, the simulated data in the IHW paper ( Supp. 7.2.2 [15]). Then, we use our own data that are generated to have two feature structures commonly seen in practice, the bumps and the slopes. For the bumps, the alternative proportion ⇡1(x) is generated from a Gaussian mixture (GM) to have a few peaks with abundant alternative hypotheses. For the slopes, ⇡1(x) is generated linearly dependent with the features. After generating ⇡1(x), the p-values are generated following a beta mixture under the alternative and uniform (0, 1) under the null. We generated the data for both 1D and 2D cases, namely 1DGM, 2DGM, 1Dslope, 2Dslope. For example, Fig. 4 (a) shows the alternative proportion of 2Dslope. In addition, for the high dimensional feature scenario, we generated a 5D data, 5DGM, which contains the same alternative proportion as 2DGM with 3 addition non-informative directions.\nWe first examine the FDR control property using DataIHW and 1DGM. Knowing the ground truth, we plot the FDP (actual FDR) over different values of the nominal FDR ↵ in Fig. 3. For a perfect FDR control, the curve should be along the 45-degree dashed line. As we can see, all the methods control FDR. NeuralFDR controls FDR accurately while IHW tends to make overly conservative decisions. Second, we visualize the learned threshold by both NeuralFDR and IWH. As mentioned in Sec. 3, to make more discoveries, the learned threshold should roughly have the same shape as ⇡1(x). The learned thresholds of NeuralFDR and IHW for 2Dslope are shown in Fig. 3 (b,c). As we can see, NeuralFDR well recovers the slope structure while IHW fails to assign the highest threshold to the bottom right block. IHW is forced to be piecewise constant while NeuralFDR can learn a smooth threshold, better recovering the structure of ⇡1(x). In general, methods that partition the hypotheses into discrete groups would not scale for higher-dimensional features. In Appendix 1, we show that NeuralFDR is also able to recover the correct threshold for the Gaussian signal. Finally, we report the total numbers of discoveries in Tab. 1.\nIn addition, we ran an experiment with dependent p-values with the same dependency structure as Sec. 3.2 in [15]. We call this dataset DataIHW(WD). The number of discoveries are shown in Tab. 1. NeuralFDR has the actual FDP 9.7% while making more discoveries than SBH and IHW. This empirically shows that NeuralFDR also works for weakly dependent data.\nAll numbers are averaged over 10 runs of the same simulation setting. We can see that NeuralFDR outperforms IHW in all simulated datasets. Moreover, it outperforms IHW by a large margin multi-dimensional feature settings.\n5/19/17, 12)58 AM\n5/19/17, 12)58 AM\n5/19/17, 12)57 AM\nAirway RNA-Seq data. Airway data [11] is a RNA-Seq dataset that contains n = 33469 genes and aims to identify glucocorticoid responsive (GC) genes that modulate cytokine function in airway smooth muscle cells. The p-values are obtained by a standard two-group differential analysis using DESeq2 [20]. We consider the log count for each gene as the hypothesis feature. As shown in the first column in Tab. 2, NeuralFDR makes 800 more discoveries than IHW. The learned threshold by NeuralFDR is shown in Fig. 4 (d). It increases monotonically with the log count, capturing the positive dependency relation. Such learned structure is interpretable: low count genes tend to have higher variances, usually dominating the systematic difference between the two conditions; on the contrary, it is easier for high counts genes to show a strong signal for differential expression [15, 20].\nGTEx data. A major component of the GTEx [6] study is to quantify expression quantitative trait loci (eQTLs) in human tissues. In such an eQTL analysis, each pair of single nucleotide polymorphism (SNP) and nearby gene forms one hypothesis. Its p-value is computed under the null hypothesis that the SNP’s genotype is not correlated with the gene expression.We obtained all the GTEx p-values from chromosome 1 in a brain tissue (interior caudate), corresponding to 10, 623, 893 SNP-gene combinations. In the original GTEx eQTL study, no features were considered in the FDR analysis, corresponding to running the standard BH or SBH on the p-values. However, we know many biological features affect whether a SNP is likely to be a true eQTL; i.e. these features could vary the alternative proportion ⇡1(x) and accounting for them could increase the power to discover true eQTL’s while guaranteeing that the FDR remains the same. For each hypothesis, we generated three\nfeatures: 1) the distance (GTEx-dist) between the SNP and the gene (measured in log base-pairs) ; 2) the average expression (GTEx-exp) of the gene across individuals (measured in log rpkm); 3) the evolutionary conservation measured by the standard PhastCons scores (GTEx-PhastCons).\nThe numbers of discoveries are shown in Tab. 2. For GTEx-2D, GTEx-dist and GTEx-exp are used. For NeuralFDR, the number of discoveries increases as we put in more and more features, indicating that it can work well with multi-dimensional features. For IHW, however, the number of discoveries decreases as more features are incorporated. This is because when the feature dimension becomes higher, each bin in IHW will cover a larger space, decreasing the resolution of the piecewise constant function, preventing it from capturing the informative part of the feature.\nThe learned discovery thresholds of NeuralFDR are directly interpretable and match prior biological knowledge. Fig. 4 (e) shows that the threshold is higher when SNP is closer to the gene. This allows more discoveries to be made among nearby SNPs, which is desirable since we know there most of the eQTLs tend to be in cis (i.e. nearby) rather than trans (far away) from the target gene [6]. Fig. 4 (f) shows that the NeuralFDR threshold for gene expression decreases as the gene expression becomes large. This also confirms known biology: the highly expressed genes tend to be more housekeeping genes which are less variable across individuals and hence have fewer eQTLs [6]. Therefore it is desirable that NeuralFDR learns to place less emphasis on these genes. We also show that NeuralFDR learns to give higher threshold to more conserved variants in Supp. Sec. 1, which also matches biology."
+    }, {
+      "heading" : "5 Theoretical Guarantees",
+      "text" : "We assume the tuples {(Pi,Xi, Hi)}ni=1 are i.i.d. samples from an empirical Bayes model:\nXi i.i.d.⇠ µ(X), [Hi|Xi = x] ⇠ Bern(1 ⇡0(x)), ⇢ [Pi|Hi = 0,X = x] ⇠ Unif(0, 1) [Pi|Hi = 1,X = x] ⇠ f1(p|x) (4)\nThe features Xi are drawn i.i.d. from some unknown distribution µ(x). Conditional on the feature Xi = x, hypothesis i is null with probability ⇡0(x) and is alternative otherwise. The conditional distributions of p-values are Unif(0, 1) under the null and f1(p|x) under the alternative.\nFDR control via cross validation. The cross validation procedure is described as follows. The data is divided randomly into M folds of equal size m = n/M . For fold j, let the testing set Dte(j) be itself, the cross validation set Dcv(j) be any other fold, and the training set Dtr(j) be the remaining. The size of the three are m, m, (M 2)m respectively. For fold j, suppose at most L decision rules are calculated based on the training set, namely tj1, · · · , tjL. Evaluated on the cross validation set, let l⇤-th rule be the rule with most discoveries among rules that satisfies 1) its mirroring estimate \\FDP (tjl)  ↵; 2) D(tjl)/m > c0, for some small constant c0 > 0. Then, tjl⇤ is selected to apply on the testing set (fold j). Finally, discoveries from all folds are combined.\nThe FDP control follows a standard argument of cross validation. Intuitively, the FDP of the rules {tjl}Ll=1 are estimated based on Dcv(j), a dataset independent of the training set. Hence there is no overfitting and the overestimation property of the mirroring estimator, as in Lemma 1, is statistical valid, leading to a conservative decision that controls FDP. This is formally stated as below. Theorem 1. (FDP control) Let M be the number of folds and let L be the maximum number of decision rule candidates evaluated by the cross validation set. Then with probability at least 1 , the overall FDP is less than (1 + )↵, where = O ⇣q M\n↵n log ML\n⌘ .\nRemark 2. There are two subtle points. First, L can not be too large. Otherwise Dcv(j) may eventually be overfitted by being used too many times for FDP estimation. Second, the FDP estimates may be unstable if the probability of discovery E[D(tjl)/m] approaches 0. Indeed, the mirroring method estimates FDP by \\FDP (tjl) = dFD(tjl) D(tjl)\n, where both dFD(tjl) and D(tjl) are i.i.d. sums of n Bernoulli random variables with mean roughly ↵E[D(tjl)/m] and E[D(tjl)/m]. When their means are small, the concentration property will fail. So we need E[D(tjl)/m] to be bounded away from zero. Nevertheless this is required in theory but may not be used in practice. Remark 3. (Asymptotic FDR control under weak dependence) Besides the i.i.d. case, NeuralFDR can also be extended to control FDR asymptotically under weak dependence [13, 21]. Generalizing the concept in [13] from discrete groups to continuous features X, the data are under weak dependence\nif the CDF of (Pi, Xi) for both the null and the alternative proportion converge almost surely to their true values respectively. The linkage disequilibrium (LD) in GWAS and the correlated genes in RNA-Seq can be addressed by such dependence structure. In this case, if learned threshold is c-Lipschitz continuous for some constant c, NeuralFDR will control FDR asymptotically. The Lipschitz continuity can be achieved, for example, by weight clipping [2], i.e. clamping the weights to a bounded set after each gradient update when training the neural network. See Supp. 3 for details.\nOptimal decision rule with infinite hypotheses. When n = 1, we can recover the joint density fPX(p,x). Based on that, the explicit form of the optimal decision rule can be obtained if we are willing to further assumer f1(p|x) is monotonically non-increasing w.r.t. p. This rule is used for the k-cluster initialization for NeuralFDR as mentioned in Sec. 3. Now suppose we know fPX(p,x). Then µ(x) and fP |X(p|x) can also be determined. Furthermore, as f1(p|x) = 11 ⇡0(x) (fP |X(p|x) ⇡0(x)), once we specify ⇡0(x), the entire model is specified. Let S(fPX) be the set of null proportions ⇡0(x) that produces the model consistent with fPX. Because f1(p|x) 0, we have 8p,x, ⇡0(x)  fP |X(p|x). This can be further simplified as ⇡0(x)  fP |X(1|x) by recalling that fP |X(p|x) is monotonically decreasing w.r.t. p. Then we know\nS(fPX) = {⇡0(x) : 8x, ⇡0(x)  fP |X(1|x)}. (5)\nGiven fPX(p,x), the model is not fully identifiable. Hence we should look for a rule t that maximizes the power while controlling FDP for all elements in S(fPX). For (P1,X1, H1) ⇠ (fPX, ⇡0, f1) following (4), the probability of discovery and the probability of false discovery are PD(t, fPX) = P(P1  t(X1)), PFD(t, fPX, ⇡0) = P(P1  t(X1), H1 = 0). Then the FDP is FDP (t, fPX, ⇡0) =\nPFD(t,fPX,⇡0) PD(t,fPX) . In this limiting case, all quantities are deterministic and FDP coincides with FDR. Given that the FDP is controlled, maximizing the power is equivalent to maximizing the probability of discovery. Then we have the following minimax problem:\nmax t min ⇡02S(fPX) PD(t, fPX) s.t. max ⇡02S(fPX) FDP (t, fPX, ⇡0)  ↵, (6)\nwhere S(fPX) is the set of possible null proportions consistent with fPX, as defined in (5). Theorem 2. Fixing fPX and let ⇡⇤0(x) = fP |X(1|x). If f1(p|x) is monotonically non-increasing w.r.t. p, the solution to problem (6), t⇤(x), satisfies\n1. fPX(1,x)\nfPX(t⇤(x),x) = const, almost surely w.r.t. µ(x) 2. FDR(t⇤, fPX, ⇡ ⇤ 0) = ↵. (7)\nRemark 4. To compute the optimal rule t⇤ by the conditions (7), consider any t that satisfies (7.1). According to (7.1), once we specify the value of t(x) at any location x, say t(0), the entire function is determined. Also, FDP (t, fPX, ⇡⇤0) is monotonically non-decreasing w.r.t. t(0). These suggests the following strategy: starting with t(0) = 0, keep increasing t(0) until the corresponding FDP equals ↵, which gives us the optimal threshold t⇤. Similar conditions are also mentioned in [15, 16]."
+    }, {
+      "heading" : "6 Discussion",
+      "text" : "We proposed NeuralFDR, an end-to-end algorithm to the learn discovery threshold from hypothesis features. We showed that the algorithm controls FDR and makes more discoveries on synthetic and real datasets with multi-dimensional features. While the results are promising, there are also a few challenges. First, we notice that NeuralFDR performs better when both the number of hypotheses and the alternative proportion are large. Indeed, in order to have large gradients for the optimization, we need a lot of elements at the decision boundary t(x) and the mirroring boundary 1 t(x). It is important to improve the performance of NeuralFDR on small datasets with small alternative proportion. Second, we found that a 10-layer MLP performed well to model the decision threshold and that shallower networks performed more poorly. A better understanding of which network architectures optimally capture signal in the data is also an important question."
+    } ],
+    "references" : [ {
+      "title" : "Distribution-free multiple testing",
+      "author" : [ "Ery Arias-Castro", "Shiyun Chen" ],
+      "venue" : "Electronic Journal of Statistics,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : "1",
+      "year" : 2017
+    }, {
+      "title" : "Controlling the false discovery rate: a practical and powerful approach to multiple testing",
+      "author" : [ "Yoav Benjamini", "Yosef Hochberg" ],
+      "venue" : "Journal of the royal statistical society. Series B (Methodological),",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 1995
+    }, {
+      "title" : "Multiple hypotheses testing with weights",
+      "author" : [ "Yoav Benjamini", "Yosef Hochberg" ],
+      "venue" : "Scandinavian Journal of Statistics,",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : "4",
+      "year" : 1997
+    }, {
+      "title" : "A regression framework for the proportion of true null hypotheses",
+      "author" : [ "Simina M Boca", "Jeffrey T Leek" ],
+      "venue" : "bioRxiv, page 035675,",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : "5",
+      "year" : 2015
+    }, {
+      "title" : "The genotype-tissue expression (gtex) pilot analysis: Multitissue gene regulation",
+      "author" : [ "GTEx Consortium" ],
+      "venue" : "in humans. Science,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : "6",
+      "year" : 2015
+    }, {
+      "title" : "Adaptive subgradient methods for online learning and stochastic optimization",
+      "author" : [ "John Duchi", "Elad Hazan", "Yoram Singer" ],
+      "venue" : "Journal of Machine Learning Research,",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : "7",
+      "year" : 2011
+    }, {
+      "title" : "Multiple comparisons among means",
+      "author" : [ "Olive Jean Dunn" ],
+      "venue" : "Journal of the American Statistical Association,",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : "8",
+      "year" : 1961
+    }, {
+      "title" : "Simultaneous inference: When should hypothesis testing problems be combined",
+      "author" : [ "Bradley Efron" ],
+      "venue" : "The annals of applied statistics,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 2008
+    }, {
+      "title" : "False discovery control with p-value weighting",
+      "author" : [ "Christopher R Genovese", "Kathryn Roeder", "Larry Wasserman" ],
+      "venue" : null,
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : "10",
+      "year" : 2006
+    }, {
+      "title" : "Rna-seq transcriptome profiling identifies crispld2 as a glucocorticoid responsive gene that modulates cytokine function in airway smooth muscle cells",
+      "author" : [ "Blanca E Himes", "Xiaofeng Jiang", "Peter Wagner", "Ruoxi Hu", "Qiyu Wang", "Barbara Klanderman", "Reid M Whitaker", "Qingling Duan", "Jessica Lasky-Su", "Christina Nikolos" ],
+      "venue" : "PloS one,",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 2014
+    }, {
+      "title" : "A simple sequentially rejective multiple test procedure",
+      "author" : [ "Sture Holm" ],
+      "venue" : "Scandinavian journal of statistics,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 1979
+    }, {
+      "title" : "False discovery rate control with groups",
+      "author" : [ "James X Hu", "Hongyu Zhao", "Harrison H Zhou" ],
+      "venue" : "Journal of the American Statistical Association,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 2010
+    }, {
+      "title" : "Covariate-powered weighted multiple testing with false discovery rate control",
+      "author" : [ "Nikolaos Ignatiadis", "Wolfgang Huber" ],
+      "venue" : "arXiv preprint arXiv:1701.05179,",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 2017
+    }, {
+      "title" : "Data-driven hypothesis weighting increases detection power in genome-scale multiple testing",
+      "author" : [ "Nikolaos Ignatiadis", "Bernd Klaus", "Judith B Zaugg", "Wolfgang Huber" ],
+      "venue" : "Nature methods,",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : "15",
+      "year" : 2016
+    }, {
+      "title" : "Adapt: An interactive procedure for multiple testing with side information",
+      "author" : [ "Lihua Lei", "William Fithian" ],
+      "venue" : "arXiv preprint arXiv:1609.06035,",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : "16",
+      "year" : 2016
+    }, {
+      "title" : "Power of ordered hypothesis testing",
+      "author" : [ "Lihua Lei", "William Fithian" ],
+      "venue" : "In International Conference on Machine Learning,",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : "17",
+      "year" : 2016
+    }, {
+      "title" : "Star: A general interactive framework for fdr control under structural constraints",
+      "author" : [ "Lihua Lei", "Aaditya Ramdas", "William Fithian" ],
+      "venue" : "arXiv preprint arXiv:1710.02776,",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : "18",
+      "year" : 2017
+    }, {
+      "title" : "Multiple testing with the structure adaptive benjamini-hochberg algorithm",
+      "author" : [ "Ang Li", "Rina Foygel Barber" ],
+      "venue" : "arXiv preprint arXiv:1606.07926,",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : "19",
+      "year" : 2016
+    }, {
+      "title" : "Moderated estimation of fold change and dispersion for rna-seq data with deseq2",
+      "author" : [ "Michael I Love", "Wolfgang Huber", "Simon Anders" ],
+      "venue" : "Genome biology,",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : "20",
+      "year" : 2014
+    }, {
+      "title" : "Strong control, conservative point estimation and simultaneous conservative consistency of false discovery rates: a unified approach",
+      "author" : [ "John D Storey", "Jonathan E Taylor", "David Siegmund" ],
+      "venue" : "Journal of the Royal Statistical Society: Series B (Statistical Methodology),",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : "21",
+      "year" : 2004
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 1,
+      "context" : "testing correspond to having one constant threshold for all the hypotheses (BH [3]), or a constant for each group of hypotheses (group BH [13], IHW [14, 15]).",
+      "startOffset" : 79,
+      "endOffset" : 82
+    }, {
+      "referenceID" : 11,
+      "context" : "testing correspond to having one constant threshold for all the hypotheses (BH [3]), or a constant for each group of hypotheses (group BH [13], IHW [14, 15]).",
+      "startOffset" : 138,
+      "endOffset" : 142
+    }, {
+      "referenceID" : 12,
+      "context" : "testing correspond to having one constant threshold for all the hypotheses (BH [3]), or a constant for each group of hypotheses (group BH [13], IHW [14, 15]).",
+      "startOffset" : 148,
+      "endOffset" : 156
+    }, {
+      "referenceID" : 13,
+      "context" : "testing correspond to having one constant threshold for all the hypotheses (BH [3]), or a constant for each group of hypotheses (group BH [13], IHW [14, 15]).",
+      "startOffset" : 148,
+      "endOffset" : 156
+    }, {
+      "referenceID" : 1,
+      "context" : "In contrast, the currently widely-used algorithms either ignore the hypothesis features (BH [3], Storey’s BH [21]) or are designed for simple discrete features (group BH [13], IHW [15]).",
+      "startOffset" : 92,
+      "endOffset" : 95
+    }, {
+      "referenceID" : 19,
+      "context" : "In contrast, the currently widely-used algorithms either ignore the hypothesis features (BH [3], Storey’s BH [21]) or are designed for simple discrete features (group BH [13], IHW [15]).",
+      "startOffset" : 109,
+      "endOffset" : 113
+    }, {
+      "referenceID" : 11,
+      "context" : "In contrast, the currently widely-used algorithms either ignore the hypothesis features (BH [3], Storey’s BH [21]) or are designed for simple discrete features (group BH [13], IHW [15]).",
+      "startOffset" : 170,
+      "endOffset" : 174
+    }, {
+      "referenceID" : 13,
+      "context" : "In contrast, the currently widely-used algorithms either ignore the hypothesis features (BH [3], Storey’s BH [21]) or are designed for simple discrete features (group BH [13], IHW [15]).",
+      "startOffset" : 180,
+      "endOffset" : 184
+    }, {
+      "referenceID" : 11,
+      "context" : "We show that NeuralFDR controls false discovery with high probability for independent hypotheses and asymptotically under weak dependence [13, 21], and we demonstrate on both synthetic and real datasets that it controls FDR while making substantially more discoveries.",
+      "startOffset" : 138,
+      "endOffset" : 146
+    }, {
+      "referenceID" : 19,
+      "context" : "We show that NeuralFDR controls false discovery with high probability for independent hypotheses and asymptotically under weak dependence [13, 21], and we demonstrate on both synthetic and real datasets that it controls FDR while making substantially more discoveries.",
+      "startOffset" : 138,
+      "endOffset" : 146
+    }, {
+      "referenceID" : 10,
+      "context" : "Holm [12] investigated the use of p-value weights, where a larger weight suggests that the hypothesis is more likely to be an alternative.",
+      "startOffset" : 5,
+      "endOffset" : 9
+    }, {
+      "referenceID" : 2,
+      "context" : "Benjamini and Hochberg [4] considered assigning different losses to different hypotheses according to their importance.",
+      "startOffset" : 23,
+      "endOffset" : 26
+    }, {
+      "referenceID" : 13,
+      "context" : "The more general formulation considered in this paper was purposed quite recently [15, 16, 18, 19].",
+      "startOffset" : 82,
+      "endOffset" : 98
+    }, {
+      "referenceID" : 14,
+      "context" : "The more general formulation considered in this paper was purposed quite recently [15, 16, 18, 19].",
+      "startOffset" : 82,
+      "endOffset" : 98
+    }, {
+      "referenceID" : 16,
+      "context" : "The more general formulation considered in this paper was purposed quite recently [15, 16, 18, 19].",
+      "startOffset" : 82,
+      "endOffset" : 98
+    }, {
+      "referenceID" : 17,
+      "context" : "The more general formulation considered in this paper was purposed quite recently [15, 16, 18, 19].",
+      "startOffset" : 82,
+      "endOffset" : 98
+    }, {
+      "referenceID" : 13,
+      "context" : "The recent work most relevant to ours is IHW [15].",
+      "startOffset" : 45,
+      "endOffset" : 49
+    }, {
+      "referenceID" : 17,
+      "context" : "SABHA [19] and AdaPT [16] are two recent FDR control frameworks that allow flexible methods to explore the data and compute the feature dependent decision rules.",
+      "startOffset" : 6,
+      "endOffset" : 10
+    }, {
+      "referenceID" : 14,
+      "context" : "SABHA [19] and AdaPT [16] are two recent FDR control frameworks that allow flexible methods to explore the data and compute the feature dependent decision rules.",
+      "startOffset" : 21,
+      "endOffset" : 25
+    }, {
+      "referenceID" : 3,
+      "context" : "This issue is addressed in [5], where the null proportion is modeled as a linear combination of some hand-crafted transformation of the features.",
+      "startOffset" : 27,
+      "endOffset" : 30
+    }, {
+      "referenceID" : 6,
+      "context" : "The most popular quantities that conceptualize the false positives are the family-wise error rate (FWER) [8] and the false discovery rate (FDR) [3].",
+      "startOffset" : 105,
+      "endOffset" : 108
+    }, {
+      "referenceID" : 1,
+      "context" : "The most popular quantities that conceptualize the false positives are the family-wise error rate (FWER) [8] and the false discovery rate (FDR) [3].",
+      "startOffset" : 144,
+      "endOffset" : 147
+    }, {
+      "referenceID" : 1,
+      "context" : "We compare NeuralFDR with three other methods: BH procedure (BH) [3], Storey’s BH procedure (SBH) with threshold = 0.",
+      "startOffset" : 65,
+      "endOffset" : 68
+    }, {
+      "referenceID" : 19,
+      "context" : "4 [21], and Independent Hypothesis Weighting (IHW) with number of bins and folds set as default [15].",
+      "startOffset" : 2,
+      "endOffset" : 6
+    }, {
+      "referenceID" : 13,
+      "context" : "4 [21], and Independent Hypothesis Weighting (IHW) with number of bins and folds set as default [15].",
+      "startOffset" : 96,
+      "endOffset" : 100
+    }, {
+      "referenceID" : 9,
+      "context" : "Airway data [11] is a RNA-Seq dataset that contains n = 33469 genes and aims to identify glucocorticoid responsive (GC) genes that modulate cytokine function in airway smooth muscle cells.",
+      "startOffset" : 12,
+      "endOffset" : 16
+    }, {
+      "referenceID" : 18,
+      "context" : "The p-values are obtained by a standard two-group differential analysis using DESeq2 [20].",
+      "startOffset" : 85,
+      "endOffset" : 89
+    }, {
+      "referenceID" : 13,
+      "context" : "Such learned structure is interpretable: low count genes tend to have higher variances, usually dominating the systematic difference between the two conditions; on the contrary, it is easier for high counts genes to show a strong signal for differential expression [15, 20].",
+      "startOffset" : 265,
+      "endOffset" : 273
+    }, {
+      "referenceID" : 18,
+      "context" : "Such learned structure is interpretable: low count genes tend to have higher variances, usually dominating the systematic difference between the two conditions; on the contrary, it is easier for high counts genes to show a strong signal for differential expression [15, 20].",
+      "startOffset" : 265,
+      "endOffset" : 273
+    }, {
+      "referenceID" : 4,
+      "context" : "A major component of the GTEx [6] study is to quantify expression quantitative trait loci (eQTLs) in human tissues.",
+      "startOffset" : 30,
+      "endOffset" : 33
+    }, {
+      "referenceID" : 4,
+      "context" : "nearby) rather than trans (far away) from the target gene [6].",
+      "startOffset" : 58,
+      "endOffset" : 61
+    }, {
+      "referenceID" : 4,
+      "context" : "This also confirms known biology: the highly expressed genes tend to be more housekeeping genes which are less variable across individuals and hence have fewer eQTLs [6].",
+      "startOffset" : 166,
+      "endOffset" : 169
+    }, {
+      "referenceID" : 11,
+      "context" : "case, NeuralFDR can also be extended to control FDR asymptotically under weak dependence [13, 21].",
+      "startOffset" : 89,
+      "endOffset" : 97
+    }, {
+      "referenceID" : 19,
+      "context" : "case, NeuralFDR can also be extended to control FDR asymptotically under weak dependence [13, 21].",
+      "startOffset" : 89,
+      "endOffset" : 97
+    }, {
+      "referenceID" : 11,
+      "context" : "Generalizing the concept in [13] from discrete groups to continuous features X, the data are under weak dependence",
+      "startOffset" : 28,
+      "endOffset" : 32
+    }, {
+      "referenceID" : 13,
+      "context" : "Similar conditions are also mentioned in [15, 16].",
+      "startOffset" : 41,
+      "endOffset" : 49
+    }, {
+      "referenceID" : 14,
+      "context" : "Similar conditions are also mentioned in [15, 16].",
+      "startOffset" : 41,
+      "endOffset" : 49
+    } ],
+    "year" : 2017,
+    "abstractText" : "As datasets grow richer, an important challenge is to leverage the full features in the data to maximize the number of useful discoveries while controlling for false positives. We address this problem in the context of multiple hypotheses testing, where for each hypothesis, we observe a p-value along with a set of features specific to that hypothesis. For example, in genetic association studies, each hypothesis tests the correlation between a variant and the trait. We have a rich set of features for each variant (e.g. its location, conservation, epigenetics etc.) which could inform how likely the variant is to have a true association. However popular empirically-validated testing approaches, such as Benjamini-Hochberg’s procedure (BH) and independent hypothesis weighting (IHW), either ignore these features or assume that the features are categorical or uni-variate. We propose a new algorithm, NeuralFDR, which automatically learns a discovery threshold as a function of all the hypothesis features. We parametrize the discovery threshold as a neural network, which enables flexible handling of multi-dimensional discrete and continuous features as well as efficient end-to-end optimization. We prove that NeuralFDR has strong false discovery rate (FDR) guarantees, and show that it makes substantially more discoveries in synthetic and real datasets. Moreover, we demonstrate that the learned discovery threshold is directly interpretable.",
+    "creator" : null
+  }
+}

@@ -1,0 +1,41 @@
+Summary and claimed contributions
+This paper proposes a deep, hierarchical character-level NMT model (DCNMT) designed to learn morphology and avoid large softmaxes. The key ideas are:
+- A word encoder that composes a word’s character-level RNN prefix states via scalar weights produced by a second (bi-)RNN over the same characters, yielding a weighted sum intended to reflect morpheme boundaries and contributions.
+- A hierarchical decoder: a word-level RNN produces states that initialize a character-level GRU (HGRU) which generates characters until a delimiter, then resets from the next word-level state. A batching trick (“unfolding” matrix) is used to efficiently align word- and character-level computations during training.
+- Experiments on WMT En–Fr, En–Cs, and Cs–En show BLEU competitive with prior character-based models and better than a cited BPE baseline, with qualitative evidence that the encoder captures morphemes and robustness to misspellings/nonce forms.
+
+As I see it, the primary contributions are:
+1) An efficient hierarchical character decoder with a practical batching mechanism (unfolding matrix) that avoids two-pass training and enables end-to-end training at the character level.
+2) A novel word encoder that learns morpheme-like structure through a weighted combination of character-prefix RNN states, with analyses suggesting improved morphological generalization.
+3) An empirical study showing competitive BLEU with relatively small models and faster convergence, plus qualitative demonstrations of handling misspellings/nonce words.
+
+Strengths
+- Practical decoder design with efficiency considerations: The hierarchical decoder plus the unfolding matrix is a pragmatic contribution that addresses a real pain point in char-level NMT (batching with conditional resets). This distinguishes the work from earlier hybrid approaches that required multi-pass training or per-example conditionals.
+- Competitive results with smaller model size and less training wall-clock: Across En–Fr, En–Cs, and Cs–En, DCNMT achieves BLEU close to or on par with strong character-level baselines while using fewer parameters (~54M vs ~69–76M) and converging in fewer epochs/days than some prior work. The one-epoch performance being already competitive is a notable practical advantage.
+- Morphology-aware encoder with qualitative evidence: The weighted composition mechanism is simple yet effective. The PCA plots, energy visualizations, and nonce/misspelling examples provide plausible evidence that the encoder captures morpheme boundaries and helps generalize (e.g., “convenienter”).
+- End-to-end character-level decoding with word-level structure: The model preserves word-level structure in the decoder without resorting to an explicit softmax over a large word vocabulary, addressing OOVs and enabling character-level robustness while keeping encoder sequence lengths near word-level.
+- Clear motivation and thorough qualitative analysis: The paper is well-motivated by the OOV/morphology issues in NMT and includes helpful qualitative analyses (subword boundary detection, scatter plots) in addition to BLEU.
+
+Weaknesses
+- Novelty relative to prior work is limited and not thoroughly disentangled: The hierarchical decoder that resets a character-level RNN at word boundaries has close precedents (e.g., hierarchical decoders/HRNNs; hybrid word-character models; C2W/CNN word encoders). The paper should more carefully contrast the proposed HGRU and batching trick with Lee et al. (fully char-level), Luong & Manning (hybrid), and Ling et al. (C2W and hierarchical decoders). The degree of novelty lies mainly in the specific batching/unfolding mechanism and the particular word-encoder weighting—this could be made clearer.
+- Technical clarity and justification issues: 
+  - The word-encoder weights use exp(aff(h_t)) without normalization, followed by tanh on the summed vector. This is unconventional for attention-like weighting; stability/scale control and the empirical rationale are not well justified. A comparison with softmax-normalized attention, sigmoid gates, or learned scalar coefficients would strengthen the claim.
+  - The HGRU equations and notation (e.g., a_t, s_it, gt updates) are hard to follow; the dimensions, the role of the unfolding matrix, and how gradients flow through resets need clearer exposition.
+  - It is unclear how delimiter generation is handled at inference and how robust the model is to erroneous boundary predictions (e.g., if the model misses/over-generates delimiters).
+- Evaluation gaps and baseline strength: 
+  - The comparison to BPE is limited; stronger BPE/wordpiece baselines (tuned merges/vocab size, larger/deeper models) are standard. The claim that “character-level models are better than subword” is not generally supported; results depend on setup.
+  - Dataset choices and preprocessing are only partially aligned with cited baselines; standard En–Fr test (newstest2014) is not reported, making it hard to position against the widely used benchmarks. Statistical significance testing is absent.
+  - No speed metrics (tokens/sec, chars/sec), decoding speed, or beam search costs are reported, despite efficiency being a central claim.
+- Open-vocabulary claim undermined by character <unk>: Restricting to 120 most frequent characters and mapping others to <unk> contradicts “open vocabulary” and may especially affect languages with diacritics (e.g., Czech). The actual fraction of replaced characters and its impact are not quantified.
+- Ablations and sensitivity analyses are limited: While CNMT vs. DCNMT is included, missing are key ablations (e.g., ordinary RNN vs. proposed encoder with softmax vs. tanh weighting; HGRU vs. LSTM; with/without unfolding trick; effect of delimiter supervision vs. learned segmentation). The morphology analyses, while compelling, are anecdotal; a more systematic evaluation (e.g., Morfessor-based segmentation agreement) would increase credibility.
+
+Questions to authors
+- Word encoder weighting: Why choose unnormalized exp(aff(h_t)) with a tanh on the summed vector instead of a softmax or gated normalization? Can you provide ablations comparing these choices and report training stability?
+- Character set coverage: What exact percentage of training/test characters were mapped to <unk> per language? How sensitive are results to a larger character set and Unicode normalization?
+- Delimiter handling at test time: How do you ensure stable word-boundary generation? Do segmentation errors propagate to the word-level decoder (via missed resets)? Any analysis of delimiter precision/recall?
+- Efficiency metrics: Can you report training throughput (chars/sec, updates/sec), decoding speed (chars/sec) and beam size sensitivity, compared to a strong BPE baseline and a fully char-level baseline?
+- Baselines and significance: Can you add comparisons against a strong BPE model (e.g., Sennrich et al. with tuned merges) under the same data/preprocessing, and include significance tests on BLEU?
+- Morphology evaluation: Beyond PCA/visualization, can you quantify learned morpheme boundaries (e.g., alignment with unsupervised segmentations) and show performance gains on morphologically rich phenomena?
+
+Decision
+Weak reject. The paper is promising and addresses a relevant problem with a practical hierarchical design. However, novelty over prior hierarchical/char-aware models is modest, some technical choices are insufficiently justified/clarified, and the evaluation lacks several strong baselines and analyses needed for ACL standards. Strengthening the empirical comparisons, clarifying the HGRU and weighting mechanisms, and adding systematic morphology and efficiency evaluations would significantly improve the paper.

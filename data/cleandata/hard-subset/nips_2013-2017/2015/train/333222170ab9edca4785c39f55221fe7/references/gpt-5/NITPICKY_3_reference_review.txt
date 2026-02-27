@@ -1,0 +1,51 @@
+Summary
+The paper proposes “on-the-job learning,” a framework that interleaves test-time crowdsourcing with incremental model improvement to deliver high-accuracy predictions from the outset while (ideally) reducing reliance on the crowd over time. The approach formalizes decision-making as a stochastic game between the system and the crowd, with a utility function trading off accuracy, latency, and monetary cost. The prediction model is a CRF; the environment includes a response model pR (worker noise) and a response-time model pT. Because exact planning is intractable, the authors approximate the optimal policy using Monte Carlo Tree Search (MCTS) with progressive widening to handle continuous time. Experiments on NER, sentiment, and image classification suggest better quality/cost than either pure human (n-vote) or pure machine baselines. An implementation (LENSE) and code are provided.
+
+Relation to prior work
+This work sits at the intersection of online learning, active learning, test-time feature acquisition/active classification, and decision-theoretic crowdsourcing. It extends ideas like Legion:AR (real-time crowd labeling) with a decision-theoretic policy; resembles TurKontrol/POMDP-style control of crowdsourcing processes; and is connected to budgeted/test-time feature acquisition. The contribution claims novelty in (i) a stochastic game formulation with latency/cost/accuracy utility, (ii) MCTS+progressive widening to handle continuous-time responses, and (iii) empirical demonstrations across three tasks.
+
+Strengths
+- Timely problem: maintaining early, high accuracy when labeled data is scarce is important for rapid deployment.
+- Decision-theoretic framing that explicitly trades off accuracy, latency, and cost is well-motivated and fits the application.
+- The use of MCTS with progressive widening for continuous-time, asynchronous responses is interesting and plausible.
+- Empirical results indicate potential cost savings versus naive n-vote strategies and improvements over a simple “threshold” heuristic; open-source implementation is valuable.
+
+Weaknesses and detailed concerns
+Technical/modeling
+- Response model pR is fixed at 0.7 correctness uniformly, with the remainder distributed uniformly across wrong labels. This is a strong, unrealistic assumption: worker abilities vary, depend on item difficulty, and on class; no per-worker reliability or item difficulty is modeled (contrast TurKontrol; Bayesian crowd models). The paper cites “workers were roughly 70% accurate” but does not learn or adapt pR online.
+- Response-time model pT is left unspecified (distributional form, parameters, conditioning on query type/content/history); earlier equations condition on tnow but Eq. (3) does not. The choice of pT critically affects the policy; details are needed.
+- Utility uses ExpAcc(p) = Ep(y)[Accuracy(argmaxy′ p(y′))]. This is an unusual risk: it evaluates the MAP under the posterior and then takes expected accuracy against the true y; for structured outputs, “Accuracy” is undefined (Hamming? exact match?), but results report F1. There is a mismatch between utility and reported evaluation metric.
+- Training of pθ: the text says the CRF is “learned based on all actual responses ... using AdaGrad,” but true labels are never observed. How is learning performed (EM with posteriors, MAP imputation, distant supervision-like measurements)? What loss is optimized? How are hyperparameters set? This is central and under-specified.
+- MCTS algorithm: pseudocode is incomplete/possibly incorrect. There is no explicit expansion step on the system’s turn; UCT selection divides by N(σ′) without handling zero visits; c is undefined; the action set and how new children are added aren’t specified. Progressive widening is only mentioned for the crowd node; the selection distribution “based on (3)” ignores the conditioning on tnow described earlier. Rollout/default policy is not described; termination criteria for simulations and budgeting (number of simulations) are unspecified. As written, it is not reproducible.
+- Action space restriction (“cannot launch a query while waiting”) is a design convenience; the impact on optimality and empirical performance is not analyzed.
+
+Experimental methodology
+- Many key details are missing: Table 1/2/3 and figures referenced are not included here; dataset sizes, splits, features, and evaluation protocols are underspecified in the text. The reader cannot assess rigor without these.
+- Worker simulation: the authors “collected 5 worker responses and their delays on each label ahead of time” and then replay by sampling without replacement. This is problematic: (i) it couples train/test and may cause leakage; (ii) it fixes worker noise/latency in a very small pool and may not reflect the stochastic dynamics that the policy should exploit; (iii) it biases uncertainty estimates. Claims about real-time behavior need validation with live experiments or stronger simulation models.
+- Baselines: (a) “Online learning” baseline uses gold labels after prediction but cannot query—this is not a strong modern baseline for NER/sentiment/faces; (b) no comparison to decision-theoretic/POMDP approaches for crowdsourcing (e.g., TurKontrol), or to test-time feature acquisition methods; (c) the “threshold baseline” is strawman-like and directly encodes the same 0.7 assumption used by LENSE. Stronger baselines are needed.
+- Hyperparameters for the utility (wM, wT) are not reported; tuning protocol is unclear. Since they directly trade off cost/latency/accuracy, improper tuning can favor LENSE.
+- Metrics and statistical rigor: no variance, confidence intervals, or statistical tests reported; for NER they report F1 but the internal utility/learning uses (apparently) token accuracy. Evaluation mismatch and lack of uncertainty quantification weaken claims.
+- Claims such as “boosting performance relative to the expert provided labels” are confusing—how can predictions be “better” than the gold? Clarify whether this refers to inter-annotator agreement or correcting noisy gold.
+- Reproducibility: Despite a code link, the paper as written omits crucial implementation details (training objective, MCTS budget/policy, pT form) to allow independent reproduction.
+
+Clarity/Presentation
+- Numerous typos and grammatical errors: e.g., “Retreival,” “miscellaneos,” “burgenoning,” “one-the-job,” “comporable,” missing articles. Footnote markers (1,2,4,5) are misplaced or dangling; the note “This rules out...” interrupts the flow mid-sentence. Several references are incomplete (venue/year/pages missing), and some are duplicated in odd forms. Equation (1) uses τ but the state uses tnow; notation inconsistencies abound.
+- Several figures/tables are referenced but absent here; assuming the final paper includes them, captions should clearly state experimental settings and axes.
+- Some concepts (e.g., progressive widening, UCT) are cited but not explained sufficiently for the general NeurIPS audience.
+
+Originality and significance
+- The high-level idea of real-time, decision-theoretic control of crowds at prediction time has prior art (Legion:AR, TurKontrol, cost-sensitive active classification, budgeted acquisition). The stochastic game framing and MCTS over continuous time is potentially novel, but incremental. Given the methodological and reporting gaps, it is difficult to assess significance confidently.
+
+Pros for acceptance
+- Well-motivated problem with practical impact.
+- Principled decision-theoretic formulation with an interesting MCTS+progressive widening approximation.
+- Promising preliminary results and open-source release.
+
+Cons for acceptance
+- Major missing technical details (pR/pT specification, training procedure, MCTS algorithm) make the work non-reproducible.
+- Simplistic and fixed worker/noise model; limited and potentially biased simulation protocol.
+- Weak/insufficient baselines; mismatch between utility/training and evaluation metrics.
+- Numerous presentation and citation issues; many minor errors throughout.
+
+Recommendation
+Lean reject. The idea is appealing, but the current submission lacks technical rigor and clarity, relies on oversimplified assumptions about the crowd, and does not provide sufficient experimental validation against strong baselines. I encourage the authors to (i) fully specify and justify pR/pT and the training objective; (ii) correct and detail the MCTS algorithm; (iii) evaluate with either live crowds or a learned worker/time model; (iv) align utility/training with evaluation metrics; (v) add stronger baselines; and (vi) thoroughly revise writing and references.

@@ -1,0 +1,583 @@
+{
+  "name" : "4b21cf96d4cf612f239a6c322b10c8fe.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Diverse and Accurate Image Description Using a Variational Auto-Encoder with an Additive Gaussian Encoding Space",
+    "authors" : [ "Liwei Wang", "Alexander G. Schwing", "Svetlana Lazebnik" ],
+    "emails" : [ "slazebni}@illinois.edu" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Automatic image captioning [9, 11, 18–20, 24] is a challenging open-ended conditional generation task. State-of-the-art captioning techniques [23, 32, 36, 1] are based on recurrent neural nets with long-short term memory (LSTM) units [13], which take as input a feature representation of a provided image, and are trained to maximize the likelihood of reference human descriptions. Such methods are good at producing relatively short, generic captions that roughly fit the image content, but they are unsuited for sampling multiple diverse candidate captions given the image. The ability to generate such candidates is valuable because captioning is profoundly ambiguous: not only can the same image be described in many different ways, but also, images can be hard to interpret even for humans, let alone machines relying on imperfect visual features. In short, we would like the posterior distribution of captions given the image, as estimated by our model, to accurately capture both the open-ended nature of language and any uncertainty about what is depicted in the image.\nAchieving more diverse image description is a major theme in several recent works [6, 14, 27, 31, 35]. Deep generative models are a natural fit for this goal, and to date, Generative Adversarial Models (GANs) have attracted the most attention. Dai et al. [6] proposed jointly learning a generator to produce descriptions and an evaluator to assess how well a description fits the image. Shetty et al. [27] changed the training objective of the generator from reproducing ground-truth captions to generating captions that are indistinguishable from those produced by humans.\nIn this paper, we also explore a generative model for image description, but unlike the GAN-style training of [6, 27], we adopt the conditional variational auto-encoder (CVAE) formalism [17, 29]. Our starting point is the work of Jain et al. [14], who trained a “vanilla” CVAE to generate questions given images. At training time, given an image and a sentence, the CVAE encoder samples a latent z vector from a Gaussian distribution in the encoding space whose parameters (mean and variance) come from a Gaussian prior with zero mean and unit variance. This z vector is then fed into a decoder that uses it, together with the features of the input image, to generate a question. The encoder and the decoder are jointly trained to maximize (an upper bound on) the likelihood of the reference questions\n31st Conference on Neural Information Processing Systems (NIPS 2017), Long Beach, CA, USA.\ngiven the images. At test time, the decoder is seeded with an image feature and different z samples, so that multiple z’s result in multiple questions.\nWhile Jain et al. [14] obtained promising question generation performance with the above CVAE model equipped with a fixed Gaussian prior, for the task of image captioning, we observed a tendency for the learned conditional posteriors to collapse to a single mode, yielding little diversity in candidate captions sampled given an image. To improve the behavior of the CVAE, we propose using a set of K Gaussian priors in the latent z space with different means and standard deviations, corresponding to different “modes” or types of image content. For concreteness, we identify these modes with specific object categories, such as ‘dog’ or ‘cat.’ If ‘dog’ and ‘cat’ are detected in an image, we would like to encourage the generated captions to capture both of them.\nStarting with the idea of multiple Gaussian priors, we propose two different ways of structuring the latent z space. The first is to represent the distribution of z vectors using a Gaussian Mixture model (GMM). Due to the intractability of Gaussian mixtures in the VAE framework, we also introduce a novel Additive Gaussian (AG) prior that directly adds multiple semantic aspects in the z space. If an image contains several objects or aspects, each corresponding to means µk in the latent space, then we require the mean of the encoder distribution to be close to a weighted linear combination of the respective means. Our CVAE formulation with this additive Gaussian prior (AG-CVAE) is able to model a richer, more flexible encoding space, resulting in more diverse and accurate captions, as illustrated in Figure 1. As an additional advantage, the additive prior gives us an interpretable mechanism for controlling the captions based on the image content, as shown in Figure 2. Experiments of Section 4 will show that both GMM-CVAE and AG-CVAE outperform LSTMs and “vanilla” CVAE baselines on the challenging MSCOCO dataset [5], with AG-CVAE showing marginally higher accuracy and by far the best diversity and controllability."
+    }, {
+      "heading" : "2 Background",
+      "text" : "Our proposed framework for image captioning extends the standard variational auto-encoder [17] and its conditional variant [29]. We briefly set up the necessary background here.\nVariational auto-encoder (VAE): Given samples x from a dataset, VAEs aim at modeling the data likelihood p(x). To this end, VAEs assume that the data points x cluster around a low-dimensional manifold parameterized by embeddings or encodings z. To obtain the sample x corresponding to an embedding z, we employ the decoder p(x|z) which is often based on deep nets. Since the decoder’s posterior p(z|x) is not tractably computable we approximate it with a distribution q(z|x) which is\nreferred to as the encoder. Taking together all those ingredients, VAEs are based on the identity\nlog p(x)−DKL[q(z|x), p(z|x)] = Eq(z|x)[log p(x|z)]−DKL[q(z|x), p(z)], (1) which relates the likelihood p(x) and the conditional p(z|x). It is hard to compute the KL-divergence DKL[q(z|x), p(z|x)] because the posterior p(z|x) is not readily available from the decoder distribution p(x|z) if we use deep nets. However, by choosing an encoder distribution q(z|x) with sufficient capacity, we can assume that the non-negative KL-divergence DKL[q(z|x), p(z|x)] is small. Thus, we know that the right-hand-side is a lower bound on the log-likelihood log p(x), which can be maximized w.r.t. both encoder and decoder parameters.\nConditional variational auto-encoders (CVAE): In tasks like image captioning, we are interested in modeling the conditional distribution p(x|c), where x are the desired descriptions and c is some representation of content of the input image. The VAE identity can be straightforwardly extended by conditioning both the encoder and decoder distributions on c. Training of the encoder and decoder proceeds by maximizing the lower bound on the conditional data-log-likelihood p(x|c), i.e.,\nlog pθ(x|c) ≥ Eqφ(z|x,c)[log pθ(x|z, c)]−DKL[qφ(z|x, c), p(z|c)] , (2) where θ and φ, the parameters for the decoder distribution pθ(x|z, c) and the encoder distribution qφ(z|x, c) respectively. In practice, the following stochastic objective is typically used:\nmax θ,φ\n1\nN N∑ i=1 log pθ(x i|zi, ci)−DKL[qφ(z|x, c), p(z|c)], s.t. ∀i zi ∼ qφ(z|x, c).\nIt approximates the expectation Eqφ(z|x,c)[log pθ(x|z, c)] using N samples zi drawn from the approximate posterior qφ(z|x, c) (typically, just a single sample is used). Backpropagation through the encoder that produces samples zi is achieved via the reparameterization trick [17], which is applicable if we restrict the encoder distribution qφ(z|x, c) to be, e.g., a Gaussian with mean and standard deviation output by a deep net."
+    }, {
+      "heading" : "3 Gaussian Mixture Prior and Additive Gaussian Prior",
+      "text" : "Our key observation is that the behavior of the trained CVAE crucially depends on the choice of the prior p(z|c). The prior determines how the learned latent space is structured, because the KLdivergence term in Eq. (2) encourages qφ(z|x, c), the encoder distribution over z given a particular description x and image content c, to be close to this prior distribution. In the vanilla CVAE formulation, such as the one adopted in [14], the prior is not dependent on c and is fixed to a zero-mean unit-variance Gaussian. While this choice is the most computationally convenient, our experiments in Sec. 4 will demonstrate that for the task of image captioning, the resulting model has poor diversity and worse accuracy than the standard maximum-likelihood-trained LSTM. Clearly, the prior has to change based on the content of the image. However, because of the need to efficiently compute the KL-divergence in closed form, it still needs to have a simple structure, ideally a Gaussian or a mixture of Gaussians.\nMotivated by the above considerations, we encourage the latent z space to have a multi-modal structure composed of K modes or clusters, each corresponding to different types of image content. Given an image I , we assume that we can obtain a distribution c(I) = (c1(I), . . . , cK(I)), where the entries ck are nonnegative and sum to one. In our current work, for concreteness, we identify these with a set of object categories that can be reliably detected automatically, such as ‘car,’ ‘person,’ or ‘cat.’ The MSCOCO dataset, on which we conduct our experiments, has direct supervision for 80 such categories. Note, however, our formulation is general and can be applied to other definitions of modes or clusters, including latent topics automatically obtained in an unsupervised fashion.\nGMM-CVAE: We can model p(z|c) as a Gaussian mixture with weights ck and components with means µk and standard deviations σk:\np(z|c) = K∑ k=1 ckN ( z |µk, σ2kI ) , (3)\nwhere ck is defined as the weights above and µk represents the mean vector of the k-th component. In practice, for all components, we use the same standard deviation σ.\nIt is not directly tractable to optimize Eq. (2) with the above GMM prior. We therefore approximate the KL divergence stochastically [12]. In each step during training, we first draw a discrete component k according to the cluster probability c(I), and then sample z from the resulting Gaussian component. Then we have\nDKL[qφ(z|x, ck), p(z|ck)] = log ( σk σφ ) + 1 2σ2 Eqφ(z|x,ck) [ ‖z − µk‖22 ] − 1 2\n= log ( σk σφ ) + σ2φ + ‖µφ − µk‖22 2σ2k − 1 2 , ∀k ck ∼ c(I).\n(4)\nWe plug the above KL term into Eq. (2) to obtain an objective function, which we optimize w.r.t. the encoder and decoder parameters φ and θ using stochastic gradient descent (SGD). In principle, the prior parameters µk and σk can also be trained, but we obtained good results by keeping them fixed (the means are drawn randomly and all standard deviations are set to the same constant, as will be further explained in Section 4).\nAt test time, in order to generate a description given an image I , we first sample a component index k from c(I), and then sample z from the corresponding component distribution. One limitation of this procedure is that, if an image contains multiple objects, each individual description is still conditioned on just a single object.\nAG-CVAE: We would like to structure the z space in a way that can directly reflect object cooccurrence. To this end, we propose a simple novel conditioning mechanism with an additive Gaussian prior. If an image contains several objects with weights ck, each corresponding to means µk in the latent space, we want the mean of the encoder distribution to be close to the linear combination of the respective means with the same weights:\np(z|c) = N ( z ∣∣∣∣∣ K∑ k=1 ckµk, σ 2I ) , (5)\nwhere σ2I is a spherical covariance matrix with σ2 = ∑K k=1 c 2 kσ 2 k. Figure 3 illustrates the difference between this AG-CVAE model and the GMM-CVAE model introduced above.\nIn order to train the AG-CVAE model using the objective of Eq. (2), we need to compute the KL-divergence DKL[qφ(z|x, c), p(z|c)] where qφ(z|x, c) = N (z |µφ(x, c), σ2φ(x, c)I) and the prior p(z|c) is given by Eq. (5). Its analytic expression can be derived to be\nDKL[qφ(z|x, c), p(z|c)] = log ( σ\nσφ\n) + 1\n2σ2 Eqφ ∥∥∥∥∥z − K∑ k=1 ckµk ∥∥∥∥∥ 2 − 1 2\n= log\n( σ\nσφ\n) + σ2φ + ‖µφ − ∑K k=1 ckµk‖2\n2σ2 − 1 2 .\nWe plug the above KL-divergence term into Eq. (2) to obtain the stochastic objective function for training the encoder and decoder parameters. We initialize the mean and variance parameters µk and σk in the same way as for GMM-CVAE and keep them fixed throughout training.\nNext, we need to specify our architectures for the encoder and decoder, which are shown in Fig. 4.\nThe encoder uses an LSTM to map an image I , its vector c(I), and a caption into a point in the latent space. More specifically, the LSTM receives the image feature in the first step, the cluster vector in the second step, and then the caption word by word. The hidden state hT after the last step is transformed into K mean vectors, µφk, and K log variances, log σ2φk, using a linear layer for each. For AG-CVAE, the µφk and σ2φk are then summed with weights ck and c 2 k respectively to generate the desired µφ and σ2φ encoder outputs. Note that the encoder is used at training time only, and the input cluster vectors are produced from ground truth object annotations.\nThe decoder uses a different LSTM that receives as input first the image feature, then the cluster vector, then a z vector sampled from the conditional distribution of Eq. (5). Next, it receives a ‘start’ symbol and proceeds to output a sentence word by word until it produces an ‘end’ symbol. During training, its c(I) inputs are derived from the ground truth, same as for the encoder, and the log-loss is used to encourage reconstruction of the provided ground-truth caption. At test time, ground truth object vectors are not available, so we rely on automatic object detection, as explained in Section 4."
+    }, {
+      "heading" : "4 Experiments",
+      "text" : ""
+    }, {
+      "heading" : "4.1 Implementation Details",
+      "text" : "We test our methods on the MSCOCO dataset [5], which is the largest “clean” image captioning dataset available to date. The current (2014) release contains 82,783 training and 40,504 validation images with five reference captions each, but many captioning works re-partition this data to enlarge the training set. We follow the train/val/test split released by [23]. It allocates 118, 287 images for training, 4, 000 for validation, and 1, 000 for testing.\nFeatures. As image features, we use 4,096-dimensional activations from the VGG-16 network [28]. The cluster or object vectors c(I) are 80-dimensional, corresponding to the 80 MSCOCO object categories. At training time, c(I) consist of binary indicators corresponding to ground truth object labels, rescaled to sum to one. For example, an image with labels ‘person,’ ‘car,’ and ‘dog’ results in a cluster vector with weights of 1/3 for the corresponding objects and zeros elsewhere. For test images I , c(I) are obtained automatically through object detection. We train a Faster R-CNN detector [26] for the MSCOCO categories using our train/val split by fine-tuning the VGG-16 net [28]. At test time, we use a threshold of 0.5 on the per-class confidence scores output by this detector to determine whether the image contains a given object (i.e., all the weights are once again equal).\nBaselines. Our LSTM baseline is obtained by deleting the z vector input from the decoder architecture shown in Fig. 4. This gives a strong baseline comparable to NeuralTalk2 [1] or Google Show and Tell [33]. To generate different candidate sentences using the LSTM, we use beam search with a width of 10. Our second baseline is given by the “vanilla” CVAE with a fixed Gaussian prior following [14]. For completeness, we report the performance of our method as well as all baselines both with and without the cluster vector input c(I).\nParameter settings and training. For all the LSTMs, we use a one-hot encoding with vocabulary size of 11,488, which is the number of words in the training set. This input gets projected into a word embedding layer of dimension 256, and the LSTM hidden space dimension is 512. We found that the same LSTM settings worked well for all models. For our three models (CVAE, GMM-CVAE, and AG-CVAE), we use a dimension of 150 for the z space. We wanted it to be at least equal to the number of categories to make sure that each z vector corresponds to a unique set of cluster weights. The means µk of clusters for GMM-CVAE and AG-CVAE are randomly initialized on the unit ball\nand are not changed throughout training. The standard deviations σk are set to 0.1 at training time and tuned on the validation set at test time (the values used for our results are reported in the tables). All networks are trained with SGD with a learning rate that is 0.01 for the first 5 epochs, and is reduced by half every 5 epochs. On average all models converge within 50 epochs."
+    }, {
+      "heading" : "4.2 Results",
+      "text" : "A big part of the motivation for generating diverse candidate captions is the prospect of being able to re-rank them using some discriminative method. Because the performance of any re-ranking method is upper-bounded by the quality of the best candidate caption in the set, we will first evaluate different methods assuming an oracle that can choose the best sentence among all the candidates. Next, for a more realistic evaluation, we will use a consensus re-ranking approach [10] to automatically select a single top candidate per image. Finally, we will assess the diversity of the generated captions using uniqueness and novelty metrics.\nOracle evaluation. Table 1 reports caption evaluation metrics in the oracle setting, i.e., taking the maximum of each relevant metric over all the candidates. We compare caption quality using five metrics: BLEU [25], METEOR [7], CIDEr [30], SPICE [2], and ROUGE [21]. These are calculated using the MSCOCO caption evaluation tool [5] augmented by the author of SPICE [2]. For the LSTM baseline, we report the scores attained among 10 candidates generated using beam search (as suggested in [23]). For CVAE, GMM-CVAE and AG-CVAE, we sample a fixed number of z vectors from the corresponding prior distributions (the numbers of samples are given in the table).\nThe high-level trend is that “vanilla” CVAE falls short even of the LSTM baseline, while the upperbound performance for GMM-CVAE and AG-CVAE considerably exceeds that of the LSTM given\nthe right choice of standard deviation and a large enough number of z samples. AG-CVAE obtains the highest upper bound. A big advantage of the CVAE variants over the LSTM is that they can be easily used to generate more candidate sentences simply by increasing the number of z samples, while the only way to do so for the LSTM is to increase the beam width, which is computationally prohibitive.\nIn more detail, the top two lines of Table 1 compare performance of the LSTM with and without the additional object (cluster) vector input, and show that it does not make a dramatic difference. That is, improving over the LSTM baseline is not just a matter of adding stronger conditioning information as input. Similarly, for CVAE, GMM-CVAE, and AG-CVAE, using the object vector as additional conditioning information in the encoder and decoder can increase accuracy somewhat, but does not account for all the improvements that we see. One thing we noticed about the models without the object vector is that they are more sensitive to the standard deviation parameter and require more careful tuning (to demonstrate this, the table includes results for several values of σ for the CVAE models).\nConsensus re-ranking evaluation. For a more realistic evaluation we next compare the same models after consensus re-ranking [10, 23]. Specifically, for a given test image, we first find its nearest neighbors in the training set in the cross-modal embedding space learned by a two-branch network proposed in [34]. Then we take all the ground-truth reference captions of those neighbors and calculate the consensus re-ranking scores between them and the candidate captions. For this, we use the CIDEr metric, based on the observation of [22, 30] that it can give more human-consistent evaluations than BLEU.\nTable 2 shows the evaluation based on the single top-ranked sentence for each test image. While the re-ranked performance cannot get near the upper bounds of Table 1, the numbers follow a similar trend, with GMM-CVAE and AG-CVAE achieving better performance than the baselines in almost all metrics. It should also be noted that, while it is not our goal to outperform the state of the art in absolute terms, our performance is actually better than some of the best methods to date [23, 37], although [37] was trained on a different split. AG-CVAE tends to get slightly higher numbers than GMM-CVAE, although the advantage is smaller than for the upper-bound results in Table 1. One of the most important take-aways for us is that there is still a big gap between upper-bound and re-ranking performance and that improving re-ranking of candidate sentences is an important future direction.\nDiversity evaluation. To compare the generative capabilities of our different methods we report two indicative numbers in Table 3. One is the average percentage of unique captions in the set of candidates generated for each image. This number is only meaningful for the CVAE models, where we sample candidates by drawing different z samples, and multiple z’s can result in the same caption. For LSTM, the candidates are obtained using beam search and are by definition distinct. From Table 3, we observe that CVAE has very little diversity, GMM-CVAE is much better, but AG-CVAE has the decisive advantage.\nSimilarly to [27], we also report the percentage of all generated sentences for the test set that have not been seen in the training set. It only really makes sense to assess novelty for sentences that are plausible, so we compute this percentage based on (at most) top 10 sentences per image after consensus re-ranking. Based on the novelty ratio, CVAE does well. However, since it generates fewer distinct candidates per image, the absolute numbers of novel sentences are much lower than for GMM-CVAE and AG-CVAE (see table caption for details).\nQualitative results. Figure 5 compares captions generated by AG-CVAE and the LSTM baseline on four example images. The AG-CVAE captions tend to exhibit a more diverse sentence structure with a wider variety of nouns and verbs used to describe the same image. Often this yields captions that are more accurate (‘open refrigerator’ vs. ‘refrigerator’ in (a)) and better reflective of the cardinality and types of entities in the image (in (b), our captions mention both the person and the horse while the LSTM tends to mention only one). Even when AG-CVAE does not manage to generate any correct candidates, as in (d), it still gets the right number of people in some candidates. A shortcoming of AG-CVAE is that detected objects frequently end up omitted from the candidate sentences if the LSTM language model cannot accommodate them (‘bear’ in (b) and ‘backpack’ in (c)). On the one hand, this shows that the capacity of the LSTM decoder to generate combinatorially complex sentences is still limited, but on the other hand, it provides robustness against false positive detections.\nControllable sentence generation. Figure 6 illustrates how the output of our GMM-CVAE and AG-CVAE models changes when we change the input object vectors in an attempt to control the generation process. Consistent with Table 3, we observe that for the same number of z samples, AG-CVAE produces more unique candidates than GMM-CVAE. Further, AG-CVAE is more flexible than GMM-CVAE and more responsive to the content of the object vectors. For the first image showing a cat, when we add the additional object label ‘chair,’ AG-CVAE is able to generate some captions mentioning a chair, but GMM-CVAE is not. Similarly, in the second example, when we add the concepts of ‘sandwich’ and ‘cake,’ only AG-CVAE can generate some sentences that capture them. Still, the controllability of AG-CVAE leaves something to be desired, since, as observed above, it has trouble mentioning more than two or three objects in the same sentence, especially in unusual combinations."
+    }, {
+      "heading" : "5 Discussion",
+      "text" : "Our experiments have shown that both our proposed GMM-CVAE and AG-CVAE approaches generate image captions that are more diverse and more accurate than standard LSTM baselines. While GMM-CVAE and AG-CVAE have very similar bottom-line accuracies according to Table 2, AG-CVAE has a clear edge in terms of diversity (unique captions per image) and controllability, both quantitatively (Table 3) and qualitatively (Figure 6).\nRelated work. To date, CVAEs have been used for image question generation [14], but as far as we know, our work is the first to apply them to captioning. In [8], a mixture of Gaussian prior is used in CVAEs for colorization. Their approach is essentially similar to our GMM-CVAE, though it is based on mixture density networks [4] and uses a different approximation scheme during training.\nOur CVAE formulation has some advantages over the CGAN approach adopted by other recent works aimed at the same general goals [6, 27]. GANs do not expose control over the structure of the latent space, while our additive prior results in an interpretable way to control the sampling process. GANs are also notoriously tricky to train, in particular for discrete sampling problems like sentence generation (Dai et al. [6] have to resort to reinforcement learning and Shetty et al. [27] to an approximate Gumbel sampler [15]). Our CVAE training is much more straightforward.\nWhile we represent the z space as a simple vector space with multiple modes, it is possible to impose on it a more general graphical model structure [16], though this incurs a much greater level of complexity. Finally, from the viewpoint of inference, our work is also related to general approaches to diverse structured prediction, which focus on extracting multiple modes from a single energy function [3]. This is a hard problem necessitating sophisticated approximations, and we prefer to circumvent it by cheaply generating a large number of diverse and plausible candidates, so that “good enough” ones can be identified using simple re-ranking mechanisms.\nFuture work. We would like to investigate more general formulations for the conditioning information c(I), not necessarily relying on object labels whose supervisory information must be provided separately from the sentences. These can be obtained, for example, by automatically clustering nouns or noun phrases extracted from reference sentences, or even clustering vector representations of entire sentences. We are also interested in other tasks, such as question generation, where the cluster vectors can represent the question type (‘what is,’ ‘where is,’ ‘how many,’ etc.) as well as the image content. Control of the output by modifying the c vector would in this case be particularly natural.\nAcknowledgments: This material is based upon work supported in part by the National Science Foundation under Grants No. 1563727 and 1718221, and by the Sloan Foundation. We would like to thank Jian Peng and Yang Liu for helpful discussions.\nReferences\n[1] Neuraltalk2. https://github.com/karpathy/neuraltalk2. [2] P. Anderson, B. Fernando, M. Johnson, and S. Gould. Spice: Semantic propositional image caption\nevaluation. In ECCV, 2016. [3] D. Batra, P. Yadollahpour, A. Guzman-Rivera, and G. Shakhnarovich. Diverse M-Best Solutions in Markov\nRandom Fields. In ECCV, 2012. [4] C. M. Bishop. Mixture density networks. 1994. [5] X. Chen, H. Fang, T.-Y. Lin, R. Vedantam, S. Gupta, P. Dollár, and C. L. Zitnick. Microsoft coco captions:\nData collection and evaluation server. arXiv preprint arXiv:1504.00325, 2015. [6] B. Dai, D. Lin, R. Urtasun, and S. Fidler. Towards diverse and natural image descriptions via a conditional\ngan. ICCV, 2017. [7] M. Denkowski and A. Lavie. Meteor universal: Language specific translation evaluation for any target\nlanguage. In Proceedings of the EACL 2014 Workshop on Statistical Machine Translation, 2014. [8] A. Deshpande, J. Lu, M.-C. Yeh, and D. Forsyth. Learning diverse image colorization. CVPR, 2017. [9] J. Devlin, H. Cheng, H. Fang, S. Gupta, L. Deng, X. He, G. Zweig, and M. Mitchell. Language models for\nimage captioning: The quirks and what works. arXiv preprint arXiv:1505.01809, 2015. [10] J. Devlin, S. Gupta, R. Girshick, M. Mitchell, and C. L. Zitnick. Exploring nearest neighbor approaches\nfor image captioning. arXiv preprint arXiv:1505.04467, 2015. [11] A. Farhadi, M. Hejrati, M. Sadeghi, P. Young, C. Rashtchian, J. Hockenmaier, and D. Forsyth. Every\npicture tells a story: Generating sentences from images. In ECCV, 2010. [12] J. R. Hershey and P. A. Olsen. Approximating the kullback leibler divergence between gaussian mixture\nmodels. In ICASSP, 2007. [13] S. Hochreiter and J. Schmidhuber. Long short-term memory. Neural computation, 9(8):1735–1780, 1997. [14] U. Jain, Z. Zhang, and A. Schwing. Creativity: Generating diverse questions using variational autoencoders.\nCVPR, 2017. [15] E. Jang, S. Gu, and B. Poole. Categorical reparameterization with gumbel-softmax. ICLR, 2017. [16] M. J. Johnson, D. Duvenaud, A. Wiltschko, S. Datta, and R. Adams. Structured vaes: Composing\nprobabilistic graphical models and variational autoencoders. NIPS, 2016. [17] D. P. Kingma and M. Welling. Auto-encoding variational bayes. ICLR, 2014. [18] R. Kiros, R. Salakhutdinov, and R. Zemel. Multimodal neural language models. In ICML, 2014. [19] G. Kulkarni, V. Premraj, V. Ordonez, S. Dhar, S. Li, Y. Choi, A. C. Berg, and T. L. Berg. Babytalk:\nUnderstanding and generating simple image descriptions. IEEE Transactions on Pattern Analysis and Machine Intelligence, 35(12):2891–2903, 2013. [20] P. Kuznetsova, V. Ordonez, A. C. Berg, T. L. Berg, and Y. Choi. Generalizing image captions for image-text parallel corpus. In ACL, 2013. [21] C.-Y. Lin. Rouge: A package for automatic evaluation of summaries. In Text summarization branches out: Proceedings of the ACL-04 workshop, volume 8. Barcelona, Spain, 2004. [22] S. Liu, Z. Zhu, N. Ye, S. Guadarrama, and K. Murphy. Improved image captioning via policy gradient optimization of spider. ICCV, 2017. [23] J. Mao, W. Xu, Y. Yang, J. Wang, Z. Huang, and A. Yuille. Deep captioning with multimodal recurrent neural networks (m-rnn). ICLR, 2015. [24] M. Mitchell, X. Han, J. Dodge, A. Mensch, A. Goyal, A. Berg, K. Yamaguchi, T. Berg, K. Stratos, and H. Daumé III. Midge: Generating image descriptions from computer vision detections. In Proceedings of the 13th Conference of the European Chapter of the Association for Computational Linguistics, pages 747–756. Association for Computational Linguistics, 2012. [25] K. Papineni, S. Roukos, T. Ward, and W.-J. Zhu. Bleu: a method for automatic evaluation of machine translation. In ACL. Association for Computational Linguistics, 2002. [26] S. Ren, K. He, R. Girshick, and J. Sun. Faster R-CNN: Towards real-time object detection with region proposal networks. In NIPS, 2015. [27] R. Shetty, M. Rohrbach, L. A. Hendricks, M. Fritz, and B. Schiele. Speaking the same language: Matching machine to human captions by adversarial training. ICCV, 2017. [28] K. Simonyan and A. Zisserman. Very deep convolutional networks for large-scale image recognition. arXiv preprint arXiv:1409.1556, 2014. [29] K. Sohn, H. Lee, and X. Yan. Learning structured output representation using deep conditional generative models. In NIPS, 2015. [30] R. Vedantam, C. Lawrence Zitnick, and D. Parikh. Cider: Consensus-based image description evaluation. In CVPR, 2015. [31] A. K. Vijayakumar, M. Cogswell, R. R. Selvaraju, Q. Sun, S. Lee, D. Crandall, and D. Batra. Diverse beam search: Decoding diverse solutions from neural sequence models. arXiv preprint arXiv:1610.02424, 2016. [32] O. Vinyals, A. Toshev, S. Bengio, and D. Erhan. Show and tell: A neural image caption generator. In CVPR, 2015. [33] O. Vinyals, A. Toshev, S. Bengio, and D. Erhan. Show and tell: Lessons learned from the 2015 mscoco image captioning challenge. IEEE transactions on pattern analysis and machine intelligence, 2016. [34] L. Wang, Y. Li, and S. Lazebnik. Learning deep structure-preserving image-text embeddings. In CVPR, 2016. [35] Z. Wang, F. Wu, W. Lu, J. Xiao, X. Li, Z. Zhang, and Y. Zhuang. Diverse image captioning via grouptalk. In IJCAI, 2016.\n[36] K. Xu, J. Ba, R. Kiros, K. Cho, A. Courville, R. Salakhudinov, R. Zemel, and Y. Bengio. Show, attend and tell: Neural image caption generation with visual attention. In ICML, 2015. [37] Q. You, H. Jin, Z. Wang, C. Fang, and J. Luo. Image captioning with semantic attention. In CVPR, 2016."
+    } ],
+    "references" : [ {
+      "title" : "Spice: Semantic propositional image caption evaluation",
+      "author" : [ "P. Anderson", "B. Fernando", "M. Johnson", "S. Gould" ],
+      "venue" : "ECCV",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Diverse M-Best Solutions in Markov Random Fields",
+      "author" : [ "D. Batra", "P. Yadollahpour", "A. Guzman-Rivera", "G. Shakhnarovich" ],
+      "venue" : "ECCV",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Mixture density networks",
+      "author" : [ "C.M. Bishop" ],
+      "venue" : null,
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : "4",
+      "year" : 1994
+    }, {
+      "title" : "Microsoft coco captions: Data collection and evaluation server",
+      "author" : [ "X. Chen", "H. Fang", "T.-Y. Lin", "R. Vedantam", "S. Gupta", "P. Dollár", "C.L. Zitnick" ],
+      "venue" : "arXiv preprint arXiv:1504.00325",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Towards diverse and natural image descriptions via a conditional gan",
+      "author" : [ "B. Dai", "D. Lin", "R. Urtasun", "S. Fidler" ],
+      "venue" : "ICCV",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : null,
+      "year" : 2017
+    }, {
+      "title" : "Meteor universal: Language specific translation evaluation for any target language",
+      "author" : [ "M. Denkowski", "A. Lavie" ],
+      "venue" : "Proceedings of the EACL 2014 Workshop on Statistical Machine Translation",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Learning diverse image colorization",
+      "author" : [ "A. Deshpande", "J. Lu", "M.-C. Yeh", "D. Forsyth" ],
+      "venue" : "CVPR",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : null,
+      "year" : 2017
+    }, {
+      "title" : "Language models for image captioning: The quirks and what works",
+      "author" : [ "J. Devlin", "H. Cheng", "H. Fang", "S. Gupta", "L. Deng", "X. He", "G. Zweig", "M. Mitchell" ],
+      "venue" : "arXiv preprint arXiv:1505.01809",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Exploring nearest neighbor approaches for image captioning",
+      "author" : [ "J. Devlin", "S. Gupta", "R. Girshick", "M. Mitchell", "C.L. Zitnick" ],
+      "venue" : "arXiv preprint arXiv:1505.04467",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Every picture tells a story: Generating sentences from images",
+      "author" : [ "A. Farhadi", "M. Hejrati", "M. Sadeghi", "P. Young", "C. Rashtchian", "J. Hockenmaier", "D. Forsyth" ],
+      "venue" : "ECCV",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : null,
+      "year" : 2010
+    }, {
+      "title" : "Approximating the kullback leibler divergence between gaussian mixture models",
+      "author" : [ "J.R. Hershey", "P.A. Olsen" ],
+      "venue" : "ICASSP",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : null,
+      "year" : 2007
+    }, {
+      "title" : "Long short-term memory",
+      "author" : [ "S. Hochreiter", "J. Schmidhuber" ],
+      "venue" : "Neural computation, 9(8):1735–1780",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : null,
+      "year" : 1997
+    }, {
+      "title" : "Creativity: Generating diverse questions using variational autoencoders",
+      "author" : [ "U. Jain", "Z. Zhang", "A. Schwing" ],
+      "venue" : "CVPR",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : null,
+      "year" : 2017
+    }, {
+      "title" : "Categorical reparameterization with gumbel-softmax",
+      "author" : [ "E. Jang", "S. Gu", "B. Poole" ],
+      "venue" : "ICLR",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : null,
+      "year" : 2017
+    }, {
+      "title" : "Structured vaes: Composing probabilistic graphical models and variational autoencoders",
+      "author" : [ "M.J. Johnson", "D. Duvenaud", "A. Wiltschko", "S. Datta", "R. Adams" ],
+      "venue" : "NIPS",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Auto-encoding variational bayes",
+      "author" : [ "D.P. Kingma", "M. Welling" ],
+      "venue" : "ICLR",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Multimodal neural language models",
+      "author" : [ "R. Kiros", "R. Salakhutdinov", "R. Zemel" ],
+      "venue" : "ICML",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Babytalk: Understanding and generating simple image descriptions",
+      "author" : [ "G. Kulkarni", "V. Premraj", "V. Ordonez", "S. Dhar", "S. Li", "Y. Choi", "A.C. Berg", "T.L. Berg" ],
+      "venue" : "IEEE Transactions on Pattern Analysis and Machine Intelligence, 35(12):2891–2903",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Generalizing image captions for image-text parallel corpus",
+      "author" : [ "P. Kuznetsova", "V. Ordonez", "A.C. Berg", "T.L. Berg", "Y. Choi" ],
+      "venue" : "ACL",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Rouge: A package for automatic evaluation of summaries",
+      "author" : [ "C.-Y. Lin" ],
+      "venue" : "Text summarization branches out: Proceedings of the ACL-04 workshop, volume 8. Barcelona, Spain",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : null,
+      "year" : 2004
+    }, {
+      "title" : "Improved image captioning via policy gradient optimization of spider",
+      "author" : [ "S. Liu", "Z. Zhu", "N. Ye", "S. Guadarrama", "K. Murphy" ],
+      "venue" : "ICCV",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : null,
+      "year" : 2017
+    }, {
+      "title" : "Deep captioning with multimodal recurrent neural networks (m-rnn)",
+      "author" : [ "J. Mao", "W. Xu", "Y. Yang", "J. Wang", "Z. Huang", "A. Yuille" ],
+      "venue" : "ICLR",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Midge: Generating image descriptions from computer vision detections",
+      "author" : [ "M. Mitchell", "X. Han", "J. Dodge", "A. Mensch", "A. Goyal", "A. Berg", "K. Yamaguchi", "T. Berg", "K. Stratos", "H. Daumé III" ],
+      "venue" : "Proceedings of the 13th Conference of the European Chapter of the Association for Computational Linguistics, pages 747–756. Association for Computational Linguistics",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Bleu: a method for automatic evaluation of machine translation",
+      "author" : [ "K. Papineni", "S. Roukos", "T. Ward", "W.-J. Zhu" ],
+      "venue" : "ACL. Association for Computational Linguistics",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : null,
+      "year" : 2002
+    }, {
+      "title" : "Faster R-CNN: Towards real-time object detection with region proposal networks",
+      "author" : [ "S. Ren", "K. He", "R. Girshick", "J. Sun" ],
+      "venue" : "NIPS",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Speaking the same language: Matching machine to human captions by adversarial training",
+      "author" : [ "R. Shetty", "M. Rohrbach", "L.A. Hendricks", "M. Fritz", "B. Schiele" ],
+      "venue" : "ICCV",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : null,
+      "year" : 2017
+    }, {
+      "title" : "Very deep convolutional networks for large-scale image recognition",
+      "author" : [ "K. Simonyan", "A. Zisserman" ],
+      "venue" : "arXiv preprint arXiv:1409.1556",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Learning structured output representation using deep conditional generative models",
+      "author" : [ "K. Sohn", "H. Lee", "X. Yan" ],
+      "venue" : "NIPS",
+      "citeRegEx" : "29",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Cider: Consensus-based image description evaluation",
+      "author" : [ "R. Vedantam", "C. Lawrence Zitnick", "D. Parikh" ],
+      "venue" : "CVPR",
+      "citeRegEx" : "30",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Diverse beam search: Decoding diverse solutions from neural sequence models",
+      "author" : [ "A.K. Vijayakumar", "M. Cogswell", "R.R. Selvaraju", "Q. Sun", "S. Lee", "D. Crandall", "D. Batra" ],
+      "venue" : "arXiv preprint arXiv:1610.02424",
+      "citeRegEx" : "31",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Show and tell: A neural image caption generator",
+      "author" : [ "O. Vinyals", "A. Toshev", "S. Bengio", "D. Erhan" ],
+      "venue" : "CVPR",
+      "citeRegEx" : "32",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Show and tell: Lessons learned from the 2015 mscoco image captioning challenge",
+      "author" : [ "O. Vinyals", "A. Toshev", "S. Bengio", "D. Erhan" ],
+      "venue" : "IEEE transactions on pattern analysis and machine intelligence",
+      "citeRegEx" : "33",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Learning deep structure-preserving image-text embeddings",
+      "author" : [ "L. Wang", "Y. Li", "S. Lazebnik" ],
+      "venue" : "CVPR",
+      "citeRegEx" : "34",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Diverse image captioning via grouptalk",
+      "author" : [ "Z. Wang", "F. Wu", "W. Lu", "J. Xiao", "X. Li", "Z. Zhang", "Y. Zhuang" ],
+      "venue" : "IJCAI",
+      "citeRegEx" : "35",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Show",
+      "author" : [ "K. Xu", "J. Ba", "R. Kiros", "K. Cho", "A. Courville", "R. Salakhudinov", "R. Zemel", "Y. Bengio" ],
+      "venue" : "attend and tell: Neural image caption generation with visual attention. In ICML",
+      "citeRegEx" : "36",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Image captioning with semantic attention",
+      "author" : [ "Q. You", "H. Jin", "Z. Wang", "C. Fang", "J. Luo" ],
+      "venue" : "CVPR",
+      "citeRegEx" : "37",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 21,
+      "context" : "State-of-the-art captioning techniques [23, 32, 36, 1] are based on recurrent neural nets with long-short term memory (LSTM) units [13], which take as input a feature representation of a provided image, and are trained to maximize the likelihood of reference human descriptions.",
+      "startOffset" : 39,
+      "endOffset" : 54
+    }, {
+      "referenceID" : 30,
+      "context" : "State-of-the-art captioning techniques [23, 32, 36, 1] are based on recurrent neural nets with long-short term memory (LSTM) units [13], which take as input a feature representation of a provided image, and are trained to maximize the likelihood of reference human descriptions.",
+      "startOffset" : 39,
+      "endOffset" : 54
+    }, {
+      "referenceID" : 34,
+      "context" : "State-of-the-art captioning techniques [23, 32, 36, 1] are based on recurrent neural nets with long-short term memory (LSTM) units [13], which take as input a feature representation of a provided image, and are trained to maximize the likelihood of reference human descriptions.",
+      "startOffset" : 39,
+      "endOffset" : 54
+    }, {
+      "referenceID" : 11,
+      "context" : "State-of-the-art captioning techniques [23, 32, 36, 1] are based on recurrent neural nets with long-short term memory (LSTM) units [13], which take as input a feature representation of a provided image, and are trained to maximize the likelihood of reference human descriptions.",
+      "startOffset" : 131,
+      "endOffset" : 135
+    }, {
+      "referenceID" : 4,
+      "context" : "Achieving more diverse image description is a major theme in several recent works [6, 14, 27, 31, 35].",
+      "startOffset" : 82,
+      "endOffset" : 101
+    }, {
+      "referenceID" : 12,
+      "context" : "Achieving more diverse image description is a major theme in several recent works [6, 14, 27, 31, 35].",
+      "startOffset" : 82,
+      "endOffset" : 101
+    }, {
+      "referenceID" : 25,
+      "context" : "Achieving more diverse image description is a major theme in several recent works [6, 14, 27, 31, 35].",
+      "startOffset" : 82,
+      "endOffset" : 101
+    }, {
+      "referenceID" : 29,
+      "context" : "Achieving more diverse image description is a major theme in several recent works [6, 14, 27, 31, 35].",
+      "startOffset" : 82,
+      "endOffset" : 101
+    }, {
+      "referenceID" : 33,
+      "context" : "Achieving more diverse image description is a major theme in several recent works [6, 14, 27, 31, 35].",
+      "startOffset" : 82,
+      "endOffset" : 101
+    }, {
+      "referenceID" : 4,
+      "context" : "[6] proposed jointly learning a generator to produce descriptions and an evaluator to assess how well a description fits the image.",
+      "startOffset" : 0,
+      "endOffset" : 3
+    }, {
+      "referenceID" : 25,
+      "context" : "[27] changed the training objective of the generator from reproducing ground-truth captions to generating captions that are indistinguishable from those produced by humans.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 4,
+      "context" : "In this paper, we also explore a generative model for image description, but unlike the GAN-style training of [6, 27], we adopt the conditional variational auto-encoder (CVAE) formalism [17, 29].",
+      "startOffset" : 110,
+      "endOffset" : 117
+    }, {
+      "referenceID" : 25,
+      "context" : "In this paper, we also explore a generative model for image description, but unlike the GAN-style training of [6, 27], we adopt the conditional variational auto-encoder (CVAE) formalism [17, 29].",
+      "startOffset" : 110,
+      "endOffset" : 117
+    }, {
+      "referenceID" : 15,
+      "context" : "In this paper, we also explore a generative model for image description, but unlike the GAN-style training of [6, 27], we adopt the conditional variational auto-encoder (CVAE) formalism [17, 29].",
+      "startOffset" : 186,
+      "endOffset" : 194
+    }, {
+      "referenceID" : 27,
+      "context" : "In this paper, we also explore a generative model for image description, but unlike the GAN-style training of [6, 27], we adopt the conditional variational auto-encoder (CVAE) formalism [17, 29].",
+      "startOffset" : 186,
+      "endOffset" : 194
+    }, {
+      "referenceID" : 12,
+      "context" : "[14], who trained a “vanilla” CVAE to generate questions given images.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 8,
+      "context" : "For each method, we show top five sentences following consensus re-ranking [10].",
+      "startOffset" : 75,
+      "endOffset" : 79
+    }, {
+      "referenceID" : 12,
+      "context" : "[14] obtained promising question generation performance with the above CVAE model equipped with a fixed Gaussian prior, for the task of image captioning, we observed a tendency for the learned conditional posteriors to collapse to a single mode, yielding little diversity in candidate captions sampled given an image.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 3,
+      "context" : "Experiments of Section 4 will show that both GMM-CVAE and AG-CVAE outperform LSTMs and “vanilla” CVAE baselines on the challenging MSCOCO dataset [5], with AG-CVAE showing marginally higher accuracy and by far the best diversity and controllability.",
+      "startOffset" : 146,
+      "endOffset" : 149
+    }, {
+      "referenceID" : 15,
+      "context" : "Our proposed framework for image captioning extends the standard variational auto-encoder [17] and its conditional variant [29].",
+      "startOffset" : 90,
+      "endOffset" : 94
+    }, {
+      "referenceID" : 27,
+      "context" : "Our proposed framework for image captioning extends the standard variational auto-encoder [17] and its conditional variant [29].",
+      "startOffset" : 123,
+      "endOffset" : 127
+    }, {
+      "referenceID" : 15,
+      "context" : "Backpropagation through the encoder that produces samples z is achieved via the reparameterization trick [17], which is applicable if we restrict the encoder distribution qφ(z|x, c) to be, e.",
+      "startOffset" : 105,
+      "endOffset" : 109
+    }, {
+      "referenceID" : 12,
+      "context" : "In the vanilla CVAE formulation, such as the one adopted in [14], the prior is not dependent on c and is fixed to a zero-mean unit-variance Gaussian.",
+      "startOffset" : 60,
+      "endOffset" : 64
+    }, {
+      "referenceID" : 10,
+      "context" : "We therefore approximate the KL divergence stochastically [12].",
+      "startOffset" : 58,
+      "endOffset" : 62
+    }, {
+      "referenceID" : 3,
+      "context" : "We test our methods on the MSCOCO dataset [5], which is the largest “clean” image captioning dataset available to date.",
+      "startOffset" : 42,
+      "endOffset" : 45
+    }, {
+      "referenceID" : 21,
+      "context" : "We follow the train/val/test split released by [23].",
+      "startOffset" : 47,
+      "endOffset" : 51
+    }, {
+      "referenceID" : 26,
+      "context" : "As image features, we use 4,096-dimensional activations from the VGG-16 network [28].",
+      "startOffset" : 80,
+      "endOffset" : 84
+    }, {
+      "referenceID" : 24,
+      "context" : "We train a Faster R-CNN detector [26] for the MSCOCO categories using our train/val split by fine-tuning the VGG-16 net [28].",
+      "startOffset" : 33,
+      "endOffset" : 37
+    }, {
+      "referenceID" : 26,
+      "context" : "We train a Faster R-CNN detector [26] for the MSCOCO categories using our train/val split by fine-tuning the VGG-16 net [28].",
+      "startOffset" : 120,
+      "endOffset" : 124
+    }, {
+      "referenceID" : 31,
+      "context" : "This gives a strong baseline comparable to NeuralTalk2 [1] or Google Show and Tell [33].",
+      "startOffset" : 83,
+      "endOffset" : 87
+    }, {
+      "referenceID" : 12,
+      "context" : "Our second baseline is given by the “vanilla” CVAE with a fixed Gaussian prior following [14].",
+      "startOffset" : 89,
+      "endOffset" : 93
+    }, {
+      "referenceID" : 8,
+      "context" : "Next, for a more realistic evaluation, we will use a consensus re-ranking approach [10] to automatically select a single top candidate per image.",
+      "startOffset" : 83,
+      "endOffset" : 87
+    }, {
+      "referenceID" : 23,
+      "context" : "We compare caption quality using five metrics: BLEU [25], METEOR [7], CIDEr [30], SPICE [2], and ROUGE [21].",
+      "startOffset" : 52,
+      "endOffset" : 56
+    }, {
+      "referenceID" : 5,
+      "context" : "We compare caption quality using five metrics: BLEU [25], METEOR [7], CIDEr [30], SPICE [2], and ROUGE [21].",
+      "startOffset" : 65,
+      "endOffset" : 68
+    }, {
+      "referenceID" : 28,
+      "context" : "We compare caption quality using five metrics: BLEU [25], METEOR [7], CIDEr [30], SPICE [2], and ROUGE [21].",
+      "startOffset" : 76,
+      "endOffset" : 80
+    }, {
+      "referenceID" : 0,
+      "context" : "We compare caption quality using five metrics: BLEU [25], METEOR [7], CIDEr [30], SPICE [2], and ROUGE [21].",
+      "startOffset" : 88,
+      "endOffset" : 91
+    }, {
+      "referenceID" : 19,
+      "context" : "We compare caption quality using five metrics: BLEU [25], METEOR [7], CIDEr [30], SPICE [2], and ROUGE [21].",
+      "startOffset" : 103,
+      "endOffset" : 107
+    }, {
+      "referenceID" : 3,
+      "context" : "These are calculated using the MSCOCO caption evaluation tool [5] augmented by the author of SPICE [2].",
+      "startOffset" : 62,
+      "endOffset" : 65
+    }, {
+      "referenceID" : 0,
+      "context" : "These are calculated using the MSCOCO caption evaluation tool [5] augmented by the author of SPICE [2].",
+      "startOffset" : 99,
+      "endOffset" : 102
+    }, {
+      "referenceID" : 21,
+      "context" : "For the LSTM baseline, we report the scores attained among 10 candidates generated using beam search (as suggested in [23]).",
+      "startOffset" : 118,
+      "endOffset" : 122
+    }, {
+      "referenceID" : 8,
+      "context" : "For a more realistic evaluation we next compare the same models after consensus re-ranking [10, 23].",
+      "startOffset" : 91,
+      "endOffset" : 99
+    }, {
+      "referenceID" : 21,
+      "context" : "For a more realistic evaluation we next compare the same models after consensus re-ranking [10, 23].",
+      "startOffset" : 91,
+      "endOffset" : 99
+    }, {
+      "referenceID" : 32,
+      "context" : "Specifically, for a given test image, we first find its nearest neighbors in the training set in the cross-modal embedding space learned by a two-branch network proposed in [34].",
+      "startOffset" : 173,
+      "endOffset" : 177
+    }, {
+      "referenceID" : 20,
+      "context" : "For this, we use the CIDEr metric, based on the observation of [22, 30] that it can give more human-consistent evaluations than BLEU.",
+      "startOffset" : 63,
+      "endOffset" : 71
+    }, {
+      "referenceID" : 28,
+      "context" : "For this, we use the CIDEr metric, based on the observation of [22, 30] that it can give more human-consistent evaluations than BLEU.",
+      "startOffset" : 63,
+      "endOffset" : 71
+    }, {
+      "referenceID" : 21,
+      "context" : "It should also be noted that, while it is not our goal to outperform the state of the art in absolute terms, our performance is actually better than some of the best methods to date [23, 37], although [37] was trained on a different split.",
+      "startOffset" : 182,
+      "endOffset" : 190
+    }, {
+      "referenceID" : 35,
+      "context" : "It should also be noted that, while it is not our goal to outperform the state of the art in absolute terms, our performance is actually better than some of the best methods to date [23, 37], although [37] was trained on a different split.",
+      "startOffset" : 182,
+      "endOffset" : 190
+    }, {
+      "referenceID" : 35,
+      "context" : "It should also be noted that, while it is not our goal to outperform the state of the art in absolute terms, our performance is actually better than some of the best methods to date [23, 37], although [37] was trained on a different split.",
+      "startOffset" : 201,
+      "endOffset" : 205
+    }, {
+      "referenceID" : 25,
+      "context" : "Similarly to [27], we also report the percentage of all generated sentences for the test set that have not been seen in the training set.",
+      "startOffset" : 13,
+      "endOffset" : 17
+    }, {
+      "referenceID" : 12,
+      "context" : "To date, CVAEs have been used for image question generation [14], but as far as we know, our work is the first to apply them to captioning.",
+      "startOffset" : 60,
+      "endOffset" : 64
+    }, {
+      "referenceID" : 6,
+      "context" : "In [8], a mixture of Gaussian prior is used in CVAEs for colorization.",
+      "startOffset" : 3,
+      "endOffset" : 6
+    }, {
+      "referenceID" : 2,
+      "context" : "Their approach is essentially similar to our GMM-CVAE, though it is based on mixture density networks [4] and uses a different approximation scheme during training.",
+      "startOffset" : 102,
+      "endOffset" : 105
+    }, {
+      "referenceID" : 4,
+      "context" : "Our CVAE formulation has some advantages over the CGAN approach adopted by other recent works aimed at the same general goals [6, 27].",
+      "startOffset" : 126,
+      "endOffset" : 133
+    }, {
+      "referenceID" : 25,
+      "context" : "Our CVAE formulation has some advantages over the CGAN approach adopted by other recent works aimed at the same general goals [6, 27].",
+      "startOffset" : 126,
+      "endOffset" : 133
+    }, {
+      "referenceID" : 4,
+      "context" : "[6] have to resort to reinforcement learning and Shetty et al.",
+      "startOffset" : 0,
+      "endOffset" : 3
+    }, {
+      "referenceID" : 25,
+      "context" : "[27] to an approximate Gumbel sampler [15]).",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 13,
+      "context" : "[27] to an approximate Gumbel sampler [15]).",
+      "startOffset" : 38,
+      "endOffset" : 42
+    }, {
+      "referenceID" : 14,
+      "context" : "While we represent the z space as a simple vector space with multiple modes, it is possible to impose on it a more general graphical model structure [16], though this incurs a much greater level of complexity.",
+      "startOffset" : 149,
+      "endOffset" : 153
+    }, {
+      "referenceID" : 1,
+      "context" : "Finally, from the viewpoint of inference, our work is also related to general approaches to diverse structured prediction, which focus on extracting multiple modes from a single energy function [3].",
+      "startOffset" : 194,
+      "endOffset" : 197
+    } ],
+    "year" : 2017,
+    "abstractText" : "This paper explores image caption generation using conditional variational autoencoders (CVAEs). Standard CVAEs with a fixed Gaussian prior yield descriptions with too little variability. Instead, we propose two models that explicitly structure the latent space around K components corresponding to different types of image content, and combine components to create priors for images that contain multiple types of content simultaneously (e.g., several kinds of objects). Our first model uses a Gaussian Mixture model (GMM) prior, while the second one defines a novel Additive Gaussian (AG) prior that linearly combines component means. We show that both models produce captions that are more diverse and more accurate than a strong LSTM baseline or a “vanilla” CVAE with a fixed Gaussian prior, with AG-CVAE showing particular promise.",
+    "creator" : null
+  }
+}

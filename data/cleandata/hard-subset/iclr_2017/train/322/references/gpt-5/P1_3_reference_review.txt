@@ -1,0 +1,47 @@
+1) Summary of contributions
+The paper proposes “nonparametric neural networks,” a framework that adapts layer widths during a single training run by adding zero-units and eliminating units whose fan-in (or fan-out) weights shrink to exactly zero under a group-norm penalty. Key ingredients:
+- Theory: With a fan-in or fan-out group-ℓp penalty (λ>0, 1≤p<∞), the overall training objective has a global minimum at finite dimensionality (Theorem 1), establishing that the model won’t grow unboundedly to reduce loss.
+- Practical training: 
+  - CapNorm, a variant of batch normalization that subtracts the batch mean but caps variance normalization at 1 and removes affine re-scaling, so regularization cannot be neutralized by BN.
+  - AdaRad, an optimizer that decomposes each fan-in gradient into parallel (radial) and orthogonal (angular) components, applies normalization only to the angular component, and uses separate step sizes for radial and angular updates. This aims to let new units learn despite small loss gradients while keeping shrinkage effective.
+  - A simple grow-and-prune schedule: periodically initialize new units with random fan-in and zero fan-out; remove units whose fan-in becomes zero under the ℓ2 fan-in penalty.
+- Empirical evaluation: Two-hidden-layer MLPs on MNIST, rectangles-images, and convex (Bengio & Bergstra), plus a large Poker dataset (OpenML). The authors report that nonparametric networks outperform parametric networks of the same size on MNIST and (for smaller λ) rectangles-images, are competitive with random-search-chosen parametric models in some cases, but underperform on convex. On Poker, both paradigms achieve <1% error; the best nonparametric run attains 0% test error (on 100k test samples).
+
+2) Decision: Reject
+Key reasons:
+- The empirical evaluation is limited and confounded, making it hard to conclude that the proposed framework offers clear, robust benefits over strong baselines.
+- The novelty relative to prior work on structured sparsity (group-lasso neuron pruning) and dynamic network growth/pruning is incremental; the main new elements (CapNorm, AdaRad) are not convincingly isolated via ablations.
+
+3) Supporting arguments
+- Experimental scope and fairness: Experiments use small MLPs on classic datasets; no modern convolutional architectures or stronger benchmarks (e.g., CIFAR, ImageNet). The main headline comparisons often differ in optimization and normalization: nonparametric models use CapNorm+AdaRad while parametric baselines use BN (with/without affine) + SGD/momentum/RMSprop/Adam. Since both CapNorm and AdaRad could independently affect performance, these choices confound the attribution of gains to the nonparametric width adaptation itself. Ablations that fix optimizer and normalization across paradigms are missing.
+- Mixed results and sensitivity: On convex, nonparametric networks underperform parametric networks of the same size and show higher variance across runs. The training procedure relies on hand-chosen schedules (unit addition frequency, αr≈150/λ, angular step annealing with rewinds), and it is unclear how robust performance is to these settings beyond the chosen datasets.
+- Comparisons to related work: Learning the number of neurons via group-lasso has been explored (e.g., Alvarez & Salzmann), and network growth/pruning methods are well-studied. While Theorem 1 provides an existence result for finite-width minimizers under a group penalty, the practical implication is modest given known sparsity-inducing properties and the fact that global optimality is not reached in practice. The framing as “nonparametric” is appealing, but the practical mechanism (group sparsity + adding/removing neurons) is close to existing pruning/growth paradigms.
+- Lack of key ablations: The paper claims AdaRad is essential to let new units learn under shrinkage. Yet there is no isolation of (a) AdaRad vs RMSprop/Adam in the nonparametric setting, (b) CapNorm vs BN or no norm in the nonparametric setting, or (c) fan-in vs fan-out regularization impacts. Without these, it is hard to assess which component drives the observed gains.
+- Efficiency: The paper argues AdaRad scales better than RMSprop in memory and cost per unit, but there are no wall-clock measurements or FLOP estimates for the nonparametric training pipeline (which includes periodic growth, pruning checks, and per-fan-in orthogonal decompositions). Moreover, the nonparametric training converges slower initially because the network must grow, as acknowledged by the authors.
+
+4) Additional feedback (to help improve the work)
+- Provide clean ablations:
+  - Fix a single optimizer and normalization (e.g., AdaRad + CapNorm) and compare parametric vs nonparametric; then vary optimizer/normalization to quantify their contributions. Also compare AdaRad vs RMSprop/Adam in the nonparametric regime.
+  - Evaluate fan-in vs fan-out regularization empirically; include p=1 vs p=2 trade-offs.
+  - Quantify sensitivity to λ, αr, angular step, and unit addition rate ν; show robustness ranges rather than a few handpicked settings.
+- Benchmarks and architectures:
+  - Include convolutional networks and modern datasets (e.g., CIFAR-10/100). The method’s promise is strongest if it scales beyond small MLPs.
+  - Report wall-clock time, number of parameter updates, and parameter count over time to substantiate efficiency claims.
+- Clarify fairness:
+  - Use comparable normalization and training schedules for parametric baselines (e.g., try CapNorm with parametric nets, or apply ℓ2/group penalties with an appropriate normalization strategy) to avoid confounding.
+- Method details:
+  - Formalize and analyze CapNorm’s effect on scale invariance and regularization strength; discuss interactions with self-similar activations (ReLU) and with the proposition about layerwise λ equivalence.
+  - Provide implementation details for the parallel/orthogonal gradient decomposition and its overhead; discuss stability and numerical conditioning.
+- Theory:
+  - Clarify the tightness and necessity of assumptions for Theorem 1, and whether similar existence results already follow from known group-sparsity results. Discuss how CapNorm affects the theorem’s assumptions (since normalization layers can alter scale properties).
+- Reporting:
+  - Avoid manual selection of “representative” runs; report medians and dispersion across seeds systematically. Include calibration plots or confidence intervals.
+
+Questions for the authors
+- Can you provide ablations that fix optimizer and normalization across parametric and nonparametric models to isolate the benefit of adaptive width?
+- How sensitive are results to the unit addition rate ν, the choice αr=150/λ, and the decision to initialize fan-outs at zero? What happens if fan-outs are initialized small but nonzero?
+- Could you report wall-clock and compute costs (per epoch and total) versus parametric training with hyperparameter search, to substantiate the claimed efficiency benefit?
+- How does AdaRad compare to RMSprop/Adam when used within the nonparametric framework, both in accuracy and convergence speed?
+- Can the approach be extended to convolutional layers with shared weights, and if so, how do you define fan-in/out groups and handle zero-unit removal efficiently?
+- Does CapNorm degrade performance on tasks where BN with affine parameters is critical? Would a learnable affine after CapNorm undermine the regularizer, and is there a principled compromise?
+- On convex, why does the method converge to smaller-than-optimal sizes? Can adjusting αr/αφ or λ alleviate this without manual tuning?

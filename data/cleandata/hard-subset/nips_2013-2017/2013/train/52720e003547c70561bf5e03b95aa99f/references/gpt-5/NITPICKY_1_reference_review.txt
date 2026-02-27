@@ -1,0 +1,55 @@
+Summary and relation to prior work
+The paper targets ultra–high-dimensional sparse precision (inverse covariance) estimation via the CLIME estimator. The core contribution is an inexact/linearized ADMM algorithm that works on column blocks (k columns at a time) rather than single columns, enabling use of matrix–matrix multiplications and block-cyclic data distribution for scalability. The authors show O(1/T) rates for objective and residuals, discuss exploiting low rank of the sample covariance (since C = A A^T with n << p) and potential sparsity in iterates and/or a thresholded C, and present shared- and distributed-memory implementations using OpenMP, MPI, and ScaLAPACK. Experiments compare against CLIME, TIGER, and DC-QUIC, show speedups with increasing cores/blocks, and report estimating a 1e6-dimensional precision matrix on 400 cores in ~11 hours.
+
+The paper builds on: CLIME (Cai et al.), prior ADMM use for related L1 problems (Yang & Zhang; Boyd et al.), scalable GLasso solvers (QUIC/DC-QUIC; Friedman et al.; Ravikumar et al.), and distributed optimization frameworks (e.g., GraphLab/GPBS, parameter servers). The use of linearized ADMM, block-cyclic distributions, and BLAS-3 efficiency for matrix–matrix products is consistent with the HPC literature; the emphasis here is their application to CLIME at very large scale.
+
+Strengths
+- Addresses an important scaling bottleneck in sparse precision estimation; pragmatic and potentially impactful engineering.
+- Sensible algorithmic choices: linearized ADMM to avoid inner solves; batched columns to leverage BLAS-3; low-rank A-based multiplication to avoid materializing C.
+- Clear system design: block-cyclic distribution, process grids, avoiding shared-cache contention, and parallel I/O.
+- Empirical scale is impressive (1e6 variables), and the shared vs distributed tradeoffs are thoughtfully discussed.
+
+Weaknesses and detailed concerns
+Technical correctness/clarity
+- Augmented Lagrangian and scaled ADMM definitions are inconsistent. Eq. (4) lacks the usual 1/2 in the quadratic term; Eqs. (5)-(6) sometimes include ρ/2 and sometimes not. Please standardize the scaled ADMM form; as written, the constants do not line up.
+- In Algorithm 1, Step 7 uses box(U + Y, λ), but earlier the constraint is ||Z − E||_∞ ≤ λ, requiring box(., E, λ). The box operator is defined both with and without E. This inconsistency is critical and must be fixed.
+- The V-update is inconsistent between text and algorithm. In text: V_t = (ρ/η)(2 V̂_t − V̂_{t−1}); in Algorithm 1: V_{t+1} = (ρ/η)(2 V̂_{t+1} − V̂_t). Please clarify which iterate indices are intended.
+- Theorem 2’s residual bound uses a nonstandard norm notation “||X^T − X^{T−1}||^2_{η/ρ I − C^2}” but is typeset as “||XT − XT−1||2η/ρ I − C^2”. This is ambiguous: does η/ρ I − C^2 need to be positive semidefinite? That requires η ≥ ρ λ_max^2(C), which is claimed, but the exact norm and proof sketch should be clearly stated.
+- Objective convergence in Theorem 1 is stated for the averaged iterate X̄_T, but feasibility is not discussed for averaged Z̄_T, nor is an explicit primal-dual gap bound provided. The claim “O(1/T) for objective and residuals” should be justified precisely (ergodic vs non-ergodic; which norms; to which optimum).
+- The equivalence of block-wise solving to the column-wise CLIME solution is not formally stated. While separability suggests equivalence, please add a proposition stating that solving (2) for each disjoint E block yields the same concatenated solution as solving all columns independently.
+- Symmetrization/positive definiteness: Standard CLIME requires post-processing to produce a symmetric estimator (e.g., take min of |off-diagonals| or solve a symmetrization step). This is not discussed, yet the method is presented as “precision matrix estimation.” Please clarify the symmetrization used and whether SPD is enforced or assessed.
+
+Statistical aspects
+- The “perturbation” idea (Section 3.1) is essentially a triangle inequality argument on sup-norm deviations. Theorem 3 invokes random sub-exponential perturbations ∆ with independent entries; independence from the data is not stated, and the result is overkill relative to the simpler deterministic condition ||∆||_∞ ≤ c sqrt(log p / n). The practical prescription (threshold small C_ij to zero) is reasonable, but the theorem, as stated, is both under-specified and unnecessary.
+- No guidance on choosing λ or on the impact of truncation on support recovery, and no assessment of the statistical accuracy on real data. The synthetic PR plots are shown only qualitatively.
+
+Experimental methodology and reproducibility
+- Key algorithmic parameters (ρ, η, stopping tolerances, number of iterations T, column block size selection heuristic) are not reported. Stopping criteria for comparisons are not specified, making timing comparisons hard to interpret.
+- The practice of tuning each method to match a target sparsity (e.g., 5%) to measure runtime biases the comparison and hides sensitivity to λ; please also report times for a common λ grid or for theory-based λ.
+- For real data, only runtime is reported; no accuracy or qualitative assessment. For synthetic data, recall/precision are shown, but numeric values and variance across trials are not provided.
+- The “1e6 by 1e6” result: provide n, memory footprint per node, communication volume, and stopping criteria. With n=200, A has ~1.6 GB in doubles; however, the six p×k variables (X,Z,Y,U,V, V̂) at k=500 would each be ~4 GB if dense, which seems incompatible with per-node memory unless heavily distributed or sparse; please clarify actual storage formats and densities.
+
+Presentation and formatting
+- Numerous typos and grammatical issues (e.g., “achitectures,” “reasonble,” “groud,” “colletion,” “scalablely”), inconsistent notation, and several missing subscripts and factors in equations.
+- Figures/tables are referenced but not provided here; axis labels/units are not described in text.
+- References are highly incomplete or corrupted (missing venues/years; author names misspelled; multiple entries with “, , ,”). This is not acceptable for NeurIPS.
+- Notation is overloaded and sometimes ambiguous (e.g., reuse of E; inconsistent matrix dimensions in the narrative).
+
+Quality: Promising idea and engineering, but multiple technical inconsistencies, incomplete proofs, and insufficient experimental details hinder confidence.
+Clarity: Currently below NeurIPS standards due to notation inconsistencies, missing details, and numerous typos; references need major repair.
+Originality: Moderate. Linearized ADMM and block-cyclic BLAS-3 use are known; the contribution is in combining them carefully for CLIME at very large scale.
+Significance: Potentially high if the implementation and analysis are cleaned up; practitioners could benefit.
+
+Pros
+- Addresses an important and timely scalability challenge.
+- Simple, implementable algorithm with good engineering choices.
+- Strong empirical scaling on large distributed systems.
+
+Cons
+- Several technical inconsistencies in algorithm and theory; unclear convergence statements.
+- Incomplete treatment of statistical aspects (symmetrization, parameter selection, impact of truncation).
+- Experimental methodology lacks key details; fairness and reproducibility concerns.
+- Poorly formatted references; numerous typos and notation issues.
+
+Recommendation
+Reject. While the idea is valuable and the scaling results are intriguing, the accumulation of technical, methodological, and presentation flaws prevents a confident acceptance. I encourage the authors to (i) fix the ADMM formulation and proofs, (ii) document parameters and stopping criteria, (iii) add symmetrization and statistical accuracy assessments, (iv) clarify memory/communication costs at scale, and (v) substantially clean up writing and references. With these addressed, the work could be impactful.

@@ -1,0 +1,475 @@
+{
+  "name" : "c22abfa379f38b5b0411bc11fa9bf92f.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Learning Generative Models with Visual Attention",
+    "authors" : [ "Yichuan Tang", "Nitish Srivastava", "Ruslan Salakhutdinov" ],
+    "emails" : [ "tang@cs.toronto.edu", "nitish@cs.toronto.edu", "rsalakhu@cs.toronto.edu" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Building rich generative models that are capable of extracting useful, high-level latent representations from high-dimensional sensory input lies at the core of solving many AI-related tasks, including object recognition, speech perception and language understanding. These models capture underlying structure in data by defining flexible probability distributions over high-dimensional data as part of a complex, partially observed system. Some of the successful generative models that are able to discover meaningful high-level latent representations include the Boltzmann Machine family of models: Restricted Boltzmann Machines, Deep Belief Nets [1], and Deep Boltzmann Machines [2]. Mixture models, such as Mixtures of Factor Analyzers [3] and Mixtures of Gaussians, have also been used for modeling natural image patches [4]. More recently, denoising auto-encoders have been proposed as a way to model the transition operator that has the same invariant distribution as the data generating distribution [5].\nGenerative models have an advantage over discriminative models when part of the images are occluded or missing. Occlusions are very common in realistic settings and have been largely ignored in recent literature on deep learning. In addition, prior knowledge can be easily incorporated in generative models in the forms of structured latent variables, such as lighting and deformable parts. However, the enormous amount of content in high-resolution images makes generative learning difficult [6, 7]. Therefore, generative models have found most success in learning to model small patches of natural images and objects: Zoran and Weiss [4] learned a mixture of Gaussians model over 8×8 image patches; Salakhutdinov and Hinton [2] used 64×64 centered and uncluttered stereo images of toy objects on a clear background; Tang et al. [8] used 24×24 images of centered and cropped faces. The fact that these models require curated training data limits their applicability on using the (virtually) unlimited unlabeled data.\nIn this paper, we propose a framework to infer the region of interest in a big image for generative modeling. This will allow us to learn a generative model of faces on a very large dataset of (unlabeled) images containing faces. Our framework is able to dynamically route the relevant information to the generative model and can ignore the background clutter. The need to dynamically and selectively route information is also present in the biological brain. Plethora of evidence points to\nthe presence of attention in the visual cortex [9, 10]. Recently, in visual neuroscience, attention has been shown to exist not only in extrastriate areas, but also all the way down to V1 [11].\nAttention as a form of routing was originally proposed by Anderson and Van Essen [12] and then extended by Olshausen et al. [13]. Dynamic routing has been hypothesized as providing a way for achieving shift and size invariance in the visual cortex [14, 15]. Tsotsos et al. [16] proposed a model combining search and attention called the Selective Tuning model. Larochelle and Hinton [17] proposed a way of using third-order Boltzmann Machines to combine information gathered from many foveal glimpses. Their model chooses where to look next to find locations that are most informative of the object class. Reichert et al. [18] proposed a hierarchical model to show that certain aspects of covert object-based attention can be modeled by Deep Boltzmann Machines. Several other related models attempt to learn where to look for objects [19, 20] and for video based tracking [21]. Inspired by Olshausen et al. [13], we use 2D similarity transformations to implement the scaling, rotation, and shift operation required for routing. Our main motivation is to enable the learning of generative models in big images where the location of the object of interest is unknown a-priori."
+    }, {
+      "heading" : "2 Gaussian Restricted Boltzmann Machines",
+      "text" : "Before we describe our model, we briefly review the Gaussian Restricted Boltzmann Machine (GRBM) [22], as it will serve as the building block for our attention-based model. GRBMs are a type of Markov Random Field model that has a bipartite structure with real-valued visible variables v ∈ RD connected to binary stochastic hidden variables h ∈ {0, 1}H . The energy of the joint configuration {v,h} of the Gaussian RBM is defined as follows:\nEGRBM (v,h; Θ) = 1\n2 ∑ i (vi − bi)2 σ2i − ∑ j cjhj − ∑ ij Wijvihj , (1)\nwhere Θ = {W,b, c,σ} are the model parameters. The marginal distribution over the visible vector v is P (v; Θ) = 1Z(Θ) ∑ h exp (−E(v,h; Θ)) and the corresponding conditional distributions take the following form:\np(hj = 1|v) = 1/ ( 1 + exp(− ∑ i Wijvi − cj) ) , (2)\np(vi|h) = N (vi;µi, σ2i ), where µi = bi + σ2i ∑ j Wijhj . (3)\nObserve that conditioned on the states of the hidden variables (Eq. 3), each visible unit is modeled by a Gaussian distribution, whose mean is shifted by the weighted combination of the hidden unit activations. Unlike directed models, an RBM’s conditional distribution over hidden nodes is factorial and can be easily computed.\nWe can also add a binary RBM on top of the learned GRBM by treating the inferred h as the “visible” layer together with a second hidden layer h2. This results in a 2-layer Gaussian Deep Belief Network (GDBN) [1] that is a more powerful model of v.\nSpecifically, in a GDBN model, p(h1,h2) is modeled by the energy function of the 2nd-layer RBM, while p(v1|h1) is given by Eq. 3. Efficient inference can be performed using the greedy approach of [1] by treating each DBN layer as a separate RBM model. GDBNs have been applied to various tasks, including image classification, video action and speech recognition [6, 23, 24, 25]."
+    }, {
+      "heading" : "3 The Model",
+      "text" : "Let I be a high resolution image of a scene, e.g. a 256×256 image. We want to use attention to propagate regions of interest from I up to a canonical representation. For example, in order to learn a model of faces, the canonical representation could be a 24×24 aligned and cropped frontal face image. Let v ∈ RD represent this low resolution canonical image. In this work, we focus on a Deep Belief Network1 to model v.\nThis is illustrated in the diagrams of Fig. 1. The left panel displays the model of Olshausen et.al. [13], whereas the right panel shows a graphical diagram of our proposed generative model with an attentional mechanism. Here, h1 and h2 represent the latent hidden variables of the DBN model, and\n1Other generative models can also be used with our attention framework.\n4x,4y,4θ,4s (position, rotation, and scale) are the parameters of the 2D similarity transformation.\nThe 2D similarity transformation is used to rotate, scale, and translate the canonical image v onto the canvas that we denote by I. Let p = [x y]T be a pixel coordinate (e.g. [0, 0] or [0, 1]) of the canonical image v. Let {p} be the set of all coordinates of v. For example, if v is 24×24, then {p} ranges from [0, 0] to [23, 23]. Let the “gaze” variables u ∈ R4 ≡ [4x,4y,4θ,4s] be the parameter of the Similarity transformation. In order to simplify derivations and to make transformations be linear w.r.t. the transformation parameters, we can equivalently redefine u = [a, b, 4x, 4y], where a = s sin(θ) − 1 and b = s cos(θ) (see [26] for details). We further define a function w := w(p,u)→ p′ as the transformation function to warp points p to p′:\np′ , [ x′\ny′\n] = [\n1 + a −b b 1 + a ][ x y ] + [ 4x 4y ] . (4)\nWe use the notation I({p}) to denote the bilinear interpolation of I at coordinates {p} with antialiasing. Let x(u) be the extracted low-resolution image at warped locations p′:\nx(u) , I(w({p},u)). (5)\nIntuitively, x(u) is a patch extracted from I according to the shift, rotation and scale parameters of u, as shown in Fig. 1, right panel. It is this patch of data that we seek to model generatively. Note that the dimensionality of x(u) is equal to the cardinality of {p}, where {p} denotes the set of pixel coordinates of the canonical image v. Unlike standard generative learning tasks, the data x(u) is not static but changes with the latent variables u. Given v and u, we model the top-down generative process over2 x with a Gaussian distribution having a diagonal covariance matrix σ2I:\np(x|v,u, I) ∝ exp ( − 1\n2 ∑ i (xi(u)− vi)2 σ2i ) . (6)\nThe fact that we do not seek to model the rest of the regions/pixels of I is by design. By using 2D similarity transformation to mimic attention, we can discard the complex background of the scene and let the generative model focus on the object of interest. The proposed generative model takes the following form:\np(x,v,u|I) = p(x|v,u, I)p(v)p(u), (7)\nwhere for p(u) we use a flat prior that is constant for all u, and p(v) is defined by a 2-layer Gaussian Deep Belief Network. The conditional p(x|v,u, I) is given by a Gaussian distribution as in Eq. 6. To simplify the inference procedure, p(x|v,u, I) and the GDBN model of v, p(v), will share the same noise parameters σi.\n2We will often omit dependence of x on u for clarity of presentation."
+    }, {
+      "heading" : "4 Inference",
+      "text" : "While the generative equations in the last section are straightforward and intuitive, inference in these models is typically intractable due to the complicated energy landscape of the posterior. During inference, we wish to compute the distribution over the gaze variables u and canonical object v given the big image I. Unlike in standard RBMs and DBNs, there are no simplifying factorial assumptions about the conditional distribution of the latent variable u. Having a 2D similarity transformation is reminiscent of third-order Boltzmann machines with u performing top-down multiplicative gating of the connections between v and I. It is well known that inference in these higher-order models is rather complicated.\nOne way to perform inference in our model is to resort to Gibbs sampling by computing the set of alternating conditional posteriors: The conditional distribution over the canonical image v takes the following form:\np(v|u,h1, I) = N (µ + x(u)\n2 ;σ2\n) , (8)\nwhere µi = bi + σ2i ∑ jWijh 1 j is the top-down influence of the DBN. Note that if we know the gaze variable u and the first layer of hidden variables h1, then v is simply defined by a Gaussian distribution, where the mean is given by the average of the top-down influence and bottom-up information from x. The conditional distributions over h1 and h2 given v are given by the standard DBN inference equations [1]. The conditional posterior over the gaze variables u is given by:\np(u|x,v) = p(x|u,v)p(u) p(x|v) ,\nlog p(u|x,v) ∝ log p(x|u,v) + log p(u) = 1 2 ∑ i (xi(u)− vi)2 σ2i + const. (9)\nUsing Bayes’ rule, the unnormalized log probability of p(u|x,v) is defined in Eq. 9. We stress that this equation is atypical in that the random variable of interest u actually affects the conditioning variable x (see Eq. 5) We can explore the gaze variables using Hamiltonian Monte Carlo (HMC) algorithm [27, 28]. Intuitively, conditioned on the canonical object v that our model has in “mind”, HMC searches over the entire image I to find a region x with a good match to v. If the goal is only to find the MAP estimate of p(u|x,v), then we may want to use second-order methods for optimizing u. This would be equivalent to the Lucas-Kanade framework in computer vision, developed for image alignment [29]. However, HMC has the advantage of being a proper MCMC sampler that satisfies detailed balance and fits nicely with our probabilistic framework.\nThe HMC algorithm first specifies the Hamiltonian over the position variables u and auxiliary momentum variables r: H(u, r) = U(u) + K(r), where the potential function is defined by U(u) = 12 ∑ i (xi(u)−vi)2 σ2i and the kinetic energy function is given by K(r) = 12 ∑ i r 2 i . The dynamics of the system is defined by: ∂u\n∂t = r,\n∂r ∂t = −∂H ∂u (10)\n∂H ∂u = (x(u)− v) σ2 ∂x(u) ∂u , (11)\n∂x ∂u =\n∂x ∂w({p},u) ∂w({p},u) ∂u = ∑ i ∂xi ∂w(pi,u) ∂w(pi,u) ∂u . (12)\nObserve that Eq. 12 decomposes into sums over single coordinate positions pi = [x y]T. Let us denote p′i = w(pi,u) to be the coordinate pi warped by u. For the first term on the RHS of Eq. 12,\n∂xi ∂w(pi,u) = ∇I(p′i), (dimension 1 by 2 ) (13)\nwhere ∇I(p′i) denotes the sampling of the gradient images of I at the warped location pi. For the second term on the RHS of Eq. 12, we note that we can re-write Eq. 4 as:[\nx′ y′ ] = [ x −y 1 0 y x 0 1 ][ a b 4x 4y ] + [ x y ] , (14)\ngiving us ∂w(pi,u) ∂u = [ x −y 1 0 y x 0 1 ] . (15)\nHMC simulates the discretized system by performing leap-frog updates of u and r using Eq. 10. Additional hyperparameters that need to be specified include the step size , number of leap-frog steps, and the mass of the variables (see [28] for details).\n4.1 Approximate Inference\nHMC essentially performs gradient descent with momentum, therefore it is prone to getting stuck at local optimums. This is especially a problem for our task of finding the best transformation parameters. While the posterior over u should be unimodal near the optimum, many local minima exist away from the global optimum. For example, in Fig. 2(a), the big image I is enclosed by the blue box, and the canonical image v is enclosed by the green box. The current setting of u aligns together the wrong eyes. However, it is hard to move the green box to the left due to the local optima created by the dark intensities of the eye. Resampling the momentum variable every iteration in HMC does not help significantly because we are modeling real-valued images using a Gaussian distribution as the residual, leading to quadratic costs in the difference between x(u) and v (see Eq. 9). This makes the energy barriers between modes extremely high.\nTo alleviate this problem we need to find good initializations of u. We use a Convolutional Network (ConvNet) to perform efficient approximate inference, resulting in good initial guesses. Specifically, given v, u and I, we predict the change in u that will lead to the maximum log p(u|x,v). In other words, instead of using the gradient field for updating u, we learn a ConvNet to output a better vector field in the space\nof u. We used a fairly standard ConvNet architecture and the standard stochastic gradient descent learning procedure.\nWe note that standard feedforward face detectors seek to model p(u|I), while completely ignoring the canonical face v. In contrast, here we take v into account as well. The ConvNet is used to initialize u for the HMC algorithm. This is important in a proper generative model because conditioning on v is appealing when multiple faces are present in the scene. Fig. 2(b) is a hypothesized Euclidean space of v, where the black manifold represents canonical faces and the blue manifold represents cropped faces x(u). The blue manifold has a low intrinsic dimensionality of 4, spanned by u. At A and B, the blue comes close to black manifold. This means that there are at least two modes in the posterior over u. By conditioning on v, we can narrow the posterior to a single mode, depending on whom we want to focus our attention. We demonstrate this exact capability in Sec. 6.3.\nFig. 3 demonstrates the iterative process of how approximate inference works in our model. Specifically, based on u, the ConvNet takes a window patch around x(u) (72×72) and v (24×24) as input, and predicts the output [4x,4y,4θ,4s]. In step 2, u is updated accordingly, followed by step 3 of alternating Gibbs updates of v and h, as discussed in Sec. 4. The process is repeated. For the details of the ConvNet see the supplementary materials."
+    }, {
+      "heading" : "5 Learning",
+      "text" : "While inference in our framework localizes objects of interest and is akin to object detection, it is not the main objective. Our motivation is not to compete with state-of-the-art object detectors but rather propose a probabilistic generative framework capable of generative modeling of objects which are at unknown locations in big images. This is because labels are expensive to obtain and are often not available for images in an unconstrained environment.\nTo learn generatively without labels we propose a simple Monte Carlo based ExpectationMaximization algorithm. This algorithm is an unbiased estimator of the maximum likelihood objec-\ntive. During the E-step, we use the Gibbs sampling algorithm developed in Sec. 4 to draw samples from the posterior over the latent gaze variables u, the canonical variables v, and the hidden variables h1, h2 of a Gaussian DBN model. During the M-step, we can update the weights of the Gaussian DBN by using the posterior samples as its training data. In addition, we can update the parameters of the ConvNet that performs approximate inference. Due to the fact that the first E-step requires a good inference algorithm, we need to pretrain the ConvNet using labeled gaze data as part of a bootstrap process. Obtaining training data for this initial phase is not a problem as we can jitter/rotate/scale to create data. In Sec. 6.2, we demonstrate the ability to learn a good generative model of face images from the CMU Multi-PIE dataset."
+    }, {
+      "heading" : "6 Experiments",
+      "text" : "We used two face datasets in our experiments. The first dataset is a frontal face dataset, called the Caltech Faces from 1999, collected by Markus Weber. In this dataset, there are 450 faces of 27 unique individuals under different lighting conditions, expressions, and backgrounds. We downsampled the images from their native 896 by 692 by a factor of 2. The dataset also contains manually labeled eyes and mouth coordinates, which will serve as the gaze labels. We also used the CMU Multi-PIE dataset [30], which contains 337 subjects, captured under 15 viewpoints and 19 illumination conditions in four recording sessions for a total of more than 750,000 images. We demonstrate our model’s ability to perform approximate inference, to learn without labels, and to perform identity-based attention given an image with two people."
+    }, {
+      "heading" : "6.1 Approximate inference",
+      "text" : "We first investigate the critical inference algorithm of p(u|v, I) on the Caltech Faces dataset. We run 4 steps of approximate inference detailed in Sec. 4.1 and diagrammed in Fig. 3, followed by three iterations of 20 leap-frog steps of HMC. Since we do not initially know the correct v, we initialize v to be the average face across all subjects.\nFig. 4 shows the image of v and x during inference for a test subject. The initial gaze box is colored yellow on the left. Subsequent gaze updates progress from yellow to blue. Once ConvNet-based approximate inference gives a good initialization, starting from step 5, five iterations of 20 leap-frog steps of HMC are used to sample from the the posterior.\nFig. 5 shows the quantitative results of Intersection over Union (IOU) of the ground truth face box and the inferred face box. The results show that inference is very robust to initialization and requires\nonly a few steps of approximate inference to converge. HMC clearly improves model performance, resulting in an IOU increase of about 5% for localization. This is impressive given that none of the test subjects were part of the training and the background is different from backgrounds in the training set.\nOur method OpenCV NCC template IOU > 0.5 97% 97% 93% 78%\n# evaluations O(c) O(whs) O(whs) O(whs)\ncuracy. It uses Haar Cascades, which is a form of AdaBoost4. Normalized Cross Correlation [31] obtained 93% accuracy, while Euclidean distance template matching achieved an accuracy of only 78%. However, note that our algorithm looks at a constant number of windows while the other baselines are all based on scanning windows."
+    }, {
+      "heading" : "6.2 Generative learning without labels",
+      "text" : "nats No CMU training CMU w/o labels CMU w/ labels Caltech Train 617±0.4 627±0.5 569±0.6 Caltech Valid 512±1.1 503±1.8 494±1.7 CMU Train 96±0.8 499±0.1 594±0.5 CMU Valid 85±0.5 387±0.3 503±0.7\nlog Ẑ 454.6 687.8 694.2\nground truth labels are used. We split the Caltech dataset into a training and a validation set. For the CMU faces, we first took 10% of the images as training cases for the ConvNet for approximate inference. This is needed due to the completely different backgrounds of the Caltech and CMU datasets. The remaining 90% of the CMU faces are split into a training and validation set. We first trained a GDBN with 1024 h1 and 256 h2 hidden units on the Caltech training set. We also trained\n3u is randomly initialized at ± 30 pixels, scale range from 0.5 to 1.5. 4OpenCV detection uses pretrained model from haarcascade_frontalface_default.xml, scaleFactor=1.1,\nminNeighbors=3 and minSize=30.\na ConvNet for approximate inference using the Caltech training set and 10% of the CMU training images.\nTable 2 shows the estimates of the variational lower-bounds on the average log-density (higher is better) that the GDBN models assign to the ground-truth cropped face images from the training/test sets under different scenarios. In the left column, the model is only trained on Caltech faces. Thus it gives very low probabilities to the CMU faces. Indeed, GDBNs achieve a variational lower-bound of only 85 nats per test image. In the middle column, we use our approximate inference to estimate the location of the CMU training faces and further trained the GDBN on the newly localized faces. This gives a dramatic increase of the model performance on the CMU Validation set5, achieving a lowerbound of 387 nats per test image. The right column gives the best possible results if we can train with the CMU manual localization labels. In this case, GDBNs achieve a lower-bound of 503 nats. We used Annealed Importance Sampling (AIS) to estimate the partition function for the top-layer RBM. Details on estimating the variational lower bound are in the supplementary materials.\nFig. 6(a) further shows samples drawn from the Caltech trained DBN, whereas Fig. 6(b) shows samples after training with the CMU dataset using estimated u. Observe that samples in Fig. 6(b) show a more diverse set of faces. We trained GDBNs using a greedy, layer-wise algorithm of [1]. For the top layer we use Fast Persistent Contrastive Divergence [32], which substantially improved generative performance of GDBNs (see supplementary material for more details)."
+    }, {
+      "heading" : "6.3 Inference with ambiguity",
+      "text" : "Our attentional mechanism can also be useful when multiple objects/faces are present in the scene. Indeed, the posterior p(u|x,v) is conditioned on v, which means that where to attend is a function of the canonical object v the model has in “mind” (see Fig. 2(b)). To explore this, we first synthetically generate a dataset by concatenating together two faces from the Caltech dataset. We then train approximate inference ConvNet as in Sec. 4.1 and test on the held-out subjects. Indeed, as predicted, Fig. 7 shows that depending on which canonical image is conditioned, the same exact gaze initialization leads to two very different gaze shifts. Note that this phenomenon is observed across different scales and location of the initial gaze. For example, in Fig. 7, right-bottom panel, the initialized yellow box is mostly on the female’s face to the left, but because the conditioned canonical face v is that of the right male, attention is shifted to the right."
+    }, {
+      "heading" : "7 Conclusion",
+      "text" : "In this paper we have proposed a probabilistic graphical model framework for learning generative models using attention. Experiments on face modeling have shown that ConvNet based approximate inference combined with HMC sampling is sufficient to explore the complicated posterior distribution. More importantly, we can generatively learn objects of interest from novel big images. Future work will include experimenting with faces as well as other objects in a large scene. Currently the ConvNet approximate inference is trained in a supervised manner, but reinforcement learning could also be used instead."
+    }, {
+      "heading" : "Acknowledgements",
+      "text" : "The authors gratefully acknowledge the support and generosity from Samsung, Google, and ONR grant N00014-14-1-0232.\n5We note that we still made use of labels coming from the 10% of CMU Multi-PIE training set in order to pretrain our ConvNet. \"w/o labels\" here means that no labels for the CMU Train/Valid images are given."
+    } ],
+    "references" : [ {
+      "title" : "A fast learning algorithm for deep belief nets",
+      "author" : [ "G.E. Hinton", "S. Osindero", "Y.W. Teh" ],
+      "venue" : "Neural Computation,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : "1",
+      "year" : 2006
+    }, {
+      "title" : "Deep Boltzmann machines",
+      "author" : [ "R. Salakhutdinov", "G. Hinton" ],
+      "venue" : "In AISTATS,",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 2009
+    }, {
+      "title" : "Modeling the manifolds of images of handwritten digits",
+      "author" : [ "Geoffrey E. Hinton", "Peter Dayan", "Michael Revow" ],
+      "venue" : "IEEE Transactions on Neural Networks,",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 1997
+    }, {
+      "title" : "From learning models of natural image patches to whole image restoration",
+      "author" : [ "Daniel Zoran", "Yair Weiss" ],
+      "venue" : "In ICCV. IEEE,",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : "4",
+      "year" : 2011
+    }, {
+      "title" : "Generalized denoising auto-encoders as generative models",
+      "author" : [ "Yoshua Bengio", "Li Yao", "Guillaume Alain", "Pascal Vincent" ],
+      "venue" : "In Advances in Neural Information Processing Systems",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : "5",
+      "year" : 2013
+    }, {
+      "title" : "Convolutional deep belief networks for scalable unsupervised learning of hierarchical representations",
+      "author" : [ "H. Lee", "R. Grosse", "R. Ranganath", "A.Y. Ng" ],
+      "venue" : "In ICML,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : "6",
+      "year" : 2009
+    }, {
+      "title" : "On Deep Generative Models with Applications to Recognition",
+      "author" : [ "Marc’Aurelio Ranzato", "Joshua Susskind", "Volodymyr Mnih", "Geoffrey Hinton" ],
+      "venue" : "In CVPR,",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : "7",
+      "year" : 2011
+    }, {
+      "title" : "Deep mixtures of factor analysers",
+      "author" : [ "Yichuan Tang", "Ruslan Salakhutdinov", "Geoffrey E. Hinton" ],
+      "venue" : "In ICML. icml.cc / Omnipress,",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : "8",
+      "year" : 2012
+    }, {
+      "title" : "Attention and primary visual cortex",
+      "author" : [ "M.I. Posner", "C.D. Gilbert" ],
+      "venue" : "Proc. of the National Academy of Sciences,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 1999
+    }, {
+      "title" : "A backward progression of attentional effects in the ventral",
+      "author" : [ "E.A. Buffalo", "P. Fries", "R. Landman", "H. Liang", "R. Desimone" ],
+      "venue" : "stream. PNAS,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : "10",
+      "year" : 2010
+    }, {
+      "title" : "Visual attention: Insights from brain imaging",
+      "author" : [ "N Kanwisher", "E Wojciulik" ],
+      "venue" : "Nature Reviews Neuroscience,",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 2000
+    }, {
+      "title" : "Shifter circuits: A computational strategy for dynamic aspects of visual processing",
+      "author" : [ "C.H. Anderson", "D.C. Van Essen" ],
+      "venue" : "National Academy of Sciences,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 1987
+    }, {
+      "title" : "A neurobiological model of visual attention and invariant pattern recognition based on dynamic routing of information",
+      "author" : [ "B.A. Olshausen", "C.H. Anderson", "D.C. Van Essen" ],
+      "venue" : "The Journal of neuroscience : the official journal of the Society for Neuroscience,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 1993
+    }, {
+      "title" : "How does our visual system achieve shift and size invariance",
+      "author" : [ "Laurenz Wiskott" ],
+      "venue" : null,
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 2004
+    }, {
+      "title" : "What and where: a Bayesian inference theory of attention",
+      "author" : [ "S. Chikkerur", "T. Serre", "C. Tan", "T. Poggio" ],
+      "venue" : "Vision Research,",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : "15",
+      "year" : 2010
+    }, {
+      "title" : "Modeling visual-attention via selective tuning",
+      "author" : [ "J.K. Tsotsos", "S.M. Culhane", "W.Y.K. Wai", "Y.H. Lai", "N. Davis", "F. Nuflo" ],
+      "venue" : "Artificial Intelligence,",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : "16",
+      "year" : 1995
+    }, {
+      "title" : "Learning to combine foveal glimpses with a third-order boltzmann machine",
+      "author" : [ "Hugo Larochelle", "Geoffrey E. Hinton" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : "17",
+      "year" : 2010
+    }, {
+      "title" : "A hierarchical generative model of recurrent object-based attention in the visual cortex",
+      "author" : [ "D.P. Reichert", "P. Seriès", "A.J. Storkey" ],
+      "venue" : "In ICANN (1),",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : "18",
+      "year" : 2011
+    }, {
+      "title" : "Searching for objects driven by context",
+      "author" : [ "B. Alexe", "N. Heess", "Y.W. Teh", "V. Ferrari" ],
+      "venue" : "In NIPS 2012,",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : "19",
+      "year" : 2012
+    }, {
+      "title" : "On learning where to look",
+      "author" : [ "Marc’Aurelio Ranzato" ],
+      "venue" : "arXiv, arXiv:1405.5488,",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : "20",
+      "year" : 2014
+    }, {
+      "title" : "Learning where to attend with deep architectures for image tracking",
+      "author" : [ "M. Denil", "L. Bazzani", "H. Larochelle", "N. de Freitas" ],
+      "venue" : "Neural Computation,",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : "21",
+      "year" : 2012
+    }, {
+      "title" : "Reducing the dimensionality of data with neural networks",
+      "author" : [ "G.E. Hinton", "R. Salakhutdinov" ],
+      "venue" : "Science, 313:504–507,",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : "22",
+      "year" : 2006
+    }, {
+      "title" : "Learning multiple layers of features from tiny images",
+      "author" : [ "A. Krizhevsky" ],
+      "venue" : null,
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : "23",
+      "year" : 2009
+    }, {
+      "title" : "Convolutional learning of spatiotemporal features",
+      "author" : [ "Graham W. Taylor", "Rob Fergus", "Yann LeCun", "Christoph Bregler" ],
+      "venue" : null,
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : "24",
+      "year" : 2010
+    }, {
+      "title" : "Acoustic modeling using deep belief networks",
+      "author" : [ "A. Mohamed", "G. Dahl", "G. Hinton" ],
+      "venue" : "IEEE Transactions on Audio, Speech, and Language Processing,",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : "25",
+      "year" : 2011
+    }, {
+      "title" : "Computer Vision - Algorithms and Applications",
+      "author" : [ "Richard Szeliski" ],
+      "venue" : "Texts in Computer Science. Springer,",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : "26",
+      "year" : 2011
+    }, {
+      "title" : "Hybrid Monte Carlo",
+      "author" : [ "S. Duane", "A.D. Kennedy", "B. J Pendleton", "D. Roweth" ],
+      "venue" : "Physics Letters B,",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : "27",
+      "year" : 1987
+    }, {
+      "title" : "MCMC using Hamiltonian dynamics. in Handbook of Markov Chain Monte Carlo",
+      "author" : [ "R.M. Neal" ],
+      "venue" : null,
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : "28",
+      "year" : 2010
+    }, {
+      "title" : "Lucas-kanade 20 years on: A unifying framework",
+      "author" : [ "Simon Baker", "Iain Matthews" ],
+      "venue" : "International Journal of Computer Vision,",
+      "citeRegEx" : "29",
+      "shortCiteRegEx" : "29",
+      "year" : 2002
+    }, {
+      "title" : "Using fast weights to improve persistent contrastive divergence",
+      "author" : [ "T. Tieleman", "G.E. Hinton" ],
+      "venue" : "In ICML,",
+      "citeRegEx" : "32",
+      "shortCiteRegEx" : "32",
+      "year" : 2009
+    }, {
+      "title" : "On the quantitative analysis of deep belief networks",
+      "author" : [ "R. Salakhutdinov", "I. Murray" ],
+      "venue" : "In Proceedings of the Intl. Conf. on Machine Learning,",
+      "citeRegEx" : "33",
+      "shortCiteRegEx" : "33",
+      "year" : 2008
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 0,
+      "context" : "Some of the successful generative models that are able to discover meaningful high-level latent representations include the Boltzmann Machine family of models: Restricted Boltzmann Machines, Deep Belief Nets [1], and Deep Boltzmann Machines [2].",
+      "startOffset" : 208,
+      "endOffset" : 211
+    }, {
+      "referenceID" : 1,
+      "context" : "Some of the successful generative models that are able to discover meaningful high-level latent representations include the Boltzmann Machine family of models: Restricted Boltzmann Machines, Deep Belief Nets [1], and Deep Boltzmann Machines [2].",
+      "startOffset" : 241,
+      "endOffset" : 244
+    }, {
+      "referenceID" : 2,
+      "context" : "Mixture models, such as Mixtures of Factor Analyzers [3] and Mixtures of Gaussians, have also been used for modeling natural image patches [4].",
+      "startOffset" : 53,
+      "endOffset" : 56
+    }, {
+      "referenceID" : 3,
+      "context" : "Mixture models, such as Mixtures of Factor Analyzers [3] and Mixtures of Gaussians, have also been used for modeling natural image patches [4].",
+      "startOffset" : 139,
+      "endOffset" : 142
+    }, {
+      "referenceID" : 4,
+      "context" : "More recently, denoising auto-encoders have been proposed as a way to model the transition operator that has the same invariant distribution as the data generating distribution [5].",
+      "startOffset" : 177,
+      "endOffset" : 180
+    }, {
+      "referenceID" : 5,
+      "context" : "However, the enormous amount of content in high-resolution images makes generative learning difficult [6, 7].",
+      "startOffset" : 102,
+      "endOffset" : 108
+    }, {
+      "referenceID" : 6,
+      "context" : "However, the enormous amount of content in high-resolution images makes generative learning difficult [6, 7].",
+      "startOffset" : 102,
+      "endOffset" : 108
+    }, {
+      "referenceID" : 3,
+      "context" : "Therefore, generative models have found most success in learning to model small patches of natural images and objects: Zoran and Weiss [4] learned a mixture of Gaussians model over 8×8 image patches; Salakhutdinov and Hinton [2] used 64×64 centered and uncluttered stereo images of toy objects on a clear background; Tang et al.",
+      "startOffset" : 135,
+      "endOffset" : 138
+    }, {
+      "referenceID" : 1,
+      "context" : "Therefore, generative models have found most success in learning to model small patches of natural images and objects: Zoran and Weiss [4] learned a mixture of Gaussians model over 8×8 image patches; Salakhutdinov and Hinton [2] used 64×64 centered and uncluttered stereo images of toy objects on a clear background; Tang et al.",
+      "startOffset" : 225,
+      "endOffset" : 228
+    }, {
+      "referenceID" : 7,
+      "context" : "[8] used 24×24 images of centered and cropped faces.",
+      "startOffset" : 0,
+      "endOffset" : 3
+    }, {
+      "referenceID" : 8,
+      "context" : "the presence of attention in the visual cortex [9, 10].",
+      "startOffset" : 47,
+      "endOffset" : 54
+    }, {
+      "referenceID" : 9,
+      "context" : "the presence of attention in the visual cortex [9, 10].",
+      "startOffset" : 47,
+      "endOffset" : 54
+    }, {
+      "referenceID" : 10,
+      "context" : "Recently, in visual neuroscience, attention has been shown to exist not only in extrastriate areas, but also all the way down to V1 [11].",
+      "startOffset" : 132,
+      "endOffset" : 136
+    }, {
+      "referenceID" : 11,
+      "context" : "Attention as a form of routing was originally proposed by Anderson and Van Essen [12] and then extended by Olshausen et al.",
+      "startOffset" : 81,
+      "endOffset" : 85
+    }, {
+      "referenceID" : 13,
+      "context" : "Dynamic routing has been hypothesized as providing a way for achieving shift and size invariance in the visual cortex [14, 15].",
+      "startOffset" : 118,
+      "endOffset" : 126
+    }, {
+      "referenceID" : 14,
+      "context" : "Dynamic routing has been hypothesized as providing a way for achieving shift and size invariance in the visual cortex [14, 15].",
+      "startOffset" : 118,
+      "endOffset" : 126
+    }, {
+      "referenceID" : 15,
+      "context" : "[16] proposed a model combining search and attention called the Selective Tuning model.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 16,
+      "context" : "Larochelle and Hinton [17] proposed a way of using third-order Boltzmann Machines to combine information gathered from many foveal glimpses.",
+      "startOffset" : 22,
+      "endOffset" : 26
+    }, {
+      "referenceID" : 17,
+      "context" : "[18] proposed a hierarchical model to show that certain aspects of covert object-based attention can be modeled by Deep Boltzmann Machines.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 18,
+      "context" : "Several other related models attempt to learn where to look for objects [19, 20] and for video based tracking [21].",
+      "startOffset" : 72,
+      "endOffset" : 80
+    }, {
+      "referenceID" : 19,
+      "context" : "Several other related models attempt to learn where to look for objects [19, 20] and for video based tracking [21].",
+      "startOffset" : 72,
+      "endOffset" : 80
+    }, {
+      "referenceID" : 20,
+      "context" : "Several other related models attempt to learn where to look for objects [19, 20] and for video based tracking [21].",
+      "startOffset" : 110,
+      "endOffset" : 114
+    }, {
+      "referenceID" : 12,
+      "context" : "[13], we use 2D similarity transformations to implement the scaling, rotation, and shift operation required for routing.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 21,
+      "context" : "2 Gaussian Restricted Boltzmann Machines Before we describe our model, we briefly review the Gaussian Restricted Boltzmann Machine (GRBM) [22], as it will serve as the building block for our attention-based model.",
+      "startOffset" : 138,
+      "endOffset" : 142
+    }, {
+      "referenceID" : 0,
+      "context" : "This results in a 2-layer Gaussian Deep Belief Network (GDBN) [1] that is a more powerful model of v.",
+      "startOffset" : 62,
+      "endOffset" : 65
+    }, {
+      "referenceID" : 0,
+      "context" : "Efficient inference can be performed using the greedy approach of [1] by treating each DBN layer as a separate RBM model.",
+      "startOffset" : 66,
+      "endOffset" : 69
+    }, {
+      "referenceID" : 5,
+      "context" : "GDBNs have been applied to various tasks, including image classification, video action and speech recognition [6, 23, 24, 25].",
+      "startOffset" : 110,
+      "endOffset" : 125
+    }, {
+      "referenceID" : 22,
+      "context" : "GDBNs have been applied to various tasks, including image classification, video action and speech recognition [6, 23, 24, 25].",
+      "startOffset" : 110,
+      "endOffset" : 125
+    }, {
+      "referenceID" : 23,
+      "context" : "GDBNs have been applied to various tasks, including image classification, video action and speech recognition [6, 23, 24, 25].",
+      "startOffset" : 110,
+      "endOffset" : 125
+    }, {
+      "referenceID" : 24,
+      "context" : "GDBNs have been applied to various tasks, including image classification, video action and speech recognition [6, 23, 24, 25].",
+      "startOffset" : 110,
+      "endOffset" : 125
+    }, {
+      "referenceID" : 12,
+      "context" : "[13], whereas the right panel shows a graphical diagram of our proposed generative model with an attentional mechanism.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 12,
+      "context" : "Figure 1: Left: The Shifter Circuit, a well-known neuroscience model for visual attention [13]; Right: The proposed model uses 2D similarity transformations from geometry and a Gaussian DBN to model canonical face images.",
+      "startOffset" : 90,
+      "endOffset" : 94
+    }, {
+      "referenceID" : 22,
+      "context" : "For example, if v is 24×24, then {p} ranges from [0, 0] to [23, 23].",
+      "startOffset" : 59,
+      "endOffset" : 67
+    }, {
+      "referenceID" : 22,
+      "context" : "For example, if v is 24×24, then {p} ranges from [0, 0] to [23, 23].",
+      "startOffset" : 59,
+      "endOffset" : 67
+    }, {
+      "referenceID" : 25,
+      "context" : "the transformation parameters, we can equivalently redefine u = [a, b, 4x, 4y], where a = s sin(θ) − 1 and b = s cos(θ) (see [26] for details).",
+      "startOffset" : 125,
+      "endOffset" : 129
+    }, {
+      "referenceID" : 0,
+      "context" : "The conditional distributions over h(1) and h(2) given v are given by the standard DBN inference equations [1].",
+      "startOffset" : 107,
+      "endOffset" : 110
+    }, {
+      "referenceID" : 26,
+      "context" : "5) We can explore the gaze variables using Hamiltonian Monte Carlo (HMC) algorithm [27, 28].",
+      "startOffset" : 83,
+      "endOffset" : 91
+    }, {
+      "referenceID" : 27,
+      "context" : "5) We can explore the gaze variables using Hamiltonian Monte Carlo (HMC) algorithm [27, 28].",
+      "startOffset" : 83,
+      "endOffset" : 91
+    }, {
+      "referenceID" : 28,
+      "context" : "This would be equivalent to the Lucas-Kanade framework in computer vision, developed for image alignment [29].",
+      "startOffset" : 105,
+      "endOffset" : 109
+    }, {
+      "referenceID" : 27,
+      "context" : "Additional hyperparameters that need to be specified include the step size , number of leap-frog steps, and the mass of the variables (see [28] for details).",
+      "startOffset" : 139,
+      "endOffset" : 143
+    }, {
+      "referenceID" : 0,
+      "context" : "We trained GDBNs using a greedy, layer-wise algorithm of [1].",
+      "startOffset" : 57,
+      "endOffset" : 60
+    }, {
+      "referenceID" : 29,
+      "context" : "For the top layer we use Fast Persistent Contrastive Divergence [32], which substantially improved generative performance of GDBNs (see supplementary material for more details).",
+      "startOffset" : 64,
+      "endOffset" : 68
+    } ],
+    "year" : 2014,
+    "abstractText" : "Attention has long been proposed by psychologists to be important for efficiently dealing with the massive amounts of sensory stimulus in the neocortex. Inspired by the attention models in visual neuroscience and the need for object-centered data for generative models, we propose a deep-learning based generative framework using attention. The attentional mechanism propagates signals from the region of interest in a scene to an aligned canonical representation for generative modeling. By ignoring scene background clutter, the generative model can concentrate its resources on the object of interest. A convolutional neural net is employed to provide good initializations during posterior inference which uses Hamiltonian Monte Carlo. Upon learning images of faces, our model can robustly attend to the face region of novel test subjects. More importantly, our model can learn generative models of new faces from a novel dataset of large images where the face locations are not known.",
+    "creator" : null
+  }
+}

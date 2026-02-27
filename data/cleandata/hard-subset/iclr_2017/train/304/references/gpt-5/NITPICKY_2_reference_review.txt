@@ -1,0 +1,42 @@
+Summary and contributions
+- The paper argues that explicit recursion is key to generalization in neural program induction. It instantiates this idea in the Neural Programmer-Interpreter (NPI) framework by modifying training traces to include recursive calls and resetting the LSTM state at subroutine boundaries. 
+- It presents four tasks (grade-school addition, bubble sort, topological sort, quicksort). For each, it crafts recursive traces and domain-specific encoders. Empirically, models trained on very small trace sets reportedly generalize to much larger inputs, often with 100% accuracy.
+- It proposes a “verification” procedure: construct a finite set of base cases and reduction rules (V) for each task from a reference program P, generate a verification input set SV that induces all step-input sequences in V, and check that the learned model’s step outputs match P on SV. The authors claim this yields “provably perfect generalization.”
+
+Decision: Reject
+Key reasons
+1) The central “provably perfect generalization” claim is overstated and hinges on task-specific, hand-engineered verification sets constructed from a reference implementation, not on a principled proof about the trained neural system. This is closer to exhaustive unit testing of a finite abstracted state space than a general proof of generalization.
+2) The technical novelty is limited. NPI already supports recursion via subprogram calls with stack frames; the paper primarily changes supervision (recursive traces) and heavily task-specific encoders. There is neither architectural innovation nor a method that learns recursion with weaker supervision. The strong supervision and domain encoders materially simplify the tasks.
+
+Supporting arguments
+- Scope of the “proof”: The theorem in §3.3 is defined over “sequence of step inputs (within one function call).” The verification only ensures equivalence of one-step decisions for finitely many encoder-observation states induced by P, not that the network implements P for all inputs in the original task domain. It assumes (i) V is complete and exactly captures all reachable observations, (ii) the learned policy is closed over V, (iii) numeric thresholds and LSTM dynamics do not produce spurious states. These strong assumptions are not validated empirically (e.g., no adversarial test generation, no robustness to decoding thresholds α, no analysis of numerical tolerances).
+- Construction of V: The procedure relies on the reference program P and detailed, hand-designed encoders to collapse the state space to a small finite set (e.g., exposing a boolean comparator for the bubble-sort “verified” variant). This is not generic; small changes to encoders (as the authors acknowledge for quicksort) can make V intractable. Several tasks are “made easy” by encoder choices (e.g., comparator exposure; topological sort encodes colors, stack emptiness, and child pointers rather than raw graph features), undermining the generality of the claim.
+- Supervision and novelty: The paper provides (i) full execution trace supervision, (ii) recursive decomposition in the traces, (iii) domain encoders that expose control-flow predicates. Under these conditions, it is unsurprising that the model replicates P and generalizes. The paper does not demonstrate learning of recursion from I/O or partial traces, and there is no ablation disentangling the contributions of recursive traces versus encoder design versus LSTM reset behavior. The claim that recursion is “necessary” for generalization is not supported; at best, recursion plus strong supervision and encoder design are sufficient on these toy tasks.
+- Empirical methodology: 
+  - Training sets are tiny and possibly cherry-picked; results should report multiple random seeds and variance. 
+  - For non-recursive baselines, it is unclear if training data and encoders are matched; partial-recursion ablations are minimal. 
+  - Evaluation uses only 30 random tests per length/size—insufficient for claims of 100% accuracy, especially given the small alphabets and structured inputs.
+  - No efficiency results (time/space vs input size, call depth limits, stack overflow handling). Tail recursion optimization is mentioned but not demonstrated.
+  - No code link; NPI reimplementation details are sparse (hidden sizes, optimizer settings, curriculum schedule, decoding strategies).
+- Clarity and rigor issues:
+  - Algorithm 1 is not fully specified (stack push/pop and return semantics are implicit; recursive call line formatting is off). The resetting of h per subcall is asserted but the exact mechanism and its correctness under recursion are not formalized.
+  - The “big-step semantics” terminology is used loosely while reasoning occurs at single-step granularity.
+  - The verification “value iteration” analogy is informal and not justified.
+  - The quicksort design mixes call-stack recursion with separate argument stacks, weakening the claim that architectural recursion per se is the driver.
+- Prior art positioning: The paper states this is the “first” to provide provable guarantees for neural programs. Even if narrowly interpreted (neural program induction with external memory), this claim should be carefully qualified, and related work on formal verification of neural nets/controllers and program synthesis with recursion is largely missing.
+
+Additional feedback (to improve the paper; not all are decision-critical)
+- Provide complete, formal algorithms (with explicit call stack handling) and a precise specification of the verification procedure with proofs that V is complete for each task/encoder pair. Report |V| per task and how SV was constructed.
+- Add ablations: (i) non-recursive traces with the same encoders; (ii) recursive traces with less informative encoders; (iii) partial traces; (iv) no LSTM reset; (v) varying α. Report sensitivity and failure modes.
+- Report multiple seeds, success rates, and learning curves. Include time/memory overheads and stack-depth distributions on long inputs.
+- Clarify constraints (leading zeros, equal lengths) and show verified coverage without these restrictions.
+- Provide code and exact hyperparameters. Clarify teacher forcing vs free-running at test time.
+- Tighten claims: replace “provably perfect generalization” with “verified equivalence to P over a finite abstraction V induced by task-specific encoders,” unless you can formally justify broader guarantees.
+
+Questions for the authors
+1) How do you guarantee that V is complete for each task? Can you provide a formal proof or an algorithm with termination and correctness guarantees, beyond empirical coverage? What are the exact sizes of V and SV per task?
+2) How sensitive are the results to the encoder design? E.g., can you verify bubble sort without exposing a comparator bit? Can you verify topological sort when exposing raw node IDs rather than colors/stack flags?
+3) Do the non-recursive baselines use identical encoders and training data? How many seeds and what variance do you observe?
+4) What is the maximum observed recursion depth in quicksort and topological sort for your largest tests, and how do you prevent stack overflows? Did you implement tail recursion optimization, and if so, how?
+5) Can the method learn recursion from I/O pairs or partial traces? If not, how do you envision reducing supervision while retaining verifiability?
+6) How robust are the “proofs” to numerical perturbations (e.g., decoding threshold α, floating-point noise)? Do slight changes produce unseen observation states outside V?

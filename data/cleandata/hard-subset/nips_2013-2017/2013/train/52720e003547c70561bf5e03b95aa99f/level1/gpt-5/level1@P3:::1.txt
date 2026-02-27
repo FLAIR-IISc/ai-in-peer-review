@@ -1,0 +1,55 @@
+Summary and relation to prior work:
+The paper addresses scalable estimation of sparse precision matrices via the CLIME estimator (Cai, Liu, Luo 2011), proposing an inexact (linearized) ADMM algorithm that operates on column-blocks rather than single columns. The method exploits two structures: (i) p ≫ n so C = AA^T is low-rank, enabling CX = A(A^T X) with O(npk) cost; and (ii) potential sparsity in intermediate iterates and in a perturbed/truncated covariance. The algorithm reduces per-iteration work to elementwise operations and matrix multiplications that map well to BLAS3, and the authors design shared-memory and distributed-memory implementations using block-cyclic data distribution (as in ScaLAPACK) to improve load balance and cache utilization. They establish O(1/T) convergence rates for objective suboptimality (in an ergodic sense) and primal/dual residuals under a stepsize condition η ≥ ρ λ_max(C)^2. Experiments compare to TIGER, CLIME (flare), and DC-QUIC, and demonstrate near-linear scaling to hundreds of cores, including a run with p = 10^6.
+
+This work connects to prior optimization for sparse inverse covariance estimation: graphical lasso (Friedman et al.), QUIC/DC-QUIC (Hsieh et al.), interior-point and ADMM solvers for CLIME (Cai et al., flare), and distributed ADMM frameworks (Boyd et al.; Parikh & Boyd GPBS). The block-cyclic distribution and BLAS3 blocking strategies are standard in HPC (Goto & Van de Geijn; ScaLAPACK). The linearized ADMM and its rates are in line with He & Yuan and related proximal/linearized ADMM literature.
+
+Quality:
+- Algorithmic soundness: The linearized ADMM updates are standard; the condition η ≥ ρ λ_max(C)^2 ensures convexity of the proximalized subproblem and the nonnegativity of the metric in Theorem 2. The O(1/T) rate for ergodic averages/residuals is as expected. The inexactness (soft-thresholding on a linearization) is justified and the matrix-multiplication-heavy structure is well motivated.
+- Theory: The rates presented are consistent with existing linearized ADMM analyses, though the novelty is incremental. Theorem 1 bounds an ergodic objective gap relative to any feasible X; Theorem 2 bounds primal feasibility and successive-iterate differences. The “perturb C to induce sparsity” rationale is plausible (elementwise deviation control) but the statistical consequences for the CLIME estimator—i.e., how λ must scale and whether minimax rates are preserved—are not fully developed beyond a high-level deviation inequality. A more explicit translation of the perturbation into CLIME error bounds would strengthen the statistical claims.
+- Systems/implementation: The distributed design and block-cyclic partitioning are appropriate; the empirical scaling curves are convincing, including the observation that larger column-blocks benefit distributed-memory more than shared-memory due to reduced cache contention.
+
+Clarity:
+The paper is generally clear and well organized, with a concrete algorithm box and cost accounting. A few points merit clarification:
+- Symmetry/PD: CLIME solves columns independently; typical practice symmetrizes post hoc by min-abs rule or averaging, and optionally projects to PD. This is not discussed; the paper should state the symmetrization/PD enforcement used in experiments.
+- Parameter choices: Guidance for ρ and η (e.g., estimating λ_max(C) via power iteration, sensitivity) would aid reproducibility.
+- Memory/IO: For p = 10^6, storing intermediate pk-sized blocks across processes and final outputs is nontrivial; please quantify total memory per node and the representation/output of Ω̂ (sparse format, thresholds).
+- Theorem 3: Assumptions on independence of Δ and the sample, constants, and how λ is adjusted should be stated precisely.
+
+Originality:
+The main novelty is engineering: a column-block linearized ADMM for CLIME coupled with HPC-friendly blocking and a distributed framework. The convergence rate per se is not new. The low-rank multiply trick is standard when n ≪ p, and block-cyclic distribution is classic. The idea of covariance truncation justified via elementwise deviation is known in related work (e.g., covariance thresholding for graphical lasso), though the paper’s framing for CLIME is useful.
+
+Significance:
+Scaling CLIME to p in the millions is impactful for practitioners needing columnwise-sparse precision estimates and for benchmarking distributed convex optimization on constrained problems. The results indicate better scalability than popular alternatives (TIGER, DC-QUIC) in the ultrahigh-dimensional, low-sample regime. However, the approach’s dependence on n ≪ p is strong; when n is moderately large, the O(p^2 k) cost will dominate. The paper would benefit from broader experiments across n and an assessment of statistical accuracy vs. computational gains when using truncated C.
+
+Strengths:
+- Clear mapping of CLIME to a linearized ADMM with closed-form updates and BLAS3-heavy kernels.
+- Solid distributed design with block-cyclic data layout and careful discussion of load balance and cache effects.
+- Empirical scaling to 400 cores and p = 10^6; shared vs distributed insights are valuable.
+- Practical exploitation of low-rank structure; column-blocking gives tangible speedups.
+
+Weaknesses and concerns:
+- Limited statistical validation of the covariance perturbation heuristic for CLIME; no end-to-end error bounds or guidance on λ after truncation.
+- No discussion of symmetrization/PD enforcement; critical for usability of Ω̂.
+- Comparisons focus on runtime and precision/recall; more comprehensive accuracy metrics (e.g., norm errors, support recovery at matched FDR) and wall-clock vs. problem accuracy tradeoffs would strengthen the case.
+- Scalability relies on n being small; performance (and memory) when n grows is unclear.
+- Communication complexity analysis is largely qualitative; more detailed breakdowns (bytes moved, overlap with compute) would improve the systems contribution.
+- Parameter selection (ρ, η, k, block sizes) seems tuned; auto-tuning or heuristics would aid adoption.
+
+Questions for the authors:
+- How is Ω̂ symmetrized/regularized to ensure PD? What is the impact on runtime and accuracy?
+- How do you set ρ and η in practice? Is the algorithm sensitive to these choices?
+- What is the sparsity of the final Ω̂ at p = 10^6, and how is it stored/written?
+- How does performance degrade as n increases (e.g., n = 5k–20k)?
+- Can you provide statistical error plots for the truncated-C approach vs. untruncated?
+
+Arguments for acceptance:
+- Addresses an important scalability gap with a practical, well-engineered distributed solution.
+- Demonstrates strong empirical scaling and clear systems insights.
+- Methodology is sound and likely reusable for other constrained estimators.
+
+Arguments against acceptance:
+- Theoretical contributions are incremental; ADMM rates are standard and covariance perturbation guarantees are underdeveloped.
+- Some essential practical details (symmetrization/PD, parameter selection, output handling) are missing.
+- Evaluation of statistical accuracy is limited; reliance on p ≫ n narrows applicability.
+
+Overall, a solid systems-and-algorithms paper with clear practical value in the ultrahigh-dimensional, low-sample regime; strengthening the statistical treatment of the perturbation idea and clarifying PD handling would substantially improve it.

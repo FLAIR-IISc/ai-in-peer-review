@@ -1,0 +1,481 @@
+{
+  "name" : "892c91e0a653ba19df81a90f89d99bcd.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Adaptive stimulus selection for optimizing neural population responses",
+    "authors" : [ "Benjamin R. Cowley", "Ryan C. Williamson", "Katerina Acar", "Matthew A. Smith", "Byron M. Yu" ],
+    "emails" : [ "bcowley@cs.cmu.edu,", "smithma}@pitt.edu,", "byronyu@cmu.edu" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "A key choice in a neurophysiological experiment is to determine which stimuli to present. Often, it is unknown a priori which stimuli will drive a to-be-recorded neuron, especially in brain areas far from the sensory periphery. Most studies either choose from a class of parameterized stimuli (e.g., sinusoidal gratings or pure tones) or present many randomized stimuli (e.g., white noise) to find the stimulus that maximizes the response of a neuron (i.e., the preferred stimulus) [1, 2]. However, the first approach limits the range of stimuli explored, and the second approach may not converge in a finite amount of recording time [3]. To efficiently find a preferred stimulus, studies have employed adaptive stimulus selection (also known as “adaptive sampling” or “optimal experimental design”) to determine the next stimulus to show given the responses to previous stimuli in a closed-loop experiment [4, 5]. Many adaptive methods have been developed to find the smallest number of stimuli needed to fit parameters of a model that predicts the recorded neuron’s activity from the stimulus [6, 7, 8, 9, 10, 11]. When no encoding model exists for a neuron (e.g., neurons in higher visual cortical areas), adaptive methods rely on maximizing the neuron’s firing rate via genetic algorithms [12, 13, 14] or gradient ascent [15, 16] to home in on the neuron’s preferred stimulus. To our knowledge, all current adaptive stimulus selection methods focus solely on optimizing the firing rate of a single neuron.\n31st Conference on Neural Information Processing Systems (NIPS 2017), Long Beach, CA, USA.\nV4 neuron 1\nsp ik\nes /s\nec\n0\n100\n0 1500sorted image indices\nV4 neuron 2\n0\n100\n0 1500sorted image indices\nsp ik\nes /s\nec V4 n\neu ro\nn 2\n(s pi\nke s/\nse c)\n0\n100\n0 100V4 neuron 1 (spikes/sec) A B Figure 1: Responses of two macaque V4 neurons. A. Different neurons prefer different stimuli. Displayed images evoked 5 of top 25 largest responses. B. Images placed according to their responses. Gray dots represent responses to other images. Same neurons as in A.\nDevelopments in neural recording technologies now enable the simultaneous recordings of tens to hundreds of neurons [17], each of which has its own preferred stimulus. For example, consider two neurons recorded in V4, a mid-level visual cortical area (Fig. 1A). Whereas neuron 1 responds most strongly to teddy bears, neuron 2 responds most strongly to arranged circular fruit. Both neurons moderately respond to images of animals (Fig. 1B). Given that different neurons have different preferred stimuli, how do we select which stimuli to present when simultaneously recording from multiple neurons? This necessitates defining objective functions for adaptive stimulus selection that are based on a population of neurons rather than any single neuron. Importantly, these objective functions can go beyond simply maximizing the firing rates of neurons and instead can be optimized for other attributes of the population response, such as maximizing the scatter of the responses in a multi-neuronal response space (Fig. 1B).\nWe propose Adept, an adaptive stimulus selection method that “adeptly” chooses the next stimulus to show based on a population objective function. Because the neural responses to candidate stimuli are unknown, Adept utilizes feature embeddings of the stimuli to predict to-be-recorded responses. In this work, we use the feature embeddings of a deep convolutional neural network (CNN) for prediction. We first confirmed with simulations that Adept, using a population objective function, elicited larger mean responses and a larger diversity of responses than optimizing the response of each neuron separately. Then, we ran Adept on V4 population activity recorded during a closed-loop electrophysiological experiment. Images chosen by Adept elicited higher mean firing rates and more diverse population responses compared to randomly-chosen images. This demonstrates that Adept is effective at finding stimuli to drive a population of neurons in brain areas far from the sensory periphery."
+    }, {
+      "heading" : "2 Population objective functions",
+      "text" : "Depending on the desired outcomes of an experiment, one may favor one objective function over another. Here we discuss different objection functions for adaptive stimulus selection and the resulting responses r ∈ Rp, where the ith element ri is the response of the ith neuron (i = 1, . . . , p) and p is the number of neurons recorded simultaneously. To illustrate the effects of different objective functions, we ran an adaptive stimulus selection method on the activity of two simulated neurons (see details in Section 5.1). We first consider a single-neuron objective function employed by many adaptive methods [12, 13, 14]. Using this objective function f(r) = ri, which maximizes the response for the ith neuron of the population, the adaptive method for i = 1 chose stimuli that maximized neuron 1’s response (Fig. 2A, red dots). However, images that produced large responses for neuron 2 were not chosen (Fig. 2A, top left gray dots).\nA natural population-level extension to this objective function is to maximize the responses of all neurons by defining the objective function to be f(r) = ‖r‖2. This objective function led to choosing stimuli that maximized responses for neurons 1 and 2 individually, as well as large responses for both neurons together (Fig. 2B). Another possible objective function is to maximize the scatter of the responses. In particular, we would like to choose the next stimulus such that the response vector r is far away from the previously-seen response vectors r1, . . . , rM after M chosen stimuli. One way to achieve this is to maximize the average Euclidean distance between r and r1, . . . , rM , which leads\nto the objective function f(r, r1, . . . , rM ) = 1M ∑M\nj=1 ‖r − rj‖2. This objective function led to a large scatter in responses for neurons 1 and 2 (Fig. 2C, red dots near and far from origin). This is because choosing stimuli that yield small and large responses produces the largest distances between responses.\nFinally, we considered an objective function that favored large responses that are far away from one another. To achieve this, we summed the objectives in Fig. 2B and 2C. The objective function f(r, r1, . . . , rM ) = ‖r‖2+ 1M ∑M j=1 ‖r− rj‖2 was able to uncover large responses for both neurons (Fig. 2D, red dots far from origin). It also led to a larger scatter than maximizing the norm of r alone (e.g., compare red dots in bottom right of Fig. 2B and Fig. 2D). For these reasons, we use this objection function in the remainder of this work. However, the Adept framework is general and can be used with many different objective functions, including all presented in this section."
+    }, {
+      "heading" : "3 Using feature embeddings to predict norms and distances",
+      "text" : "We now formulate the optimization problem using the last objective function in Section 2. Consider a pool of N candidate stimuli s1, . . . , sN . After showing (t− 1) stimuli, we are given previouslyrecorded response vectors rn1 , . . . , rnt−1 ∈ Rp, where n1, . . . , nt−1 ∈ {1, . . . , N}. In other words, rnj is the vector of responses to the stimulus snj . At the tth iteration of adaptive stimulus selection, we choose the index nt of the next stimulus to show by the following:\nnt = argmax s∈{1,...,N}\\{n1,...,nt−1}\n‖rs‖2 + 1 t− 1 t−1∑ j=1 ‖rs − rnj‖2 (1)\nwhere rs is the unseen population response vector to stimulus ss.\nIf the rs were known, we could directly optimize Eqn. 1. However, in an online setting, we do not have access to the rs. Instead, we can directly predict the norm and average distance terms in Eqn. 1 by relating distances in neural response space to distances in a feature embedding space. The key idea is that if two stimuli have similar feature embeddings, then the corresponding neural responses will have similar norms and average distances. Concretely, consider feature embedding vectors x1, . . . ,xN ∈ Rq corresponding to candidate stimuli s1, . . . , sN . For example, we can use the activity of q neurons from a CNN as a feature embedding vector for natural images [18]. To predict the norm of unseen response vector rs ∈ Rp, we use kernel regression with the previously-recorded response vectors rn1 , . . . , rnt−1 as training data [19]. To predict the distance between rs and a previously-recorded response vector rnj , we extend kernel regression to account for the paired nature of distances. Thus, the norm and average distance in Eqn. 1 for the unseen response vector rs to the sth candidate stimulus are predicted by the following:\n‖rs‖2 ∧ = ∑ k K(xs,xnk)∑ `K(xs,xn`) ‖rnk‖2, ‖rs − rnj‖2 ∧ = ∑ k K(xs,xnk)∑ `K(xs,xn`)\n‖rnk − rnj‖2 (2)\nwhere k, ` ∈ {1, . . . , t− 1}. Here we use the radial basis function kernel K(xj ,xk) = exp(−‖xj − xk‖22/h2) with kernel bandwidth h, although other kernels can be used. We tested the performance of this approach versus three other possible prediction approaches. The first two approaches use linear ridge regression and kernel regression, respectively, to predict rs. Their\nprediction r̂s is then used to evaluate the objective in place of rs. The third approach is a linear ridge regression version of Eqn. 2 to directly predict ‖rs‖2 and ‖rs − rnj‖2. To compare the performance of these approaches, we developed a testbed in which we sampled two distinct populations of neurons from the same CNN, and asked how well one population can predict the responses of the other population using the different approaches described above. Formally, we let x1, . . . ,xN be feature embedding vectors of q = 500 CNN neurons, and response vectors rn1 , . . . , rn800 be the responses of p = 200 different CNN neurons to 800 natural images. CNN neurons were from the same GoogLeNet CNN [18] (see CNN details in Results). To compute performance, we took the Pearson’s correlation ρ between the predicted and actual objective values on a held out set of responses not used for training. We also tracked the computation time τ (computed on an Intel Xeon 2.3GHz CPU with 36GB RAM) because these computations need to occur between stimulus presentations in an electrophysiological experiment. The approach in Eqn. 2 performed the best (ρ = 0.64) and was the fastest (τ = 0.2 s) compared to the other prediction approaches (ρ = 0.39, 0.41, 0.23 and τ = 12.9 s, 1.5 s, 48.4 s, for the three other approaches, respectively). The remarkably faster speed of Eqn. 2 over other approaches comes from the evaluation of the objective function (fast matrix operations), the fact that no training of linear regression weight vectors is needed, and the fact that distances are directly predicted (unlike the approaches that first predict r̂s and then must re-compute distances between r̂s and rn1 , . . . , rnt−1 for each candidate stimulus s). Due to its performance and fast computation time, we use the prediction approach in Eqn. 2 for the remainder of this work."
+    }, {
+      "heading" : "4 Adept algorithm",
+      "text" : "We now combine the optimization problem in Eqn. 1 and prediction approach in Eqn. 2 to formulate the Adept algorithm. We first discuss the adaptive stimulus selection paradigm (Fig. 3, left) and then the Adept algorithm (Fig. 3, right).\nFor the adaptive stimulus selection paradigm (Fig. 3, left), the experimenter first selects a candidate stimulus pool s1, . . . , sN from which Adept chooses, where N is large. For a vision experiment, the candidate stimulus pool could comprise natural images, textures, or sinusoidal gratings. For an auditory experiment, the stimulus pool could comprise natural sounds or pure tones. Next, feature embedding vectors x1, . . . ,xN ∈ Rq are computed for each candidate stimulus, and the pre-computed N × N kernel matrix K(xj ,xk) (i.e., similarity matrix) is input into Adept. For visual neurons, the feature embeddings could come from a bank of Gabor-like filters with different orientations and spatial frequencies [20], or from a more expressive model, such as CNN neurons in a middle layer of a pre-trained CNN. Because Adept only takes as input the kernel matrix K(xj ,xk) and not the feature embeddings x1, . . . ,xN , one could alternatively use a similarity matrix computed from psychophysical data to define the similarity between stimuli if no model exists. The previouslyrecorded response vectors rn1 , . . . , rnt−1 are also input into Adept, which then outputs the next chosen stimulus snt to show. While the observer views snt , the response vector rnt is recorded and appended to the previously-recorded response vectors. This procedure is iteratively repeated until the end of the recording session. To show as many stimuli as possible, Adept does not choose the same stimulus more than once.\nFor the Adept algorithm (Fig. 3, right), we initialize by randomly choosing a small number of stimuli (e.g., Ninit = 5) from the large pool of N candidate stimuli and presenting them to the observer. Using the responses to these stimuli R(:, 1:Ninit), Adept then adaptively chooses a new stimulus by finding the candidate stimulus that yields the largest objective (in this case, using the objective defined by Eqns. 1 and 2). This search is carried out by evaluating the objective for every candidate stimulus. There are three primary reasons why Adept is computationally fast enough to consider all candidate stimuli. First, the kernel matrix KX is pre-computed, which is then easily indexed. Second, the prediction of the norm and average distance is computed with fast matrix operations. Third, Adept updates the distance matrix DR, which contains the pairwise distances between recorded response vectors, instead of re-computing DR at each iteration."
+    }, {
+      "heading" : "5 Results",
+      "text" : "We tested Adept in two settings. First, we tested Adept on a surrogate for the brain—a pre-trained CNN. This allowed us to perform comparisons between methods with a noiseless system. Second, in a closed-loop electrophysiological experiment, we performed Adept on population activity recorded in macaque V4. In both settings, we used the same candidate image pool of N ≈ 10,000 natural\nimages from the McGill natural image dataset [21] and Google image search [22]. For the predictive feature embeddings in both settings, we used responses from a pre-trained CNN different from the CNN used as a surrogate for the brain in the first setting. The motivation to use CNNs was inspired by the recent successes of CNNs to predict neural activity in V4 [23]."
+    }, {
+      "heading" : "5.1 Testing Adept on CNN neurons",
+      "text" : "The testbed for Adept involved two different CNNs. One CNN is the surrogate for the brain. For this CNN, we took responses of p = 200 neurons in a middle layer of the pre-trained ResNet CNN [24] (layer 25 of 50, named ‘res3dx’). A second CNN is used for feature embeddings to predict responses of the first CNN. For this CNN, we took responses of q = 750 neurons in a middle layer of the pre-trained GoogLeNet CNN [18] (layer 5 of 10, named ‘icp4_out’). Both CNNs were trained for image classification but had substantially different architectures. Pre-trained CNNs were downloaded from MatConvNet [25], with the PVT version of GoogLeNet [26]. We ran Adept for 2,000 out of the 10,000 candidate images (with Ninit = 5 and kernel bandwidth h = 200—similar results were obtained for different h), and compared the CNN responses to those of 2,000 randomly-chosen images. We asked two questions pertaining to the two terms in the objective function in Eqn. 1. First, are responses larger for Adept than for randomly-chosen images? Second, to what extent does Adept produce larger scatter of responses than if we had chosen images at random? A larger scatter implies a greater diversity in evoked population responses (Fig. 1B).\nTo address the first question, we computed the mean response across all 2,000 images for each CNN neuron. The mean responses using Adept were on average 15.5% larger than the mean responses to randomly chosen images (Fig. 4A, difference in means was significantly greater than zero, p < 10−4). For the second question, we assessed the amount of response scatter by computing the amount of variance captured by each dimension. We applied PCA separately to the responses to images chosen by Adept and those to images selected randomly. For each dimension, we computed the ratio between the Adept eigenvalue divided by the randomly-chosen-image eigenvalue. In this way, we compared the dimensions of greatest variance, followed by the dimensions of the second-most variance, and so on. Ratios above 1 indicate that Adept explored a dimension more than the corresponding ordered dimension of random selection. We found that Adept produced larger response scatter compared to randomly-chosen images for many dimensions (Fig. 4B). Ratios for dimensions of lesser variance (e.g., dimensions 10 to 75) are nearly as meaningful as those of the dimensions of greatest variance\n(i.e., dimensions 1 to 10), as the top 10 dimensions explained only 16.8% of the total variance (Fig. 4B, inset).\nNext, we asked to what extent does optimizing a population objective function perform better than optimizing a single-neuron objective function. For the single-neuron case, we implemented three different methods. First, we ran Adept to optimize the response of a single CNN neuron with the largest mean response (‘Adept-1’). Second, we applied Adept in a sequential manner to optimize the response of 50 randomly-chosen CNN neurons individually. After optimizing a CNN neuron for 40 images, optimization switched to the next CNN neuron (‘Adept-50’). Third, we sequentially optimized 50 randomly-chosen CNN neurons individually using a genetic algorithm (‘genetic-50’), similar to the ones proposed in previous studies [12, 13, 14]. We found that Adept produced higher mean responses than the three single-neuron methods (Fig. 4C, blue points in left panel), likely because Adept chose images that evoked large responses across neurons together. All methods produced higher mean responses than randomly choosing images (Fig. 4C, black point above blue points in left panel). Adept also produced higher mean eigenvalue ratios across the top 75 PCA dimensions than the three single-neuron methods (Fig. 4C, blue points in right panel). This indicates that Adept, using a population objective, is better able to optimize population responses than using a single-neuron objective to optimize the response of each neuron in the population.\nWe then modified the Adept objective function to include only the norm term (‘Adept-norm’, Fig. 2B) and only the average distance term (‘Adept-avgdist’, Fig. 2C). Both of these population methods performed better than single-neuron methods (Fig. 4C, green points below blue points). While their performance was comparable to Adept using the full objective function, upon closer inspection, we observed differences in performance that matched our intuition about the objective functions. The mean response ratio for Adept using the full objection function and Adept-norm was close to 1 (Fig. 4C, left panel, Adept-norm on red-dashed line, p = 0.65), but the eigenvalue ratio was greater than 1 (Fig. 4C, right panel, Adept-norm above red-dashed line, p < 0.005). Thus, Adept-norm maximizes mean responses at the expense of less scatter. On the other hand, Adept-avgdist produced a lower mean response than that of Adept using the full objective function (Fig. 4C, left panel, Adept-avgdist above red-dashed line, p < 10−4), but an eigenvalue ratio of 1 (Fig. 4C, right panel, Adept-avgdist on red-dashed line, p = 0.62). Thus, Adept-avgdist increases the response scatter at the expense of a lower mean response.\nThe results in this section were based on middle layer neurons in the GoogLeNet CNN predicting middle layer neurons in the ResNet CNN. However, it is possible that CNN neurons in other layers may be better predictors than those in a middle layer. To test for this, we asked which layers of the GoogLeNet CNN were most predictive of the objective values of the middle layer of the ResNet CNN. For each layer of increasing depth, we computed the correlation between the predicted objective (using 750 CNN neurons from that layer) and the actual objective of the ResNet responses (200 CNN neurons) (Fig. 4D). We found that all layers were predictive (ρ ≈ 0.6), although there was variation across layers. Middle layers were slightly more predictive than deeper layers, likely because\ndeeper layers of GoogLeNet have a different embedding of natural images than the middle layer of the ResNet CNN."
+    }, {
+      "heading" : "5.2 Testing Adept on V4 population recordings",
+      "text" : "Next, we tested Adept in a closed-loop neurophysiological experiment. We implanted a 96-electrode array in macaque V4, whose neurons respond differently to a wide range of image features, including orientation, spatial frequency, color, shape, texture, and curvature, among others [27]. Currently, no existing parametric encoding model fully captures the stimulus-response relationship of V4 neurons. The current state-of-the-art model for predicting the activity of V4 neurons uses the output of middle layer neurons in a CNN previously trained without any information about the responses of V4 neurons [23]. Thus, we used a pre-trained CNN (GoogLeNet) to obtain the predictive feature embeddings.\nThe experimental task flow proceeded as follows. On each trial, a monkey fixated on a central dot while an image flashed four times in the aggregate receptive fields of the recorded V4 neurons. After the fourth flash, the monkey made a saccade to a target dot (whose location was unrelated to the shown image), for which he received a juice reward. During this task, we recorded threshold crossings on each electrode (referred to as “spikes”), where the threshold was defined as a multiple of the RMS voltage set independently for each channel. This yielded 87 to 96 neural units in each session. The spike counts for each neural unit were averaged across the four 100 ms flashes to obtain mean responses. The mean response vector for the p neural units was then appended to the previously-recorded responses and input into Adept. Adept then output an image to show on the next trial. For the predictive feature embeddings, we used q = 500 CNN neurons in the fifth layer of GoogLeNet CNN (kernel bandwidth h = 200). In each recording session, the monkey typically performed 2,000 trials (i.e., 2,000 of the N =10,000 natural images would be sampled). Each Adept run started with Ninit = 5 randomly-chosen images.\nWe first recorded a session in which we used Adept during one block of trials and randomly chose images in another block of trials. To qualitatively compare Adept and randomly selecting images, we first applied PCA to the response vectors of both blocks, and plotted the top two PCs (Fig. 5A, left panel). Adept uncovers more responses that are far away from the origin (Fig. 5A, left panel, red dots farther from black * than black dots). For visual clarity, we also computed kernel density estimates for the Adept responses (pAdept) and responses to randomly-chosen images (prandom), and plotted the difference pAdept − prandom (Fig. 5A, right panel). Responses for Adept were denser than for randomly-chosen images further from the origin, whereas the opposite was true closer to the origin (Fig. 5A, right panel, red region further from origin than black region). These plots suggest that Adept uncovers large responses that are far from one another. Quantitatively, we verified that Adept chose images with larger objective values in Eqn. 1 than randomly-chosen images (Fig. 5B). This result is not trivial because it relies on the ability of the CNN to predict V4 population responses. If the CNN predicted V4 responses poorly, the objective evaluated on the V4 responses to images chosen by Adept could be lower than that evaluated on random images.\nWe then compared Adept and random stimulus selection across 7 recording sessions, including the above session (450 trials per block, with three sessions with the Adept block before the random selection block, three sessions with the opposite ordering, and one session with interleaved trials). We found that the images chosen by Adept produced on average 19.5% higher mean responses than randomly-chosen images (Fig. 5C, difference in mean responses were significantly greater than zero, p < 10−4). We also found that images chosen by Adept produced greater response scatter than for randomly-chosen images, as the mean ratios of eigenvalues were greater than 1 (Fig. 5D, dimensions 1 to 5). Yet, there were dimensions for which the mean ratios of eigenvalues were less than 1 (Fig. 5D, dimensions 9 and 10). These dimensions explained little overall variance (< 5% of the total response variance).\nFinally, we asked to what extent do the different CNN layers predict the objective of V4 responses, as in Fig. 4D. We found that, using 500 CNN neurons for each layer, all layers had some predictive ability (Fig. 5E, ρ > 0). Deeper layers (5 to 10) tended to have better prediction than superficial layers (1 to 4). To establish a noise level for the V4 responses, we also predicted the norm and average distance for one session (day 1) with the V4 responses of another session (day 2), where the same images were shown each day. In other words, we used the V4 responses of day 2 as feature embeddings to predict V4 responses of day 1. The correlation of prediction was much higher\n(ρ ≈ 0.5) than that of any CNN layer (ρ < 0.25). This discrepancy indicates that finding feature embeddings that are more predictive of V4 responses is a way to improve Adept’s performance."
+    }, {
+      "heading" : "5.3 Testing Adept for robustness to neural noise and overfitting",
+      "text" : "A potential concern for an adaptive method is that stimulus responses are susceptible to neural noise. Specifically, spike counts are subject to Poisson-like variability, which might not be entirely averaged away based on a finite number of stimulus repeats. Moreover, adaptation to stimuli and changes in attention or motivation may cause a gain factor to scale responses dynamically across a session [9]. To examine how Adept performs in the presence of noise, we first recorded a “ground-truth”, spike-sorted dataset in which 2,000 natural images were presented (100 ms flashes, 5 to 30 repeats per image randomly presented throughout the session). We then re-ran Adept on simulated responses under three different noise models (whose parameters were fit to the ground truth data): a Poisson model (‘Poisson noise’), a model that scales each response by a gain factor that varies independently from trial to trial [28] (‘trial-to-trial gain’), and the same gain model but where the gain varies smoothly across trials (‘slowly-drifting gain’). Because the drift in gain was randomly generated and may not match the actual drift in the recorded dataset, we also considered responses in which the drift was estimated across the recording session and added to the mean responses as their corresponding images were chosen (‘recorded drift’). For reference, we also ran Adept on responses with no noise (‘no noise’). To compare performance across the different settings, we computed the mean response and variance ratios between responses based on Adept and random selection (Fig. 6A). All settings showed better performance using Adept than random selection (Fig. 6A, all points above red-dashed line), and Adept performed best with no noise (Fig. 6, ‘no noise’ point at or above others). For a fair comparison, ratios were computed with the ground truth responses, where only the chosen images could differ across settings. These results indicate that, although Adept would benefit from removing neural noise, Adept continues to outperform random selection in the presence of noise.\nAnother concern for an adaptive method is overfitting. For example, when no relationship exists between the CNN feature embeddings and neural responses, Adept may overfit to a spurious stimulus-\nresponse mapping and perform worse than random selection. To address this concern, we performed two analyses using the same ground truth dataset as in Fig. 6A. For the first analysis, we ran Adept on the ground truth responses (choosing 500 of the 2,000 candidate images) to yield on average a 6% larger mean response and a 21% larger response scatter (average over top 5 PCs) than random selection (Fig. 6B, unshuffled responses). Next, to break any stimulus-response relationship, we shuffled all of the ground truth responses across images, and re-ran Adept. Adept performed no worse than random selection (Fig. 6B, shuffled responses, blue points on red-dashed line). For the second analysis, we asked if Adept focuses on the most predictable neurons to the detriment of other neurons. We shuffled all of the ground truth responses across images for half of the neurons, and ran Adept on the full population. Adept performed better than random selection for the subset of neurons with unshuffled responses (Fig. 6B, unshuffled subset), but no worse than random selection for the subset with shuffled responses (Fig. 6B, shuffled subset, green points on red-dashed line). Adept showed no overfitting in either scenario, likely because Adept cannot choose exceedingly similar images (i.e., differing by a few pixels) from its discrete candidate pool."
+    }, {
+      "heading" : "6 Discussion",
+      "text" : "Here we proposed Adept, an adaptive method for selecting stimuli to optimize neural population responses. To our knowledge, this is the first adaptive method to consider a population of neurons together. We found that Adept, using a population objective, is better able to optimize population responses than using a single-neuron objective to optimize the response of each neuron in the population (Fig. 4C). While Adept can flexibly incorporate different feature embeddings, we take advantage of the recent breakthroughs in deep learning and apply them to adaptive stimulus selection. Adept does not try to predict the response of each V4 neuron, but rather uses the similarity of CNN feature embeddings to different images to predict the similarity of the V4 population responses to those images.\nWidely studied neural phenomena such as changes in responses due to attention [29] and trial-to-trial variability [30, 31] likely depend on mean response levels [32]. When recording from a single neuron, one can optimize to produce large mean responses in a straightforward manner. For example, one can optimize the orientation and spatial frequency of a sinusoidal grating to maximize a neuron’s firing rate [9]. However, when recording from a population of neurons, identifying stimuli that optimize the firing rate of each neuron can be infeasible due to limited recording time. Moreover, neurons far from the sensory periphery tend to be more responsive to natural stimuli [33], and the search space for natural stimuli is vast. Adept is a principled way to efficiently search through a space of natural stimuli to optimize the responses of a population of neurons. Experimenters can run Adept for a recording session, and then present the Adept-chosen stimuli in subsequent sessions when probing neural phenomena.\nA future challenge for adaptive stimulus selection is to generate natural images rather than selecting from a pre-existing pool of candidate images. For Adept, one could use a parametric model to generate natural images, such as a generative adversarial network [34], and optimize Eqn. 1 with gradient-based or Bayesian optimization."
+    }, {
+      "heading" : "Acknowledgments",
+      "text" : "B.R.C. was supported by a BrainHub Richard K. Mellon Fellowship. R.C.W. was supported by NIH T32 GM008208, T90 DA022762, and the Richard K. Mellon Foundation. K.A. was supported by NSF GRFP 1747452. M.A.S. and B.M.Y. were supported by NSF-NCS BCS-1734901/1734916. M.A.S. was supported by NIH R01 EY022928 and NIH P30 EY008098. B.M.Y. was supported by NSF-NCS BCS-1533672, NIH R01 HD071686, NIH R01 NS105318, and Simons Foundation 364994."
+    } ],
+    "references" : [ {
+      "title" : "Reverse correlation in neurophysiology",
+      "author" : [ "D. Ringach", "R. Shapley" ],
+      "venue" : "Cognitive Science, vol. 28, no. 2, pp. 147–166, 2004.",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : null,
+      "year" : 2004
+    }, {
+      "title" : "In praise of artifice",
+      "author" : [ "N.C. Rust", "J.A. Movshon" ],
+      "venue" : "Nature Neuroscience, vol. 8, no. 12, pp. 1647–1650, 2005.",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : null,
+      "year" : 2005
+    }, {
+      "title" : "Spike-triggered neural characterization",
+      "author" : [ "O. Schwartz", "J.W. Pillow", "N.C. Rust", "E.P. Simoncelli" ],
+      "venue" : "Journal of Vision, vol. 6, no. 4, pp. 13–13, 2006.",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : null,
+      "year" : 2006
+    }, {
+      "title" : "From response to stimulus: adaptive sampling in sensory physiology",
+      "author" : [ "J. Benda", "T. Gollisch", "C.K. Machens", "A.V. Herz" ],
+      "venue" : "Current Opinion in Neurobiology, vol. 17, no. 4, pp. 430–436, 2007.",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : null,
+      "year" : 2007
+    }, {
+      "title" : "Adaptive stimulus optimization for sensory systems neuroscience",
+      "author" : [ "C. DiMattina", "K. Zhang" ],
+      "venue" : "Closing the Loop Around Neural Systems, p. 258, 2014.",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Adaptive sampling by information maximization",
+      "author" : [ "C.K. Machens" ],
+      "venue" : "Physical Review Letters, vol. 88, no. 22, p. 228104, 2002.",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : null,
+      "year" : 2002
+    }, {
+      "title" : "Testing the efficiency of sensory coding with optimal stimulus ensembles",
+      "author" : [ "C.K. Machens", "T. Gollisch", "O. Kolesnikova", "A.V. Herz" ],
+      "venue" : "Neuron, vol. 47, no. 3, pp. 447–456, 2005.",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : null,
+      "year" : 2005
+    }, {
+      "title" : "Asymptotic theory of information-theoretic experimental design",
+      "author" : [ "L. Paninski" ],
+      "venue" : "Neural Computation, vol. 17, no. 7, pp. 1480–1507, 2005.",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : null,
+      "year" : 2005
+    }, {
+      "title" : "Sequential optimal design of neurophysiology experiments",
+      "author" : [ "J. Lewi", "R. Butera", "L. Paninski" ],
+      "venue" : "Neural Computation, vol. 21, no. 3, pp. 619–687, 2009.",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : null,
+      "year" : 2009
+    }, {
+      "title" : "Bayesian active learning of neural firing rate maps with transformed gaussian process priors",
+      "author" : [ "M. Park", "J.P. Weller", "G.D. Horwitz", "J.W. Pillow" ],
+      "venue" : "Neural Computation, vol. 26, no. 8, pp. 1519–1541, 2014.",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Adaptive bayesian methods for closed-loop neurophysiology",
+      "author" : [ "J.W. Pillow", "M. Park" ],
+      "venue" : "Closed Loop Neuroscience (A. E. Hady, ed.), Elsevier, 2016.",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "A sparse object coding scheme in area V4",
+      "author" : [ "E.T. Carlson", "R.J. Rasquinha", "K. Zhang", "C.E. Connor" ],
+      "venue" : "Current Biology, vol. 21, no. 4, pp. 288–293, 2011.",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "A neural code for three-dimensional object shape in macaque inferotemporal cortex",
+      "author" : [ "Y. Yamane", "E.T. Carlson", "K.C. Bowman", "Z. Wang", "C.E. Connor" ],
+      "venue" : "Nature Neuroscience, vol. 11, no. 11, pp. 1352–1360, 2008.",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : null,
+      "year" : 2008
+    }, {
+      "title" : "Medial axis shape coding in macaque inferotemporal cortex",
+      "author" : [ "C.-C. Hung", "E.T. Carlson", "C.E. Connor" ],
+      "venue" : "Neuron, vol. 74, no. 6, pp. 1099–1113, 2012.",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Stimulus optimisation in primary visual cortex",
+      "author" : [ "P. Földiák" ],
+      "venue" : "Neurocomputing, vol. 38, pp. 1217–1222, 2001.",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : null,
+      "year" : 2001
+    }, {
+      "title" : "Adaptive stimulus optimization for auditory cortical neurons",
+      "author" : [ "K.N. O’Connor", "C.I. Petkov", "M.L. Sutter" ],
+      "venue" : "Journal of Neurophysiology, vol. 94, no. 6, pp. 4051–4067, 2005.",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : null,
+      "year" : 2005
+    }, {
+      "title" : "How advances in neural recording affect data analysis",
+      "author" : [ "I.H. Stevenson", "K.P. Kording" ],
+      "venue" : "Nature Neuroscience, vol. 14, no. 2, pp. 139–142, 2011.",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Going deeper with convolutions",
+      "author" : [ "C. Szegedy", "W. Liu", "Y. Jia", "P. Sermanet", "S. Reed", "D. Anguelov", "D. Erhan", "V. Vanhoucke", "A. Rabinovich" ],
+      "venue" : "Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, pp. 1–9, 2015.",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Smooth regression analysis",
+      "author" : [ "G.S. Watson" ],
+      "venue" : "Sankhyā: The Indian Journal of Statistics, Series A, pp. 359– 372, 1964.",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : null,
+      "year" : 1964
+    }, {
+      "title" : "The steerable pyramid: A flexible architecture for multi-scale derivative computation",
+      "author" : [ "E.P. Simoncelli", "W.T. Freeman" ],
+      "venue" : "Image Processing, 1995. Proceedings., International Conference on, vol. 3, pp. 444–447, IEEE, 1995.",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : null,
+      "year" : 1995
+    }, {
+      "title" : "A biologically inspired algorithm for the recovery of shading and reflectance images",
+      "author" : [ "A. Olmos", "F.A. Kingdom" ],
+      "venue" : "Perception, vol. 33, no. 12, pp. 1463–1473, 2004. 10",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : null,
+      "year" : 2004
+    }, {
+      "title" : "Using goal-driven deep learning models to understand sensory cortex",
+      "author" : [ "D.L. Yamins", "J.J. DiCarlo" ],
+      "venue" : "Nature Neuroscience, vol. 19, no. 3, pp. 356–365, 2016.",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Deep residual learning for image recognition",
+      "author" : [ "K. He", "X. Zhang", "S. Ren", "J. Sun" ],
+      "venue" : "Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, pp. 770–778, 2016.",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Matconvnet – convolutional neural networks for Matlab",
+      "author" : [ "A. Vedaldi", "K. Lenc" ],
+      "venue" : "Proceeding of the ACM Int. Conf. on Multimedia, 2015.",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Princeton vision and robotics toolkit",
+      "author" : [ "J. Xiao" ],
+      "venue" : "2013. Available from: http://3dvision.princeton. edu/pvt/GoogLeNet/.",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Toward a unified theory of visual area V4",
+      "author" : [ "A.W. Roe", "L. Chelazzi", "C.E. Connor", "B.R. Conway", "I. Fujita", "J.L. Gallant", "H. Lu", "W. Vanduffel" ],
+      "venue" : "Neuron, vol. 74, no. 1, pp. 12–29, 2012.",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "The nature of shared cortical variability",
+      "author" : [ "I.-C. Lin", "M. Okun", "M. Carandini", "K.D. Harris" ],
+      "venue" : "Neuron, vol. 87, no. 3, pp. 644–656, 2015.",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Attention improves performance primarily by reducing interneuronal correlations",
+      "author" : [ "M.R. Cohen", "J.H. Maunsell" ],
+      "venue" : "Nature Neuroscience, vol. 12, no. 12, pp. 1594–1600, 2009.",
+      "citeRegEx" : "29",
+      "shortCiteRegEx" : null,
+      "year" : 2009
+    }, {
+      "title" : "Correlations and neuronal population information",
+      "author" : [ "A. Kohn", "R. Coen-Cagli", "I. Kanitscheider", "A. Pouget" ],
+      "venue" : "Annual Review of Neuroscience, vol. 39, pp. 237–256, 2016.",
+      "citeRegEx" : "30",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Diverse coupling of neurons to populations in sensory cortex",
+      "author" : [ "M. Okun", "N.A. Steinmetz", "L. Cossell", "M.F. Iacaruso", "H. Ko", "P. Barthó", "T. Moore", "S.B. Hofer", "T.D. Mrsic-Flogel", "M. Carandini" ],
+      "venue" : "Nature, vol. 521, no. 7553, pp. 511–515, 2015.",
+      "citeRegEx" : "31",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Measuring and interpreting neuronal correlations",
+      "author" : [ "M.R. Cohen", "A. Kohn" ],
+      "venue" : "Nature Neuroscience, vol. 14, no. 7, pp. 811–819, 2011.",
+      "citeRegEx" : "32",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Cortical sensitivity to visual features in natural scenes",
+      "author" : [ "G. Felsen", "J. Touryan", "F. Han", "Y. Dan" ],
+      "venue" : "PLoS biology, vol. 3, no. 10, p. e342, 2005.",
+      "citeRegEx" : "33",
+      "shortCiteRegEx" : null,
+      "year" : 2005
+    }, {
+      "title" : "Unsupervised representation learning with deep convolutional generative adversarial networks",
+      "author" : [ "A. Radford", "L. Metz", "S. Chintala" ],
+      "venue" : "arXiv preprint arXiv:1511.06434, 2015. 11",
+      "citeRegEx" : "34",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 2,
+      "context" : "However, the first approach limits the range of stimuli explored, and the second approach may not converge in a finite amount of recording time [3].",
+      "startOffset" : 144,
+      "endOffset" : 147
+    }, {
+      "referenceID" : 3,
+      "context" : "To efficiently find a preferred stimulus, studies have employed adaptive stimulus selection (also known as “adaptive sampling” or “optimal experimental design”) to determine the next stimulus to show given the responses to previous stimuli in a closed-loop experiment [4, 5].",
+      "startOffset" : 268,
+      "endOffset" : 274
+    }, {
+      "referenceID" : 4,
+      "context" : "To efficiently find a preferred stimulus, studies have employed adaptive stimulus selection (also known as “adaptive sampling” or “optimal experimental design”) to determine the next stimulus to show given the responses to previous stimuli in a closed-loop experiment [4, 5].",
+      "startOffset" : 268,
+      "endOffset" : 274
+    }, {
+      "referenceID" : 5,
+      "context" : "Many adaptive methods have been developed to find the smallest number of stimuli needed to fit parameters of a model that predicts the recorded neuron’s activity from the stimulus [6, 7, 8, 9, 10, 11].",
+      "startOffset" : 180,
+      "endOffset" : 200
+    }, {
+      "referenceID" : 6,
+      "context" : "Many adaptive methods have been developed to find the smallest number of stimuli needed to fit parameters of a model that predicts the recorded neuron’s activity from the stimulus [6, 7, 8, 9, 10, 11].",
+      "startOffset" : 180,
+      "endOffset" : 200
+    }, {
+      "referenceID" : 7,
+      "context" : "Many adaptive methods have been developed to find the smallest number of stimuli needed to fit parameters of a model that predicts the recorded neuron’s activity from the stimulus [6, 7, 8, 9, 10, 11].",
+      "startOffset" : 180,
+      "endOffset" : 200
+    }, {
+      "referenceID" : 8,
+      "context" : "Many adaptive methods have been developed to find the smallest number of stimuli needed to fit parameters of a model that predicts the recorded neuron’s activity from the stimulus [6, 7, 8, 9, 10, 11].",
+      "startOffset" : 180,
+      "endOffset" : 200
+    }, {
+      "referenceID" : 9,
+      "context" : "Many adaptive methods have been developed to find the smallest number of stimuli needed to fit parameters of a model that predicts the recorded neuron’s activity from the stimulus [6, 7, 8, 9, 10, 11].",
+      "startOffset" : 180,
+      "endOffset" : 200
+    }, {
+      "referenceID" : 10,
+      "context" : "Many adaptive methods have been developed to find the smallest number of stimuli needed to fit parameters of a model that predicts the recorded neuron’s activity from the stimulus [6, 7, 8, 9, 10, 11].",
+      "startOffset" : 180,
+      "endOffset" : 200
+    }, {
+      "referenceID" : 11,
+      "context" : ", neurons in higher visual cortical areas), adaptive methods rely on maximizing the neuron’s firing rate via genetic algorithms [12, 13, 14] or gradient ascent [15, 16] to home in on the neuron’s preferred stimulus.",
+      "startOffset" : 128,
+      "endOffset" : 140
+    }, {
+      "referenceID" : 12,
+      "context" : ", neurons in higher visual cortical areas), adaptive methods rely on maximizing the neuron’s firing rate via genetic algorithms [12, 13, 14] or gradient ascent [15, 16] to home in on the neuron’s preferred stimulus.",
+      "startOffset" : 128,
+      "endOffset" : 140
+    }, {
+      "referenceID" : 13,
+      "context" : ", neurons in higher visual cortical areas), adaptive methods rely on maximizing the neuron’s firing rate via genetic algorithms [12, 13, 14] or gradient ascent [15, 16] to home in on the neuron’s preferred stimulus.",
+      "startOffset" : 128,
+      "endOffset" : 140
+    }, {
+      "referenceID" : 14,
+      "context" : ", neurons in higher visual cortical areas), adaptive methods rely on maximizing the neuron’s firing rate via genetic algorithms [12, 13, 14] or gradient ascent [15, 16] to home in on the neuron’s preferred stimulus.",
+      "startOffset" : 160,
+      "endOffset" : 168
+    }, {
+      "referenceID" : 15,
+      "context" : ", neurons in higher visual cortical areas), adaptive methods rely on maximizing the neuron’s firing rate via genetic algorithms [12, 13, 14] or gradient ascent [15, 16] to home in on the neuron’s preferred stimulus.",
+      "startOffset" : 160,
+      "endOffset" : 168
+    }, {
+      "referenceID" : 16,
+      "context" : "Developments in neural recording technologies now enable the simultaneous recordings of tens to hundreds of neurons [17], each of which has its own preferred stimulus.",
+      "startOffset" : 116,
+      "endOffset" : 120
+    }, {
+      "referenceID" : 11,
+      "context" : "We first consider a single-neuron objective function employed by many adaptive methods [12, 13, 14].",
+      "startOffset" : 87,
+      "endOffset" : 99
+    }, {
+      "referenceID" : 12,
+      "context" : "We first consider a single-neuron objective function employed by many adaptive methods [12, 13, 14].",
+      "startOffset" : 87,
+      "endOffset" : 99
+    }, {
+      "referenceID" : 13,
+      "context" : "We first consider a single-neuron objective function employed by many adaptive methods [12, 13, 14].",
+      "startOffset" : 87,
+      "endOffset" : 99
+    }, {
+      "referenceID" : 17,
+      "context" : "For example, we can use the activity of q neurons from a CNN as a feature embedding vector for natural images [18].",
+      "startOffset" : 110,
+      "endOffset" : 114
+    }, {
+      "referenceID" : 17,
+      "context" : "CNN neurons were from the same GoogLeNet CNN [18] (see CNN details in Results).",
+      "startOffset" : 45,
+      "endOffset" : 49
+    }, {
+      "referenceID" : 19,
+      "context" : "For visual neurons, the feature embeddings could come from a bank of Gabor-like filters with different orientations and spatial frequencies [20], or from a more expressive model, such as CNN neurons in a middle layer of a pre-trained CNN.",
+      "startOffset" : 140,
+      "endOffset" : 144
+    }, {
+      "referenceID" : 20,
+      "context" : "images from the McGill natural image dataset [21] and Google image search [22].",
+      "startOffset" : 45,
+      "endOffset" : 49
+    }, {
+      "referenceID" : 21,
+      "context" : "The motivation to use CNNs was inspired by the recent successes of CNNs to predict neural activity in V4 [23].",
+      "startOffset" : 105,
+      "endOffset" : 109
+    }, {
+      "referenceID" : 22,
+      "context" : "For this CNN, we took responses of p = 200 neurons in a middle layer of the pre-trained ResNet CNN [24] (layer 25 of 50, named ‘res3dx’).",
+      "startOffset" : 99,
+      "endOffset" : 103
+    }, {
+      "referenceID" : 17,
+      "context" : "For this CNN, we took responses of q = 750 neurons in a middle layer of the pre-trained GoogLeNet CNN [18] (layer 5 of 10, named ‘icp4_out’).",
+      "startOffset" : 102,
+      "endOffset" : 106
+    }, {
+      "referenceID" : 23,
+      "context" : "Pre-trained CNNs were downloaded from MatConvNet [25], with the PVT version of GoogLeNet [26].",
+      "startOffset" : 49,
+      "endOffset" : 53
+    }, {
+      "referenceID" : 24,
+      "context" : "Pre-trained CNNs were downloaded from MatConvNet [25], with the PVT version of GoogLeNet [26].",
+      "startOffset" : 89,
+      "endOffset" : 93
+    }, {
+      "referenceID" : 11,
+      "context" : "Third, we sequentially optimized 50 randomly-chosen CNN neurons individually using a genetic algorithm (‘genetic-50’), similar to the ones proposed in previous studies [12, 13, 14].",
+      "startOffset" : 168,
+      "endOffset" : 180
+    }, {
+      "referenceID" : 12,
+      "context" : "Third, we sequentially optimized 50 randomly-chosen CNN neurons individually using a genetic algorithm (‘genetic-50’), similar to the ones proposed in previous studies [12, 13, 14].",
+      "startOffset" : 168,
+      "endOffset" : 180
+    }, {
+      "referenceID" : 13,
+      "context" : "Third, we sequentially optimized 50 randomly-chosen CNN neurons individually using a genetic algorithm (‘genetic-50’), similar to the ones proposed in previous studies [12, 13, 14].",
+      "startOffset" : 168,
+      "endOffset" : 180
+    }, {
+      "referenceID" : 25,
+      "context" : "We implanted a 96-electrode array in macaque V4, whose neurons respond differently to a wide range of image features, including orientation, spatial frequency, color, shape, texture, and curvature, among others [27].",
+      "startOffset" : 211,
+      "endOffset" : 215
+    }, {
+      "referenceID" : 21,
+      "context" : "The current state-of-the-art model for predicting the activity of V4 neurons uses the output of middle layer neurons in a CNN previously trained without any information about the responses of V4 neurons [23].",
+      "startOffset" : 203,
+      "endOffset" : 207
+    }, {
+      "referenceID" : 8,
+      "context" : "Moreover, adaptation to stimuli and changes in attention or motivation may cause a gain factor to scale responses dynamically across a session [9].",
+      "startOffset" : 143,
+      "endOffset" : 146
+    }, {
+      "referenceID" : 26,
+      "context" : "We then re-ran Adept on simulated responses under three different noise models (whose parameters were fit to the ground truth data): a Poisson model (‘Poisson noise’), a model that scales each response by a gain factor that varies independently from trial to trial [28] (‘trial-to-trial gain’), and the same gain model but where the gain varies smoothly across trials (‘slowly-drifting gain’).",
+      "startOffset" : 265,
+      "endOffset" : 269
+    }, {
+      "referenceID" : 27,
+      "context" : "Widely studied neural phenomena such as changes in responses due to attention [29] and trial-to-trial variability [30, 31] likely depend on mean response levels [32].",
+      "startOffset" : 78,
+      "endOffset" : 82
+    }, {
+      "referenceID" : 28,
+      "context" : "Widely studied neural phenomena such as changes in responses due to attention [29] and trial-to-trial variability [30, 31] likely depend on mean response levels [32].",
+      "startOffset" : 114,
+      "endOffset" : 122
+    }, {
+      "referenceID" : 29,
+      "context" : "Widely studied neural phenomena such as changes in responses due to attention [29] and trial-to-trial variability [30, 31] likely depend on mean response levels [32].",
+      "startOffset" : 114,
+      "endOffset" : 122
+    }, {
+      "referenceID" : 30,
+      "context" : "Widely studied neural phenomena such as changes in responses due to attention [29] and trial-to-trial variability [30, 31] likely depend on mean response levels [32].",
+      "startOffset" : 161,
+      "endOffset" : 165
+    }, {
+      "referenceID" : 8,
+      "context" : "For example, one can optimize the orientation and spatial frequency of a sinusoidal grating to maximize a neuron’s firing rate [9].",
+      "startOffset" : 127,
+      "endOffset" : 130
+    }, {
+      "referenceID" : 31,
+      "context" : "Moreover, neurons far from the sensory periphery tend to be more responsive to natural stimuli [33], and the search space for natural stimuli is vast.",
+      "startOffset" : 95,
+      "endOffset" : 99
+    }, {
+      "referenceID" : 32,
+      "context" : "For Adept, one could use a parametric model to generate natural images, such as a generative adversarial network [34], and optimize Eqn.",
+      "startOffset" : 113,
+      "endOffset" : 117
+    } ],
+    "year" : 2017,
+    "abstractText" : "Adaptive stimulus selection methods in neuroscience have primarily focused on maximizing the firing rate of a single recorded neuron. When recording from a population of neurons, it is usually not possible to find a single stimulus that maximizes the firing rates of all neurons. This motivates optimizing an objective function that takes into account the responses of all recorded neurons together. We propose “Adept,” an adaptive stimulus selection method that can optimize population objective functions. In simulations, we first confirmed that population objective functions elicited more diverse stimulus responses than single-neuron objective functions. Then, we tested Adept in a closed-loop electrophysiological experiment in which population activity was recorded from macaque V4, a cortical area known for mid-level visual processing. To predict neural responses, we used the outputs of a deep convolutional neural network model as feature embeddings. Natural images chosen by Adept elicited mean neural responses that were 20% larger than those for randomly-chosen natural images, and also evoked a larger diversity of neural responses. Such adaptive stimulus selection methods can facilitate experiments that involve neurons far from the sensory periphery, for which it is often unclear which stimuli to present.",
+    "creator" : null
+  }
+}

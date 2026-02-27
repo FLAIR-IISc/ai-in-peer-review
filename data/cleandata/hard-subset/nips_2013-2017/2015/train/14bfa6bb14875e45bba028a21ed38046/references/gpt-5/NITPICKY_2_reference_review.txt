@@ -1,0 +1,57 @@
+Summary
+The paper proposes Region Proposal Networks (RPNs) that generate class-agnostic object proposals by sliding a small network over shared convolutional feature maps, using “anchors” at each location to predict objectness and box regressions. The RPN is trained with a multitask loss and integrated with Fast R-CNN via an alternating 4-step fine-tuning procedure to share convolutional layers. Experiments on PASCAL VOC 2007/2012 report higher mAP than Fast R-CNN with Selective Search, while reducing proposal time to ~10ms on GPU; overall system times are ~198ms (VGG-16), and 17 fps with a ZF backbone. Ablations suggest the importance of classification scores and regression in RPN and indicate that top-ranked proposals are accurate even at low counts.
+
+Relation to prior work
+The approach builds on R-CNN/Fast R-CNN/SPP-net for shared conv features, OverFeat’s sliding conv windows, and MultiBox’s direct proposal regression. The novelty is translation-equivariant anchors with a tiny head, trained end-to-end and sharing features with a detector. The paper contrasts RPNs with MultiBox (fewer parameters, translation invariance) and with one-stage OverFeat-like pipelines.
+
+Strengths
+- Clear and compelling idea: using anchors and a small conv head to produce proposals from the same feature map as the detector.
+- Strong empirical gains in speed and competitive-to-better accuracy vs SS/EB; proposal computation becomes nearly negligible when sharing conv features.
+- Useful ablations: proposal count effects, cls/reg contributions, NMS impact, feature sharing vs not.
+- Simple, general design (scales/aspect ratios) that avoids image pyramids and hand-engineered proposal features.
+- Reproducibility aided by public code (though see issues below).
+
+Weaknesses and points needing clarification
+Technical clarity/reproducibility:
+- Anchor labeling ambiguity: You define positives as (i) highest-IoU anchor(s) per GT box and (ii) anchors with IoU ≥ 0.7; negatives as anchors with IoU < 0.3 for all GT boxes. This implies an anchor that is the max-IoU for some GT box could still have IoU < 0.3 and thus simultaneously satisfy negative rule. Please clarify that negatives are assigned after removing positives (standard practice) to avoid conflicts.
+- Normalization/weighting: Eqn (1) introduces Ncls, Nreg, and λ, but a later footnote states in early code λ=10, Ncls=256, Nreg≈#locations (~2400). This nonstandard, implementation-specific normalization is critical to reproduce results; please move it into the main text, state the exact settings used for each experiment, and justify the choice.
+- Training schedule: The 4-step alternating scheme is ad hoc; joint end-to-end multi-task training is not attempted (despite being “an interesting question”). Given that the claimed contribution is a unified detector, please either (a) demonstrate end-to-end joint optimization converges and compare to alternating, or (b) justify why it fails and show sensitivity to different alternation variants (e.g., step1+2 vs full 4 steps).
+- Hyperparameters missing/sparse: No mention of data augmentation (e.g., horizontal flips), batch norm status, exact GPU type for timing, or per-backbone layer freezing in the detector (you freeze conv1–conv2 for VGG in RPN but not clearly for detection). Proposal post-processing thresholds (objectness threshold before NMS, min box size) are not fully specified.
+
+Fairness/coverage of baselines:
+- Speed comparisons pit GPU-based RPN against CPU SS/EB; you acknowledge the inequity but do not provide a competitive GPU-optimized classical proposal baseline. At minimum, report total system time with SS/EB on GPU (or best available optimized versions), and separate shared vs non-shared conv costs to isolate gains due to sharing versus algorithmic changes.
+- Accuracy comparisons sometimes use different numbers of proposals: SS at ~2k vs RPN at 300. Please report mAP for matched proposal counts and matched training/testing proposal sources to isolate proposal quality from count and consistency effects.
+- MultiBox comparisons are parametric and architectural, not empirical on the same datasets; a head-to-head on VOC would strengthen the claims.
+
+Ablations/sensitivity missing:
+- Anchor design: No sensitivity studies on the choice/number of scales/aspect ratios, or on the feature stride (16 px). How do performance and proposal recall change with different anchor sets or smaller strides (e.g., dilated conv or using conv3/conv4 features)?
+- Label thresholds: Sensitivity to the 0.7/0.3 IoU thresholds and to the positive/negative sampling ratio (1:1, 256 anchors) is not reported.
+- Cross-boundary anchors: You ignore all boundary-crossing anchors during training, but apply the RPN densely and clip at test time. Please quantify the impact of this choice and discuss alternatives (e.g., valid area masking with consistent normalization).
+- NMS: You fix IoU=0.7; effects on both recall and detection mAP are only partially explored. Report curves over NMS thresholds and top-N.
+
+Experimental breadth:
+- Results are limited to VOC; given the speed/accuracy claims, a COCO subset or at least qualitative failure analysis would help assess generality.
+- One-stage comparison: The emulation of OverFeat-like one-stage detection uses dense sliding windows; please also try a stronger one-stage baseline with multi-scale features or feature pyramids for fairness.
+
+Writing/formatting issues (numerous and distracting)
+- Citations and references are inconsistent/incomplete: many entries lack years/venues; author lists are garbled (e.g., “and A, M. Everingham…”, “and B, J. Hosang…”); capitalization inconsistent. Please fix to a standard BibTeX style.
+- Footnotes and symbols: Stray “∗” in “de∗tection”; footnotes 1–4 are awkwardly placed; the GitHub URL has a space (“github.com/ ShaoqingRen…”). Move footnotes into main text or proper footnotes, and verify links.
+- Typos/grammar: e.g., “dominate” should be “dominant”; “ImageNetpre-trained” missing space; “mini-network” vs “mininetwork”; “∼” usage; missing articles and inconsistent hyphenation.
+- Tables/figures: You refer to Tables/Figures not present/fully described here; ensure they are legible and self-contained. The “table below shows the learned average proposal size” is inline text and unclear; report as an actual table with units.
+- Notation: “1282” etc. should be clearly denoted as 128^2 pixels; be consistent.
+
+Qualitative evaluation
+- Quality: Technically sound core; however, several critical training details are ambiguous, and baseline fairness is imperfect. Missing sensitivity and joint training experiments weaken the empirical support.
+- Clarity: The high-level idea is clear, but the paper needs substantial editing for precision and formatting to be reproducible.
+- Originality: The anchor-based, translation-equivariant proposal head sharing conv features is a novel and impactful combination relative to prior sliding-window and MultiBox approaches.
+- Significance: High practical impact; likely to be widely adopted and extended.
+
+Questions for authors
+1) Clarify the exact positive/negative assignment to avoid label conflicts. Provide pseudocode.
+2) Report mAP/time with matched proposal counts for SS and RPN, and with a GPU-optimized SS/EB if possible.
+3) Provide results for end-to-end joint training vs alternating, or justify why joint fails.
+4) Sensitivity to anchor sets, NMS threshold, IoU thresholds, and feature stride?
+5) Specify all training details (augmentation, frozen layers, hardware, thresholds) sufficient to reproduce numbers.
+
+Recommendation
+Borderline reject. The idea is strong and potentially field-changing, but the submission has too many clarity, formatting, and experimental rigor issues for NeurIPS standards in its current form. With thorough revisions and additional experiments addressing the above, I would be inclined to accept.

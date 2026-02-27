@@ -1,0 +1,55 @@
+Summary
+- The paper proposes “nonparametric neural networks” that adapt layer widths during a single training run by alternating gradient updates with addition/removal of units. The removal is driven by fan-in/fan-out group regularization (p=2), which can zero entire fan-ins/outs; addition appends zero-output units with random fan-ins.
+- It introduces CapNorm, a variant of batch normalization that subtracts batch means but scales by 1/max(σ,1) and removes trainable γ/β, to avoid trivial rescalings that would defeat the regularizer.
+- It proposes AdaRad, which decomposes the gradient per unit into a radial (parallel) and angular (orthogonal) component; it normalizes the angular component (per unit) and rotates the weight vector while applying unnormalized radial updates plus shrinkage.
+- Theory: Theorem 1 claims the objective (empirical loss + fan-in/out regularizer with λ>0, 1≤p<∞) attains a global minimum at some finite dimensionality; Proposition 1 argues self-similar nonlinearities obviate per-layer λ tuning (equivalence to a single λ).
+- Experiments on MNIST, rectangles-images, convex, and OpenML poker: on two datasets, same-size nonparametric nets outperform parametric baselines; on convex they underperform; on poker they report very low test error and even 0 errors at best.
+
+Decision: Reject. Key reasons: (1) Experimental methodology and comparisons are not scientifically rigorous and contain questionable protocol choices; (2) Clarity/technical presentation and reproducibility are weak, with many ambiguities and numerous editorial issues; (3) While the overall direction is interesting, novelty relative to prior pruning/growth and group-sparsity approaches is limited and the empirical evidence does not convincingly support the main claims.
+
+Supporting arguments
+- Questionable evaluation protocol:
+  • The choice of a “representative” nonparametric run is based partly on median test error across seeds (Sec. 7.4.1), which leaks test information into model selection.
+  • Baselines for parametric nets are set with λ=0 “as ℓ2 is not compatible with standard BN.” This is not a generally accepted constraint; weight decay is standard with BN. Disallowing regularization on baselines while using it for nonparametric models compromises fairness.
+  • Training protocols differ markedly (CapNorm vs BN; step size schedules; “rewinding the last 100 epochs” for NP but not mirrored for parametric). The annealing/rewind heuristics are nonstandard and insufficiently justified. No ablation disentangles the effects of CapNorm, AdaRad, and unit growth/removal.
+  • The poker result claims 0 test errors on 100k examples; given that linear models perform near random, this is surprising and requires careful scrutiny of splits, leakage, and preprocessing. Details are insufficient.
+- Insufficient breadth and depth of empirical validation:
+  • Only small fully connected nets are studied; no convolutional networks despite the method purportedly being general. No results on more modern benchmarks or tasks where architecture search matters most.
+  • The convex dataset shows nonparametric networks converge to too-small sizes and underperform. There is no analysis of when/why the framework fails or how to mitigate.
+  • Efficiency claims (per-unit normalization leading to better scaling; smaller memory than RMSprop) are asserted but not substantiated with wall-clock, throughput, or memory benchmarks. Referenced Table 1 is not present.
+- Theory-practice disconnect:
+  • Theorem 1 is for feedforward nets without data-dependent normalization layers; yet CapNorm is central in practice. CapNorm induces batch-dependent, non-elementwise transformations of preactivations that are functions of all examples in a batch and of weights. The theorem’s assumptions (elementwise σl, directional differentiability, bounded gradients) and conclusions are not shown to apply with CapNorm.
+  • The conditions on the loss gradient boundedness under a loss bound are asserted (b3) but not verified for the common softmax-cross-entropy instantiation used here.
+  • Proposition 1’s equivalence relies on self-similarity; while the derivation is plausible for σ1..σL−1=ReLU, the interaction with the final layer and the actual e (often softmax cross-entropy) deserves a precise statement (e.g., whether logits scaling leaves the loss unchanged—generally it does not).
+- Algorithmic clarity concerns:
+  • The “rotation by angle αφ||φadj||” update is described at a high level. Precise definition of the rotation operator in high dimensions (the 2D subspace, numerical stability, and cost) is missing.
+  • The adaptive normalization φadj uses φmax/cmax across layers and time; rationale for this specific normalization and its sensitivity is unclear.
+  • The unit addition scheme (one per epoch, expected fan-in norm 1) lacks exact initialization distribution details and justification. The effect of addition frequency ν, αr, λ annealing, and CapNorm on survival is only qualitatively discussed.
+- Presentation and references:
+  • Numerous typos/formatting issues (e.g., section numbering “.2”, “bot not fastest”, “durgery”), inconsistent symbols, and several incomplete or malformed references (years, venues) detract from clarity.
+  • Figures/Tables are referenced but missing in the submission excerpt; crucial for assessing results and complexity claims.
+
+Additional feedback (to improve the paper)
+- Provide clean, reproducible comparisons:
+  • Use a single, shared training protocol where possible; include weight decay baselines with BN; include ablations: (i) AdaRad vs SGD/RMSprop/Adam (with per-unit RMS normalization as a control), (ii) CapNorm vs BN (with/without γ/β), (iii) growth/removal with standard optimizers, (iv) fan-in vs fan-out regularization, (v) schedules for ν, αr, αφ.
+  • Avoid test-set-driven choices; select hyperparameters using validation only; report confidence intervals over multiple seeds.
+  • Report wall-clock time, memory, and FLOPs to substantiate efficiency claims.
+- Clarify theory:
+  • State precisely whether Theorem 1 applies when CapNorm is present (batch-dependent, piecewise ops). If not, delineate the scope. Verify the loss gradient boundedness assumption for the used e.
+  • Tighten Proposition 1 with an exact statement of σL/e assumptions; if softmax CE is used, explain how the rescaling does or does not leave the objective unchanged.
+- Improve algorithmic exposition:
+  • Provide explicit formulas for the rotation update, computational cost, and numerical stabilization. Explain φadj design and sensitivity; include a simple geometric illustration.
+  • Detail unit initialization distributions and scaling with layer width; report how survival/elimination correlates with these choices.
+- Expand evaluation:
+  • Include convolutional models and modern datasets where adaptive width is impactful. Compare against strong structured sparsity baselines (group lasso, variational dropout, NetSlimming) and dynamic growth/pruning methods (e.g., Dynamic Network Surgery).
+  • Analyze the convex dataset failure and propose remedies (e.g., λ annealing, alternative schedules).
+- Presentation:
+  • Fix typos and references; ensure all figures/tables are present; release code.
+
+Questions to authors
+1) Does Theorem 1 still hold when CapNorm is used during training (with batch-dependent μ,σ and the max(σ,1) nonlinearity)? If so, please formalize the assumptions and outline the proof adjustments.
+2) Why disallow weight decay in parametric BN baselines? Can you provide baselines with weight decay and/or penalizing BN γ to ensure fairness?
+3) How exactly is the rotation implemented per unit (formula, computational complexity)? Is the cost negligible relative to standard updates?
+4) On poker: what is the exact dataset (binary vs 10-class), splits, preprocessing, and leakage safeguards? How reproducible is the 0-error result?
+5) Can you provide ablations isolating the contributions of CapNorm and AdaRad to the gains over same-size baselines?
+6) How sensitive are the results to ν, αr, αφ, and the unit addition frequency? Is there a principled way to set αr relative to λ beyond the heuristic αr=150/λ?

@@ -1,0 +1,63 @@
+Summary
+The paper tackles full-parameter learning for Determinantal Point Processes (DPPs) without restrictive parameterizations, proposing an EM-style method that optimizes over the eigendecomposition K=VΛV^T. The E-step introduces a hidden variable J (subset of eigen-indices) via the standard mixture-of-elementary-DPP representation; the M-step updates λ via posterior inclusion probabilities q(j∈J|Yi) and takes a manifold-constrained gradient step for V. The authors argue this avoids the degeneracies observed with projected gradient ascent (KA) on K due to eigenvalue clipping and yields better asymptotic runtime O(T1 n N k^2 + T1 T2 N^3) when typical set sizes k≪N. Experiments on ~30k Amazon baby registry subsets compare EM to KA under two initializations (Wishart; moment-matching), showing modest but consistent test log-likelihood gains and a ~2× speedup.
+
+Relation to prior work
+The paper builds on foundational DPP work (Macchi, Hough et al.; Kulesza & Taskar), including sampling and marginalization via eigendecomposition, and k-DPPs. It differs from prior learning approaches that either learn item weights only, combine fixed L’s, or use Bayesian parameterizations, by attempting unconstrained learning of K. While the mixture view of DPPs and k-DPPs is known, using J as a latent variable to derive an EM-like learner appears novel.
+
+Strengths
+- Addresses an important, practical bottleneck: learning full DPP kernels at scale.
+- Conceptually appealing EM formulation via the eigenbasis latent variable; eigenvalue updates are intuitive and avoid explicit projection.
+- Sensible use of Stiefel manifold updates for V.
+- Empirical study on a large real dataset; shows failure modes of KA (near-diagonality) and some robustness gains; runtime improvements are plausible.
+- Clear motivation and a reasonable baseline.
+
+Weaknesses and technical concerns
+I found many nontrivial issues in derivations, notation, algorithms, and experiments that collectively undermine confidence.
+
+Technical correctness and derivations
+- Equation (3): P(Y)=|det(K−IY)| with IY defined as identity with entries zeroed for i∈Y is unconventional and confusing. The standard DPP definition with marginal kernel K is P(Y)=det(KY) det(I−K). If you intend an identity involving masked diagonals, please derive and clarify the exact matrix and sign. The absolute value is also suspicious; gradients of log|det| are delicate near singularities.
+- E-step Lemma 1 (Eqs. 16–17): dimensional inconsistencies. You define U=V^T, UYi of size |Yi|×N. Then ZYi=UYi(UYi)^T is |Yi|×|Yi|, but QYi=R ZYi R would be N×N only if ZYi were N×N. I suspect you intend ZYi=UYi^T UYi (N×N). Please fix.
+- M-step eigenvector gradient (Eq. 20): You say HYi is |Yi|×|Yi|, but with VYi defined as (UYi)^T, VYi is N×|Yi|, so VYi R^2 VYi^T is N×N. Shapes need to be reconciled. The role of BYi is to map gradients back to V, but dimensions do not line up as written.
+- Using only the “first gradient” formula (Eq. 20) while updating q each line-search step implies you are not optimizing the lower bound F consistently; this is a generalized EM at best. There is no monotonicity guarantee stated (and your own Algorithm 2 mixes F and L when deciding acceptance). A convergence argument is needed.
+- Complexity claims for the E-step: Eq. (19) requires eigenvectors v̂r of QYi. If these are eigenvectors of an N×N kernel per Yi, naive cost is O(N^3) per Yi. You claim O(N k^2) but defer to the supplement. Without a derivation in the main text, this is hard to verify; please outline the method and its complexity.
+- KA gradient (Eq. 5): requires (K−IYi)−1 for each Yi. Are these always invertible? What is done if singular or ill-conditioned (especially given the absolute determinant in Eq. 3)?
+- Self-normalizing λ update (Eq. 18): You state 0≤λ≤1 is automatically enforced, yet later note you must “tighten the constraint” to avoid λ=1 (since R blows up). This is contradictory; specify the exact clipping/regularization.
+
+Algorithms and implementation details
+- Algorithm 1 and 2 backtracking: “η←η^2” inside the inner loop is incorrect for backtracking (with η initialized to 1, η remains 1 forever). Standard practice is η←βη with β∈(0,1). This looks like a bug in the pseudocode.
+- Algorithm 2: You accept a step if L(V′,λ′)>L(V,λ′) but compute δ using F(V′,λ′)−F(V,λ). Mixing criteria (L vs F) is inconsistent; it also breaks the standard EM monotonicity property.
+- Algorithm 2: The loop “for j=1..N do λ′j←(1/n)∑i pK(j∈J|Yi)” suggests recomputing marginals per j. In practice, all marginals should be computed jointly per Yi. Clarify to avoid an O(N^2) overhead.
+- Stiefel update: You use G=∂F/∂V from Eq. (20) but then evaluate acceptance via L. Clarify whether G is a gradient of F or L, and justify using the matrix-exponential retraction without second-order terms for stability.
+
+Clarity and notation
+- Switching between L and K formulations is fine, but many definitions are opaque or nonstandard (IY masking; KVJ notation; undefined sizes).
+- Several typos: “negelecting”, “justies”, inconsistent spacing and capitalization, and broken hyphenations. Many references lack years, venues, or page numbers.
+- The correlation metric d is introduced without precise definition or statistical quantification (no correlation coefficients or p-values).
+
+Experiments
+- Only baseline is KA; no comparison to Bayesian learning [8] or other practical learners (e.g., parametric L models), even on small N where they are feasible.
+- Report mostly relative improvements; absolute held-out log-likelihoods, confidence intervals, and statistical tests are missing. Figures are referenced but not shown; crucial details (hardware, stopping tolerances T1/T2, number of line-search evaluations, initialization variance) are not provided.
+- Reproducibility: code link to Google Code is obsolete; dataset construction is complex and underspecified. No supplement included here to verify key derivations and complexity claims.
+
+Pros
+- Addresses an important and timely problem with a principled idea.
+- Conceptually elegant use of eigen-index latent variables and Stiefel geometry.
+- Empirical indications of robustness and speed improvements.
+
+Cons
+- Multiple derivational inconsistencies and dimension errors.
+- Algorithmic pseudocode appears to have clear bugs (step-size update), and objective mixing (L vs F).
+- Key complexity claims rely on supplement; core steps under-explained in main text.
+- Limited baselines; scant reporting and no statistical rigor.
+- Numerous notation/formatting issues.
+
+Questions for authors
+- Please correct Eq. (3) and justify the absolute value/sign; or switch to the standard P(Y)=det(KY) det(I−K).
+- Provide a self-contained derivation for Eq. (19) with O(N k^2) complexity in the main paper.
+- Fix dimensions in Eqs. (16)–(20) and precisely define all matrices and their shapes.
+- Clarify convergence guarantees (generalized EM) and the acceptance criterion (F vs L).
+- Correct the backtracking rules and provide implementation details (tolerances, T1/T2, hardware).
+- Add stronger baselines and full reporting (means, variances, CIs).
+
+Recommendation
+Despite a promising idea and relevant application, the paper contains enough technical and presentation issues that I cannot recommend acceptance in its current form. A careful revision fixing the derivations, algorithms, and experimental rigor could make this a strong contribution. My recommendation is reject.

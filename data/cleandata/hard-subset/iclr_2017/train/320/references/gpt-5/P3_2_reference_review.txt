@@ -1,0 +1,45 @@
+Summary and contributions
+The paper tackles visual servoing without hand-engineered geometric features by combining (i) pre-trained CNN features (VGG-16, adapted for spatial fidelity), (ii) a learned predictive feature dynamics model (bilinear, multi-scale), and (iii) a sample-efficient RL procedure to learn a weighted one-step servoing objective. The key ideas are: (1) use pre-trained semantic feature maps as the observation space to gain useful invariances; (2) learn per-channel, per-scale bilinear feature dynamics to predict how actions change future features; (3) servo by choosing actions that minimize predicted next-step feature error to a target image; (4) learn the feature weights and action regularization via fitted Q-iteration (FQI) with a linear Q-approximation that matches the servoing objective, enabling efficient argmin over actions. On a synthetic quadrotor-car-following benchmark, the method achieves strong performance and claims high sample efficiency: RL uses only 20 trajectories, and outperforms pixel-based servoing, classical IBVS with ORB/tracking, and model-free deep RL baselines. Code, environment, and videos are provided.
+
+Decision: Weak accept
+Reason: The paper presents a coherent, well-motivated integration of representation learning (via pre-trained features), predictive modeling (bilinear dynamics), and a tailor-made, sample-efficient RL procedure that exploits the structure of the servoing objective. The empirical results are convincing within the synthetic domain and show clear advantages in data efficiency and robustness over reasonable baselines. However, the experimental scope is limited to simulation, the sample-efficiency claim discounts the cost of training the dynamics model, and some methodological details and baseline choices require clarification.
+
+Supporting arguments
+- Motivation and placement: The paper is correctly positioned at the intersection of visual servoing, predictive modeling, and RL. It addresses well-known limitations of classical IBVS (sensitivity to feature design/matching) and of model-free deep RL (sample hunger). Leveraging pre-trained CNN features for servo control is natural but nontrivial; the observation that one-step predictive dynamics plus learned feature weightings can suffice is interesting and practically relevant.
+- Methodological soundness:
+  - The bilinear dynamics model is appropriate for short-horizon predictions under camera motion and the locally connected formulation is computationally efficient. The linearization is exact in u, yielding a convex quadratic in the action with a closed-form argmin.
+  - The Q-function parameterization is elegant: linear in nonnegative weights over per-scale/channel next-step feature errors plus quadratic action penalties, so that greedy action selection coincides with the servo objective. The two-step FQI update that rescales θ by α and adjusts b to stabilize target fitting is reasonable, given the argmin-invariance to positive scaling and bias.
+  - Using target images as goals formalizes “follow this instance” tasks without requiring explicit object labels or boxes. The RL stage learns which feature channels matter for the long-horizon objective.
+- Empirical evaluation:
+  - Comparisons across feature backbones (pixels vs VGG conv1_2–conv5_3) are informative; deeper features up to conv4_3 help, conv5_3 degrades (likely due to excessive invariance), aligning with intuition.
+  - Baselines include: (i) same servo structure with other weight-learning schemes (CEM, TRPO), showing FQI’s significant sample-efficiency advantages; (ii) end-to-end TRPO from pixels/VGG, requiring far more data and underperforming; (iii) classical IBVS with ORB and with a strong C-COT tracker (with GT depth), which is competitive but slower and still trails the proposed method; and (iv) PBVS with GT poses as an upper bound.
+  - Generalization to novel cars is evaluated; results indicate the semantic features improve robustness over pixels.
+- Clarity and reproducibility: The paper is mostly clear, includes algorithmic details (objective forms, training regimes, cost function), and releases code and simulator.
+
+Main concerns and clarifications needed
+- Sample efficiency accounting: The headline “20 trajectories for RL” omits the cost of learning dynamics from 100 trajectories (10,000 triplets). While the separation (general dynamics vs task-specific weights) is valid, the total data footprint matters for fair comparison to model-free baselines. Please report combined data usage and wall-clock for all components and, if possible, learning curves including dynamics pretraining vs. TRPO baselines with access to the same pretraining.
+- Fairness of baselines:
+  - The C-COT and IBVS baselines are given ground-truth depth and the first-frame box; your method requires neither, but uses a learned dynamics model trained around cars and pre-trained features. A clearer discussion of what priors each method gets would help. Consider a variant of your method that receives a first-frame box and learns spatial weights or masks, for a fairer “object-specified” comparison.
+  - For TRPO “weights learning” baseline, the policy is implemented via a network with a matrix inverse; please ensure both methods share the same dynamics model and action constraints.
+- Action constraints: The servoing argmin appears unconstrained, while the simulator clamps velocities. This mismatch can cause biased policy evaluation. Please clarify whether box constraints on u are enforced in the argmin (e.g., via projection) and whether including them changes results.
+- Dynamics model variants: There is a slight inconsistency: earlier you motivate locally connected bilinear dynamics to reduce parameters, yet later state that locally connected dynamics were not used for semantic features due to high dimensionality. Please specify for each feature level which dynamic model (fully connected per-channel vs locally connected) you used, parameter counts, and memory/time.
+- Reward design: The RL cost uses ground-truth car pose in the camera frame (sim-only). That’s fine for training, but it limits transferability. Please discuss how to define a proxy cost from images alone (e.g., using a learned pose estimator or contrastive goal matching) for real-world deployment.
+
+Additional feedback to improve the paper
+- Ablations:
+  - Remove the dynamics model and servo with finite-difference Jacobians; test how much the learned dynamics contribute.
+  - Evaluate the sensitivity to the amount of dynamics pretraining data (e.g., 10, 50, 100 trajectories).
+  - Per-scale-only vs per-channel-and-scale weights; add spatial weighting/masks learned via FQI to better localize the target.
+  - Try alternative backbones (e.g., ResNet, self-supervised features) and show if the conclusions hold.
+- Quantify parameter counts and runtime for each feature level and dynamic model; report GPU/CPU settings. Include inference-time breakdown (feature extraction vs control solve).
+- Analyze failure cases (significant occlusions, strong distractors, camera roll/pitch changes) and provide robustness tests (lighting, viewpoint).
+- Formal aspects: briefly discuss convergence properties of the proposed FQI variant with the nonnegativity constraints and target rescaling; report variance across seeds.
+
+Questions for the authors
+1) What are the exact action constraints used at execution time, and are they enforced in the argmin optimization or only by the simulator? If the latter, how does that affect stability?
+2) For each VGG layer used, which bilinear dynamics variant was used (fully vs locally connected), and what are the parameter counts and training times?
+3) How many parameters are in θ (number of channels × scales + action dims)? Please provide typical values and learned sparsity patterns (do many weights go to zero?).
+4) How sensitive is performance to the regularization ν and the positivity constraint on θ? Any instability without these?
+5) Can you report combined sample usage (dynamics pretraining + RL) versus TRPO baselines, and perhaps give baselines access to the same pre-trained dynamics to isolate the effect of the FQI objective?
+6) Have you tried enforcing spatial masks or attention to avoid penalizing distractors? Would allowing spatially varying weights improve generalization?
+7) How would you define/learn the RL cost in real-world settings without GT pose, and do you expect the approach to transfer with domain shift from CitySim3D?

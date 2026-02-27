@@ -1,0 +1,51 @@
+Summary
+The paper targets large-scale sparse precision (inverse covariance) estimation via CLIME and proposes: (i) an inexact ADMM variant that operates on column blocks, enabling matrix–matrix rather than matrix–vector operations; (ii) use of low-rank structure of the sample covariance (C = AA′ with p ≫ n) to reduce matrix multiplies from O(p2k) to O(npk); (iii) a distributed implementation with block-cyclic data distribution and parallel I/O to achieve load balance; and (iv) O(1/T) convergence rates for objective/residuals under η ≥ ρλmax(C)2. They also discuss exploiting sparsity in iterates and a “covariance perturbation”/thresholding idea intended to preserve CLIME’s deviation conditions. Empirically, they report substantial speedups over CLIME/TIGER/DC-QUIC on moderate problems and demonstrate a 1e6-dimensional run (k=500, 400 cores) in ~11 hours.
+
+Strengths
+- Tackles an important systems challenge: scaling precision estimation to very high dimensions by exploiting low-rank structure (p ≫ n) and HPC-friendly blocking.
+- Practical distributed design choices (block-cyclic layout, parallel I/O) are sensible and likely to transfer to other constrained problems.
+- The column-block reformulation is natural for ADMM and enables efficient use of BLAS3 kernels; the observed speedups on both shared- and distributed-memory platforms are promising.
+- Provides convergence guarantees (O(1/T)) consistent with the inexact/linearized ADMM literature and conditions are transparent (η ≥ ρλmax(C)2).
+
+Weaknesses and concerns
+- Statistical validity vs. optimization error is not addressed. CLIME’s guarantees assume solving the LP to feasibility; here, inexact ADMM yields approximate feasibility and objective suboptimality. The paper does not quantify how these optimization errors propagate to statistical estimation error, nor provide empirical evidence (e.g., graph recovery, norm errors) at convergence for large problems.
+- Symmetry/PD handling is unclear. CLIME typically requires symmetrization of the columnwise solutions; positive definiteness is not enforced. The paper does not describe any symmetrization/post-processing, nor its interaction with blockwise computation.
+- The “covariance perturbation”/thresholding theorem is weakly motivated and unvalidated. The result essentially states that adding small sub-exponential noise preserves a deviation bound. In practice, the proposal amounts to hard-thresholding C at c sqrt(log p/n) (a known idea). The paper neither deploys this in experiments nor quantifies its effect on solution quality, feasibility, or downstream accuracy.
+- Algorithmic inconsistencies/clarity issues:
+  - Derivation vs. pseudocode mismatch in V-updates: text has Vt = ρη(2 V̂t − V̂t−1) while Algorithm 1 uses Vt+1 = (ρ/η)(2 V̂t+1 − V̂t). This coefficient inconsistency is critical for reproducibility and the stated convergence condition.
+  - The augmented Lagrangian and scaling of ρ appear with missing 1/2 factors; please standardize definitions.
+  - Notation in Algorithm 1 is inconsistent (box step omits E; later includes E). 
+- Experimental evaluation emphasizes runtime/speedup but provides limited accuracy evaluation:
+  - Synthetic experiments: only one sparsity level (0.05) and a precision–recall plot; no scaling in n, p, or noise levels; no reporting of constraint residuals or objective gaps at termination.
+  - Large-scale 1e6 demo: no accuracy metrics (even feasibility residuals), memory footprint, I/O footprint, or sparsity of the solution. Claiming “one trillion parameters” invites questions about how outputs are stored; are columns written sparsely to disk? What is the final number of nonzeros?
+  - Baselines: Missing stronger large-scale graphical lasso implementations (e.g., BigQUIC) and other distributed solvers. DC-QUIC comparisons are favorable only at small block sizes; fairness of parameter tuning (matching sparsity) is debatable given different objectives. TIGER can be parallelized column-wise; its distributed performance is not assessed.
+- HPC details are under-specified: communication costs, overlap, and stopping criteria; sensitivity to block size (pb, nb, kb) and process-grid geometry; impact of sparsity in X,Y; and cache behavior are discussed qualitatively but not quantified.
+- Related work and references are incomplete and contain formatting errors; several entries are missing years/venues.
+
+Questions for the authors
+1. How do you symmetrize the CLIME solution across column blocks? Do you enforce or promote symmetry during optimization? What is the impact on feasibility and runtime?
+2. What stopping criteria are used (primal/dual residuals, objective change)? Please report final residuals and objective suboptimality and connect these to a bound on statistical error.
+3. For the 1e6 experiment, what is the final number of nonzeros, total memory used, and size of the stored solution? Are columns streamed to disk? Any compression?
+4. Can you reconcile the V-update inconsistency and provide a self-contained, correct pseudocode with parameter ranges ensuring convergence?
+5. Did you actually use covariance thresholding/perturbations in any experiment? If not, why include the theorem? If yes, please quantify its effect.
+6. How does performance compare to state-of-the-art large-scale graphical lasso solvers on the same hardware, both in runtime and accuracy?
+
+Minor comments
+- Clean up notation (E in Algorithm 1; norms; missing 1/2 in augmented terms).
+- Clarify whether convergence bounds are ergodic or last-iterate, and whether they follow directly from [He & Yuan, 2012] or require new arguments.
+- Provide λ, ρ, η selection guidelines; the sentence “Tiger is parameter tuning free” should be balanced with how you set λ for CLIME across datasets.
+- Some references are incomplete or duplicated; please fix.
+
+Pros for acceptance
+- Addresses a relevant and difficult scaling problem with a practical, HPC-aware design.
+- Demonstrates substantial engineering and promising empirical speedups.
+- Potentially useful template for other constrained large-scale problems.
+
+Cons for acceptance
+- Insufficient validation of statistical accuracy and lack of analysis linking optimization error to estimation error.
+- Algorithmic ambiguities and notational inconsistencies hinder reproducibility.
+- Limited and partly mismatched baselines; no accuracy reports for the flagship large-scale demo.
+- Theoretical contributions appear incremental relative to known inexact/linearized ADMM results.
+
+Recommendation
+Lean reject. The systems contribution is promising, but the paper falls short on methodological soundness and empirical validation by NeurIPS standards. Strengthening the statistical error analysis (with approximate feasibility), clarifying and correcting the algorithm, expanding accuracy-focused experiments (including large-scale), and comparing against stronger baselines would significantly improve the case for acceptance.

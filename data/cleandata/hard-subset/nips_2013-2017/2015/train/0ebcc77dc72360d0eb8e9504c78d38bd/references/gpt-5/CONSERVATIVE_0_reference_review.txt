@@ -1,0 +1,58 @@
+Summary
+The paper proposes a new Gaussian process (GP)–based global optimization algorithm, IMGPO, that combines hierarchical partitioning (DIRECT/SOO-style) with GP upper confidence bounds to “filter” candidate regions. The key conceptual move is to avoid relying on a single (possibly loose) bound on f, and instead implicitly consider infinitely many candidate semi-metric bounds around the global optimizer, while using the GP-UCB to prune candidates. The authors claim the first exponential simple-regret bound O(λN+Ngp) (λ < 1) for a GP-based method without the impractical δ-cover sampling of de Freitas et al., and without auxiliary inner optimization. They analyze the algorithm under an assumption of a Hölder-type “unknown semi-metric” around the optimizer (Assumptions 1–2), introduce an “infinite-metric exploration loss” ρt capturing the overhead of not committing to a single bound, and give a high-probability regret bound depending on ρ̄t, dimension D, and constants. Experiments on several synthetic benchmarks compare IMGPO with SOO, BaMSOO, and GP-EI/PI, showing empirical gains in most cases. Code is released.
+
+Relation to prior work
+- The algorithmic backbone builds on optimistic partitioning (DIRECT, SOO/DOO), while the GP is used similarly to BaMSOO to rule out suboptimal nodes without evaluating f.
+- The theoretical framing echoes the “unknown smoothness” line of Munos (SOO/DOO), replacing fixed Lipschitz constants with a near-optimality/Hölder condition around x*. The “infinite-metric” idea is reminiscent of DIRECT’s balance of global/local search, but is extended with a GP-based pruning step.
+- The paper positions itself against de Freitas et al. (deterministic GP bandits with δ-cover) and BaMSOO (polynomial bounds), claiming exponential convergence while avoiding δ-covers.
+
+Strengths
+- Ambitious and relevant goal: a GP-based optimizer with exponential simple-regret without δ-cover. If correct, this would be a notable theoretical contribution.
+- Clear attempt to connect GP-based upper bounds with optimistic partitioning; the “infinite-metric exploration loss” provides an interpretable handle for the effect of not fixing a single smoothness.
+- The algorithm avoids auxiliary inner optimization of the acquisition, which is desirable in expensive black-box settings.
+- Empirical comparisons on a range of synthetic functions, with open-source code.
+
+Weaknesses and concerns
+Technical soundness and assumptions
+1) Use of GP-UCB confidence without conditions: The key property “f(x) ≤ U(x|D) with probability ≥ 1 − η over all calls” underpins pruning and the analysis. However, the paper does not state conditions under which this holds. In standard GP-UCB theory, one assumes either (a) f is a sample from the GP prior with fixed hyperparameters, or (b) a frequentist RKHS norm bound and appropriately growing βt (Srinivas et al., 2010). Here, (i) the paper treats f as an arbitrary deterministic function, (ii) it re-estimates GP hyperparameters online via empirical Bayes each iteration, and (iii) uses a fixed schedule for ςM based on a union bound over calls. Under these conditions the event f(x) ≤ μ + ςσ need not hold with any nontrivial probability, and can be violated arbitrarily often (as the authors themselves observe in experiments for Rosenbrock2). This is a critical gap: the main theorem relies on a global high-probability event that is not justified by the stated assumptions.
+
+2) Exponential rate depends on evolving, algorithm-dependent quantities: The bound is O(exp{−c (N + Ngp)/(C D ρ̄t)}), with λ = 3−α/(2 C D ρ̄t). There is no a priori control of ρ̄t; in the “useful GP” case, N/ρ̄t = Ω(N), yielding a clean exponential-in-N rate, but in the “useless GP” case ρ̄t can grow and the exponent degenerates (a remark acknowledges up to O(√N)-like behavior unless an extra mechanism is imposed). Thus the headline “exponential convergence” is contingent on an unverified property of the GP bound being “useful,” which is not ensured given point (1). As stated, the worst-case behavior is unclear, and may not improve over existing polynomial guarantees.
+
+3) Dependence on Ngp in the exponent: The regret is measured as a function of N + Ngp, where Ngp counts times the algorithm installs a GP-UCB value instead of evaluating f. In BO, the standard cost metric is the number of expensive function evaluations N. Counting Ngp as if it were an evaluation inflates the apparent convergence. A fair statement would bound rN as a function of N alone, possibly with constants depending on algorithmic parameters; or provide a separate computational bound for Ngp. As written, the main theorem does not establish exponential decay in regret with respect to the true evaluation budget.
+
+4) Assumptions on local smoothness vs generality: Assumption 1–2 imply f(x*) − f(x) ≤ L ||x − x*||αp, i.e., Hölder growth near the optimum. This aligns with DOO/SOO’s assumptions, but it is stronger than global Lipschitz and excludes many practically relevant cases (e.g., flat basins, discontinuities). The paper markets the assumption as very weak (“unknown semi-metric”), but the concrete Assumption 2 is substantive. The theorem constant λ also degrades rapidly with D (authors acknowledge limited scalability).
+
+5) Hyperparameter learning and theory mismatch: The analysis appears to presume a fixed kernel to define UCBs with a single union bound. In practice, the method updates kernel hyperparameters every iteration by empirical Bayes, which invalidates the stated tail bound unless the analysis is extended to hold uniformly over the learned hyperparameters (which is nontrivial). This inconsistency undermines both the theorem’s applicability to the implementation and the experimental interpretation.
+
+6) Algorithmic complexity and unclear role of Ξ: Step (iii) requires expanding a subtree to depth ξ and evaluating UCBs, bounded by Ξmax, and Ξ is heuristically adapted. The theorem degrades with Ξn, but guidance on setting Ξmax to balance theory and computation is limited. It is not clear that the claimed advantage “no auxiliary optimization” outweighs the potentially heavy combinatorial pruning cost.
+
+Empirical evaluation
+- Baselines are not strong. GP-EI/PI are disadvantaged by using SOO to optimize the acquisition and a single isotropic Matérn kernel with fixed initial hyperparameters, without ARD, restarts, or modern practices. There is no comparison to GP-UCB variants with established βt schedules, entropy search/PES, or other BO methods.
+- The benchmark suite is small and mostly synthetic; there are no real black-box tasks (e.g., ML hyperparameter tuning).
+- The claimed advantage in high dimensions is only via REMBO with minimal details. No ablation of ρ̄t, Ngp, or effect of hyperparameter learning is provided.
+- The authors themselves note cases where GP bounds are “misleading,” yet the algorithm still outperforms SOO on average. This makes it even more important to quantify how often f(x) ≤ U holds in practice, since the theory depends on it.
+
+Clarity
+The paper is generally readable but dense. Several definitions and indices in the pseudocode are hard to follow (e.g., Eq. 22 and the use of i∗h+ξ), and some notation inconsistencies and typos exist. The “unknown bound” inequality is counterintuitive as stated and would benefit from recasting directly as the Hölder near-optimality condition. A self-contained statement of the probabilistic assumptions used in the UCB step is needed.
+
+Pros
+- Tackles an important theoretical question in BO (fast deterministic convergence without δ-cover).
+- Interesting hybridization of GP-UCB with optimistic partitioning; the “infinite-metric loss” is a useful conceptual device.
+- Open-source implementation; empirical gains on several test functions.
+
+Cons
+- Central theoretical guarantee relies on a GP-UCB confidence property that is not justified for the stated setting (deterministic f, empirical Bayes hyperparameters).
+- “Exponential” rate depends on Ngp and ρ̄t; no guarantee as a function of N alone; worst-case behavior unclear.
+- Significant mismatch between theory and implementation (hyperparameter learning).
+- Limited and weak empirical baselines; lack of rigorous ablations; no real-world tasks.
+- Scalability with dimension is acknowledged as problematic; no concrete resolution provided.
+
+Questions for the authors
+1) Under what precise assumptions on f, kernel, and hyperparameter estimation does the event f(x) ≤ U(x|D) hold with probability ≥ 1 − η across all calls? Can you adopt an RKHS-based GP-UCB analysis (à la Srinivas et al.) with an appropriate βt and fixed kernel to make the bound rigorous?
+2) Can you provide a regret bound that depends only on N (function evaluations), not N + Ngp, or else bound Ngp in terms of N so that exponential-in-N decay follows?
+3) Can you empirically report ρ̄t and the frequency of UCB violations across runs, and ablate the effect of Ξmax?
+4) How sensitive are results to kernel choice and hyperparameter learning? Please compare against tuned GP baselines with standard acquisition optimizers.
+5) Can you clarify the computational complexity of step (iii) and provide wall-clock comparisons?
+
+Recommendation
+Given the concerns about the validity of the probabilistic assumption underlying the UCB pruning (and its mismatch with empirical Bayes hyperparameter updates), the dependence of the “exponential” rate on Ngp and uncontrolled ρ̄t, and the limited/uneven empirical validation, I cannot recommend acceptance at this stage. Strengthening the theoretical foundations (with precise conditions under which the UCB property holds), providing a regret bound in terms of N, and substantially improving the empirical comparisons would make this a much more compelling contribution.

@@ -1,0 +1,400 @@
+{
+  "name" : "c2aee86157b4a40b78132f1e71a9e6f1.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "DESPOT: Online POMDP Planning with Regularization",
+    "authors" : [ "Adhiraj Somani", "Nan Ye", "David Hsu", "Wee Sun Lee" ],
+    "emails" : [ "adhirajsomani@gmail.com,", "yenan@comp.nus.edu.sg", "dyhsu@comp.nus.edu.sg", "leews@comp.nus.edu.sg" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Partially observable Markov decision processes (POMDPs) provide a principled general framework for planning in partially observable stochastic environments. However, POMDP planning is computationally intractable in the worst case [11]. The challenges arise from three main sources. First, a POMDP may have a large number of states. Second, as the state is not fully observable, the agent must reason with beliefs, which are probability distributions over the states. Roughly, the size of the belief space grows exponentially with the number of states. Finally, the number of actionobservation histories that must be considered for POMDP planning grows exponentially with the planning horizon. The first two difficulties are usually referred to as the “curse of dimensionality”, and the last one, the “curse of history”. To address these difficulties, online POMDP planning (see [17] for a survey) chooses one action at a time and interleaves planning and plan execution. At each time step, the agent performs a D-step lookahead search. It plans the immediate next action for the current belief only and reasons in the neighborhood of the current belief, rather than over the entire belief space. Our work adopts this online planning approach.\nRecently an online POMDP planning algorithm called POMCP has successfully scaled up to very large POMDPs [18]. POMCP, which is based on Monte Carlo tree search, tries to break the two curses by sampling states from the current belief and sampling histories with a black-box simulator. It uses the UCT algorithm [9] to control the exploration-exploitation trade-off during the online lookahead search. However, UCT is sometimes overly greedy and suffers the worst-case performance of Ω(exp(exp(. . . exp(1) . . .)))1 samples to find a sufficiently good action [4].\nThis paper presents a new algorithm for online POMDP planning. It enjoys the same strengths as POMCP—breaking the two curses through sampling—but avoids POMCP’s extremely poor worst-case behavior by evaluating policies on a small number of sampled scenarios [13]. In each planning step, the algorithm searches for a good policy derived from a Determinized Sparse Partially Observable Tree (DESPOT) for the current belief, and executes the policy for one step. A DESPOT summarizes the execution of all policies under K sampled scenarios. It is structurally similar to a standard belief tree, but contains only belief nodes reachable under the K scenarios\n1Composition of D − 1 exponential functions.\na1\no1\na2\no2o1 o2\na1\no1\na2\no2o1 o2\na1\no1\na2\no2o1 o2\nthis lower bound as a regularized utility function, which it uses to optimally balance the size of a policy and its estimated performance under the sampled scenarios. We show that R-DESPOT computes a near-optimal policy whenever a small optimal policy exists (Section 4). For anytime online planning, we give a heuristic approximation, Anytime Regularized DESPOT (AR-DESPOT), to the R-DESPOT algorithm (Section 5). Experiments show strong results of AR-DESPOT, compared with two of the fastest online POMDP algorithms (Section 6)."
+    }, {
+      "heading" : "2 Related Work",
+      "text" : "There are two main approaches to POMDP planning: offline policy computation and online search. In offline planning, the agent computes beforehand a policy contingent upon all possible future scenarios and executes the computed policy based on the observations received. Although offline planning algorithms have achieved dramatic progress in computing near-optimal policies (e.g., [15, 21, 20, 10]), they are difficult to scale up to very large POMDPs, because of the exponential number of future scenarios that must be considered.\nIn contrast, online planning interleaves planning and plan execution. The agent searches for a single best action for the current belief only, executes the action, and updates the belief. The process then repeats at the new belief. A recent survey [17] lists three main categories of online planning algorithms: heuristic search, branch-and-bound pruning, and Monte Carlo sampling. AR-DESPOT contains elements of all three, and the idea of constructing DESPOTs through deterministic sampling is related to those in [8, 13]. However, AR-DESPOT balances the size of a policy and its estimated performance during the online search, resulting in improved performance for suitable planning tasks.\nDuring the online search, most algorithms, including those based on Monte Carlo sampling (e.g., [12, 1]), explicitly represents the belief as a probability distribution over the state space. This, however, limits their scalability for large state spaces, because a single belief update can take time quadratic in the number of states. In contrast, DESPOT algorithms represent the belief as a set of particles, just as POMCP [18] does, and do not perform belief update during the online search.\nOnline search and offline policy computation are complementary and can be combined, e.g., by using approximate or partial policies computed offline as the default policies at the bottom of the search tree for online planning (e.g., [2, 5]) or as macro-actions to shorten the search horizon [7]."
+    }, {
+      "heading" : "3 Determinized Sparse Partially Observable Trees",
+      "text" : ""
+    }, {
+      "heading" : "3.1 POMDP Preliminaries",
+      "text" : "A POMDP is formally a tuple (S,A,Z, T,O,R), where S is a set of states, A is a set of actions, Z is a set of observations, T (s, a, s′) = p(s′|s, a) is the probability of transitioning to state s′ when the agent takes action a in state s, O(s, a, z) = p(z|s, a) is the probability of observing z if the agent takes action a and ends in state s, and R(s, a) is the immediate reward for taking action a in state s.\nA POMDP agent does not know the true state, but receives observations that provide partial information on the state. The agent maintains a belief, often represented as a probability distribution over S. It starts with an initial belief b0. At time t, it updates the belief bt according to Bayes’ rule by incorporating information from the action taken at time t− 1 and the resulting observation: bt = τ(bt−1, at−1, zt). A policy π : B 7→ A specifies the action a ∈ A at belief b ∈ B. The value of a policy π at a belief b is the expected total discounted reward obtained by following π with initial belief b: Vπ(b) = E (∑∞ t=0 γ tR ( st, π(bt) ) ∣∣ b0 = b), for some discount factor γ ∈ [0, 1).\nOne way of online POMDP planning is to construct a belief tree (Figure 1), with the current belief b0 as the initial belief at the root of the tree, and perform lookahead search on the tree for a policy π that maximizes Vπ(b0). Each node of the tree represents a belief. A node branches into |A| action edges, and each action edge branches further into |Z| observation edges. If a node and its child represent beliefs b and b′, respectively, then b′ = τ(b, a, z) for some a ∈ A and z ∈ Z. To search a belief tree, we typically truncate it at a maximum depth D and perform a post-order traversal. At each leaf node, we simulate a default policy to obtain a lower bound on its value. At each internal node, we apply Bellman’s principle of optimality to choose a best action:\nV (b) = max a∈A {∑ s∈S b(s)R(s, a) + γ ∑ z∈Z p(z|b, a)V ( τ(b, a, z) )} , (1)\nwhich recursively computes the maximum value of action branches and the average value of observation branches. The results are an approximately optimal policy π̂, represented as a policy tree, and the corresponding value Vπ̂(b0). A policy tree retains only the chosen action branches, but all observation branches from the belief tree2. The size of such a policy is the number of tree nodes.\nOur algorithms represent a belief as a set of particles, i.e., sampled states. We start with an initial belief. At each time step, we search for a policy π̂, as described above. The agent executes the first action a of π̂ and receives a new observation z. We then apply particle filtering to incorporate information from a and z into an updated new belief. The process then repeats."
+    }, {
+      "heading" : "3.2 DESPOT",
+      "text" : "While a standard belief tree captures the execution of all policies under all possible scenarios, a DESPOT captures the execution of all policies under a set of sampled scenarios (Figure 1). It contains all the action branches, but only the observation branches under the sampled scenarios.\nWe define DESPOT constructively by applying a deterministic simulative model to all possible action sequences under K scenarios sampled from an initial belief b0. A scenario is an abstract simulation trajectory starting with some state s0. Formally, a scenario for a belief b is a random sequence φ = (s0, φ1, φ2, . . .), in which the start state s0 is sampled according to b and each φi is a real number sampled independently and uniformly from the range [0, 1]. The deterministic simulative model is a function g : S×A×R 7→ S×Z, such that if a random number φ is distributed uniformly over [0, 1], then (s′, z′) = g(s, a, φ) is distributed according to p(s′, z′|s, a) = T (s, a, s′)O(s′, a, z′). When we simulate this model for an action sequence (a1, a2, a3, . . .) under a scenario (s0, φ1, φ2, . . .), the simulation generates a trajectory (s0, a1, s1, z1, a2, s2, z2, . . .), where (st, zt) = g(st−1, at, φt) for t = 1, 2, . . .. The simulation trajectory traces out a path (a1, z1, a2, z2, . . .) from the root of the standard belief tree. We add all the nodes and edges on this path to the DESPOT. Each DESPOT node b contains a set Φb, consisting of all scenarios that it encounters. The start states of the scenarios in Φb form a particle set that represents b approximately. We insert the scenario (s0, φ0, φ1, . . .) into the set Φb0 and insert (st, φt+1, φt+2, . . .) into the set Φbt for the belief node bt reached at the end of the subpath (a1, z1, a2, z2, . . . , at, zt), for t = 1, 2, . . .. Repeating this process for every action sequence under every sampled scenario completes the construction of the DESPOT.\nA DESPOT is determined completely by the K scenarios, which are sampled randomly a priori. Intuitively, a DESPOT is a standard belief tree with some observation branches removed. While a belief tree of height D has O(|A|D|Z|D) nodes, a corresponding DESPOT has only O(|A|DK) nodes, because of reduced observation branching under the sampled scenarios. Hence the name Determinized Sparse Partially Observable Tree (DESPOT).\nTo evaluate a policy π under sampled scenarios, define Vπ,φ as the total discounted reward of the trajectory obtained by simulating π under a scenario φ. Then V̂π(b) = ∑ φ∈Φb Vπ,φ / |Φb| is an estimate of Vπ(b), the value of π at b, under a set of scenarios, Φb. We then apply the usual belief tree search from the previous subsection to a DESPOT to find a policy having good performance under the sampled scenarios. We call this algorithm Basic DESPOT (B-DESPOT).\nThe idea of using sampled scenarios for planning is exploited in hindsight optimization (HO) as well [3, 22]. HO plans for each scenario independently and builds K separate trees, each with O(|A|D) nodes. In contrast, DESPOT captures all K scenarios in a single tree with O(|A|DK) nodes and allows us to reason with all scenarios simultaneously. For this reason, DESPOT can provide stronger performance guarantees than HO.\n2A policy tree can be represented more compactly by labeling each node by the action edge that follows and then removing the action edge. We do not use this representation here."
+    }, {
+      "heading" : "4 Regularized DESPOT",
+      "text" : "To search a DESPOT for a near-optimal policy, B-DESPOT chooses a best action at every internal node of the DESPOT, according to the scenarios it encounters. This, however, may cause overfitting: the chosen policy optimizes for the sampled scenarios, but does not perform well in general, as many scenarios are not sampled. To reduce overfitting, our R-DESPOT algorithm leverages the idea of regularization, which balances the estimated performance of a policy under the sampled scenarios and the policy size. If the subtree at a DESPOT node is too large, then the performance of a policy for this subtree may not be estimated reliably with K scenarios. Instead of searching the subtree for a policy, R-DESPOT terminates the search and uses a simple default policy from this node onwards.\nTo derive R-DESPOT, we start with two theoretical results. The first one provides an output-sensitive lower bound on the performance of any arbitrary policy derived from a DESPOT. It implies that despite its sparsity, a DESPOT contains sufficient information for approximate policy evaluation, and the accuracy depends on the size of the policy. The second result shows that by optimizing this bound, we can find a policy with small size and high value. For convenience, we assume that R(s, a) ∈ [0, Rmax] for all s ∈ S and a ∈ A, but the results can be easily extended to accommodate negative rewards. The proofs of both results are available in the supplementary material.\nFormally, a policy tree derived from a DESPOT contains the same root as the DESPOT, but only one action branch at each internal node. Let Πb0,D,K denote the class of all policy trees derived from DESPOTs that have height D and are constructed from K sampled scenarios for belief b0. Like a DESPOT, a policy tree π ∈ Πb0,D,K may not contain all observation branches. If the execution of π encounters an observation branch not present in π, we simply follow the default policy from then on. Similarly, we follow the default policy, when reaching a leaf node. We now bound the error on the estimated value of a policy derived from a DESPOT.\nTheorem 1 For any τ, α ∈ (0, 1), every policy tree π ∈ Πb0,D,K satisfies\nVπ(b0) ≥ 1− α 1 + α V̂π(b0)− Rmax (1 + α)(1− γ) ·\nln(4/τ) + |π| ln ( KD|A||Z| ) αK , (2)\nwith probability at least 1−τ , where V̂π(b0) is the estimated value of π under any set ofK randomly sampled scenarios for belief b0.\nThe second term on the right hand side (RHS) of (2) captures the additive error in estimating the value of policy tree π, and depends on the size of π. We can make this error arbitrarily small by choosing a suitably large K, the number of sampled scenarios. Furthermore, this error grows logarithmically with |A| and |Z|, indicating that the approximation scales well with large action and observation sets. The constant α can be tuned to tighten the bound. A smaller α value allows the first term on the RHS of (2) to approximate V̂π better, but increases the additive error in the second term. We have specifically constructed the bound in this multiplicative-additive form, due to Haussler [6], in order to apply efficient dynamic programming techniques in R-DESPOT.\nNow a natural idea is to search for a near-optimal policy π by maximizing the RHS of (2), which guarantees the performance of π by accounting for both the estimated performance and the size of π.\nTheorem 2 Let π∗ be an optimal policy at a belief b0. Let π be a policy derived from a DESPOT that has height D and is constructed from K randomly sampled scenarios for belief b0. For any τ, α ∈ (0, 1), if π maximizes\n1− α 1 + α V̂π(b0)− Rmax (1 + α)(1− γ) · |π| ln\n( KD|A||Z| ) αK\n(3)\namong all policies derived from the DESPOT, then\nVπ(b0) ≥ 1−α1+αVπ∗(b0)− Rmax (1+α)(1−γ)\n( ln(8/τ)+|π∗| ln ( KD|A||Z| ) αK + (1− α) (√ 2 ln(2/τ) K + γ D )) ,\nwith probability at least 1− τ .\nTheorem 2 implies that if a small optimal policy tree π∗ exists, then we can find a near-optimal policy with high probability by maximizing (3). Note that π∗ is a globally optimal policy at b0. It may or may not lie in Πb0,D,K . The expression in (3) can be rewritten in the form V̂π(b0) − λ|π|, similar to that of regularized utility functions in many machine learning algorithms.\nWe now describe R-DESPOT, which consists of two main steps. First, R-DESPOT constructs a DESPOT T of height D using K scenarios, just as B-DESPOT does. To improve online planning performance, it may use offline learning to optimize the values for D and K. Second, R-DESPOT performs bottom-up dynamic programming on T and derive a policy tree that maximizes (3).\nFor a given policy tree π derived the DESPOT T , we define the regularized weighted discounted utility (RWDU) for a node b of π:\nν(b) = |Φb| K γ∆(b)V̂πb(b)− λ|πb|,\nwhere |Φb| is the number of scenarios passing through node b, γ is the discount factor, ∆(b) is the depth of b in the tree π, πb is the subtree of π rooted at b, and λ is a fixed constant. Then the regularized utility V̂π(b0)− λ|π| is simply ν(b0). We can compute ν(πb) recursively:\nν(b) = R̂(b, ab) + ∑\nb′∈CHπ(b)\nν(b′) and\nR̂(b, ab) = 1\nK ∑ φ∈Φb γ∆(b)R(sφ, ab)− λ.\nwhere ab is the chosen action of π at the node b, CHπ(b) is the set of child nodes of b in π, and sφ is the start state associated with the scenario φ.\nWe now describe the dynamic programming procedure that searches for an optimal policy in T . For any belief node b in T , let ν∗(b) be the maximum RWDU of b under any policy tree π derived from T . We compute ν∗(b) recursively. If b is a leaf node of T , ν∗(b) = |Φb|K γ\n∆(b)V̂π0(b)− λ, for some default policy π0. Otherwise,\nν∗(b) = max { |Φb| K γ∆(b)V̂π0(b)− λ, max a { R̂(b, a) + ∑ b′∈CH(b,a) ν∗(b′) }} , (4)\nwhere CH(b, a) is the set of child nodes of b under the action branch a. The first maximization in (4) chooses between executing the default policy or expanding the subtree at b. The second maximization chooses among the different actions available. The value of an optimal policy for the DESPOT T rooted at the belief b0 is then ν∗(b0) and can be computed with bottom-up dynamic programming in time linear in the size of T ."
+    }, {
+      "heading" : "5 Anytime Regularized DESPOT",
+      "text" : "To further improve online planning performance for large-scale POMDPs, we introduce ARDESPOT, an anytime approximation of R-DESPOT. AR-DESPOT applies heuristic search and branchand-bound pruning to uncover the more promising parts of a DESPOT and then searches the partially constructed DESPOT for a policy that maximizes the regularized utility in Theorem 2. A brief summary of AR-DESPOT is given in Algorithm 1. Below we provides some details on how AR-DESPOT performs the heuristic search (Section 5.1) and constructs the upper and lower bounds for branchand-bound pruning (Sections 5.2 and 5.3 )."
+    }, {
+      "heading" : "5.1 DESPOT Construction by Forward Search",
+      "text" : "AR-DESPOT incrementally constructs a DESPOT T using heuristic forward search [19, 10]. Initially, T contains only the root node with associated belief b0 and a set Φb0 of scenarios sampled according b0. We then make a series of trials, each of which augments T by tracing a path from the root to a leaf of T and adding new nodes to T at the end of the path. For every belief node b in T , we maintain an upper bound U(b) and a lower bound L(b) on V̂π∗(b), which is the value of the optimal policy π∗ for b under the set of scenarios Φb. Similarly we maintain bounds U(b, a) and L(b, a) on the Q-value Qπ∗(b, a) = 1|Φb| ∑ φ∈Φb R(sφ, a) + γ ∑ b′∈CH(b,a) |Φb′ | |Φb| V̂π\n∗(b′). A trial starts the root of T . In each step, it chooses the action branch a∗ that maximizes U(b, a) for the current node b and then chooses the observation branch z∗ that maximizes the weighted excess uncertainty at the child node b′ = τ(b, a∗, z):\nWEU(b′) = |Φb′ | |Φb| excess(b′),\nwhere excess(b′) = U(b′) − L(b′) − γ−∆(b′) [19] and is a constant specifying the desired gap between the upper and lower bounds at the root b0. If the chosen node τ(b, a∗, z∗) has negative\nAlgorithm 1 AR-DESPOT\n1: Set b0 to the initial belief. 2: loop 3: T ← BUILDDESPOT(b0). 4: Compute an optimal policy π∗ for T using (4) 5: Execute the first action of a of π∗. 6: Receive observation z. 7: Update the belief b0 ← τ(b0, a, z).\nBUILDDESPOT(b0) 1: Sample a set Φb0 of K random scenarios\nfor b0. 2: Insert b0 into T as the root node. 3: while time permitting do 4: b← RUNTRIAL(b0 , T ). 5: Back up upper and lower bounds for every node on the path from b to b0. 6: return T\nRUNTRIAL(b, T ) 1: if ∆(b) > D then 2: return b 3: if b is a leaf node then 4: Expand b one level deeper, and insert\nall new nodes into T as children of b. 5: a∗ ← arg maxa∈A U(b, a). 6: z∗ ← arg maxz∈Zb,a∗ WEU(τ(b, a\n∗, z)). 7: b← τ(b, a∗, z∗). 8: if WEU(b) ≥ 0 then 9: return RUNTRIAL(b, T )\n10: else 11: return b\nexcess uncertainty, the trial ends. Otherwise it continues until reaching a leaf node of T . We then expand the leaf node b one level deeper by adding new belief nodes for every action and every observation as children of b. Finally we trace the path backward to the root and perform backup on both the upper and lower bounds at each node along the way. For the lower-bound backup,\nL(b) = max a∈A\n{ 1 |Φb| ∑ φ∈Φb R(sφ, a) + γ ∑ z∈Zb,a |Φτ(b,a,z)| |Φb| L(τ(b, a, z)) } . (5)\nwhere Zb,a is the set of observations encountered when action a is taken at b under all scenarios in Φb. The upper bound backup is the same. We repeat the trials as long as time permits, thus making the algorithm anytime."
+    }, {
+      "heading" : "5.2 Initial Upper Bounds",
+      "text" : "There are several approaches for constructing the initial upper bound at a node b of a DESPOT. A simple one is the uninformative bound of Rmax/(1− γ). To obtain a tighter bound, we may exploit domain-specific knowledge. Here we give a domain-independent construction, which is the average upper bound over all scenarios in Φb. The upper bound for a particular scenario φ ∈ Φb is the maximum value achieved by any arbitrary policy under φ. Given φ, we have a deterministic planning problem and solve it by dynamic programming on a trellis of D time slices. Trellis nodes represent states, and edges represent actions at each time step. The path with highest value in the trellis gives the upper bound under φ. Repeating this procedure for every φ ∈ Φb and taking the average gives an upper bound on the value of b under the set Φb. It can be computed in O(K|S||A|D) time."
+    }, {
+      "heading" : "5.3 Initial Lower Bounds and Default Policies",
+      "text" : "To construct the lower bound at a node b, we may simulate any policy forN steps under the scenarios in Φb and compute the average total discounted reward, all in O(|Φb|N) time. One possibility is to use a fixed-action policy for this purpose. A better one is to handcraft a policy that chooses an action based on the history of actions and observations, a technique used in [18]. However, it is often difficult to handcraft effective history-based policies. We thus construct a policy using the belief b: π(b) = f(Λ(b)), where Λ(b) is the mode of the probability distribution b and f : S → A is a mapping that specifies the action at the state s ∈ S. It is much more intuitive to construct f , and we can approximate Λ(b) easily by determining the most frequent state using Φb. Note that although history-based policies satisfy the requirements of Theorem 1, belief-based policies do not. The difference is, however, unlikely to be significant to affect performance in practice."
+    }, {
+      "heading" : "6 Experiments",
+      "text" : "To evaluate AB-DESPOT experimentally, we compared it with four other algorithms. Anytime Basic DESPOT (AB-DESPOT) is AR-DESPOT without the dynamic programming step that computes RWDU. It helps to understand the benefit of regularization. AEMS2 is an early successful online POMDP algorithm [16, 17]. POMCP has scaled up to very large POMDPs [18]. SARSOP is a state-of-the-art offline POMDP algorithm [10]. It helps to calibrate the best performance achievable for POMDPs of moderate size. In our online planning tests, each algorithm was given exactly 1 second per step to choose an action. For AR-DESPOT and AB-DESPOT, K = 500 and D = 90. The regularization parameter λ for AR-DESPOT was selected offline by running the algorithm with a training set distinct from the online test set. The discount factor is γ = 0.95. For POMCP, we used the implementation from the original authors3, but modified it in order to support very large number of observations and strictly follow the 1-second time limit for online planning.\nWe evaluated the algorithms on four domains, including a very large one with about 1056 states (Table 1). In summary, compared with AEMS2, AR-DESPOT is competitive on smaller POMDPs, but scales up much better on large POMDPs. Compared with POMCP, AR-DESPOT performs better than POMCP on the smaller POMDPs and scales up just as well.\nWe first tested the algorithms on Tag [15], a standard benchmark problem. In Tag, the agent’s goal is to find and tag a target that intentionally moves away. Both the agent and target operate in a grid with 29 possible positions. The agent knows its own position but can observe the target’s position only if they are in the same location. The agent can either stay in the same position or move to the four adjacent positions, paying a cost for each move. It can also perform the tag action and is rewarded if it successfully tags the target, but is penalized if it fails. For POMCP, we used the Tag implementation that comes with the package, but modified it slightly to improve its default rollout policy. The modified policy always tags when the agent is in the same position as the robot, providing better performance. For AR-DESPOT, we use a simple particle set default policy, which moves the agent towards the mode of the target in the particle set. For the upper bound, we average the upper bound for each particle as described in Section 5.2. The results (Table 1) show that ARDESPOT gives comparable performance to AEMS2.\nTheorem 1 suggests that AR-DESPOT may still perform well when the observation space is large, if a good small policy exists. To examine the performance of AR-DESPOT on large observation spaces, we experimented with an augmented version of Tag called LaserTag. In LaserTag, the agent moves in a 7 × 11 rectangular grid with obstacles placed in 8 random cells. The behavior of the agent and opponent are identical to that in Tag, except that in LaserTag the agent knows it location before the game starts, whereas in Tag this happens only after the first observation is seen.\nThe agent is equipped with a laser that gives distance estimates in 8 directions. The distance between 2 adjacent cells is considered one unit, and the laser reading in each direction is generated from a normal distribution centered at the true distance of the agent from the nearest obstacle in that direction, with a standard deviation of 2.5 units. The readings are discretized into whole units, so an observation comprises a set of 8 integers. For a map of size 7 × 11, |Z| is of the order of 106. The environment for LaserTag is shown in Figure 2. As can be seen from Table 1, AR-DESPOT outperforms POMCP on this problem. We can also see the effect of regularization by comparing AR-DESPOT with AB-DESPOT. It is not feasible to run AEMS2 or SARSOP on this problem in reasonable time because of the very large observation space.\nTo demonstrate the performance of AR-DESPOT on large state spaces, we experimented with the RockSample problem [19]. The RockSample(n, k) problem mimics a robot moving in an n× n grid containing k rocks, each of which may be good or bad. At each step, the robot either moves to an adjacent cell, samples a rock, or senses a rock. Sampling gives a reward of +10 if the rock is good and -10 otherwise. Both moving and sampling produce a null observation. Sensing produces an observation in {good, bad}, with the probability of producing the correct observation decreasing\n3http://www0.cs.ucl.ac.uk/staff/D.Silver/web/Applications.html\nexponentially with the agent’s distance from the rock. A terminal state is reached when the agent moves past the east edge of the map. For AR-DESPOT, we use a default policy derived from the particle set as follows: a new state is created with the positions of the robot and the rocks unchanged, and each rock is labeled as good or bad depending on whichever condition is more prevalent in the particle set. The optimal policy for the resulting state is used as the default policy. The optimal policy for all states is computed before the algorithm begins, using dynamic programming with the same horizon length as the maximum depth of the search tree. For the initial upper bound, we use the method described in Section 5.2. As in [18], we use a particle filter to represent the belief to examine the behavior of the algorithms in very large state spaces. For POMCP, we used the implementation in [18] but ran it on the same platform as AR-DESPOT. As the results for our runs of POMCP are poorer than those reported in [18], we also reproduce their reported results in Table 1. The results in Table 1 indicate that AR-DESPOT is able to scale up to very large state spaces. Regularization does not appear beneficial to this problem, possibly because it is mostly deterministic, except for the sensing action.\nFinally, we implemented Pocman, the partially observable version of the video game Pacman, as described in [18]. Pocman has an extremely large state space of approximately 1056. We compute an approximate upper bound for a belief by summing the following quantities for each particle in it, and taking the average over all particles: reward for eating each pellet discounted by its distance from pocman; reward for clearing the level discounted by the maximum distance to a pellet; default per-step reward of −1 for a number of steps equal to the maximum distance to a pellet; penalty for eating a ghost discounted by the distance to the closest ghost being chased (if any); penalty for dying discounted by the average distance to the ghosts; and half the penalty for hitting a wall if pocman tries to double back along its direction of movement. This need not always be an upper bound, but AR-DESPOT can be modified to run even when this is the case. For the lower bound, we use a history-based policy that chases a random ghost, if visible, when pocman is under the effect of a powerpill, and avoids ghosts and doubling-back when it is not. This example shows that AR-DESPOT can be used successfully even in cases of extremely large state space."
+    }, {
+      "heading" : "7 Conclusion",
+      "text" : "This paper presents DESPOT, a new approach to online POMDP planning. Our R-DESPOT algorithm and its anytime approximation, AR-DESPOT, search a DESPOT for an approximately optimal policy, while balancing the size of the policy and the accuracy on its value estimate. Theoretical analysis and experiments show that the new approach outperforms two of the fastest online POMDP planning algorithms. It scales up better than AEMS2, and it does not suffer the extremely poor worst-case behavior of POMCP. The performance of AR-DESPOT depends on the upper and lower bounds supplied. Effective methods for automatic construction of such bounds will be an interesting topic for further investigation.\nAcknowledgments. This work is supported in part by MoE AcRF grant 2010-T2-2-071, National Research Foundation Singapore through the SMART IRG program, and US Air Force Research Laboratory under agreement FA2386-12-1-4031."
+    } ],
+    "references" : [ {
+      "title" : "Approaching Bayes-optimality using Monte-Carlo tree search",
+      "author" : [ "J. Asmuth", "M.L. Littman" ],
+      "venue" : "In Proc. Int. Conf. on Automated Planning & Scheduling,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : "1",
+      "year" : 2011
+    }, {
+      "title" : "Dynamic Programming and Optimal Control, volume 1",
+      "author" : [ "D.P. Bertsekas" ],
+      "venue" : "Athena Scientific, 3rd edition,",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 2005
+    }, {
+      "title" : "A framework for simulation-based network control via hindsight optimization",
+      "author" : [ "E.K.P. Chong", "R.L. Givan", "H.S. Chang" ],
+      "venue" : "In Proc. IEEE Conf. on Decision & Control,",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 2000
+    }, {
+      "title" : "Bandit algorithms for tree search",
+      "author" : [ "P.-A. Coquelin", "R. Munos" ],
+      "venue" : "In Proc. Uncertainty in Artificial Intelligence,",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : "4",
+      "year" : 2007
+    }, {
+      "title" : "Combining online and offline knowledge in UCT",
+      "author" : [ "S. Gelly", "D. Silver" ],
+      "venue" : "In Proc. Int. Conf. on Machine Learning,",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : "5",
+      "year" : 2007
+    }, {
+      "title" : "Decision theoretic generalizations of the PAC model for neural net and other learning applications",
+      "author" : [ "D. Haussler" ],
+      "venue" : "Information and Computation,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : "6",
+      "year" : 1992
+    }, {
+      "title" : "Efficient planning under uncertainty with macro-actions",
+      "author" : [ "R. He", "E. Brunskill", "N. Roy" ],
+      "venue" : "J. Artificial Intelligence Research,",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : "7",
+      "year" : 2011
+    }, {
+      "title" : "Approximate planning in large POMDPs via reusable trajectories",
+      "author" : [ "M. Kearns", "Y. Mansour", "A.Y. Ng" ],
+      "venue" : "In Advances in Neural Information Processing Systems (NIPS),",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : "8",
+      "year" : 1999
+    }, {
+      "title" : "Bandit based Monte-Carlo planning",
+      "author" : [ "L. Kocsis", "C. Szepesvari" ],
+      "venue" : "In Proc. Eur. Conf. on Machine Learning,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 2006
+    }, {
+      "title" : "SARSOP: Efficient point-based POMDP planning by approximating optimally reachable belief spaces",
+      "author" : [ "H. Kurniawati", "D. Hsu", "W.S. Lee" ],
+      "venue" : "In Proc. Robotics: Science and Systems,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : "10",
+      "year" : 2008
+    }, {
+      "title" : "On the undecidability of probabilistic planning and infinite-horizon partially observable Markov decision problems",
+      "author" : [ "O. Madani", "S. Hanks", "A. Condon" ],
+      "venue" : "In Proc. AAAI Conf. on Artificial Intelligence,",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 1999
+    }, {
+      "title" : "Approximate planning for factored POMDPs using belief state simplification",
+      "author" : [ "D. McAllester", "S. Singh" ],
+      "venue" : "In Proc. Uncertainty in Artificial Intelligence,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 1999
+    }, {
+      "title" : "PEGASUS: A policy search method for large MDPs and POMDPs",
+      "author" : [ "A.Y. Ng", "M. Jordan" ],
+      "venue" : "In Proc. Uncertainty in Artificial Intelligence,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 2000
+    }, {
+      "title" : "Planning under uncertainty for robotic tasks with mixed observability",
+      "author" : [ "S.C.W. Ong", "S.W. Png", "D. Hsu", "W.S. Lee" ],
+      "venue" : "Int. J. Robotics Research,",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 2010
+    }, {
+      "title" : "Point-based value iteration: An anytime algorithm for POMDPs",
+      "author" : [ "J. Pineau", "G. Gordon", "S. Thrun" ],
+      "venue" : "In Proc. Int. Jnt. Conf. on Artificial Intelligence,",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : "15",
+      "year" : 2003
+    }, {
+      "title" : "AEMS: An anytime online search algorithm for approximate policy refinement in large POMDPs",
+      "author" : [ "S. Ross", "B. Chaib-Draa" ],
+      "venue" : "In Proc. Int. Jnt. Conf. on Artificial Intelligence,",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : "16",
+      "year" : 2007
+    }, {
+      "title" : "Online planning algorithms for POMDPs",
+      "author" : [ "S. Ross", "J. Pineau", "S. Paquet", "B. Chaib-Draa" ],
+      "venue" : "J. Artificial Intelligence Research,",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : "17",
+      "year" : 2008
+    }, {
+      "title" : "Monte-Carlo planning in large POMDPs",
+      "author" : [ "D. Silver", "J. Veness" ],
+      "venue" : "In Advances in Neural Information Processing Systems (NIPS)",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : "18",
+      "year" : 2010
+    }, {
+      "title" : "Heuristic search value iteration for POMDPs",
+      "author" : [ "T. Smith", "R. Simmons" ],
+      "venue" : "In Proc. Uncertainty in Artificial Intelligence,",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : "19",
+      "year" : 2004
+    }, {
+      "title" : "Point-based POMDP algorithms: Improved analysis and implementation",
+      "author" : [ "T. Smith", "R. Simmons" ],
+      "venue" : "In Proc. Uncertainty in Artificial Intelligence,",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : "20",
+      "year" : 2005
+    }, {
+      "title" : "Perseus: Randomized point-based value iteration for POMDPs",
+      "author" : [ "M.T.J. Spaan", "N. Vlassis" ],
+      "venue" : "J. Artificial Intelligence Research,",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : "21",
+      "year" : 2005
+    }, {
+      "title" : "Probabilistic planning via determinization in hindsight",
+      "author" : [ "S.W. Yoon", "A. Fern", "R. Givan", "S. Kambhampati" ],
+      "venue" : "In AAAI,",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : "22",
+      "year" : 2008
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 10,
+      "context" : "However, POMDP planning is computationally intractable in the worst case [11].",
+      "startOffset" : 73,
+      "endOffset" : 77
+    }, {
+      "referenceID" : 16,
+      "context" : "To address these difficulties, online POMDP planning (see [17] for a survey) chooses one action at a time and interleaves planning and plan execution.",
+      "startOffset" : 58,
+      "endOffset" : 62
+    }, {
+      "referenceID" : 17,
+      "context" : "Recently an online POMDP planning algorithm called POMCP has successfully scaled up to very large POMDPs [18].",
+      "startOffset" : 105,
+      "endOffset" : 109
+    }, {
+      "referenceID" : 8,
+      "context" : "It uses the UCT algorithm [9] to control the exploration-exploitation trade-off during the online lookahead search.",
+      "startOffset" : 26,
+      "endOffset" : 29
+    }, {
+      "referenceID" : 3,
+      "context" : ")))1 samples to find a sufficiently good action [4].",
+      "startOffset" : 48,
+      "endOffset" : 51
+    }, {
+      "referenceID" : 12,
+      "context" : "It enjoys the same strengths as POMCP—breaking the two curses through sampling—but avoids POMCP’s extremely poor worst-case behavior by evaluating policies on a small number of sampled scenarios [13].",
+      "startOffset" : 195,
+      "endOffset" : 199
+    }, {
+      "referenceID" : 14,
+      "context" : ", [15, 21, 20, 10]), they are difficult to scale up to very large POMDPs, because of the exponential number of future scenarios that must be considered.",
+      "startOffset" : 2,
+      "endOffset" : 18
+    }, {
+      "referenceID" : 20,
+      "context" : ", [15, 21, 20, 10]), they are difficult to scale up to very large POMDPs, because of the exponential number of future scenarios that must be considered.",
+      "startOffset" : 2,
+      "endOffset" : 18
+    }, {
+      "referenceID" : 19,
+      "context" : ", [15, 21, 20, 10]), they are difficult to scale up to very large POMDPs, because of the exponential number of future scenarios that must be considered.",
+      "startOffset" : 2,
+      "endOffset" : 18
+    }, {
+      "referenceID" : 9,
+      "context" : ", [15, 21, 20, 10]), they are difficult to scale up to very large POMDPs, because of the exponential number of future scenarios that must be considered.",
+      "startOffset" : 2,
+      "endOffset" : 18
+    }, {
+      "referenceID" : 16,
+      "context" : "A recent survey [17] lists three main categories of online planning algorithms: heuristic search, branch-and-bound pruning, and Monte Carlo sampling.",
+      "startOffset" : 16,
+      "endOffset" : 20
+    }, {
+      "referenceID" : 7,
+      "context" : "AR-DESPOT contains elements of all three, and the idea of constructing DESPOTs through deterministic sampling is related to those in [8, 13].",
+      "startOffset" : 133,
+      "endOffset" : 140
+    }, {
+      "referenceID" : 12,
+      "context" : "AR-DESPOT contains elements of all three, and the idea of constructing DESPOTs through deterministic sampling is related to those in [8, 13].",
+      "startOffset" : 133,
+      "endOffset" : 140
+    }, {
+      "referenceID" : 11,
+      "context" : ", [12, 1]), explicitly represents the belief as a probability distribution over the state space.",
+      "startOffset" : 2,
+      "endOffset" : 9
+    }, {
+      "referenceID" : 0,
+      "context" : ", [12, 1]), explicitly represents the belief as a probability distribution over the state space.",
+      "startOffset" : 2,
+      "endOffset" : 9
+    }, {
+      "referenceID" : 17,
+      "context" : "In contrast, DESPOT algorithms represent the belief as a set of particles, just as POMCP [18] does, and do not perform belief update during the online search.",
+      "startOffset" : 89,
+      "endOffset" : 93
+    }, {
+      "referenceID" : 1,
+      "context" : ", [2, 5]) or as macro-actions to shorten the search horizon [7].",
+      "startOffset" : 2,
+      "endOffset" : 8
+    }, {
+      "referenceID" : 4,
+      "context" : ", [2, 5]) or as macro-actions to shorten the search horizon [7].",
+      "startOffset" : 2,
+      "endOffset" : 8
+    }, {
+      "referenceID" : 6,
+      "context" : ", [2, 5]) or as macro-actions to shorten the search horizon [7].",
+      "startOffset" : 60,
+      "endOffset" : 63
+    }, {
+      "referenceID" : 2,
+      "context" : "The idea of using sampled scenarios for planning is exploited in hindsight optimization (HO) as well [3, 22].",
+      "startOffset" : 101,
+      "endOffset" : 108
+    }, {
+      "referenceID" : 21,
+      "context" : "The idea of using sampled scenarios for planning is exploited in hindsight optimization (HO) as well [3, 22].",
+      "startOffset" : 101,
+      "endOffset" : 108
+    }, {
+      "referenceID" : 5,
+      "context" : "We have specifically constructed the bound in this multiplicative-additive form, due to Haussler [6], in order to apply efficient dynamic programming techniques in R-DESPOT.",
+      "startOffset" : 97,
+      "endOffset" : 100
+    }, {
+      "referenceID" : 18,
+      "context" : "1 DESPOT Construction by Forward Search AR-DESPOT incrementally constructs a DESPOT T using heuristic forward search [19, 10].",
+      "startOffset" : 117,
+      "endOffset" : 125
+    }, {
+      "referenceID" : 9,
+      "context" : "1 DESPOT Construction by Forward Search AR-DESPOT incrementally constructs a DESPOT T using heuristic forward search [19, 10].",
+      "startOffset" : 117,
+      "endOffset" : 125
+    }, {
+      "referenceID" : 18,
+      "context" : "In each step, it chooses the action branch a∗ that maximizes U(b, a) for the current node b and then chooses the observation branch z∗ that maximizes the weighted excess uncertainty at the child node b′ = τ(b, a∗, z): WEU(b′) = |Φb′ | |Φb| excess(b′), where excess(b′) = U(b′) − L(b′) − γ−∆(b) [19] and is a constant specifying the desired gap between the upper and lower bounds at the root b0.",
+      "startOffset" : 294,
+      "endOffset" : 298
+    }, {
+      "referenceID" : 17,
+      "context" : "A better one is to handcraft a policy that chooses an action based on the history of actions and observations, a technique used in [18].",
+      "startOffset" : 131,
+      "endOffset" : 135
+    }, {
+      "referenceID" : 15,
+      "context" : "AEMS2 is an early successful online POMDP algorithm [16, 17].",
+      "startOffset" : 52,
+      "endOffset" : 60
+    }, {
+      "referenceID" : 16,
+      "context" : "AEMS2 is an early successful online POMDP algorithm [16, 17].",
+      "startOffset" : 52,
+      "endOffset" : 60
+    }, {
+      "referenceID" : 17,
+      "context" : "POMCP has scaled up to very large POMDPs [18].",
+      "startOffset" : 41,
+      "endOffset" : 45
+    }, {
+      "referenceID" : 9,
+      "context" : "SARSOP is a state-of-the-art offline POMDP algorithm [10].",
+      "startOffset" : 53,
+      "endOffset" : 57
+    }, {
+      "referenceID" : 14,
+      "context" : "We first tested the algorithms on Tag [15], a standard benchmark problem.",
+      "startOffset" : 38,
+      "endOffset" : 42
+    }, {
+      "referenceID" : 18,
+      "context" : "To demonstrate the performance of AR-DESPOT on large state spaces, we experimented with the RockSample problem [19].",
+      "startOffset" : 111,
+      "endOffset" : 115
+    }, {
+      "referenceID" : 13,
+      "context" : "The results for SARSOP and AEMS2 are replicated from [14] and [17], respectively.",
+      "startOffset" : 53,
+      "endOffset" : 57
+    }, {
+      "referenceID" : 16,
+      "context" : "The results for SARSOP and AEMS2 are replicated from [14] and [17], respectively.",
+      "startOffset" : 62,
+      "endOffset" : 66
+    }, {
+      "referenceID" : 17,
+      "context" : "For POMCP, both results from our own tests and those from [18] (in parentheses) are reported.",
+      "startOffset" : 58,
+      "endOffset" : 62
+    }, {
+      "referenceID" : 17,
+      "context" : "As in [18], we use a particle filter to represent the belief to examine the behavior of the algorithms in very large state spaces.",
+      "startOffset" : 6,
+      "endOffset" : 10
+    }, {
+      "referenceID" : 17,
+      "context" : "For POMCP, we used the implementation in [18] but ran it on the same platform as AR-DESPOT.",
+      "startOffset" : 41,
+      "endOffset" : 45
+    }, {
+      "referenceID" : 17,
+      "context" : "As the results for our runs of POMCP are poorer than those reported in [18], we also reproduce their reported results in Table 1.",
+      "startOffset" : 71,
+      "endOffset" : 75
+    }, {
+      "referenceID" : 17,
+      "context" : "Finally, we implemented Pocman, the partially observable version of the video game Pacman, as described in [18].",
+      "startOffset" : 107,
+      "endOffset" : 111
+    } ],
+    "year" : 2013,
+    "abstractText" : "POMDPs provide a principled framework for planning under uncertainty, but are computationally intractable, due to the “curse of dimensionality” and the “curse of history”. This paper presents an online POMDP algorithm that alleviates these difficulties by focusing the search on a set of randomly sampled scenarios. A Determinized Sparse Partially Observable Tree (DESPOT) compactly captures the execution of all policies on these scenarios. Our Regularized DESPOT (R-DESPOT) algorithm searches the DESPOT for a policy, while optimally balancing the size of the policy and its estimated value obtained under the sampled scenarios. We give an output-sensitive performance bound for all policies derived from a DESPOT, and show that R-DESPOT works well if a small optimal policy exists. We also give an anytime algorithm that approximates R-DESPOT. Experiments show strong results, compared with two of the fastest online POMDP algorithms. Source code along with experimental settings are available at http://bigbird.comp. nus.edu.sg/pmwiki/farm/appl/.",
+    "creator" : null
+  }
+}

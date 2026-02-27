@@ -1,0 +1,55 @@
+Summary
+The paper proposes the Radon machine, a black-box parallelization scheme for regularized risk minimization. The method splits the data into r^h chunks, trains the base learner on each chunk in parallel, and aggregates hypotheses in a tree via Radon points, allegedly improving confidence doubly-exponentially with tree height. Under assumptions on sample complexity and Radon numbers (r = d + 2 in Rd), the authors claim that, for a fixed (ε,Δ), the Radon machine achieves polylogarithmic runtime in the sequential sample complexity using quasi-polynomially many processors. Experiments on several datasets compare the scheme to the base learners, to averaging-at-the-end, and to Spark MLlib, showing substantial wall-clock speedups and similar AUC.
+
+Strengths
+- Simple, model-agnostic parallelization that treats the learner as a black box.
+- Clever use of Radon points/Tukey depth; robustness properties versus averaging are interesting.
+- A clean conceptual separation between learning subproblems and aggregation.
+- Empirical results indicate large speedups (80–700× on 150 processors) and competitive AUC across several datasets.
+- Code is provided; discussion connects to NC and P-completeness, and considers communication aspects.
+
+Weaknesses
+Major technical issues:
+1) Incorrect bound in Theorem 3: Iterating Proposition 2 yields δ1 ≤ (rδ0)^2, δ2 ≤ (rδ1)^2 = r^6δ0^4, etc., hence in general δh ≤ r^{2(2^h−1)} δ0^{2^h} = r^{2^{h+1}−2} δ0^{2^h}. The theorem states P(Q(rh)>ε) ≤ (rδ0)^{2^h} = r^{2^h}δ0^{2^h}, which is strictly smaller for r>1 and h≥2 and does not follow from repeated application of Prop. 2 as claimed. This affects the claimed doubly-exponential improvement factor and the choice of h needed to reach a target Δ; the downstream runtime claims hinge on this.
+
+2) Independence/iid assumption mismatch: Algorithm 1 “divides D into r^h iid subsets,” which is impossible when partitioning a single finite sample without replacement. The theoretical analysis assumes r independent draws at each leaf and independence across subtrees; this is not justified by a partition. If resampling with replacement is intended, this must be stated and its (nontrivial) impact on sample usage and dependence analyzed.
+
+3) Data efficiency and fairness of comparison: To achieve a given (ε,Δ), the scheme uses N = r^h n samples vs. the base learner’s M ≈ 2^h n (ignoring logs), so N/M ≈ (r/2)^h may be enormous. This cost is largely downplayed. Empirically, both methods use the same total dataset, which does not validate the “same (ε,Δ)” theoretical guarantees; instead, AUC is reported without confidence bounds. The core claim—same confidence in polylog time—thus lacks empirical corroboration.
+
+4) Assumptions for Theorem 4 are strong: Requiring that the Radon number be polylogarithmic in the sample complexity implies d = r − 2 is polylogarithmic in N, which is unrealistic in many modern regimes where d scales with N or is simply large. Without this, the required processors c = r^h can be astronomically large.
+
+5) Aggregation complexity/communication inaccuracies:
+- Computing a Radon point in Rd has time O(r^3) with r = d+2; for large d this dominates. The paper suggests r is small or d can be reduced; experiments avoid high d, but the theory does not quantify the cost of projections/low-rank approximations on accuracy and runtime.
+- Communication: messages carry a hypothesis vector in Rd, so size is O(d), not O(r) as claimed. The number of messages ∼ O(r^{h+1}) is fine, but their size is misstated.
+
+6) Sample complexity model and notation: The form NL0(ε,δ) = (αε + βε ld(1/δ))^k is unusual; αε,βε depend on ε, which obscures how ε enters (most classical bounds scale like poly(1/ε) log(1/δ)). Derivations relegated to appendices are not visible, and constants are unspecified, making it hard to assess quantitative implications.
+
+7) Empirical methodology/reporting:
+- Baselines: For parameter averaging, the paper does not specify whether weighted averaging or better-known robust aggregators were tried; for models like SVM/LogReg, parameter averaging can be improved by importance weighting or post-aggregation calibration. Comparisons to state-of-the-art distributed optimization methods (e.g., CoCoA/CoCoA+, DANE variants, DIANA, local SGD/federated averaging with appropriate communication rounds) are missing.
+- Tuning: Hyperparameter search procedures and budgets per method are insufficiently detailed; 10-fold CV across methods can distort timing comparisons unless identical protocols and caching are enforced.
+- Reporting: No confidence intervals or statistical tests on AUC; “≥10% better AUC” is ambiguous (relative vs absolute). The persistent poor performance on “wikidata” is noted but not analyzed.
+- Resource accounting: Speedups are reported with 150 processors; it is unclear how h relates to the number of available processors when rh > 150 (scheduling/queuing overheads?), and whether I/O and serialization costs in Spark were normalized across methods.
+
+8) Numerous clarity/formatting issues impede readability: inconsistent notation (ld vs log, r3 vs r^3, r h vs r^h), typos (“st Conference…”), dangling footnote markers (“for some1”), inconsistent references (many lack years/pages), and missing figure/appendix content needed to verify claims.
+
+Detailed comments and questions
+- Clarify precisely how subsets are generated to ensure independence (with replacement?) and quantify the effect on total sample usage.
+- Correct Theorem 3 (and all downstream corollaries, including Eq. (4), Eq. (6), and the choice of h) to reflect the true exponent on r, or provide a tighter Proposition 2 that removes r dependence (unlikely with current argument).
+- Provide explicit αε,βε,k for the VC/Rademacher cases claimed, and show how they imply the adopted sample complexity.
+- Fix communication size to O(d) and discuss memory/serialization costs for high d.
+- Report full experimental details: hyperparameters searched, stopping criteria, threading/BLAS configs, data loading, per-fold timings, and confidence intervals.
+- Include stronger baselines and ablations (weighted averaging, depth-based aggregations vs Radon, different h vs processors constraints).
+- Discuss the effect of d on runtime empirically; even simple synthetic experiments varying d would be informative.
+
+Pros
+- Elegant, broadly applicable idea; robust aggregation via Radon points is novel in this context.
+- Clear high-level motivation; practical speedups demonstrated on several datasets.
+
+Cons
+- Central theoretical bound appears incorrect; independence assumptions are mismatched to the algorithm as described.
+- Strong/unrealistic assumptions needed for the flagship polylog-time claim; data inefficiency is severe and under-discussed.
+- Empirical comparisons lack crucial baselines and methodological rigor; reporting is incomplete.
+- Significant clarity/formatting issues.
+
+Recommendation: Reject
+The idea is promising and could be impactful with corrected theory, clearer assumptions, and stronger empirical validation, but the current draft contains a major technical error in the main bound and numerous methodological and clarity shortcomings.

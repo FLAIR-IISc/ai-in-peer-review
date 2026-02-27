@@ -1,0 +1,52 @@
+Summary
+The paper tackles fully Bayesian learning and smoothing in Gaussian Process State-Space Models (GP-SSMs) by marginalizing the transition function f and sampling latent states x0:T and hyperparameters θ with Particle MCMC, specifically Particle Gibbs with Ancestor Sampling (PGAS). The key idea is to collapse f to obtain a (non-Markovian) prior over trajectories p(x1:T | x0, θ) that factors as a product of GP one-step predictive Gaussians (Eq. 3), and then to use CPF-AS to sample full state trajectories despite loss of Markov structure. Hyperparameters are sampled given states (slice sampling), exploiting that the conditional over f is GP-regression-like with inputs x0:T−1 and outputs x1:T. The authors also propose a sparse variant using the FIC prior to reduce complexity from O(T^3) to O(M^2 T), and give implementation details based on Cholesky rank-1 updates/downdates. Experiments include a 1D nonlinear benchmark with multimodal smoothing and a 4D cart-pole example.
+
+Relation to prior work: Prior GPDS/GP-SSM works (e.g., Wang et al. 2005/06; Deisenroth et al. 2011/2012; Turner et al. 2010) typically used EM/MAP and approximate filtering/smoothing with learned GP dynamics. PMCMC (Andrieu et al. 2010) and PGAS (Lindsten et al.) enable exact-in-the-limit inference with non-Markovian latent models. The paper’s contribution is to combine exact marginalization of f with PGAS for state/hyperparameter inference, and to derive efficient implementations (including a sparse FIC version).
+
+Strengths
+- Conceptual clarity: collapsing f is elegant and preserves the nonparametric nature of the model; using PGAS to address non-Markovian smoothing is appropriate and principled.
+- Technical contribution: explicit trajectory prior formulation (Eqs. 3–4) and detailed implementation remarks (Cholesky updates; ancestor sampling weights computation) are useful.
+- Sparse variant: recasting FIC as an alternative prior (not merely an approximation to a fixed full GP) is a defensible perspective and yields favorable complexity.
+- Empirical illustrations: the multimodal smoothing example is well chosen; the cart-pole demo highlights predictive uncertainty varying with data coverage.
+
+Weaknesses and concerns
+Methodological clarity and correctness
+- Notational inconsistencies and omissions:
+  - Inputs ut are “omitted” for brevity but then appear in experiments; equations (2a), (3)–(4) and kernel definitions should include ut explicitly since f=f(x,u). The mean m(xt)=xt is odd if ut exists; clarify m(x,u) and kernel k((x,u),(x′,u′)).
+  - y0:T vs y1:T used interchangeably; initial prior p(x0) is never specified in experiments.
+  - Writing “f(xt) ∼ GP(m(xt), k(xt,x′t))” is imprecise; f is a GP over inputs, not a random variable “at” xt with a GP distribution.
+- SMC proposal inconsistency: Eq. (5) states sampling from p(xt | θ, x0:t−1, y0:t), but later weights use wit ∝ p(yt | xt, θ) as in a bootstrap PF (proposal = prior p(xt | θ, x0:t−1)). If the proposal uses y0:t, the weights should reflect the proposal density; please reconcile and give the exact proposal used.
+- Ancestor sampling weights (Eq. 6): the simplification to wit−1 p(x̃t:T | xi0:t−1) is stated, but computing p(x̃t:T | xi0:t−1) requires careful use of the collapsed prior (Eq. 4) on the concatenated path. The paper asserts feasibility without giving the explicit form or numerical stabilization strategies.
+- Hyperparameters: No details on kernel choice (RBF/ARD? priors?), parameterization and constraints of Q (PD), priors for θy, nor mixing diagnostics for slice sampling. Identifiability between kernel amplitude and process noise Q (and between mean function parameters and GP) is not discussed.
+- Numerical stability: Rank-1 downdates of Cholesky factors can be unstable; no mention of jitter, pivoting, or conditioning checks. This is nontrivial in long sequences and with near-collinear inputs.
+
+Complexity and scalability
+- Complexity statements omit dependence on number of particles N and state dimension nx. As written, O(T^3) (full GP) and O(M^2 T) (FIC) should be O(N T^3) and O(N M^2 T), with memory O(N T^2) (or O(N M T)) for per-particle factorizations. This is crucial for practical scalability and is not discussed.
+- Memory costs of storing per-particle Cholesky factors and intermediate products are not analyzed; for T=200, N=20 it may be manageable, but the paper should quantify this and discuss limits.
+
+Experimental evaluation
+- The 1D benchmark: PGAS run for only 50 iterations with N=20 particles for T=200; claims of “very good mixing” are unsubstantiated (no autocorrelation plots, ESS, or R-hat). The referenced Table 1 with RMSEs is absent from the text provided; numerical results and uncertainty should be clearly reported.
+- Baselines: Comparisons to EM/MAP (Turner et al., Wang et al.), variational GP-SSM methods, and learned parametric SSMs are missing or superficial. Smoothing accuracy comparisons (e.g., RMSE on x, predictive log-likelihood) are not shown.
+- Cart-pole: Only one-step predictions and qualitative error bars are presented. No multi-step rollout, no control task, no comparison to e.g. PILCO/GPDS baselines, and no quantitative metrics. The observation model g is assumed known and identity with Gaussian noise, which simplifies the problem; broader cases (unknown g) are not empirically examined.
+
+Related work
+- The related work section is thin and misses several closely related Bayesian inference approaches for GP-SSMs/GPDS using MCMC/variational methods; a clearer positioning vs. EM/EP/variational GPDS (and any recent PMCMC-based GP-SSM work) is needed.
+- The claim that this provides a “vital component” for GPDS inference is plausible but should be supported by explicit comparisons or integration with these methods.
+
+Minor issues and presentation
+- Many small typos/formatting inconsistencies (e.g., missing commas/spaces in math, inconsistent bold/transpose, dimensions of K̃ blocks, It ⊗ Q without defining nx). Please proofread carefully.
+- Figures and table references (Fig. 2–3, Table 1) are not accompanied by sufficient textual description of settings (kernel, priors, inducing point selection). For FIC with 40 inducing points, the selection method is unspecified.
+- The mixture-of-Gaussians predictive (Eq. 10) is over f∗ given x∗; for actual forecasting of x, you need p(xt+1 | xt, ut, y0:T), which should be discussed.
+
+Pros
+- Clean collapsed formulation marrying GP priors with PGAS for non-Markovian smoothing.
+- Useful implementation insights; sparse FIC variant likely of practical interest.
+- Demonstrates handling of multimodality in smoothing.
+
+Cons
+- Numerous methodological ambiguities and notational errors that hinder reproducibility.
+- Insufficient and partly incomplete empirical evaluation; no rigorous mixing/complexity evidence.
+- Missing clarity on scalability (N, nx, memory) and numerical stability.
+- Related work coverage incomplete.
+
+Recommendation: Reject (weak). The core idea is strong and potentially impactful, but the paper in its current form has too many technical and presentation issues, and the experiments are not convincing enough for NeurIPS. With clarified methodology, complete and rigorous empirical evaluation (including baselines, diagnostics, and scalability), and tightened notation, this work could become a solid contribution. Specific author questions: specify the proposal and weights used in SMC/CPF-AS; detail kernel/prior choices and Q parameterization; report mixing diagnostics and runtime/memory vs. T,N,M; and include quantitative baselines on both tasks.

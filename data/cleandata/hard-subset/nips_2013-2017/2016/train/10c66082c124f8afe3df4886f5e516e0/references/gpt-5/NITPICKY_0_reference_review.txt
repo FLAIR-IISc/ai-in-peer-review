@@ -1,0 +1,62 @@
+Summary
+The paper proposes Supervised Word Mover’s Distance (S-WMD), a metric-learning approach that injects supervision into Word Mover’s Distance by (i) learning a linear transformation A on the word embedding space and (ii) learning word-importance weights w that reweight bag-of-words histograms before the transport. The objective is a stochastic leave-one-out loss (NCA-style soft kNN), where pairwise document distances are computed by WMD with the learned ground cost and weights. Because differentiating through the exact WMD LP is computationally expensive and non-smooth, the paper adopts an entropically regularized OT (Sinkhorn) relaxation to compute an approximate transport plan T*λ and dual potentials, which are used to form approximate gradients with respect to A and w. Training uses mini-batching and a WCD-based neighbor shortlist. Initialization for A is obtained by running NCA on word-centroids (S-WCD). Experiments on 8 datasets with 26 baselines report that S-WMD achieves the best average rank and wins on 5/8 datasets.
+
+Strengths
+- Clear and relevant problem: learning task-specific transport ground metrics for document distances is important and timely.
+- Conceptual simplicity: learning A in the embedding space (low-d) rather than in the high-dimensional document space is elegant and appealing.
+- Practical acceleration: the use of Sinkhorn and neighbor shortlist is a pragmatic route to make training feasible; S-WCD initialization is sensible.
+- Empirical results suggest strong performance against many baselines (including metric learning on standard representations) with reasonable training times.
+- The gradient for w via dual potentials is a nice connection (using α, β as sensitivities w.r.t. marginals).
+
+Weaknesses and detailed concerns
+Technical soundness and clarity:
+- Severe notation overload and inconsistencies:
+  - The symbol p is used for (i) the exponent in the ground cost, (ii) the dimension of the all-ones vector in dual formulas, and (iii) the maximum number of unique words per document in complexity. n, q, and p are also interchanged in constraints and complexity. This makes several formulas ambiguous (e.g., α, β dimensionality).
+  - In Eq. (1), the distance is written as D(xi, xj) while it should be D(da, db); xi, xj are word vectors, not documents.
+  - The K matrix for Sinkhorn is first defined as Kij = exp(−λ‖xi − xj‖2), but after introducing A the dependence should be Kij = exp(−λ‖A(xi − xj)‖2). This is not stated explicitly and creates confusion about what is actually optimized.
+  - The definition “KL-divergence loss proposed in NCA” is inaccurate; NCA maximizes expected leave-one-out accuracy via a log-likelihood, not a KL between distributions.
+  - Section numbering has errors (e.g., “.2 Optimization”), and there are multiple stray artifacts and broken text (e.g., “/1 /10/27file:///C:/Users/Administrator/Desktop/wordcloud10.svg”; “th Conference…”).
+- Gradients and approximation consistency:
+  - The paper optimizes a loss using DA,w (unregularized WMD) but computes gradients using the entropic relaxation (T*λ and duals). This is a biased gradient unless the training loss is consistently switched to the entropic OT objective. The envelope theorem justification for Eq. (8) applies to the objective being optimized; replacing Tab by T*λ without changing the objective is not fully justified.
+  - The dual potentials α*λ, β*λ recovered from u, v are only defined up to an additive constant; the paper subtracts an average term but uses unclear notation (log(u)>1p/p 1). Given the earlier overload of p, this is opaque. Please provide a correct and unambiguous derivation and indexing for α, β in the entropic case.
+- Constraints and parameterization:
+  - w must be nonnegative to keep histograms valid; the paper does not state any constraint on w nor a projection or reparameterization (e.g., w = exp(θ)). Unconstrained gradient steps can make entries of w negative, invalidating the transport problem.
+  - A is treated as an arbitrary linear map in ||A(xi − xj)||^2, which implies a PSD metric M = A^T A. But there is no discussion of r (target dimension), whether A is regularized (e.g., Frobenius penalty) or constrained, and how scale is controlled (the exp(−distance) in NCA can drive norms to collapse or explode).
+  - The choice to use squared Euclidean ground costs (rather than Euclidean) changes metric properties of the induced WMD; the implications are not discussed.
+- Algorithmic details missing for reproducibility:
+  - Critical hyperparameters are underspecified: r, λ selection (λ = 10 is asserted as working, but not validated), learning rates ηA, ηw, stopping criteria, and regularization terms (if any).
+  - The neighbor shortlist size N and batch size B are fixed (N=200, B=32) without validation or sensitivity analysis.
+  - The exact distance used at test time is unclear (exact WMD vs Sinkhorn). Given kNN requires all pairwise distances, complexity and any approximations should be explicit.
+- Experimental protocol and fairness:
+  - LDA is trained “transductively” (on train+test). This is unfair and should be avoided or at least marked and excluded from average rank comparisons.
+  - Baselines are PCA-reduced to 200 dims then metric-learned; the proposed method exploits pre-trained word embeddings and does not undergo analogous dimensionality restriction or PCA. Clarify and ensure parity.
+  - k in kNN is not stated. NCA optimizes 1-NN; if k>1 is used for evaluation, justify and disclose.
+  - The paper references Tables and Figures (1–3) that are absent; claims (e.g., “best on 5/8 datasets,” relative improvements) cannot be verified.
+- Numerous reference and formatting issues:
+  - Many references are incomplete (missing years/pages), contain typos (“PdD,” author names), or placeholders (“[21?]”). There are stray URLs and footnote markers embedded in text.
+  - Several editorial artifacts remain (author footnotes, conference header text) and inconsistent acronym usage (S-WMD vs SWMD).
+
+Significance and relation to prior work:
+- Learning the ground metric for EMD/OT has prior art (Cuturi & Avis; Wang & Guibas; Wang et al.) and the paper cites them, but the differentiation from these works should be sharpened. The histogram reweighting w is a useful addition, but its novelty and impact need clearer analysis (ablation: A-only vs w-only vs both).
+- While results seem promising, the lack of tables/figures and the issues above limit confidence in the empirical claims.
+
+Questions for the authors
+- Do you optimize the entropic OT loss end-to-end (with λ), or the exact WMD loss? If the latter, justify the use of T*λ in gradients. If the former, specify λ selection and use entropic distances at test time.
+- How do you enforce w ≥ 0 during training? Is there any regularization on w and A?
+- What is r and how sensitive are results to r? Do you constrain M = A^T A to be PSD directly?
+- What k is used for kNN evaluation? Are all hyperparameters for the proposed method tuned via the same BO procedure?
+- Please clarify test-time complexity and whether neighbor shortlisting is also used at inference.
+
+Pros
+- Addresses an important problem with a conceptually clean approach and practical accelerations.
+- Potentially strong empirical performance across diverse datasets.
+- Nice initialization strategy via S-WCD; dual-based gradient for w is interesting.
+
+Cons
+- Significant clarity/notation problems; many formatting/citation issues.
+- Questionable gradient-approximation consistency; missing constraints on w and A.
+- Incomplete experimental details and fairness issues (e.g., transductive LDA).
+- Reproducibility is currently compromised.
+
+Recommendation
+Given the accumulation of technical ambiguities, missing details, and pervasive presentation/formatting problems, I cannot confidently assess or reproduce the claimed gains despite the promising idea. I recommend rejection in the current form. With a thorough rewrite, stronger theoretical justification of the gradient approximations, proper constraints/regularization, and a transparent, fair experimental protocol, this work could be compelling. My confidence is high regarding the identified issues.

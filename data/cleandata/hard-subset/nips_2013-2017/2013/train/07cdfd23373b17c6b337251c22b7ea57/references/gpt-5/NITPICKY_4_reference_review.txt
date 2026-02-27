@@ -1,0 +1,49 @@
+Summary
+This paper proposes the Parsimonious Triangular Model (PTM), a probabilistic latent-space model for large networks that operates on a bag-of-triangles representation. The key idea is to reduce the number of triangle-generating parameters from O(K^3) (as in MMTM) to O(K) via parameter sharing across classes of role-triplet configurations (all-same, two-same, all-distinct). The authors develop a structured stochastic variational inference (SVI) algorithm using natural gradients, with per-triangle local updates approximated by a “mixture-of-deltas” variational family that reduces computational cost from O(K^3) to O(K) per triangle. They claim scalability to million-node graphs and hundreds of latent roles, with competitive or superior accuracy on latent role recovery and link prediction, and substantially faster convergence than MMSB (batch) and MMTM/PTM Gibbs.
+
+Relation to prior work
+The work builds directly on Ho et al. (NIPS’11) who introduced triangular representations and MMTM, and Gopalan et al. (NIPS’12) who proposed a scalable variant of MMSB (a-MMSB) with SVI and parameter tying. The use of natural gradients (Amari; Hoffman et al.) and triangle sampling/subsampling (Ho et al.) are established. The novelty here is the specific O(K) parameterization of triangle motifs and the structured + mixture-of-deltas variational scheme to achieve O(K) local updates.
+
+Strengths
+- Ambitious scalability focus with a clear modeling idea (grouping role-triplet configurations) that plausibly reduces variance and improves conditioning.
+- Structured variational approximation for triangle roles (vs naive mean-field) is reasonable and likely crucial.
+- Practical system claims (e.g., 1M nodes, 100 roles, 4 hours on 8 threads) are compelling if correct.
+- Clear articulation of triangle equivalence classes and how Dirichlet priors are imposed on Bxxx, Bxx, B0.
+- Memory-efficient SVI implementation that discards per-triangle variational parameters is a useful engineering point.
+
+Weaknesses and detailed concerns
+Technical correctness and clarity
+- Inconsistent and likely erroneous step-size notation/values. The update uses ρt = τ0(τ1 + t)−κ. The text later sets κ = −0.5 (Section 5.2), which implies ρt ∝ (τ1 + t)^{+0.5}, violating Robbins–Monro conditions and standard SVI practice (κ ∈ (0.5, 1]). This looks like a serious sign/typo but affects reproducibility and convergence claims.
+- Complexity claims are inconsistent. Early on, the paper states “time complexity O(NK).” Later, Section 5 and the algorithm make clear that per-pass cost scales as O(|I| K) with |I| ≈ O(N δ^2) after subsampling. The global update may be O(NK), but overall cost is O(N δ^2 K) per data pass. The abstract/intro should not suggest O(NK) end-to-end.
+- Unbiased gradient claims are made for ∇LS(η,γ) (eq. 5) under exact local maximization over φ. However, the algorithm replaces q with a restricted “mixture-of-deltas” family over a randomly re-sampled set A, and re-picks A at every local step. While each fixed A defines a valid lower bound, changing A across iterations changes the optimization objective. The paper does not analyze convergence of this alternating-random-family scheme nor the effect on unbiasedness of the gradient wrt the intended objective.
+- Possible typo in the local update (eq. 6) for distinct x,y,z: Eq[log θi,x + log θj,x + log θk,x] is written, but one expects log θi,x + log θj,y + log θk,z. As written, it appears incorrect.
+- The triangle-extraction/subsampling step is asserted to take O(1) per sample and “<1% of inference time,” but no algorithmic details or references beyond [8] are provided. Triangle enumeration/sampling is nontrivial on large graphs; reproducibility requires more specificity.
+- Link prediction procedure is underspecified. The paper ranks i–j by the probability that (i,j,k) includes i–j marginalized over k and roles, but does not provide the exact formula, computational complexity, or clarify whether triangles were recomputed after removing held-out edges (to avoid leakage). Given the model is not generative for edges (empty/single-edge triples omitted and no consistency across overlapping triangles), this evaluation needs careful specification.
+- “Any choice of A yields a valid lower bound” is true per fixed A, but because A is re-sampled each time, the algorithm effectively optimizes a stochastic sequence of bounds; this should be acknowledged and, ideally, analyzed (e.g., optimize the expectation over A).
+- Expressiveness tradeoff. The O(K) parameter sharing (Bxxx, Bxx, B0) is elegant but quite restrictive compared to MMTM’s O(K^3). No systematic ablation demonstrates the impact on fit/accuracy at small K where MMTM is feasible. Claims of “competitive or improved accuracy” need such comparisons.
+- The structured mean-field vs naive mean-field claim (“naive performs poorly”) is asserted without quantitative evidence or ablation.
+
+Experimental methodology and fairness
+- Baseline selection is weak for scalability comparisons: MMSB batch variational (O(N^2K^2)) and MMTM/PTM Gibbs (O(N δ^2 K^3)). The most relevant scalable baseline is a-MMSB (SVI) [5]; the paper cites reported numbers but does not re-run it under the same hardware and data processing. Consequently, empirical comparisons on speed are not apples-to-apples.
+- Multithreading: authors use 4 threads; baselines are single-threaded. Speedups can be substantial and should be controlled for fairness.
+- Initialization uses 2% ground-truth seeding per role; this injects privileged information and may not reflect realistic conditions. Claims about convergence/local minima should be accompanied by unseeded runs or sensitivity analysis.
+
+Presentation and formatting
+- Numerous references are incomplete (missing years, venues, page numbers). There are many typographical/hyphenation issues (“stateof-the-art”), and the notation sometimes lacks precision.
+- Table 1, Figures 1–2, Tables 2–3, and the Appendix are referenced but not provided. This prevents verification of key claims and undermines reproducibility.
+
+Pros and cons for acceptance
+Pros:
+- Clear, simple idea for parameter parsimony in triangle-based latent models.
+- Structured SVI with O(K) local updates is practically appealing.
+- If borne out, the reported scalability is impressive.
+
+Cons:
+- Significant inconsistencies/errors (step-size κ, complexity claims, local update typo).
+- Missing materials (tables/figures/appendix) and underspecified procedures (triangle extraction, link prediction).
+- Unanalyzed consequences of the randomized restricted variational family on convergence.
+- Limited and arguably unfair baseline comparisons; lack of ablations to substantiate key modeling/algorithmic choices.
+- Reproducibility concerns due to missing details and formatting issues.
+
+Recommendation: Reject
+While the core modeling idea is promising and the practical goals are important, the paper in its current form contains technical inconsistencies, underspecified methods, missing results, and fairness/reproducibility issues that prevent confident acceptance. I encourage the authors to: (1) correct and clarify the SVI step-size and local update equations; (2) provide full derivations, ablations (especially for the mixture-of-deltas and expressiveness vs MMTM), and precise triangle sampling details; (3) include fair comparisons to a-MMSB under matched conditions; and (4) supply all referenced tables/figures/appendix with complete, properly formatted citations.

@@ -1,0 +1,57 @@
+Summary
+The paper proposes a supervised policy learning framework for real-time control of complex, physically simulated characters by leveraging trajectory optimization to generate training data and training a neural network to imitate the resulting state-action mappings. The key idea is to alternate between (i) optimizing a set of task-conditioned trajectories with Contact-Invariant Optimization (CIO) and (ii) regressing a neural policy that maps sensory inputs to actions, using a quadratic penalty to couple them. To improve robustness, the authors inject Gaussian noise into the sensory inputs and use first-order feedback linearization: the action targets for noisy inputs are a + As ε, where As are “optimal feedback gains” computed efficiently as a byproduct of the trajectory optimization via a perturbation method using the Gauss-Newton Hessian and Woodbury identity. Training is distributed and asynchronous: many worker nodes optimize trajectories with proximal regularization while a GPU trains the network with batched SGD. At runtime, the learned policy produces desired velocities, recurrent-state updates, and contact forces; the next physical state is found by solving a T=1 constrained optimization enforcing dynamics (softly), enabling stable implicit integration at 20 Hz. The approach is demonstrated on diverse 3D agents (swimmer, bird, multiple bipeds, quadrupeds), with ablations showing the benefits of joint optimization and noise.
+
+Relation to prior work
+This sits squarely in guided policy search / supervised policy search: learning policies by imitating trajectories from trajectory optimization or optimal control (e.g., Levine & Koltun ICML’14; Mordatch & Todorov RSS’14), and is also related to LQG/MPC, PILCO (Deisenroth & Rasmussen 2011), and deep RL for control (e.g., TRPO, DDPG-era works). Compared to prior supervised policy search, the authors claim to (i) scale to diverse 3D locomotion with contacts, (ii) provide a practical method to compute stabilizing feedback gains directly from a direct trajectory optimizer, (iii) introduce stochastic input/hidden noise consistent with those gains to improve closed-loop robustness, and (iv) present an asynchronous alternating optimization with proximal terms.
+
+Strengths
+- Practical and well-motivated combination of CIO with neural policy regression that yields interactive (real-time) controllers across substantially different morphologies without hand-designed gaits or contact schedules.
+- The perturbation-based method for extracting stabilizing feedback gains from a direct trajectory optimizer is technically interesting and reuses computations (CXX−1), avoiding a separate LQG pass and enabling a principled noisy-target construction (a + As ε).
+- Sensible design choices that improve robustness: input and hidden-unit noise; proximal regularization to stabilize asynchronous updates; branched segments to expose the policy to goal switches.
+- Clear articulation of engineering needed to scale (distributed trajectory optimization + GPU policy training) and a simple runtime scheme (T=1 implicit optimization) that bridges learning and simulation.
+- Ablations (no joint optimization, no noise) indicate that both the alternating scheme and noise are important for test-time stability.
+
+Weaknesses and suggestions
+Quality
+- Limited quantitative evaluation. The paper largely relies on qualitative videos; metrics such as success rate, path/heading tracking error, energy/torque usage, GRF realism, fall frequency, and robustness to external perturbations are missing. The “two orders of magnitude better” claim in Fig. 2 is not fully interpretable without axes, units, and task details.
+- Comparisons are weak. MPC is discussed qualitatively; there are no quantitative comparisons to GPS-style methods (e.g., Levine & Koltun ICML’14), TRPO, PILCO, or model-based MPC with learned policies. Since the method is a variant of guided policy search, a head-to-head on a shared task would clarify contributions.
+- The execution model enforces dynamics with soft constraints and may admit nonphysical root forces; the implications for realism and downstream transfer (e.g., to hardware) are not analyzed.
+- The recurrent component r is central to the formulation, yet training does not appear to use BPTT. It seems ṙ is supervised per-step from trajectory optimization rather than learned as a dynamical memory; clarifying this and its necessity would help.
+- The sensitivity to λ (feedback softness), α (penalty weight), and η (proximal strength) is not explored; without this, reproducibility and robustness of the alternating optimization are uncertain.
+
+Clarity
+- Overall organization is good, but some crucial details are deferred or vague:
+  - Exact feature vector φ and cost terms used in CIO (Section 8 says “described in section 8” but specifics are not given).
+  - Precise sensory inputs s (beyond [q, r, q̇t−1, f t−1]) and their normalization; dimensionalities.
+  - Runtime performance: per-step optimization time, failure cases, and stability margins.
+  - Figure/Table references (Figs. 2–3, Table 1) are not included; the text alone is insufficient to assess results.
+- Several references are incomplete (missing years/venues) and some relevant prior work is unmentioned (e.g., PILCO; the broader GPS literature at NIPS/ICML 2013–2015).
+
+Originality
+- The overall paradigm closely follows guided policy search. Novelty appears in: (a) the perturbation-based gain extraction for direct trajectory optimization, (b) integrating these gains into noisy targets, and (c) the specific asynchronous/proximal training loop. These are worthwhile but somewhat incremental relative to [Levine & Koltun 2014; Mordatch & Todorov 2014].
+- Demonstrating stable locomotion across diverse 3D morphologies with one framework is a useful empirical contribution for the graphics/control community.
+
+Significance
+- If the claims hold, the ability to derive robust, interactive controllers for varied morphologies without hand-design is impactful. The gain computation technique could be reused in other direct-optimization pipelines.
+- The lack of thorough quantitative comparisons and analysis of physical realism slightly limits impact from the NeurIPS perspective, though the work is strong for graphics/robotics applications.
+
+Questions for the authors
+- How are recurrent states trained and used? Is there any temporal credit assignment beyond per-timestep regression? What happens if r is removed?
+- How sensitive is performance to λ, α, η, σϵ, σγ? Provide a small sensitivity/ablation study.
+- What are the exact cost terms and weights in CIO? Please include them for reproducibility.
+- What is the per-step runtime of the T=1 optimization, and does it scale with character complexity?
+- Can you report quantitative robustness to perturbations (e.g., impulse pushes) and goal step changes?
+
+Pros for acceptance
+- Solid, well-engineered approach that works across challenging 3D tasks.
+- Interesting and practical method to obtain stabilizing feedback gains from direct trajectory optimization.
+- Clear ablation evidence that the joint, noisy training matters.
+- Bridges optimal control and deep policies in a scalable, distributed system.
+
+Cons for acceptance
+- Limited quantitative evaluation and weak baselines; unclear advantage over existing GPS/TRPO/PILCO variants.
+- Some reliance on soft dynamics constraints reduces physical realism; implications not analyzed.
+- Missing details for full reproducibility; figures/tables not present in text.
+
+Recommendation
+Lean accept, contingent on strengthening the empirical evaluation: add quantitative metrics and clearer comparisons to guided policy search/MPC baselines, and clarify the role of r and hyperparameter sensitivity. The paper will be of interest to NeurIPS readers at the intersection of control, RL, and graphics.

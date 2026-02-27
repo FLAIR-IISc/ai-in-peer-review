@@ -1,0 +1,51 @@
+Summary
+The paper proposes “nonparametric neural networks” that adapt layer widths during a single training run via unit addition and removal. The core theoretical contribution is a proof that, with fan-in or fan-out group-ℓp (1 ≤ p < ∞) regularization (with λ > 0), the training objective attains a global minimum at a finite network width. Practically, the paper introduces (i) a training algorithm (AdaRad) that decomposes gradients into radial (length) and angular (direction) components per fan-in and normalizes only the angular component, (ii) a modified normalization layer (CapNorm) that caps standardization to avoid negating the effect of the regularizer, and (iii) a mechanism to add zero-initialized units and prune units whose fan-in/out shrink to zero. Experiments on MNIST, rectangles-images, convex, and OpenML poker suggest that the approach can converge to reasonable sizes and sometimes outperforms parametric networks of the same size; however, on convex it underperforms. The paper includes detailed algorithms and an extensive (if dense) proof for the existence result.
+
+Decision: Reject
+Key reasons:
+- Empirical validation is limited and not on contemporary architectures/tasks; baselines are insufficient to substantiate the central claims over established methods.
+- The contribution hinges on several coupled innovations (group regularizer, CapNorm, AdaRad, growth schedule), but lacks ablations and rigorous comparisons to strong, established alternatives (e.g., structured sparsity with proximal methods, pruning/growth methods, layer-wise normalization/optimizers) to isolate what drives gains.
+
+Supporting arguments
+- Scope and generality. The method is only evaluated on small MLPs and a tabular dataset; there is no demonstration on convolutional or modern benchmarks where model selection is truly challenging and where the risks of width mis-specification matter. The paper itself notes future work for conv/depth adaptation.
+- Baselines. Comparisons are to parametric networks trained with SGD family optimizers and BN, and to a random search over sizes. Missing are:
+  - Structured sparsity baselines that are closest in spirit (group lasso on fan-ins/outs with standard proximal gradient; gradual magnitude pruning; dynamic sparsification/growth).
+  - Practical NAS/growth methods and network morphism approaches the paper cites (Wei et al., Chen et al., Wen et al.) on the same search space.
+  - Optimizer/normalization baselines with similar normalization granularity (e.g., layer-wise/lars-like normalization, AdamW/decoupled weight decay), and weight norm/scale-invariant training that may address the “new units learn slowly” issue without bespoke AdaRad.
+- Ablations. The approach combines multiple novel components:
+  - Fan-in group-ℓ2 regularization
+  - CapNorm
+  - AdaRad (and AdaRad-M)
+  - Unit addition schedule (ν, νfreq), λ, and αr/αφ coupling
+  There is no systematic ablation to disentangle their effects. For instance, how far can one get with standard proximal gradient for group-ℓ2 plus a simple growth/pruning policy and RMSprop/AdamW? Is CapNorm necessary vs. e.g., frozen BN statistics or LayerNorm/WeightNorm? How much does AdaRad contribute vs. per-fan-in gradient clipping/normalization?
+- Fairness and tuning budget. The training protocols differ across methods (e.g., CapNorm for NP vs BN for P; λ ≠ 0 vs λ = 0; different step-size schedules, rewinding heuristics, and multiple annealing cycles). It is unclear whether parametric baselines received comparable tuning/budget, especially considering early stopping and the admitted advantage of larger step sizes for parametric training. The manual selection of “typical representatives” for NP runs introduces selection bias.
+- Mixed results and robustness. The method underperforms on convex with large variance across seeds; even where NP wins (MNIST, rectangles-images), margins are modest and could plausibly be explained by training/regularization differences. The poker result is encouraging but tabular datasets often favor simple MLPs; there is no runtime/efficiency accounting relative to baselines (e.g., wall-clock to a given validation accuracy).
+- Theory vs practice. The existence theorem is technically interesting but quite weak in practical implications: it guarantees a finite optimum for a fixed λ with group regularization, not that the proposed stochastic growth/prune dynamics will find it, nor that the discovered widths are near-optimal for generalization. Assumptions and the heavy technical development overshadow the empirical part, and the theorem does not involve CapNorm/AdaRad, the most practically impactful elements.
+
+Feedback to improve the paper
+- Strengthen baselines and scope:
+  - Include structured sparsity baselines (group lasso with proximal updates; gradual magnitude pruning) and regrowth methods (Wei et al., Guo et al. “dynamic surgery”) under identical training budgets.
+  - Evaluate on at least one convolutional setup and a modern benchmark to demonstrate applicability beyond small MLPs.
+  - Compare to simple, strong alternatives for “new unit learning”: WeightNorm/LayerNorm, LARS/LAMB, AdamW with appropriate scaling, showing whether AdaRad is necessary.
+- Provide ablations:
+  - Isolate CapNorm, AdaRad, and λ/αr/αφ/ν settings. Show final accuracy and width distributions with each component on/off.
+  - Replace CapNorm with BN variants (e.g., no learnable affine, frozen statistics) or LayerNorm to test the claimed incompatibility with regularization.
+  - Replace AdaRad with proximal gradient for group-ℓ2 and report differences.
+- Fair comparisons:
+  - Match regularization across NP and P (e.g., compare to parametric with group-ℓ2 + prox; or use CapNorm-like constraints in P).
+  - Control training budgets (epochs, annealing/rewinds), report wall-clock and number of forward/backward passes to a target validation error.
+- Analysis:
+  - Sensitivity to λ and unit addition rate ν; report convergence of widths and variance across seeds.
+  - Provide learning curves and width trajectories with confidence intervals.
+  - Discuss failure on convex: is it due to converging to too-small width? Can annealing λ or altering ν mitigate?
+- Clarity and positioning:
+  - Shorten and streamline the theory section; emphasize the practical meaning and limitations of the existence result.
+  - Clarify relationships to group sparsity literature, ARD/Bayesian approaches, and modern NAS/pruning methods; position the novelty precisely.
+
+Questions for the authors
+1. How much of the gain comes from CapNorm vs. AdaRad vs. group-ℓ2 with prune/grow? Please provide a full ablation.
+2. Can you match training budgets and regularization across NP and parametric baselines (e.g., group-ℓ2 + proximal on fixed-width nets) and report wall-clock/compute?
+3. Why is BN fundamentally incompatible with your regularizer if one freezes affine parameters and statistics? Would LayerNorm or WeightNorm suffice without CapNorm?
+4. How sensitive are results to λ, αr, αφ, and ν? Do widths converge reliably across seeds? Can annealing λ or adapting ν address the convex dataset failure?
+5. Can AdaRad be replaced by a simpler per-fan-in gradient normalization or by standard optimizers (AdamW, LARS) without loss?
+6. Do your theoretical guarantees extend in any form to the training dynamics (e.g., existence of a stable finite-width attractor under your add/prune process), or are they divorced from practice?

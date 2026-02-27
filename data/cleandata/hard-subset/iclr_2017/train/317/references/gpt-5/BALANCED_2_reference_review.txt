@@ -1,0 +1,49 @@
+Summary of contributions
+- The paper proposes amortised MAP inference for single image super-resolution (SR), replacing empirical risk minimisation (typically MSE) with an objective that prefers high-probability solutions under an image prior while satisfying strict data-consistency. The key architectural contribution is an affine projection layer gθ(x) = (I−A+ A) fθ(x) + A+ x that guarantees Afθ(x) = x for a known downsampling operator A, implemented via learned deconvolution A+.
+- It shows that amortised MAP reduces to minimising the cross-entropy H[qθ, pY] between the distribution of model outputs qθ and the data distribution pY, which removes the need for paired LR-HR training data.
+- Three training strategies are developed to approximate this objective: (i) AffGAN, a GAN variant that (with a modified generator loss) approximately minimises KL[qθ‖pY], together with a stabilisation trick (instance noise); (ii) AffDG, which uses denoiser-estimated score ∇y log pY(y) to directly descend the cross-entropy; and (iii) AffLL, which uses a differentiable likelihood model (PixelCNN-style with MCGSM) to train by maximum likelihood of generated outputs.
+- Empirical results: (a) on a 2D Swiss-roll toy problem, AffGAN and AffDG approach MAP and achieve low cross-entropy; (b) a proof-of-concept shows the affine projection can improve training speed and consistency even when optimising MSE; (c) on textures and face/natural images (4× SR), AffGAN produces sharper, more plausible outputs than MSE/SSIM-optimised models, while preserving exact LR consistency. The paper also discusses limitations of MAP and connects a stochastic AffGAN to amortised variational inference.
+
+Decision: Reject
+Primary reasons: (1) Insufficient empirical validation on realistic SR settings and baselines; (2) the central desiderata (perceptual quality and faithfulness) are not rigorously supported beyond qualitative examples, and the method can hallucinate content inconsistent with the input.
+
+Supporting arguments
+- Specific question and motivation: The paper addresses the mismatch between MSE-based training and perceptual quality in SR, arguing for amortised MAP inference guided by an image prior, with exact data-consistency via affine projection. This is a well-motivated and important problem; the projection layer is an elegant, general module.
+- Placement in literature: The connections to GANs (including a generator loss targeting KL[q‖p]), score-based denoisers, likelihood models, and prior SR work are competently discussed. The instance noise stabilisation is motivated and related to prior tricks.
+- Do results support claims?
+  - Toy Swiss-roll convincingly supports the MAP-vs-MSE intuition and demonstrates reduced cross-entropy.
+  - The affine projection’s utility (training speed, exact consistency) is well-supported.
+  - However, for real images: (i) quantitative comparisons are limited to PSNR/SSIM (known to favour MSE), with no perceptual metrics (LPIPS, NIQE/PI, FID) or user studies; (ii) crucial baselines (e.g., SRGAN/ESRGAN, VGG-perceptual losses) are not compared; (iii) AffDG and AffLL underperform and the analysis does not establish whether this is due to optimisation, model capacity, or misspecification of pY.
+  - The main qualitative failure—plausible but incorrect content (snake→water)—highlights a core risk of the unconditioned prior and unconditional discriminator. While the affine projection enforces LR consistency, it does not prevent semantic drift at higher frequencies. For many SR use cases, this violates faithfulness.
+  - The approach assumes known A and exact consistency x=Ay. Real degradations are noisy and unknown. No experiments assess robustness to kernel/noise mismatch, which is critical for practical SR. The projection may harm performance under mismatch or noise, and the paper does not propose or evaluate a noise-aware variant.
+  - The theoretical framing (minimising H[q, p]) is compelling, but the actual AffGAN objective minimises KL[q‖p], differing by H[q]. The implications for entropy/diversity and its relation to MAP are discussed but not empirically dissected (e.g., diversity vs mode-seeking).
+  - Stability: Instance noise appears necessary, but the paper lacks ablations on its schedule, magnitude, and sensitivity; reproducibility details are limited.
+
+Constructive feedback and questions to the authors (to help improve the work; not all are part of the acceptance decision)
+- Evaluation and baselines
+  - Include perceptual metrics (e.g., LPIPS, DISTS, NIQE/PI), human studies, and recent SR baselines that target perceptual quality (SRGAN/ESRGAN, RRDB with perceptual+adversarial losses). Report a perception–distortion tradeoff curve.
+  - Provide ablations: with/without affine projection, soft vs hard consistency, unconditional vs conditional discriminator, instance noise schedules, and accuracy under kernel/noise mismatch.
+- Conditioning the discriminator
+  - The current D appears unconditional, encouraging sampling from pY rather than pY|X, which likely drives hallucinations. Have you tried a conditional discriminator D(y|x) or feeding x as input to D? This could align the adversarial signal with the LR evidence beyond low frequencies.
+- Robustness and realism
+  - How sensitive are results to mis-specified A or to additive sensor noise in x? Please provide experiments with realistic degradations (unknown blur, noise, JPEG artifacts) and show how to adapt the projection (e.g., soft projections, learned A, or noise-aware likelihoods).
+  - Does the affine projection harm performance when the LR is noisy? Can the method be extended to a constraint set {y: ||Ay−x||≤ε} or a probabilistic x|y model?
+- AffDG and AffLL
+  - The underperformance may stem from weak density/score models. Could you try stronger score estimators (e.g., multi-scale denoisers, modern score matching) or improved likelihood models? Show gradient quality diagnostics and training stability analyses.
+  - Can you quantify the correlation between denoiser-derived scores and true ∇ log p on the toy example?
+- Theory and clarity
+  - Clarify the gap between the amortised MAP target H[q, p] and the AffGAN training objective KL[q‖p]. Under what conditions do AffGAN solutions approximate MAP? Can you report entropy/diversity of q to probe the effect of the H[q] term?
+  - The pseudoinverse A+: provide exact construction, kernel sizes, and error bounds for typical A (Gaussian+stride). Release code for A+ estimation.
+- Practicality
+  - Report compute/memory costs and training time. Release code and pretrained models to allow independent verification.
+- Future directions
+  - The stochastic AffGAN/variational inference connection is intriguing. Implementing a stochastic generator q(y|x) and evaluating posterior sample quality and diversity could address some MAP pitfalls and reduce high-frequency noise.
+
+Questions for the authors
+1) Is the discriminator conditioned on x? If not, why, and what happens if you condition it?
+2) How does performance degrade when A is mis-specified or when x contains additive noise? Any experiments on blind SR or noise-aware variants?
+3) What is the exact instance noise schedule used, and how sensitive are results to it? Can you provide ablations?
+4) Can you quantify hallucination frequency and its dependence on the projection, D conditioning, and noise level?
+5) How large is the error between A+ and the true pseudoinverse for your chosen A, and does learning A+ improve or harm perceptual fidelity?
+
+Overall, the paper presents a neat architectural idea and a clear, appealing probabilistic framing, with promising qualitative results. Strengthening empirical rigor, baselines, and robustness, and clarifying the conditioning and stability aspects, would substantially improve the work.

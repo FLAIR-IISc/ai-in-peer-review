@@ -1,0 +1,38 @@
+### Summary of Contributions
+
+This paper proposes a hierarchical reinforcement learning framework designed to solve challenging tasks with sparse rewards and long horizons. The core idea is a two-stage process: first, a pre-training phase where a diverse set of skills is learned in a simple environment with a generic "proxy reward," and second, a downstream training phase where a high-level manager policy learns to select from these pre-trained, frozen skills to solve specific tasks.
+
+The main technical contributions are twofold. First, the use of Stochastic Neural Networks (SNNs) to efficiently learn a repertoire of skills within a single policy network, sharing weights and reducing the sample complexity compared to training separate policies. The authors show that a bilinear integration of the latent variable and the observation is particularly effective. Second, they introduce an information-theoretic regularizer, based on the mutual information (MI) between the latent skill variable and the agent's state (specifically, its coordinates), to explicitly encourage the learned skills to be distinct and cover a wider range of behaviors. The paper demonstrates that this framework can learn interpretable locomotion skills for simulated robots and that using these skills significantly accelerates learning on downstream tasks like navigating mazes and collecting food, outperforming baseline methods.
+
+### Decision and Key Reasons
+
+**Decision:** Reject
+
+While the paper addresses the important problem of skill discovery for hierarchical RL and presents a well-motivated approach, I have two primary concerns that prevent me from recommending acceptance in its current form:
+
+1.  **Overstated Claims on Minimal Domain Knowledge:** The central premise that the framework requires "very minimal domain knowledge" is questionable. The proposed proxy rewards (e.g., rewarding the agent's speed) appear to be a form of hand-designed reward shaping, specifically tailored to encourage the types of behaviors (locomotion) needed for the downstream tasks. This dependency on a carefully chosen proxy reward seems to limit the method's generality.
+2.  **Concerns about Scalability and Robustness:** The method's scalability is unclear due to a critical implementation detail in the mutual information bonus calculation, which relies on discretizing the state space into a grid. Furthermore, the appendix reveals significant failure modes when applying the framework to a more complex, unstable agent ("Ant"), questioning the robustness and general applicability of the proposed skill-switching mechanism.
+
+### Supporting Arguments
+
+**1. On the Nature of the "Proxy Reward":**
+The authors frame the pre-training phase as being guided by a simple proxy reward that requires minimal domain knowledge. However, for the locomotion tasks presented, the reward is proportional to the magnitude of the robot's speed. This is not a generic, knowledge-free signal; it is a well-known and effective intrinsic reward specifically for encouraging movement. The success of the entire framework hinges on this reward function being structured in a way that its local optima correspond to useful, diverse skills. If the proxy reward had only one dominant optimum, the SNN would likely learn redundant skills, even with the MI bonus. The paper does not provide guidance on how to design such a proxy reward for fundamentally different domains (e.g., manipulation, tool use) without engaging in significant, task-aware engineering, which contradicts the central claim. This makes the contribution feel more like a specific application of SNNs to locomotion skill discovery rather than a general HRL framework.
+
+**2. On Scalability and Failure Modes:**
+The information-theoretic regularizer is a key component for encouraging skill diversity. However, its implementation as described in Section 5.3 relies on partitioning the agent's (x, y) coordinate space into a grid to maintain visitation counts and estimate the posterior `p(Z|c)`. This approach is not scalable. For agents with higher-dimensional state spaces or where the relevant state features for distinguishing skills are not simply 2D position, this grid-based estimation becomes intractable (the "curse of dimensionality"). While the paper briefly mentions that an MLP regressor could be used, this is not implemented or evaluated, leaving a critical open question about the method's feasibility in more complex settings.
+
+More importantly, Appendix D.2 reports that the method fails on the "Ant" robot because switching between frozen skills causes the agent to enter unfamiliar state-space regions, leading to instability and falling. This is a critical failure mode that points to a fundamental weakness in the "freeze-and-switch" hierarchical approach. For behaviors more complex than simple 2D navigation, the dynamics at the transition point between skills are non-trivial. The paper's main experiments on the simpler "Swimmer" and "Snake" robots do not expose this fragility, which is a major limitation for a general-purpose HRL framework. The successful experiments seem confined to agents and tasks where abrupt skill switching is not catastrophic.
+
+### Additional Feedback for Improvement
+
+The following points are suggestions to strengthen the paper and are not part of the core decision assessment.
+
+*   **A More Nuanced Framing:** I would encourage the authors to reframe the contribution. Rather than claiming minimal domain knowledge, it would be more accurate and still valuable to frame it as a method that leverages a *task-agnostic but domain-specific* proxy reward (e.g., a reward for general locomotion ability) to pre-train skills for a family of related downstream tasks (e.g., specific navigation challenges).
+*   **Investigating the MI Estimator:** The reliance on a 2D grid is a major weakness. Showing results with a more scalable estimator, like the suggested neural network posterior model, would significantly strengthen the paper's claims of generality.
+*   **Addressing Instability:** The failure mode with the Ant is very insightful. Instead of relegating it to an appendix on failure modes, this could be a central point of discussion. Investigating solutions, such as fine-tuning the skills on the downstream task, learning a dedicated "transition policy" between skills, or incorporating a measure of skill compatibility into the manager's decision-making process, would be excellent avenues for future work and would make the paper more complete.
+
+### Questions for the Authors
+
+1.  Regarding the MI bonus calculation (Sec 5.3): Could you please provide more detail on the grid discretization (e.g., cell size)? More importantly, how do you see this approach scaling to tasks where the relevant state for distinguishing skills is higher-dimensional than 2D coordinates, given the intractability of a grid in high dimensions?
+2.  Regarding the proxy reward: The paper states that for a manipulator arm, the reward "can be the successful grasping of any object." This seems to require significant instrumentation (e.g., grasp detectors for many objects). Could you elaborate on how this aligns with the "minimal domain knowledge" claim and how it compares to simply providing a sparse reward for grasping a specific target object?
+3.  Regarding the instability on the Ant agent: Does this failure mode suggest that freezing low-level skills is fundamentally flawed for dynamically complex agents? Have you considered alternatives, such as joint training or fine-tuning of the SNN policy during the downstream task? How might that affect the sample efficiency benefits of the proposed framework?

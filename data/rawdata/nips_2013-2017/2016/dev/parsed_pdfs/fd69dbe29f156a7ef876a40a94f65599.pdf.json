@@ -1,0 +1,602 @@
+{
+  "name" : "fd69dbe29f156a7ef876a40a94f65599.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Visual Question Answering with Question Representation Update (QRU)",
+    "authors" : [ "Ruiyu Li", "Jiaya Jia" ],
+    "emails" : [ "ryli@cse.cuhk.edu.hk", "leojia@cse.cuhk.edu.hk" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Visual question answering (VQA) is a new research direction as intersection of computer vision and natural language processing. Developing stable systems for VQA attracts increasing interests in multiple communities. Possible applications include bidirectional image-sentence retrieval, human computer interaction, blind person assistance, etc. It is now still a difficult problem due to many challenges in visual object recognition and grounding, natural language representation, and common sense reasoning.\nMost recently proposed VQA models are based on image captioning [10, 24, 28]. These methods have been advanced by the great success of deep learning on building language models [23], image classification [12] and on visual object detection [6]. Compared with image captioning, where a plausible description is produced for a given image, VQA requires algorithms to give the correct answer to a specific human-raised question regarding the content of a given image. It is a more complex research problem since the method is required to answer different types of questions. An example related to image content is “What is the color of the dog?”. There are also questions requiring extra knowledge or commonsense reasoning, such as “Does it appear to be rainy?\".\nProperly modeling questions is essential for solving the VQA problem. A commonly employed strategy is to use a CNN or an RNN to extract semantic vectors. The general issue is that the resulting question representation lacks detailed information from the given image, which however is vital for understanding visual content. We take the question and image in Figure 1 as an example. To answer the original question “What is sitting amongst things have been abandoned?\", one needs to know the target object location. Thus the question can be more specific as “What is discarded on the side of a building near an old book shelf?\".\nIn this paper, we propose a neural network based reasoning model that is able to update the question representation iteratively by inferring image information. With this new system, it is now possible to make questions more specific than the original ones focusing on important image information automatically. Our approach is based on neural reasoner [18], which has recently shown remarkable\n30th Conference on Neural Information Processing Systems (NIPS 2016), Barcelona, Spain.\nsuccess in text question answering tasks. Neural reasoner updates the question by interacting it with supporting facts through multiple reasoning layers. We note applying this model to VQA is nontrivial since the facts are in the form of an image. Thus image region information is extracted in our model. To determine the relevance between question and each image region, we employ the attention mechanism to generate the attention distribution over regions of the image. Our contributions are as follows.\n• We present a reasoning network to iteratively update the question representation after each time the question interacts with image content.\n• Our model utilizes object proposals to obtain candidate image regions and has the ability to focus on image regions relevant to the question.\nWe evaluate and compare the performance of our model on two challenging VQA datasets – i.e., COCO-QA [19] and VQA [2]. Experiments demonstrate the ability of our model to infer image regions relevant to the question."
+    }, {
+      "heading" : "2 Related Work",
+      "text" : "Research on visual question answering is mostly driven by text question answering and image captioning methods. In natural language processing, question answering is a well-studied problem. In [22], an end-to-end memory network was used with a recurrent attention model over a large external memory. Compared with the original memory network, it has less supervision and shows comparable results on the QA task. The neural reasoning system proposed in [18], named neural reasoner, can utilize multiple supporting facts and find an answer. Decent performance was achieved on positional reasoning and path finding QA tasks.\nVQA is closely related to image captioning [10, 24, 28, 5]. In [5], a set of likely words are detected in several regions of the image and are combined together using a language model to generate image description. In [10], a structured max-margin objective was used for deep neural networks. It learns to embed both visual and language data into a common multi-modal space. Vinyals et al. [24] extracted high-level image feature vectors from CNN and took them as the first input to the recurrent network to generate caption. Xu et al. [28] integrated visual attention in the recurrent network. The proposed algorithm predicts one word at a time by looking at local image regions relevant to the currently generated word.\nMalinowski et al. [15] first introduced a solution addressing the VQA problem. It combines natural language processing with semantic segmentation in a Bayesian framework for automatic question answering. Since it, several neural network based models [16, 19, 2] were proposed to solve the VQA problem. These models use CNN to extract image features and recurrent neural networks to embed questions. The embedded image and question features are then fused by concatenation [16]\nor element-wise addition [29] to predict answers. Recently several models integrated the attention mechanism [29, 27, 3, 20] and showed the ability of their networks to focus on image regions related to the question.\nThere also exist other approaches for VQA. For example, Xiong et al. [26] proposed an improved dynamic memory network to fuse the question and image region representations using bi-directional GRU. The algorithm of [1] learns to compose a network from a collection of composable modules. Ma et al. [14] made use of CNN and proposed a model with three CNNs to capture information of the image, question and multi-modal representation."
+    }, {
+      "heading" : "3 Our Model",
+      "text" : "The overall architecture of our model is illustrated in Figure 2. The model is derived from the neural reasoner [18], which is able to update the representation of question recursively by inferring over multiple supporting facts. Our model yet contains a few inherently different components. Since VQA involves only one question and one image each time instead of a set of facts, we use object proposal to obtain candidate image regions serving as the facts in our model. Moreover, in the pooling step, we employ an attention mechanism to determine the relevance between representation of original questions and updated ones. Our network consists of four major components – i.e., image understanding, question encoding, reasoning and answering layers."
+    }, {
+      "heading" : "3.1 Image Understanding Layer",
+      "text" : "The image understanding layer is designed for modeling image content into semantic vectors. We build this layer upon the VGG model with 19 weight layers [21]. It is pre-trained on ImageNet [4]. The network has sixteen convolutional layers and five max-pooling layers of kernel size 2× 2 with stride 2, followed by two fully-connected layers with 4,096 neurons.\nUsing a global representation of the image may fail to capture all necessary information for answering the question involving multiple objects and spatial configuration. Moreover, since most of the questions are related to objects [19, 2], we utilize object proposal generator to produce a set of candidate regions that are most likely to be an object. For each image, we choose candidate regions by extracting the top 19 detected edge boxes [31]. We choose intersection over union (IoU) value 0.3 when performing non-maximum suppression, which is a common setting in object detection.\nAdditionally, the whole image region is added to capture the global information in the image understanding layer, resulting in 20 candidate regions per image. We extract features from each candidate region through the above mentioned CNN, bringing a dimension of 4,096 image region features. The extracted features, however, lack spatial information for object location. To remedy this issue, we follow the method of [8] to include an 8D representation\n[xmin, ymin, xmax, ymax, xcenter, ycenter, wbox, hbox],\nwhere wbox and hbox are the width and height of the image region. We set the image center as the origin. The coordinates are normalized to range from −1 to 1. Then each image region is represented as a 4104D feature denoted as fi where i ∈ [1, 20]. For modeling convenience, we use a single layer perceptron to transform the image representation into a common latent space shared with the question feature\nvi = φ(Wvf ∗ fi + bvf ), (1)\nwhere φ is the rectified activation function φ(x) = max(0, x)."
+    }, {
+      "heading" : "3.2 Question Encoding Layer",
+      "text" : "To encode the natural language question, we resort to the recurrent neural network, which has demonstrated great success on sentence embedding. The question encoding layer is composed of a word embedding layer and GRU cells. Given a question w = [w1, ..., wT ], where wt is the tth word in the question and T is the length of the question, we first embed each word wt to a vector space xt with an embedding matrix xt =Wewt. Then for each time step, we feed xt into GRU sequentially. At each step, the GRU takes one input vector xt, and updates and outputs a hidden state ht. The final hidden state hT is considered as the question representation. We also embed it into the common latent space same as image embedding through a single layer perceptron\nq = φ(Wqh ∗ hT + bqh). (2)\nWe utilize the pre-trained network with skip-thought vectors model [11] designed for general sentence embedding to initialize our question encoding layer as used in [17]. Note that the skip-thought vectors model is trained in an unsupervised manner on large language corpus. By fine-tuning the GRU, we transfer knowledge from natural language corpus to the VQA problem."
+    }, {
+      "heading" : "3.3 Reasoning Layer",
+      "text" : "The reasoning layer includes question-image interaction and weighted pooling.\nQuestion-Image Interaction Given that multilayer perceptron (MLP) has the ability to determine the relationship between two input sentences according to supervision [7, 18]. We examine image region features and question representation to acquire a good understanding of the question. In a memory network [22], these image region features are akin to the input memory representation, which can be retrieved for multiple times according to the question.\nThere are a total of L reasoning layers. In the lth reasoning layer, the ith interaction happens between ql−1 and vi through an MLP, resulting in updated question representation qli as\nqli =MLPl(q l−1, vi; θl), (3)\nwith θl being the model parameter of interaction at the lth reasoning layer. In the simplest case with one single layer in MLPl, the updating process is given by\nqli = φ(Wl ∗ (ql−1 ⊗ vi) + bl), (4)\nwhere ⊗ indicates element-wise multiplication, which performs better in our experiments than other strategies, e.g., concatenation and element-wise addition.\nGenerally speaking, qli contains update of network focus towards answering the question after its interaction with image feature vi. This property is important for the reasoning process [18].\nWeighted Pooling Pooling aims to fuse components of the question after its interaction with all image features to update representation. Two common strategies for pooling are max and mean pooling. However, when answering a specifical question, it is often the case the correct answer is only related to particular image regions. Therefore, using max pooling may lead to unsatisfying results since questions may involve interaction between human and object, while mean pooling may also cause inferior performance due to noise introduced by regions irrelevant to the question.\nTo determine the relevance between question and each image region, we resort to the attention mechanism used in [28] to generate the attention distribution over image regions. For each updated\nquestion qli after interaction with the ith image region, it is chosen close to the original question representation ql−1. Hence, the attention weights take the following forms.\nCi = tanh(WA ∗ qli ⊕ (WB ∗ ql−1 + bB)), P = softmax(WP ∗ C + bP ), (5)\nwhere C is a matrix and its ith column is Ci. P ∈ RM is a M dimensional vector representing the attention weights. M is the number of image regions, set to 20. Based on the attention distribution, we calculate weighted average of qli, resulting in the updated question representation q l as\nql = ∑ i Piq l i. (6)\nThe updated question representation ql after weighted pooling serves as the question input to the next reasoning or answering layer."
+    }, {
+      "heading" : "3.4 Answering Layer",
+      "text" : "Following [19, 2], we model VQA as a classification problem with pre-defined classes. Given the updated question representation at last reasoning layer qL, a softmax layer is employed to classify qL into one of the possible answers as\npans = softmax(Wans ∗ qL + bans). (7) Note instead of the softmax layer for predicting the correct answer, it is also possible to utilize LSTM or GRU decoder, taking qL as input, to generate free-form answers."
+    }, {
+      "heading" : "4 Experiments",
+      "text" : ""
+    }, {
+      "heading" : "4.1 Datasets and Evaluation Metrics",
+      "text" : "We conduct experiments on COCO-QA [19] and VQA [2]. The COCO-QA dataset is based on Microsoft COCO image data [13]. There are 78,736 training questions and 38,948 test ones, based on a total of 123,287 images. Four types of questions are provided, including Object, Number, Color and Location. Each type takes 70%, 7%, 17% and 6% of the whole dataset respectively.\nIn the VQA dataset, each image from the COCO data is annotated by Amazon Mechanical Turk (AMT) with three questions. It is the largest for VQA benchmark so far. There are 248,349, 121,512 and 244,302 questions for training, validation and testing, respectively. For each question, ten answers are provided to take consensus of annotators. Following [2], we choose the top 1,000 most frequent answers as candidate outputs, which constitutes 82.67% of the train+val answers.\nSince we formulate VQA as a classification problem, mean classification accuracy is used to evaluate the model on the COCO-QA dataset. Besides, Wu-Palmer similarity (WUPS) [25] measure is also reported on COCO-QA dataset. WUPS calculates similarity between two words based on their longest common subsequence in the taxonomy tree. Following [19], we use thresholds 0.9 and 0.0 in our evaluation. VQA dataset provides a different kind of evaluation metric. Since ten ground truth answers are given, a predicted answer is considered to be correct when three or more ground truth answers match it. Otherwise, partial score is given."
+    }, {
+      "heading" : "4.2 Implementation Details",
+      "text" : "We implement our network using the public Torch computing framework. Before training, all question sentences are normalized to lower case where question marks are removed. These words are fed into GRU one by one. The whole answer with one or more words is regarded as a separate class. For extracting image features, each candidate region is cropped and resized to 224× 224 before feeding into CNN.\nFor the COCO-QA dataset, we set the dimension of common latent space to 1,024. Since VQA dataset is larger than COCO-QA, we double the dimension of common latent space to adapt the data and classes. On each reasoning layer, we use one single layer in MLP. We test up to two reasoning layers. No further improvement is observed when using three or more layers.\nThe network is trained in an end-to-end fashion using stochastic gradient descent with mini-batches of 100 samples and momentum 0.9. The learning rate starts from 10−3 and decreases by a factor of 10 when validation accuracy stops improving. We use dropout and gradient clipping to regularize the training process. Our model is denoted as QRU in following experiments."
+    }, {
+      "heading" : "4.3 Ablation Results",
+      "text" : "We conduct experiments to exam the usefulness of each component in our model. Specifically, we compare different question representation pooling mechanisms, i.e., mean pooling and max pooling. We also train two controlled models devoid of global image feature and spatial coordinate, denoted as W/O Global and W/O Coord. Table 1 shows the results.\nThe performance of mean and max pooling models are substantially worse than the full model, which uses weighted pooling. This indicates that our model benefits from the attention mechanism by looking at several image regions rather than only one or all of them. A drop of 1.12% in accuracy is observed if the global image feature is not modeled, confirming that inclusion of the whole image is important for capturing the global information. Without modeling spatial coordinates also leads to a drop in accuracy. Notably, the greatest deterioration is on the question type of Object. This is because the Object type seeks information around the object like “What is next to the stop sign?\". Spatial coordinates help our model reason spatial relationship among objects."
+    }, {
+      "heading" : "4.4 Comparison with State-of-the-art",
+      "text" : "We compare performance in Tables 2 and 3 with experimental results on COCO-QA and VQA respectively. Table 2 shows that our model with only one reasoning layer already outperforms state-of-the-art 2-layer stacked attention network (SAN) [29]. Two reasoning layers give the best performance. We also report the per-category accuracy to show the strength and weakness of our model in Table 2. Our best model outperforms SAN by 2.6% and 2.99% in the question types of Color and Location respectively, and by 0.56% in Object.\nOur analysis is that the SAN model puts its attention on coarser regions obtained from the activation of last convolutional layer, which may include cluttered and noisy background. In contrast, our model only deals with selected object proposal regions, which have the good chance to be objects. When answering questions involving objects, our model gives reasonable results. For the question type Number, since an object proposal may contain several objects, our counting ability is weakened. In fact, the counting task is a complete computer vision problem on its own.\nTable 3 shows that our model yields prominent improvement on the Other type when compared with other models [2, 30, 17] that use global representation of the image. Object proposals in our model are useful since the Other type contains questions such as “What color · · · \", “What kind · · · \", “Where is · · · \", etc. Our model outperforms that of [20] by 3% where the latter also exploits object proposals. Compared with [20], we use less number of object proposals, demonstrating the effectiveness of our approach. This table also reveals that our model with two reasoning layers achieve state-of-the-art results for both open-ended and multiple-choice tasks."
+    }, {
+      "heading" : "4.5 Qualitative Analysis",
+      "text" : "To understand the ability of our model in updating question representation, we show an image and several questions in Figure 3. The retrieved questions from the test set are based on the cosine similarities to the original question before and after our model updates the representation. It is notable that before update, 4 out of the top 5 similar questions begin with “What next\". This is because GRU acts as the language model, making the obtained questions share similar language structure. After we update question representation, the resulting ones are more related to image content regarding objects computers and monitors while the originally retrieved questions contain irrelevant words like boys and shoes. The retrieved questions become even more informative using two reasoning layers.\nWe visualize a few attention masks generated by our model in Figure 4. Visualization is created by soft masking the image with a mask created by summing weights of each region. The mask is normalized with maximum value 1 followed by small Gaussian blur. Our model is capable of putting attention on important regions closely relevant to the question. To answer the question “What is the color of the snowboard?\", the proposed model finds the snowboard. For the other question “The man holding what on top of a snow covered hill?\", it is required to infer the relation among person, snow covered hill, and snowboard. With these attention masks, it is possible to predict correct answers since irrelevant image regions are ruled out. More examples are shown in Figure 5."
+    }, {
+      "heading" : "5 Conclusion",
+      "text" : "We have proposed an end-to-end trainable neural network for VQA. Our model learns to answer questions by updating question representation and inferring over a set of image regions with multilayer perceptron. Visualization of attention masks demonstrates the ability of our model to focus on image regions highly related to questions. Experimental results are satisfying on the two challenging VQA datasets. Future work includes improving object counting ability and word-region relation."
+    }, {
+      "heading" : "Acknowledgements",
+      "text" : "This work is supported by a grant from the Research Grants Council of the Hong Kong SAR (project No. 2150760) and by the National Science Foundation China, under Grant 61133009. We thank NVIDIA for providing Ruiyu Li a Tesla K40 GPU accelerator for this work."
+    } ],
+    "references" : [ {
+      "title" : "Learning to compose neural networks for question answering",
+      "author" : [ "J. Andreas", "M. Rohrbach", "T. Darrell", "D. Klein" ],
+      "venue" : "arXiv preprint arXiv:1601.01705,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : "1",
+      "year" : 2016
+    }, {
+      "title" : "Vqa: Visual question answering",
+      "author" : [ "S. Antol", "A. Agrawal", "J. Lu", "M. Mitchell", "D. Batra", "C. Lawrence Zitnick", "D. Parikh" ],
+      "venue" : "In ICCV,",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 2015
+    }, {
+      "title" : "Abc-cnn: An attention based convolutional neural network for visual question answering",
+      "author" : [ "K. Chen", "J. Wang", "L.-C. Chen", "H. Gao", "W. Xu", "R. Nevatia" ],
+      "venue" : "arXiv preprint arXiv:1511.05960,",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 2015
+    }, {
+      "title" : "Imagenet: A large-scale hierarchical image database",
+      "author" : [ "J. Deng", "W. Dong", "R. Socher", "L.-J. Li", "K. Li", "L. Fei-Fei" ],
+      "venue" : "In CVPR,",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : "4",
+      "year" : 2009
+    }, {
+      "title" : "From captions to visual concepts and back",
+      "author" : [ "H. Fang", "S. Gupta", "F. Iandola", "R.K. Srivastava", "L. Deng", "P. Dollár", "J. Gao", "X. He", "M. Mitchell", "J.C. Platt" ],
+      "venue" : null,
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : "5",
+      "year" : 2015
+    }, {
+      "title" : "Rich feature hierarchies for accurate object detection and semantic segmentation",
+      "author" : [ "R. Girshick", "J. Donahue", "T. Darrell", "J. Malik" ],
+      "venue" : "In CVPR,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : "6",
+      "year" : 2014
+    }, {
+      "title" : "Convolutional neural network architectures for matching natural language sentences",
+      "author" : [ "B. Hu", "Z. Lu", "H. Li", "Q. Chen" ],
+      "venue" : null,
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : "7",
+      "year" : 2014
+    }, {
+      "title" : "Natural language object retrieval",
+      "author" : [ "R. Hu", "H. Xu", "M. Rohrbach", "J. Feng", "K. Saenko", "T. Darrell" ],
+      "venue" : "arXiv preprint arXiv:1511.04164,",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : "8",
+      "year" : 2015
+    }, {
+      "title" : "A focused dynamic attention model for visual question answering",
+      "author" : [ "I. Ilija", "Y. Shuicheng", "F. Jiashi" ],
+      "venue" : "arXiv preprint arXiv:1604.01485,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 2016
+    }, {
+      "title" : "Deep visual-semantic alignments for generating image descriptions",
+      "author" : [ "A. Karpathy", "L. Fei-Fei" ],
+      "venue" : "In CVPR,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : "10",
+      "year" : 2015
+    }, {
+      "title" : "Skip-thought vectors",
+      "author" : [ "R. Kiros", "Y. Zhu", "R.R. Salakhutdinov", "R. Zemel", "R. Urtasun", "A. Torralba", "S. Fidler" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 2015
+    }, {
+      "title" : "Imagenet classification with deep convolutional neural networks",
+      "author" : [ "A. Krizhevsky", "I. Sutskever", "G.E. Hinton" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 2012
+    }, {
+      "title" : "Microsoft coco: Common objects in context",
+      "author" : [ "T.-Y. Lin", "M. Maire", "S. Belongie", "J. Hays", "P. Perona", "D. Ramanan", "P. Dollár", "C.L. Zitnick" ],
+      "venue" : "In ECCV,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 2014
+    }, {
+      "title" : "Learning to answer questions from image using convolutional neural network",
+      "author" : [ "L. Ma", "Z. Lu", "H. Li" ],
+      "venue" : "arXiv preprint arXiv:1506.00333,",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 2015
+    }, {
+      "title" : "A multi-world approach to question answering about real-world scenes based on uncertain input",
+      "author" : [ "M. Malinowski", "M. Fritz" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : "15",
+      "year" : 2014
+    }, {
+      "title" : "Ask your neurons: A neural-based approach to answering questions about images",
+      "author" : [ "M. Malinowski", "M. Rohrbach", "M. Fritz" ],
+      "venue" : "In ICCV,",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : "16",
+      "year" : 2015
+    }, {
+      "title" : "Image question answering using convolutional neural network with dynamic parameter prediction",
+      "author" : [ "H. Noh", "P.H. Seo", "B. Han" ],
+      "venue" : "arXiv preprint arXiv:1511.05756,",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : "17",
+      "year" : 2015
+    }, {
+      "title" : "Towards neural network-based reasoning",
+      "author" : [ "B. Peng", "Z. Lu", "H. Li", "K.-F. Wong" ],
+      "venue" : "arXiv preprint arXiv:1508.05508,",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : "18",
+      "year" : 2015
+    }, {
+      "title" : "Exploring models and data for image question answering",
+      "author" : [ "M. Ren", "R. Kiros", "R. Zemel" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : "19",
+      "year" : 2015
+    }, {
+      "title" : "Where to look: Focus regions for visual question answering",
+      "author" : [ "K.J. Shih", "S. Singh", "D. Hoiem" ],
+      "venue" : "arXiv preprint arXiv:1511.07394,",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : "20",
+      "year" : 2015
+    }, {
+      "title" : "Very deep convolutional networks for large-scale image recognition",
+      "author" : [ "K. Simonyan", "A. Zisserman" ],
+      "venue" : "arXiv preprint arXiv:1409.1556,",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : "21",
+      "year" : 2014
+    }, {
+      "title" : "Weakly supervised memory networks",
+      "author" : [ "S. Sukhbaatar", "A. Szlam", "J. Weston", "R. Fergus" ],
+      "venue" : "arXiv preprint arXiv:1503.08895,",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : "22",
+      "year" : 2015
+    }, {
+      "title" : "Sequence to sequence learning with neural networks",
+      "author" : [ "I. Sutskever", "O. Vinyals", "Q.V. Le" ],
+      "venue" : "arXiv preprint arXiv:1409.3215,",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : "23",
+      "year" : 2014
+    }, {
+      "title" : "Show and tell: A neural image caption generator",
+      "author" : [ "O. Vinyals", "A. Toshev", "S. Bengio", "D. Erhan" ],
+      "venue" : "In CVPR,",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : "24",
+      "year" : 2015
+    }, {
+      "title" : "Verbs semantics and lexical selection",
+      "author" : [ "Z. Wu", "M. Palmer" ],
+      "venue" : "In ACL, pages 133–138,",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : "25",
+      "year" : 1994
+    }, {
+      "title" : "Dynamic memory networks for visual and textual question answering",
+      "author" : [ "C. Xiong", "S. Merity", "R. Socher" ],
+      "venue" : "arXiv preprint arXiv:1603.01417,",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : "26",
+      "year" : 2016
+    }, {
+      "title" : "Ask, attend and answer: Exploring question-guided spatial attention for visual question answering",
+      "author" : [ "H. Xu", "K. Saenko" ],
+      "venue" : "arXiv preprint arXiv:1511.05234,",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : "27",
+      "year" : 2015
+    }, {
+      "title" : "Show, attend and tell: Neural image caption generation with visual attention",
+      "author" : [ "K. Xu", "J. Ba", "R. Kiros", "A. Courville", "R. Salakhutdinov", "R. Zemel", "Y. Bengio" ],
+      "venue" : "arXiv preprint arXiv:1502.03044,",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : "28",
+      "year" : 2015
+    }, {
+      "title" : "Stacked attention networks for image question answering",
+      "author" : [ "Z. Yang", "X. He", "J. Gao", "L. Deng", "A. Smola" ],
+      "venue" : "arXiv preprint arXiv:1511.02274,",
+      "citeRegEx" : "29",
+      "shortCiteRegEx" : "29",
+      "year" : 2015
+    }, {
+      "title" : "Simple baseline for visual question answering",
+      "author" : [ "B. Zhou", "Y. Tian", "S. Sukhbaatar", "A. Szlam", "R. Fergus" ],
+      "venue" : "arXiv preprint arXiv:1512.02167,",
+      "citeRegEx" : "30",
+      "shortCiteRegEx" : "30",
+      "year" : 2015
+    }, {
+      "title" : "Edge boxes: Locating object proposals from edges",
+      "author" : [ "C.L. Zitnick", "P. Dollár" ],
+      "venue" : "In ECCV,",
+      "citeRegEx" : "31",
+      "shortCiteRegEx" : "31",
+      "year" : 2014
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 18,
+      "context" : "Our method is evaluated on challenging datasets of COCO-QA [19] and VQA [2] and yields state-of-the-art performance.",
+      "startOffset" : 59,
+      "endOffset" : 63
+    }, {
+      "referenceID" : 1,
+      "context" : "Our method is evaluated on challenging datasets of COCO-QA [19] and VQA [2] and yields state-of-the-art performance.",
+      "startOffset" : 72,
+      "endOffset" : 75
+    }, {
+      "referenceID" : 9,
+      "context" : "Most recently proposed VQA models are based on image captioning [10, 24, 28].",
+      "startOffset" : 64,
+      "endOffset" : 76
+    }, {
+      "referenceID" : 23,
+      "context" : "Most recently proposed VQA models are based on image captioning [10, 24, 28].",
+      "startOffset" : 64,
+      "endOffset" : 76
+    }, {
+      "referenceID" : 27,
+      "context" : "Most recently proposed VQA models are based on image captioning [10, 24, 28].",
+      "startOffset" : 64,
+      "endOffset" : 76
+    }, {
+      "referenceID" : 22,
+      "context" : "These methods have been advanced by the great success of deep learning on building language models [23], image classification [12] and on visual object detection [6].",
+      "startOffset" : 99,
+      "endOffset" : 103
+    }, {
+      "referenceID" : 11,
+      "context" : "These methods have been advanced by the great success of deep learning on building language models [23], image classification [12] and on visual object detection [6].",
+      "startOffset" : 126,
+      "endOffset" : 130
+    }, {
+      "referenceID" : 5,
+      "context" : "These methods have been advanced by the great success of deep learning on building language models [23], image classification [12] and on visual object detection [6].",
+      "startOffset" : 162,
+      "endOffset" : 165
+    }, {
+      "referenceID" : 17,
+      "context" : "Our approach is based on neural reasoner [18], which has recently shown remarkable",
+      "startOffset" : 41,
+      "endOffset" : 45
+    }, {
+      "referenceID" : 21,
+      "context" : "In [22], an end-to-end memory network was used with a recurrent attention model over a large external memory.",
+      "startOffset" : 3,
+      "endOffset" : 7
+    }, {
+      "referenceID" : 17,
+      "context" : "The neural reasoning system proposed in [18], named neural reasoner, can utilize multiple supporting facts and find an answer.",
+      "startOffset" : 40,
+      "endOffset" : 44
+    }, {
+      "referenceID" : 9,
+      "context" : "VQA is closely related to image captioning [10, 24, 28, 5].",
+      "startOffset" : 43,
+      "endOffset" : 58
+    }, {
+      "referenceID" : 23,
+      "context" : "VQA is closely related to image captioning [10, 24, 28, 5].",
+      "startOffset" : 43,
+      "endOffset" : 58
+    }, {
+      "referenceID" : 27,
+      "context" : "VQA is closely related to image captioning [10, 24, 28, 5].",
+      "startOffset" : 43,
+      "endOffset" : 58
+    }, {
+      "referenceID" : 4,
+      "context" : "VQA is closely related to image captioning [10, 24, 28, 5].",
+      "startOffset" : 43,
+      "endOffset" : 58
+    }, {
+      "referenceID" : 4,
+      "context" : "In [5], a set of likely words are detected in several regions of the image and are combined together using a language model to generate image description.",
+      "startOffset" : 3,
+      "endOffset" : 6
+    }, {
+      "referenceID" : 9,
+      "context" : "In [10], a structured max-margin objective was used for deep neural networks.",
+      "startOffset" : 3,
+      "endOffset" : 7
+    }, {
+      "referenceID" : 23,
+      "context" : "[24] extracted high-level image feature vectors from CNN and took them as the first input to the recurrent network to generate caption.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 27,
+      "context" : "[28] integrated visual attention in the recurrent network.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 14,
+      "context" : "[15] first introduced a solution addressing the VQA problem.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 15,
+      "context" : "Since it, several neural network based models [16, 19, 2] were proposed to solve the VQA problem.",
+      "startOffset" : 46,
+      "endOffset" : 57
+    }, {
+      "referenceID" : 18,
+      "context" : "Since it, several neural network based models [16, 19, 2] were proposed to solve the VQA problem.",
+      "startOffset" : 46,
+      "endOffset" : 57
+    }, {
+      "referenceID" : 1,
+      "context" : "Since it, several neural network based models [16, 19, 2] were proposed to solve the VQA problem.",
+      "startOffset" : 46,
+      "endOffset" : 57
+    }, {
+      "referenceID" : 15,
+      "context" : "The embedded image and question features are then fused by concatenation [16]",
+      "startOffset" : 73,
+      "endOffset" : 77
+    }, {
+      "referenceID" : 28,
+      "context" : "or element-wise addition [29] to predict answers.",
+      "startOffset" : 25,
+      "endOffset" : 29
+    }, {
+      "referenceID" : 28,
+      "context" : "Recently several models integrated the attention mechanism [29, 27, 3, 20] and showed the ability of their networks to focus on image regions related to the question.",
+      "startOffset" : 59,
+      "endOffset" : 74
+    }, {
+      "referenceID" : 26,
+      "context" : "Recently several models integrated the attention mechanism [29, 27, 3, 20] and showed the ability of their networks to focus on image regions related to the question.",
+      "startOffset" : 59,
+      "endOffset" : 74
+    }, {
+      "referenceID" : 2,
+      "context" : "Recently several models integrated the attention mechanism [29, 27, 3, 20] and showed the ability of their networks to focus on image regions related to the question.",
+      "startOffset" : 59,
+      "endOffset" : 74
+    }, {
+      "referenceID" : 19,
+      "context" : "Recently several models integrated the attention mechanism [29, 27, 3, 20] and showed the ability of their networks to focus on image regions related to the question.",
+      "startOffset" : 59,
+      "endOffset" : 74
+    }, {
+      "referenceID" : 25,
+      "context" : "[26] proposed an improved dynamic memory network to fuse the question and image region representations using bi-directional GRU.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 0,
+      "context" : "The algorithm of [1] learns to compose a network from a collection of composable modules.",
+      "startOffset" : 17,
+      "endOffset" : 20
+    }, {
+      "referenceID" : 13,
+      "context" : "[14] made use of CNN and proposed a model with three CNNs to capture information of the image, question and multi-modal representation.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 17,
+      "context" : "The model is derived from the neural reasoner [18], which is able to update the representation of question recursively by inferring over multiple supporting facts.",
+      "startOffset" : 46,
+      "endOffset" : 50
+    }, {
+      "referenceID" : 20,
+      "context" : "We build this layer upon the VGG model with 19 weight layers [21].",
+      "startOffset" : 61,
+      "endOffset" : 65
+    }, {
+      "referenceID" : 18,
+      "context" : "Moreover, since most of the questions are related to objects [19, 2], we utilize object proposal generator to produce a set of candidate regions that are most likely to be an object.",
+      "startOffset" : 61,
+      "endOffset" : 68
+    }, {
+      "referenceID" : 1,
+      "context" : "Moreover, since most of the questions are related to objects [19, 2], we utilize object proposal generator to produce a set of candidate regions that are most likely to be an object.",
+      "startOffset" : 61,
+      "endOffset" : 68
+    }, {
+      "referenceID" : 30,
+      "context" : "For each image, we choose candidate regions by extracting the top 19 detected edge boxes [31].",
+      "startOffset" : 89,
+      "endOffset" : 93
+    }, {
+      "referenceID" : 7,
+      "context" : "To remedy this issue, we follow the method of [8] to include an 8D representation",
+      "startOffset" : 46,
+      "endOffset" : 49
+    }, {
+      "referenceID" : 0,
+      "context" : "Then each image region is represented as a 4104D feature denoted as fi where i ∈ [1, 20].",
+      "startOffset" : 81,
+      "endOffset" : 88
+    }, {
+      "referenceID" : 19,
+      "context" : "Then each image region is represented as a 4104D feature denoted as fi where i ∈ [1, 20].",
+      "startOffset" : 81,
+      "endOffset" : 88
+    }, {
+      "referenceID" : 10,
+      "context" : "We utilize the pre-trained network with skip-thought vectors model [11] designed for general sentence embedding to initialize our question encoding layer as used in [17].",
+      "startOffset" : 67,
+      "endOffset" : 71
+    }, {
+      "referenceID" : 16,
+      "context" : "We utilize the pre-trained network with skip-thought vectors model [11] designed for general sentence embedding to initialize our question encoding layer as used in [17].",
+      "startOffset" : 165,
+      "endOffset" : 169
+    }, {
+      "referenceID" : 6,
+      "context" : "Question-Image Interaction Given that multilayer perceptron (MLP) has the ability to determine the relationship between two input sentences according to supervision [7, 18].",
+      "startOffset" : 165,
+      "endOffset" : 172
+    }, {
+      "referenceID" : 17,
+      "context" : "Question-Image Interaction Given that multilayer perceptron (MLP) has the ability to determine the relationship between two input sentences according to supervision [7, 18].",
+      "startOffset" : 165,
+      "endOffset" : 172
+    }, {
+      "referenceID" : 21,
+      "context" : "In a memory network [22], these image region features are akin to the input memory representation, which can be retrieved for multiple times according to the question.",
+      "startOffset" : 20,
+      "endOffset" : 24
+    }, {
+      "referenceID" : 17,
+      "context" : "This property is important for the reasoning process [18].",
+      "startOffset" : 53,
+      "endOffset" : 57
+    }, {
+      "referenceID" : 27,
+      "context" : "To determine the relevance between question and each image region, we resort to the attention mechanism used in [28] to generate the attention distribution over image regions.",
+      "startOffset" : 112,
+      "endOffset" : 116
+    }, {
+      "referenceID" : 18,
+      "context" : "Following [19, 2], we model VQA as a classification problem with pre-defined classes.",
+      "startOffset" : 10,
+      "endOffset" : 17
+    }, {
+      "referenceID" : 1,
+      "context" : "Following [19, 2], we model VQA as a classification problem with pre-defined classes.",
+      "startOffset" : 10,
+      "endOffset" : 17
+    }, {
+      "referenceID" : 18,
+      "context" : "We conduct experiments on COCO-QA [19] and VQA [2].",
+      "startOffset" : 34,
+      "endOffset" : 38
+    }, {
+      "referenceID" : 1,
+      "context" : "We conduct experiments on COCO-QA [19] and VQA [2].",
+      "startOffset" : 47,
+      "endOffset" : 50
+    }, {
+      "referenceID" : 12,
+      "context" : "The COCO-QA dataset is based on Microsoft COCO image data [13].",
+      "startOffset" : 58,
+      "endOffset" : 62
+    }, {
+      "referenceID" : 1,
+      "context" : "Following [2], we choose the top 1,000 most frequent answers as candidate outputs, which constitutes 82.",
+      "startOffset" : 10,
+      "endOffset" : 13
+    }, {
+      "referenceID" : 24,
+      "context" : "Besides, Wu-Palmer similarity (WUPS) [25] measure is also reported on COCO-QA dataset.",
+      "startOffset" : 37,
+      "endOffset" : 41
+    }, {
+      "referenceID" : 18,
+      "context" : "Models are trained and tested on COCO-QA [19] with one reasoning layer.",
+      "startOffset" : 41,
+      "endOffset" : 45
+    }, {
+      "referenceID" : 18,
+      "context" : "Table 2: Evaluation results on COCO-QA dataset [19].",
+      "startOffset" : 47,
+      "endOffset" : 51
+    }, {
+      "referenceID" : 28,
+      "context" : "Table 2 shows that our model with only one reasoning layer already outperforms state-of-the-art 2-layer stacked attention network (SAN) [29].",
+      "startOffset" : 136,
+      "endOffset" : 140
+    }, {
+      "referenceID" : 1,
+      "context" : "Methods Open-Ended (test-dev) test-std Multiple-Choice (test-dev) test-std All Y/N Num Other All All Y/N Num Other All BOWIMG [2] 52.",
+      "startOffset" : 126,
+      "endOffset" : 129
+    }, {
+      "referenceID" : 1,
+      "context" : "Table 3: Evaluation results on VQA dataset [2].",
+      "startOffset" : 43,
+      "endOffset" : 46
+    }, {
+      "referenceID" : 18,
+      "context" : "Figure 3: Retrieved questions before and after update from COCO-QA dataset [19].",
+      "startOffset" : 75,
+      "endOffset" : 79
+    }, {
+      "referenceID" : 1,
+      "context" : "Table 3 shows that our model yields prominent improvement on the Other type when compared with other models [2, 30, 17] that use global representation of the image.",
+      "startOffset" : 108,
+      "endOffset" : 119
+    }, {
+      "referenceID" : 29,
+      "context" : "Table 3 shows that our model yields prominent improvement on the Other type when compared with other models [2, 30, 17] that use global representation of the image.",
+      "startOffset" : 108,
+      "endOffset" : 119
+    }, {
+      "referenceID" : 16,
+      "context" : "Table 3 shows that our model yields prominent improvement on the Other type when compared with other models [2, 30, 17] that use global representation of the image.",
+      "startOffset" : 108,
+      "endOffset" : 119
+    }, {
+      "referenceID" : 19,
+      "context" : "Our model outperforms that of [20] by 3% where the latter also exploits object proposals.",
+      "startOffset" : 30,
+      "endOffset" : 34
+    }, {
+      "referenceID" : 19,
+      "context" : "Compared with [20], we use less number of object proposals, demonstrating the effectiveness of our approach.",
+      "startOffset" : 14,
+      "endOffset" : 18
+    } ],
+    "year" : 2016,
+    "abstractText" : "Our method aims at reasoning over natural language questions and visual images. Given a natural language question about an image, our model updates the question representation iteratively by selecting image regions relevant to the query and learns to give the correct answer. Our model contains several reasoning layers, exploiting complex visual relations in the visual question answering (VQA) task. The proposed network is end-to-end trainable through back-propagation, where its weights are initialized using pre-trained convolutional neural network (CNN) and gated recurrent unit (GRU). Our method is evaluated on challenging datasets of COCO-QA [19] and VQA [2] and yields state-of-the-art performance.",
+    "creator" : null
+  }
+}

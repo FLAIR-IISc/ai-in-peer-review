@@ -1,0 +1,42 @@
+Summary
+The paper tackles low-resource POS tagging by leveraging noisy cross-lingual projection alongside a small gold-annotated corpus. The core idea is to explicitly model projection noise via a learned “noise layer” on top of a BiLSTM tagger. The model is trained jointly on gold data (using the base softmax outputs) and on projected data (using an additional linear transformation followed by softmax), with a two-stage training schedule (gold-only pretraining, then joint training). Evaluations on eight simulated low-resource settings (Europarl) and two truly low-resource languages (Malagasy, Kinyarwanda) show consistent improvements over strong baselines, including Duong et al. (2014) and Garrette & Baldridge (2013). The learned noise matrices provide interpretable diagnostics of projection biases.
+
+Main contributions (as I see them)
+1) A simple and effective architectural mechanism to learn when to trust projected tags: a parameterized confusion/noise layer fit jointly with the tagger, enabling the model to exploit projected supervision despite systematic noise.
+2) An empirical demonstration across 10 languages that this mechanism yields consistent gains over prior state of the art and over naïve uses of projected data, with insightful analyses of learned noise patterns.
+3) A practical training recipe (pretrain on gold, then joint) for stabilizing learning in the presence of noisy distant supervision.
+
+Strengths
+- Clear, principled treatment of projection noise. Rather than heuristically filtering or implicitly encoding correlations in features, the paper introduces an explicit, compact noise parameterization between clean tag distributions and projected labels. This aligns with known challenges in cross-lingual projection (alignment errors, syntactic divergence) and provides a learnable interface to reconcile them.
+
+- Strong empirical evidence and appropriate baselines. The model equals or surpasses Duong et al. (2014a) across eight simulated settings (average +0.4 absolute) and shows larger gains on truly low-resource languages (+1.0 on Malagasy, +4.2 on Kinyarwanda vs Duong; and +0.6/+0.6 vs Garrette & Baldridge). The inclusion of naïve BiLSTM baselines trained on projected-only or mixed data highlights that simple aggregation of noisy labels is harmful or inconsistent, while the proposed approach retains benefits.
+
+- Interpretability and analysis of the noise layer. Visualizations of the learned matrices across languages are informative: mostly diagonal structure with language-specific off-diagonals (e.g., DET/NUM in Italian, NOUN/ADJ in Malagasy), and more diffuse structure for Kinyarwanda correlating with lower-quality projection. This supports the modeling assumption and yields actionable insight about projection biases.
+
+- Realistic low-resource setup. The use of only 1k gold tokens in simulated settings and modest parallel corpora for real languages matches practical constraints. The decision to restrict to 1-1 alignments and filter sentences by alignment quality is a reasonable baseline pipeline.
+
+- Simplicity and efficiency. The method adds very few parameters (K×K) atop a standard BiLSTM, is end-to-end trainable, and does not depend on specialized resources beyond parallel data and a source POS tagger.
+
+Weaknesses
+- Noise model specification and identifiability. The transformation is defined as softmax(A o), i.e., a softmax over a linear transform of the predicted probabilities, not logits. This does not correspond to a standard forward-noise model with a stochastic transition matrix T (where ỹ ~ T^T o). The current parameterization mixes calibration with noise, potentially reducing identifiability and interpretability. A constrained T (rows on the simplex via row-wise softmax) applied linearly to o would better match the intended confusion process.
+
+- Limited ablations on training choices and regularization. The two-stage training is crucial, but there is no ablation quantifying its impact (e.g., random init joint training, or different gold/projected mixing ratios). Likewise, no regularization or priors on A are reported (e.g., L2 toward identity or diagonal dominance), though such priors could stabilize learning and enforce plausible confusions. The initialization of A is not specified; initialization to identity vs random could materially affect outcomes.
+
+- Underutilization of alignment/tagger uncertainty. Projected labels for many-to-one or null alignments are replaced with sentence-level tag distributions, which is a very coarse heuristic. The model could exploit alignment posteriors and source tagger confidences to create token-level soft targets or to weight examples, likely improving supervision quality. Moreover, many-to-one/one-to-many alignments are discarded; with a noise model already in place, incorporating them with appropriate uncertainty might yield further gains.
+
+- Narrow architecture and features. The BiLSTM uses only word embeddings; character/subword features are known to be beneficial for morphologically rich languages and especially in low-resource settings. The absence of char-level modeling may understate what the proposed noise layer could achieve in more competitive neural taggers (e.g., BiLSTM-CRF with char CNN/LSTM). Comparisons to a stronger neural baseline would better isolate the contribution of the noise layer.
+
+- Incomplete experimental probing. Results are reported at a single gold-data budget (1k tokens) and do not explore sensitivity to the amount of gold data or projected data. Statistical significance is not discussed. Cross-source variability (using non-English sources) is not explored, though the method should be applicable.
+
+Questions to Authors
+- How is A initialized, and did you try regularizing A toward the identity (e.g., L2 or KL against a diagonal T)? Does this change performance or stability?
+- Why choose softmax(A o) rather than a stochastic transition matrix T with q = T^T o (and T parameterized via row-wise softmax)? Did you compare the two?
+- How do you balance gold vs projected data during joint training (batch composition, loss weighting)? Did you try curriculum schedules?
+- Did you attempt to incorporate alignment posteriors or source POS tagger confidences to build token-level soft targets instead of sentence-level distributions for ambiguous/NULL cases?
+- How sensitive are results to the quantity/quality of projected data (e.g., using fewer parallel sentences, or including many-to-one alignments with uncertainty)?
+- Would adding character-level features to the BiLSTM change the relative gains of the noise layer?
+
+Additional comments
+- Please clarify early stopping criteria and whether development sets are used to select epochs/hyperparameters.
+- Report training variance over multiple random seeds and statistical significance for key comparisons.
+- Discuss the rectangular A case for mismatched tagsets in an experiment (even a small-scale test), since it is claimed as a benefit.

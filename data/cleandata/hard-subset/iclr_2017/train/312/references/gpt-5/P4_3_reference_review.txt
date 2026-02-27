@@ -1,0 +1,49 @@
+1. Summary of contributions
+The paper proposes Neural Architecture Search (NAS), a reinforcement learning approach that uses a controller RNN to generate variable-length descriptions of neural network architectures. The controller outputs architectural decisions (e.g., filter sizes, number of channels, skip connections), a sampled “child” network is trained, its validation accuracy is used as a reward, and the controller is updated with REINFORCE. Key elements include: (a) an autoregressive controller capable of proposing variable-depth models, (b) an attention-based mechanism to propose skip/branch connections, (c) a formulation for generating recurrent cell structures (beyond LSTMs) via tree-structured compositions with cell state injection, and (d) large-scale parallel and asynchronous training to amortize the cost of training many child models. The method yields competitive to state-of-the-art results: on CIFAR-10 a 3.65% test error (with channel scaling of a discovered architecture), and on Penn Treebank a test perplexity of 62.4, with additional transfer experiments to character-level modeling and machine translation. Control experiments compare against random search and expand the search space with additional operations.
+
+2. Decision
+Accept, primarily because:
+- Novelty and scope: a general, flexible RL-based framework that searches variable-length architectures, including both convolutional networks and recurrent cells, with skip connections.
+- Empirical strength: strong results on CIFAR-10 and PTB, supported by control experiments and transfer to other tasks.
+
+3. Supporting arguments
+Clarity
+- The high-level approach and controller/training pipeline are clearly described. The use of REINFORCE, baseline, and parallel parameter-server setup is explicit. The mechanism for skip connections via content-based sigmoids is well explained, with practical handling of invalid graphs.
+- The recurrent cell search procedure is described in enough detail to reproduce the tree-labeling process, including how ct and ct−1 are injected.
+- Experimental setups for CIFAR-10 and PTB are reasonably detailed (optimizers, schedules, controller sizes, reward shaping).
+
+Technical soundness
+- The methodology is technically sound: the controller induces a distribution over discrete architectures and is optimized using unbiased policy gradient with a baseline; reward shaping is acknowledged; variance reduction via EMA baseline is standard.
+- The system design for large-scale parallel evaluation is appropriate for the problem’s computational demands.
+- The handling of graph validity (concatenation, zero-padding, dangling layers consolidation) is pragmatic and keeps the learning signal well-defined.
+- For recurrent cells, the search space construction is principled and subsumes standard RNN/LSTM computations as special cases.
+
+Novelty and placement
+- The paper goes beyond fixed-length hyperparameter optimization by directly generating variable-length architectures with complex connectivity, and it addresses both CNNs and RNN cells. Compared to Bayesian optimization and evolutionary approaches discussed, the RL-based, autoregressive controller and the demonstrated scale and performance represent a substantive advance at the time.
+
+Support for claims
+- CIFAR-10: multiple search settings (with/without strides/pooling), analysis of skip connections, and final results competitive with strong baselines. Notably, the 3.65% result involves post-hoc channel scaling of the discovered architecture; this is reasonable but should be clearly separated from the discovered topology’s performance.
+- PTB: consistent improvements across configurations, with transfer to character-level LM and GNMT yielding gains without bespoke tuning. A random-search control is provided and indicates a meaningful advantage for policy gradient.
+- However, reporting emphasizes “best-of-search” rather than distributional performance; variance across runs and robustness to the validation split are not quantified.
+- Reproducibility is challenged by the very large computational budget (e.g., 12,800 architectures, 800 GPUs concurrently). The final architectures and some code are promised, which helps, but reproducing the search remains resource-intensive.
+
+4. Additional feedback (to help improve the paper; not necessarily decision-critical)
+- Reproducibility and compute: Provide detailed compute budgets (total GPU/CPU hours, energy), wall-clock times, and early-stopping policies. Clarify how frequently convergence was declared and the correlation between the 50-epoch proxy reward and final converged performance.
+- Fairness and variance: Report results over multiple independent controller runs and/or repeated training of the same discovered architecture with different seeds, including mean/std. Add confidence intervals for key comparisons.
+- Random search baseline: Ensure identical budgets (number of architectures and training epochs) and report the distribution of top-k performances for both methods.
+- Search space and constraints: Quantify the exact search space cardinality for the CNN case, list all operation types considered (including normalization, pooling, stride options), and the depth schedule. Report frequency of “compilation failures” and the effect of the remedial heuristics on outcomes.
+- Reward shaping: Justify cubing the validation accuracy and the choice of constant c in PTB. Provide an ablation on reward shaping and baseline choice to show stability.
+- Post-hoc tuning: Separate the contribution of the discovered topology from subsequent channel scaling and hyperparameter grid search. For CIFAR-10, show test results for the unscaled discovered model for a cleaner comparison.
+- Comparisons: Where possible, re-train competitive baselines under the same training pipeline to control for data augmentation and optimization differences; clarify speed comparisons (hardware, implementations).
+- Generalization: Provide more analysis on transferability: how often do discovered cells/blocks transfer well across datasets or scales? Discuss limits and failure cases.
+
+Questions for the authors
+- What is the total computational cost (GPU/CPU hours) per dataset, and the wall-clock time to produce the final results?
+- How robust are the discovered architectures to the choice of the 5k-image validation split on CIFAR-10? Have you tried multiple splits or cross-validation?
+- What is the correlation between the proxy reward (e.g., 50-epoch validation accuracy) and the final fully trained performance on CIFAR-10? Please provide a scatter plot and correlation coefficient.
+- For the random search baseline on PTB, was the budget strictly matched (same number of evaluated cells and training epochs)? What are the top-5/10 averages for both methods?
+- How many times were the best CIFAR-10 and PTB models retrained with different random seeds, and what variance was observed?
+- For the 3.65% CIFAR-10 result, what is the test error of the unscaled discovered architecture trained to convergence? How was the 1.05x speed gain measured?
+- In the recurrent cell search, how often does the controller rediscover LSTM-like structures? Can you quantify diversity among top cells?
+- Did you observe mode collapse in the controller’s architecture distribution? If so, how was it mitigated (e.g., entropy regularization)?
+- Can you report the frequency and types of invalid architectures before applying the compilation fixes, and whether excluding such fixes changes outcomes?

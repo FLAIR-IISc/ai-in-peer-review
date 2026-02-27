@@ -1,0 +1,61 @@
+Summary
+This paper introduces Sparse Access Memory (SAM), a memory-augmented neural network that enforces sparsity in both reads and writes: top-K content-based reads are implemented via an approximate nearest-neighbor (ANN) index (randomized k-d trees or LSH), and writes are restricted to previously read locations and the least-recently-used (LRU) slot. A sparse “rollback” scheme enables backpropagation without caching the entire memory at each time step. The authors claim O(log N) time per step with respect to memory size N, O(1) additional space per step, and demonstrate large empirical speed/memory savings versus NTM. Experiments on synthetic algorithmic tasks, curriculum scaling to long sequences, bAbI QA (with a sparse DNC variant in the supplement), and Omniglot one-shot learning suggest comparable or improved data efficiency relative to dense baselines.
+
+Strengths
+- Clear and important problem: scaling differentiable memory models to large N with tractable training.
+- Practical algorithmic contributions: sparse reads/writes, LRU-based allocation, ANN-based content addressing, and an in-place sparse rollback for BPTT.
+- Compelling empirical speed/memory wins (up to three orders of magnitude) and evidence of long-sequence BPTT without truncation.
+- Demonstration of generality via a sparse DNC (Supplement D) and competitive bAbI results without supervision.
+- The approach is timely and likely to influence subsequent work on scalable attention/memory.
+
+Weaknesses and detailed concerns
+
+Quality (soundness, evaluation)
+- Differentiability and gradient bias are under-analyzed. Top-K truncation and ANN-based selection are non-differentiable. The paper implicitly treats indices as fixed and backpropagates only through selected rows. There is no analysis of the bias/variance introduced by this estimator, no comparison against continuous relaxations (e.g., sparsemax/entmax, Gumbel-TopK), and no demonstration that gradient starvation does not occur as N grows (the claim that “a negligible fraction of gradients” suffices is asserted, not substantiated).
+- Complexity claims depend strongly on dimension and constants. k-d trees degrade in high dimensions; LSH has substantial constant factors and data-dependent performance. Rebuilding the index every N insertions adds amortized overhead. There is no wall-clock breakdown for ANN build/query/update, nor clarity on CPU/GPU placement or synchronization cost.
+- The O(1) per-step space claim omits important constants (K, number of heads, controller state, ANN structure). Rollback requires storing all sparse deltas per time step (O(T)), which is still the dominant cost in long untruncated BPTT; this is not contrasted with alternatives (e.g., checkpointing).
+- Write policy is heuristic (LRU + previous reads) with a threshold ε. There is no ablation versus alternative policies (content-only, LRU-only, different ε), no analysis of catastrophic overwrites or interactions with the erase matrix, and no capacity/precision trade-off study.
+- Experimental comparisons confound capacity with algorithmic improvements. In curriculum and Omniglot, SAM has vastly larger memory (e.g., 2e6 slots) versus dense baselines (64 slots). This favors SAM on tasks where capacity dominates, making it hard to attribute gains to the sparse algorithm rather than raw capacity. More appropriate would be compute- or wall-clock-matched comparisons, or small-N regimes where all models can run.
+- Reporting is incomplete in the main text: missing K, word dimensionality M, number of read/write heads, distance metric, optimizer details (although RMSProp is cited generally), gradient clipping, controller size, seeds, and variance/error bars. bAbI results are only summarized; the main figures/tables are relegated to the supplement.
+- The “asymptotically optimal” claim is not substantiated in the main paper; conditions and proof sketches are deferred to Supplement A and not summarized precisely.
+
+Clarity
+- Several notational issues hinder reproducibility: eq. (3) appears to omit the Hadamard product; inconsistent use of superscripts/transpose/T; inconsistent tilde notation for sparse vectors. Many typographical artifacts (“⇥”, “⇡”, etc.) and units formatting (MiB/GiB) detract from readability.
+- The ANN integration is described at a high level, but critical implementation choices (index parameters, rebuild policy, synchronization with memory tensor, handling of deletions) are left to the supplement; a concise but complete pseudocode block would help.
+- Figures central to claims (e.g., speed/memory scaling) are referenced but not shown here; error bars and variability across seeds are not discussed.
+
+Originality
+- The idea of enforcing sparsity in memory access is sensible and aligned with prior attempts (e.g., RL-NTM with discrete addressing). The combination of top-K, LRU writes, and ANN within a differentiable framework is a practical synthesis. However, the paper would benefit from a clearer positioning against prior discrete/sparse addressing approaches and from acknowledging contemporaneous sparse attention literature (even if later, the authors should discuss differences relative to straight-through or continuous sparse relaxations).
+
+Significance
+- If validated more rigorously, the engineering advances could materially expand the feasible scale of MANNs. However, the current empirical validation leans heavily on synthetic tasks and on supplements; stronger real-world evaluations and fairer baselines are needed to firmly establish impact.
+
+Questions for authors
+1) How exactly are gradients handled through the top-K/ANN selection? Any straight-through estimator or temperature annealing? Can you quantify the gradient bias?
+2) Provide K, M, number of heads per task, and sensitivity to K. How does accuracy/time scale with K?
+3) Where does the ANN live (CPU/GPU)? What is the measured overhead of maintain/update/rebuild relative to controller forward/backward?
+4) How does performance change with higher-dimensional keys (e.g., M≥256), where k-d trees become ineffective?
+5) Ablate the write policy (LRU-only vs read-only vs interpolated) and ε. Any evidence of destructive interference?
+6) For curriculum experiments, can you provide compute-matched comparisons and multiple seeds with error bars?
+
+Minor comments/typos
+- Eq. (3) missing Hadamard product symbol between (1−Rt) and Mt−1.
+- AT = wWt aTt: notation inconsistent; presumably At = wW_t a_t^T.
+- “sublinear time with ANN”: clarify you mean O(log N) and under what dimensionality assumptions.
+- Many “⇥”, “⇡” artifacts and inconsistent spacing around units (MiB, GiB).
+- “1-hot” → “one-hot”. “th Conference …” placeholder should be fixed.
+
+Pros
+- Addresses an important scalability bottleneck with a coherent set of techniques.
+- Strong empirical speed/memory improvements; impressive long-sequence BPTT.
+- Generality to DNC; promising bAbI/Omniglot results.
+
+Cons
+- Non-differentiable top-K/ANN selection lacks theoretical or empirical justification regarding gradient bias and stability.
+- Fairness of comparisons is questionable; capacity confounds dominate.
+- Heavy reliance on supplement; missing critical hyperparameters and ablations.
+- Optimality claims and complexity caveats insufficiently discussed in main text.
+- Numerous notational/formatting issues.
+
+Recommendation
+Borderline reject. The contributions are promising and likely impactful, but the paper, as written, has too many unresolved methodological details, fairness concerns in evaluation, and clarity issues to meet the bar. I encourage the authors to (i) provide a principled treatment (or empirical justification) of gradients through sparse selection, (ii) add ablations and compute-matched baselines, (iii) tighten the main text with precise algorithmic details and proofs, and (iv) clean up notation/formatting.

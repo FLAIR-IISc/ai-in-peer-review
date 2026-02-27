@@ -1,0 +1,52 @@
+Summary
+The paper proposes LSDA, a method to adapt image classifiers into object detectors when bounding box annotations are available only for a subset of categories. The approach has two components: (1) category-invariant adaptation via fine-tuning layers 1–7 of a CNN on detection data for m “base” categories (including learning an explicit background class), and (2) category-specific adaptation for held-out categories by transferring the average change in the last-layer (fc8) weights from their nearest neighbors among the base categories (measured by L2 distance between normalized classification fc8 weights). At test time, the network outputs K+1 scores per region proposal and uses scorei − scorebackground as the detection score. Experiments on ILSVRC2013 detection simulate m=100 base categories and 100 held-out categories, showing a relative mAP gain of ~50% on held-out categories vs. a classification-only baseline; qualitative results are shown for a 7,604-class model.
+
+Relation to prior work: The paper builds directly on R-CNN (fine-tuning from classification to detection with proposals) and frames the problem in domain adaptation terms. It differentiates itself from supervised detector adaptation methods that require detection labels for all categories and from weakly supervised MIL methods, aiming instead to transfer detection-specific changes learned on a subset to held-out classes.
+
+Strengths
+- Addresses an important practical problem: scaling detection without full bounding box supervision for all classes.
+- Simple, implementable approach that leverages standard fine-tuning plus a lightweight last-layer transfer; code and models are reportedly released.
+- Clear empirical message: fine-tuning with a background class provides substantial category-invariant gains on held-out categories; nearest-neighbor last-layer adaptation yields a modest but statistically significant improvement.
+- Ablations (to a limited extent) disentangle the contributions of background learning, feature adaptation, and last-layer adaptation.
+- Qualitative error analysis suggests the method reduces localization and background confusions relative to using classification features.
+
+Weaknesses and detailed concerns
+Technical/methodological
+- The category-invariant adaptation is essentially standard fine-tuning for detection with an added background class, applied only to a subset of categories. The paper’s novelty lies primarily in showing that these changes generalize to held-out categories, but the mechanism is not probed: no analysis of how many base categories are needed, which layers matter most, or the sensitivity to the composition of set B.
+- The category-specific transfer (averaging δ over nearest neighbors in classification fc8 space) is ad hoc. There is no evaluation of alternative metrics (cosine vs. Euclidean), k sensitivity beyond one setting, or more principled mappings (e.g., learning a regression from Wc to Wd on B). The assumption that similarity in classification space correlates with similarity in detector deltas is not validated.
+- The test-time scoring “scorei − scorebackground” is not well justified. With a K+1 softmax, subtracting logits is closer to log-odds if scores are pre-softmax, but the paper is ambiguous about whether “score” denotes logits or probabilities. A principled calibration (e.g., using logits or p(i)/p(bg)) and a small analysis of calibration effects would strengthen claims.
+- Important training details are missing: learning rates/schedules, layer-wise LR multipliers, batch composition (positives/negatives), number of proposals per image, proposal settings (Selective Search variant), NMS thresholds, and hardware. Given the premise of broad applicability, reproducibility details are crucial.
+- The experimental protocol mixes val1 into training and evaluates on val2, augmented with 1,000 bbox images per base class from train. This is a large amount of detection supervision (100k images) for B; the paper should quantify how m and the number of bbox images per class affect transfer to A.
+- Comparisons lack stronger baselines: (a) a model trained on B with standard R-CNN post-processing (SVMs and bbox regressors) applied to B and used naively for A (to quantify the true marginal benefit of last-layer δ for A); (b) contemporary weakly supervised methods on a shared subset (even if not on ILSVRC, a VOC-scale comparison would contextualize LSDA’s advantage); (c) a baseline that trains only a background-vs-object detector plus per-class classification, to isolate the impact of background modeling.
+- The 7.6K-class detector is only qualitatively evaluated; no quantitative proxy (e.g., on a held-out subset with boxes) is provided. Claims about scalability would benefit from even limited quantitative validation and an analysis of cross-class NMS.
+- The claimed training-time reductions (3 days to 5.5 hours) are hardware- and pipeline-dependent and should be contextualized with specifics.
+
+Clarity/formatting
+- Numerous typos and formatting issues hinder readability: missing/misaligned spaces (e.g., “fea- ture”, “setB”), malformed footnotes embedded in body text, figure caption fragments (“mush oom”), superfluous analysis tool outputs (“1−r=−3.00”), and inconsistent notation (A={m,...,K} overlaps B={1,...,m}; presumably A={m+1,...,K}).
+- References are incomplete/inconsistent (missing years/venues, duplicates, “In In Proc.”, CoRR-only placeholders) and do not follow a standard style.
+- The notation around fcA/fcB/δB could be tightened; the equivalence between adding δB and fine-tuning fcB is stated but not precisely formulated.
+
+Originality
+- The framing as domain adaptation from classification to detection with partial supervision is timely and interesting. However, most components are incremental: fine-tuning with background is standard; nearest-neighbor δ transfer is a straightforward heuristic. The novelty is primarily in the setup (held-out categories) and the empirical observation that category-invariant detection features transfer.
+
+Significance
+- The problem is important, and even modest absolute gains on held-out categories (≈10.31% to ≈16.15% mAP) can matter at scale. However, the absolute performance remains low, and the lack of stronger baselines and broader sensitivity analyses undermines the strength of the claims. The qualitative 7.6K results are promising but not substantiated quantitatively.
+
+Pros
+- Practical problem; simple method with code release.
+- Clear ablation showing benefit of background modeling and feature adaptation.
+- Statistically tested improvement for last-layer transfer.
+
+Cons
+- Weak theoretical/methodological justification for the category-specific transfer.
+- Missing implementation details and ablations (k, distance metric, number of base classes).
+- Incomplete comparisons and limited quantitative evidence for large-scale claims.
+- Numerous clarity/formatting errors.
+
+Questions for authors
+- Are “scores” logits or softmax probabilities? Did you try log-odds vs. raw differences?
+- Sensitivity of results to k and to the neighbor metric? Any reason not to learn a regression from Wc to Wd?
+- How does performance on A vary with m and with the number of bbox images per base class?
+- Do results hold with stronger R-CNN post-processing (SVMs, bbox regression) and modern proposals (e.g., EdgeBoxes/SS variants) for both B and A?
+
+Recommendation: Borderline reject (score: 5/10). The paper tackles an important problem and presents a simple, potentially useful approach, but the current version lacks methodological depth, stronger baselines, key training details, and contains many presentation issues. With cleaner exposition and more thorough experiments (especially sensitivity to m/k, calibration, and stronger baselines), I would be inclined to support acceptance. Confidence: high.

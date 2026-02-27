@@ -1,0 +1,53 @@
+Summary
+This paper proposes Sparse Access Memory (SAM), a memory-augmented neural network that enforces sparsity on both reads and writes to achieve sublinear time and O(1) per-step space (in N) during training, while remaining trainable via backpropagation through time. Reads are approximated by restricting attention to the K nearest memory words using an ANN index (randomized k-d trees or LSH), and writes target a sparse subset combining previously read locations and a least-recently-used (LRU) slot tracked via a usage data structure. Backprop is made memory-efficient by storing sparse diffs and rolling back memory in reverse-time. The paper shows large runtime and memory savings versus NTM, comparable learning to dense variants on synthetic algorithmic tasks, improved scaling via an exponential curriculum to long sequences and large memories, competitive bAbI results (especially with an SDNC variant in the supplement), and strong one-shot generalization on Omniglot.
+
+Relation to prior work: The work extends NTMs and Memory Networks by adding sparse read/write and efficient memory management. It relates to discrete addressing (e.g., RL-NTM) but avoids RL variance by retaining differentiability in most components. The idea of content-based addressing with KNN is standard; embedding an ANN inside training and designing a reversible, sparse BPTT mechanism are the key contributions.
+
+Strengths
+- Clear motivation and strong empirical evidence that dense content addressing scales poorly; the engineering contribution is timely and important.
+- Simple, practical sparse write rule (update read locations + LRU) and a constant-time rollback mechanism for BPTT; these implementation details are valuable.
+- Substantial empirical speedups and memory savings (up to ~10^2–10^3×) at large N; per-step memory independent of N is demonstrated empirically.
+- Demonstrations on multiple tasks, including curriculum scaling to >4000 steps without truncation and generalization to lengths >> training, suggest the approach captures algorithmic behavior.
+- Using an ANN index within the network is novel in this context; the discussion of k-d trees vs LSH is practical and informative.
+- The SDNC supplement broadens applicability and shows strong bAbI performance without supervised memory access.
+
+Weaknesses and concerns (technical and methodological)
+- Differentiability claims: The method uses non-differentiable components (top-K truncation of read weights; argmin for LRU; thresholding with ε to determine “non-negligible” access; no gradients through the ANN). The claim of “retaining end-to-end gradient based optimization” needs careful qualification. What gradients reach the controller’s read keys when the candidate set is determined by a hard, approximate KNN? Is there any straight-through estimator or smoothing? Please clarify how gradients propagate w.r.t. qt when the candidate set changes discretely.
+- Softmax approximation: Equation (2) defines a normalized softmax over all N memories, but the sparse read uses only the K retrieved items (Eq. 4). Is the denominator restricted to K items? If so, this is a biased approximation to content softmax; if not, how is the denominator computed in sublinear time? Please specify the exact weighting (and any temperature) used for w̃R.
+- Complexity assumptions: O(log N) for insertion/deletion/query is asserted for k-d trees and LSH; in high dimensions k-d tree performance often degrades; LSH typically yields sublinear but not logarithmic complexities and depends on parameters. The paper should provide empirical scaling across word dimensions and K, and report amortized costs including periodic full rebuilds (“every N insertions”). Currently, rebuild costs and their impact on training throughput are not quantified.
+- Sensitivity and ablations: No ablation on K (e.g., K=1/4/8/16), ε for usage counting, or the write mixing gate (αt, τ). It is unclear how performance/efficiency trade off as K varies. Also, no analysis of the learned behavior when disabling either “write to read locations” or “LRU overwrite.”
+- Fairness of comparisons: For curriculum scaling, dense models use 64 slots while sparse models use 2×10^6 slots, “controlled” for peak physical memory over 100 steps. This conflates two effects (algorithm and capacity). A more balanced comparison would include a dense baseline with the largest feasible N under the same compute budget and examine accuracy vs wall-clock, and accuracy vs training FLOPs.
+- Theoretical claims: Asymptotic optimality in time/space for content addressing is stated but deferred to the supplement; no theorem/assumptions are summarized in the main text. Please outline the assumptions (e.g., constant K and word dimension, balanced index) and whether lower bounds consider approximate nearest neighbor and non-differentiable updates.
+- Reproducibility gaps: Significant details are relegated to supplements (hyperparameters, word dimension M, K, ANN parameters, rebuild frequency, hardware and CPU/GPU split for ANN, optimizer settings). Given the sensitivity of ANN performance and training stability, more details in the main paper would help.
+- bAbI and Omniglot setups: For bAbI, please report exact per-task errors and whether joint training or per-task training was used, and compare to strong non-MANN baselines run under the same conditions. For Omniglot, the protocol deviates from common meta-learning benchmarks; training/test splits, augmentation, and label protocol should be made fully explicit and results reported as mean ± std with standardized splits.
+- Potential instability: Using an LRU with ties resolved arbitrarily introduces nondeterminism; how often does this occur and does it affect reproducibility?
+- Missing baselines: A comparison to discrete-addressing approaches (e.g., RL-NTM) under matched training budgets would strengthen claims about optimization benefits of SAM.
+
+Clarity and presentation issues (numerous minor but distracting)
+- Notation clashes: t is used both as time index and an interpolation gate (τ?), leading to wW_t = α_t τ_t wR_{t-1} + (1−τ_t) IU_t — very confusing. Use distinct symbols.
+- Equation (3) is malformed: “Mt (1 Rt) Mt−1 + At” is missing “=”.
+- Inconsistent formatting and typos: frequent encoding artifacts (⇥, ⇡), inconsistent hyphenation (“content addressable” vs “content-addressable”), inconsistent symbols (AT vs A_t), missing vector/matrix dimensions, and spacing in w W t.
+- References are incomplete (missing years/venues), numbering appears inconsistent with in-text citations; “th Conference on Neural Information Processing Systems (NIPS 2016)” is malformed; the equal-contribution asterisk is misplaced.
+- Figures are referenced but not described in text with sufficient detail (e.g., axis units, hardware for timing; confidence intervals).
+
+Originality
+- The combination of sparse read/write, LRU-based allocation, ANN in the loop, and reversible sparse diffs for BPTT is a novel and practical synthesis. The high-level idea of sparse addressing is known, but the specific engineering to make it trainable at large N is original.
+
+Quality
+- Empirical results are promising and consistent with the motivation. However, several claims (differentiability, complexity, optimality) are under-justified; ablations and fair baselines are lacking.
+
+Significance
+- If solidified, SAM could materially advance practical MANNs and enable work at previously infeasible scales. The contribution is significant, but the current presentation leaves important questions unanswered.
+
+Pros
+- Strong motivation and impactful scalability improvements
+- Practical, implementable design; large-scale demonstrations
+- Generality beyond NTM (SDNC)
+
+Cons
+- Non-differentiable components and biased softmax approximation not carefully analyzed
+- Missing ablations and fairness concerns in comparisons
+- Numerous clarity/formatting issues; reproducibility gaps
+
+Recommendation
+Borderline reject. The paper tackles an important problem with a compelling approach and strong empirical promise, but the accumulation of methodological ambiguities (gradient flow, softmax approximation, complexity assumptions), lack of ablations/fair comparisons, and numerous presentation issues warrant revision. I would be inclined to accept a revised version that clarifies differentiability and normalization, provides ablations and fair baselines, and fixes the many clarity/formatting problems.

@@ -1,0 +1,59 @@
+Summary and relation to prior work
+The paper proposes a two-step approach for cross-lingual text classification. Step 1 performs matrix completion on a concatenated bilingual document-term matrix in which non-parallel documents have missing entries for the other language’s vocabulary. The completion is posed as a convex surrogate with a trace norm term (to enforce low rank), an ℓ1 term (to encourage sparsity), squared loss on observed entries, an additional squared penalty toward zero on unobserved entries (weighted by ρ), and a nonnegativity constraint. The authors propose a projected gradient descent scheme with a gradient step on the smooth part, singular value thresholding (SVT) for the nuclear norm, and projection onto the nonnegative orthant. Step 2 applies LSI (SVD) to the completed matrix to obtain cross-lingual low-dimensional representations on which a linear SVM is trained. Experiments on the multilingual Amazon reviews dataset compare against TBOW, CL-LSI, CL-OPCA, and CL-KCCA, reporting consistent gains.
+
+The work is related to CL-LSI, CL-KCCA, CL-OPCA, and multilingual topic methods, and to SCL. The novelty is to impute missing cross-lingual features via nuclear norm–regularized completion before LSI, rather than directly applying LSI/KCCA on the concatenated matrix.
+
+Strengths
+- Conceptually simple and potentially useful idea: use low-rank completion to propagate cross-lingual structure from few parallel pairs into non-parallel documents, then apply standard LSI/SVM.
+- Empirical gains over several established baselines across many language/category pairs, and claimed robustness to small parallel corpora.
+- Clear setup of the unified matrix and the role of parallel rows in tying the vocabularies.
+- The gradient form and step-size dependence on ρ are sensible for the smooth part (Lipschitz constant max(1, ρ)).
+
+Weaknesses and detailed concerns
+Technical correctness and optimization
+- The proposed algorithm is not the proximal gradient method for the stated objective. The objective is γ||M||* + g(M) + I{M≥0}(M). The correct proximal step requires prox of (γ||·||* + I{·≥0}), which is not equal to sequentially applying SVT then projecting to the nonnegative orthant. Composition of two proximal operators generally does not equal the proximal of the sum; the proof provided relies only on non-expansiveness and cites [11, Theorem 4], but that theorem applies to SVT for quadratic losses without an additional projection. As written, the convergence argument does not establish convergence to the minimizer of (2).
+- The “convergence analysis” shows non-expansiveness of the three operators and of their composition, but that only guarantees convergence to a fixed point of the iteration, not optimality for (2). No descent property or optimality conditions are shown.
+- The initialization “nonnegative projection of the rank-1 approximation of M0” is undefined for missing entries. Do you SVD after imputing zeros? This matters in practice.
+- The claim that a fully observed document-term matrix is “naturally low-rank” is questionable; such matrices are typically very high rank, albeit approximately low-dimensional due to topic structure. Please qualify and/or provide evidence.
+- The ℓ1 term with nonnegativity reduces to a linear penalty µ∑ Mij; calling it “equivalent to a smooth linear function” is fine, but its interaction with the squared penalty on unobserved entries effectively pulls all missing entries toward zero twice (via ρ and via µ), which may defeat cross-lingual propagation unless carefully tuned. An ablation varying µ and ρ would be informative.
+- The additional penalty c(Mij, 0) on unobserved entries is unusual for matrix completion (which typically leaves missing entries unpenalized); it biases imputations toward zero. A justification and sensitivity study are needed.
+- Notational and mathematical issues: c(x, y) is defined as “12‖x − y‖” (missing square); h(·) uses “I(·)” for the identity operator without definition; the step-size restriction depends on ρ but no Lipschitz constant proof is provided; Algorithm 1 line numbers and constraints have typos (e.g., “ρ ≤ 1” as input then ρ is tuned up to 1, but later the theorem allows τ < min(2, 2/ρ)).
+
+Methodological clarity and reproducibility
+- Table 1 and Figures 1–2 are not included; concrete numbers, confidence intervals, and statistical tests are missing. This impedes assessment and reproducibility.
+- Key baselines are missing: SCL [16] (on the same dataset) is cited but not compared; MT-based translate-train/test baselines are not reported. Recent cross-lingual word embedding approaches are not discussed or compared.
+- CL-KCCA requires kernels and kernel hyperparameters; only k is tuned. Similarly, OPCA has its own hyperparameters. Without detailing kernel choices and tuning, comparisons may be unfair.
+- SVM hyperparameter C is left at libsvm defaults; results may be suboptimal for all methods. A simple grid search on the training data would strengthen conclusions.
+- Representation learning uses “all documents from the two languages” plus parallel data, which appears to include the unlabeled test set. This is a form of transductive training; it must be stated clearly and justified, and a strictly inductive setting should be reported as well.
+- The procedure tunes γ, ρ, k on the EFB task and reuses them for all tasks; this may bias results toward that setting and may not be optimal elsewhere. Either tune per task on training data or justify cross-task invariance.
+- No runtime or scalability analysis. The method requires repeated SVDs over very large sparse matrices; which SVD is used (truncated, randomized)? How many iterations? Wall-clock times vs. CL-LSI/OPCA/KCCA?
+
+Presentation and formatting
+- Multiple typos and inconsistencies (equations, punctuation, capitalization). References are incomplete (missing years, venues, pages; some conference names incorrect). Figures/tables are referenced but absent.
+- Some claims are overly strong (e.g., “provably converges to an optimal solution”) given the provided analysis.
+
+Quality
+Mixed. The empirical story is promising but lacks critical baselines, statistical rigor, and key details. The optimization section is the weakest: as stated the algorithm likely does not solve the proposed objective, and the convergence proof is not valid for the constrained composite.
+
+Clarity
+Moderate. The high-level idea is clear, but important details (initialization, SVD/truncation, stopping criteria, complexity) are missing. Numerous typos and incomplete references detract from readability.
+
+Originality
+Incremental. Combining nuclear-norm completion with LSI for cross-lingual representation is a reasonable idea, but close to prior CL-LSI/OPCA/KCCA frameworks that learn low-dimensional shared spaces from parallel data. The novelty is in imputing missing bilingual features; related matrix completion for multilingual/text settings should be discussed.
+
+Significance
+Potentially useful if validated rigorously and shown to scale, but current evidence is insufficient due to methodological issues and missing baselines. Practical impact is unclear without runtime/scale and stronger comparisons.
+
+Pros for acceptance
+- Simple, potentially effective idea with encouraging empirical trends.
+- Uses few parallel documents and claims robustness at low np.
+- Addresses an important problem.
+
+Cons for acceptance
+- Optimization algorithm/proof issues; likely does not solve the stated problem.
+- Missing strong baselines (SCL, MT, embeddings), missing numbers/figures, and insufficient experimental detail/tuning.
+- Possible transductive use of test data; unclear fairness of comparisons.
+- No scalability analysis; reproducibility hindered by omissions and incomplete references.
+
+Recommendation
+Reject. The idea is interesting, but the paper in its current form has substantial technical and experimental shortcomings. I encourage the authors to: (1) use a correct proximal algorithm for γ||·||* + I{·≥0} (e.g., Dykstra/ADMM or prox composition with proof), or drop the constraint/term to match existing convergence theory; (2) add SCL, MT, and embedding baselines, tune SVM C and all method hyperparameters fairly; (3) report full numbers with statistics, avoid transductive setups or clearly separate them; (4) provide runtime/scaling details; and (5) fix the typos/references.

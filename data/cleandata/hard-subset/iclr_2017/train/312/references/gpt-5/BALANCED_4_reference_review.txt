@@ -1,0 +1,62 @@
+1. Summary of contributions
+The paper proposes Neural Architecture Search (NAS), a method that uses a controller RNN trained with policy gradients (REINFORCE) to generate variable-length descriptions of neural network architectures. The controller samples architectures (child networks), which are trained to convergence; their validation accuracy (or perplexity) is used as a reward to update the controller. The framework supports rich search spaces, including skip connections via set-selection attention and multiple layer types. The method is scaled via asynchronous distributed training with hundreds of replicas. Empirically, NAS finds competitive to state-of-the-art CNNs on CIFAR-10 (down to 3.65% error with a deeper variant) and novel RNN cells that outperform LSTM baselines on PTB word-level language modeling (62.4 test perplexity), with evidence of transfer to character-level PTB and machine translation (GNMT). The paper includes ablations (e.g., expanded operation set) and a random-search comparison (on PTB), and promises code release.
+
+2. Decision: Accept
+Primary reasons:
+- Novel and well-motivated approach for learning architectures end-to-end from task reward, with a flexible search space (including connectivity) and a principled training objective.
+- Strong empirical results across vision and language tasks, including transfer, that exceed or match state-of-the-art models designed by experts; compelling demonstration that the approach can discover nontrivial architectures.
+
+3. Supporting arguments
+- Problem significance: Automating neural architecture design is impactful. NAS addresses variable-length, structured architecture search beyond fixed hyperparameter optimization.
+- Methodological soundness: The use of an autoregressive controller trained with REINFORCE is appropriate for non-differentiable rewards. Variance reduction with a moving-average baseline, reward shaping, and scaling via distributed asynchronous updates are sensible and described clearly. The extension to skip connections via content-based sigmoids is elegant and maintains differentiability of the controller for policy gradients.
+- Positioning in literature: The paper situates NAS relative to Bayesian hyperparameter optimization, neuroevolution, program induction, and meta-learning. The distinctions are accurate: broader search spaces than standard BO; more scalable and less heuristic than many evolutionary approaches; learning to generate architectures in a meta-learning sense.
+- Empirical support: 
+  - CIFAR-10: NAS discovers architectures competitive with human-designed models, with careful training details, data augmentation comparable to prior work, and analysis of the effect of skip connections. The final 3.65% result (after widening filters) is near SOTA at the time and includes a speed comparison.
+  - PTB: The learned cell achieves a notable perplexity improvement over strong LSTM and RHN baselines, with comparable or better compute. The random search control shows policy gradient finds better average and best architectures under the same budget.
+  - Transfer: The learned cell improves character-level PTB and yields a +0.5 BLEU gain when dropped into GNMT without retuning architecture-specific hyperparameters, suggesting generality.
+- Clarity and completeness: The paper provides concrete controller/training hyperparameters, search space definitions, and distributed setup. It includes ablations (e.g., expanded operation set) and some robustness checks.
+
+Caveats (not decision blockers):
+- Compute intensity is very high (e.g., 800 GPUs concurrently), which raises concerns about accessibility and reproducibility for most researchers.
+- Some comparisons are not fully normalized for parameter count/FLOPs; the speed comparison to DenseNet is suggestive but not strictly controlled.
+
+4. Additional feedback and questions to improve the paper
+These points aim to strengthen the work; they are not all required for acceptance.
+
+- Validation overfitting and selection bias:
+  - Concern: The controller optimizes directly on a fixed validation set across thousands of trials, risking overfitting. Please report measures to mitigate this (e.g., early stopping based only on training loss; using a meta-validation set; re-evaluating top-k architectures on a fresh validation split before test).
+  - Request: Provide a learning curve of validation reward vs. held-out performance for top candidates to assess overfitting.
+
+- Fairness and normalization of comparisons:
+  - CIFAR-10: Report parameter counts and FLOPs for NAS models and baselines; include accuracy vs. compute trade-offs. The final 3.65% result involves widening by +40 filters; clarify whether comparable widening was applied to baselines. Consider adding a result where depth/width are matched to a chosen baseline.
+  - PTB: Clarify which regularization techniques (e.g., weight tying, dropout variants) are used in each comparison row; ensure apples-to-apples comparisons with recent strong baselines (e.g., pointer sentinel, RHN).
+
+- Random search and ablations:
+  - The random search comparison is only shown for PTB. Please add a CIFAR-10 random search baseline under the same compute budget to quantify NAS’s advantage.
+  - Analyze sensitivity to reward shaping (e.g., cubing accuracy; constant c in perplexity reward). Does the controller’s performance degrade without shaping?
+  - Report the effect of the moving-average baseline and any entropy regularization; controller collapse vs. exploration dynamics would be informative.
+
+- Search space and constraints:
+  - For CIFAR with pooling/stride, you reduce the space via 3-layer blocks and later widen filters. Please clarify the rationale and quantify how this restriction affects results versus the unrestricted space.
+  - For skip connections: padding with zeros to match shapes may introduce artifacts. Did you consider shape-preserving restrictions or projection layers? Any observed failure modes due to “compilation failures”?
+
+- Stability and variance:
+  - Provide variance across multiple independent controller runs: distribution of best-found validation performance and test performance, and the number of architectures evaluated until a given threshold is reached.
+
+- Compute budget and efficiency:
+  - Report total compute (GPU/CPU days) to reach the reported results on each task, and per-architecture training cost. This will help readers assess practicality and compare to alternatives (e.g., BO, evolutionary methods).
+  - Any insights into sample efficiency improvements (e.g., weight sharing across child models, early-stopping proxies) would be valuable for broader adoption.
+
+- Terminology:
+  - The introduction calls NAS a “gradient-based” method; to avoid confusion with differentiable architecture search (e.g., continuous relaxations), clarify that gradients are w.r.t. the controller parameters via policy gradients on non-differentiable rewards.
+
+Questions for the authors
+1. How do you guard against overfitting to the validation set used as reward across 12,800–15,000 trials? Have you tried using a separate meta-validation set or k-folding for controller updates?
+2. What is the variance of final test performance over multiple controller training runs? How stable are the discovered architectures?
+3. How sensitive are results to the reward shaping (accuracy cubed; perplexity scaling c)? Please provide ablations.
+4. Can you report parameter counts and FLOPs for the top CIFAR-10 architectures and compare speed on identical hardware/settings?
+5. What is the total compute budget (GPU/CPU days) for the CIFAR-10 and PTB searches? How does it compare to random search achieving similar performance?
+6. On PTB, did you compare against recent strong baselines with weight tying and pointer mechanisms under identical regularization? If not, can you add this for completeness?
+7. Have you explored entropy regularization or KL constraints for the controller to improve exploration and reduce collapse?
+
+Overall, this is a compelling and timely contribution that opens a promising direction for automatic architecture design, supported by strong empirical evidence.

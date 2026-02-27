@@ -1,0 +1,50 @@
+Summary and relation to prior work
+This paper proposes a latent-space model and scalable inference method for large networks using a bag-of-triangles representation. The Parsimonious Triangular Model (PTM) ties parameters across classes of triangle role configurations to reduce the triangle-generating parameterization from O(K^3) (as in MMTM) to O(K). On the inference side, the authors use stochastic variational inference with a structured mean-field approximation over triplet role assignments, and further introduce a “mixture-of-deltas” approximation to reduce the local update cost to O(K) per triangle. They claim the resulting procedure scales linearly in N and K and demonstrate results on synthetic data and several real networks, including a 1M-node YouTube network.
+
+This work builds on (i) mixed-membership blockmodels (MMSB) and scalable a-MMSB; (ii) the triangle-based representation and MMTM; and (iii) stochastic variational inference / natural gradients. The key novelty is the parameter tying in the triangle likelihood and the specific structured variational approximation to avoid O(K^3) local updates.
+
+Strengths
+- Ambitious scalability goal and a clear attempt to address both modeling and algorithmic bottlenecks simultaneously.
+- The parameter-tying idea (sharing probabilities across classes of role triplets) is simple and effective in reducing model complexity from O(K^3) to O(K).
+- Sensible use of structured mean-field (rather than naive) for triplet roles, and a practical low-rank “mixture-of-deltas” trick to keep per-triangle updates linear in K.
+- The paper is generally well written and the modeling and algorithmic choices are motivated by scalability concerns that are relevant to large-network analysis.
+- Reported wall-clock times are impressive, and the ability to handle N≈10^6 and K≈100 on a single machine is noteworthy.
+
+Concerns and weaknesses
+Methodological soundness and clarity
+- Complexity claims are inconsistent. Early the paper states overall time O(NK), yet later the per-pass cost is O(mK) with m=Θ(Nδ^2) triangles after subsampling, and the “Global Update” alone is O(NK). The dominant cost is the local updates over triangles; the headline claim should reflect O(Nδ^2K) (or O(mK)). Please fix the statement and report actual δ, m per dataset.
+- The stochastic approximation schedule is misstated. Equation (7) requires step sizes with ∑t ρt=∞ and ∑t ρt^2<∞; this typically uses κ∈(0.5,1]. In Section 5.2 you set κ=−0.5, which violates the Robbins–Monro conditions and undermines the convergence claim. If this is a typo, correct it and report the κ used in all experiments; if not, justify and analyze.
+- The “mixture-of-deltas” approximation restricts q(s_i,jk,s_j,ik,s_k,ij) to K diagonals and O(K) off-diagonals sampled at each update. While each choice yields a valid bound for that subfamily, the algorithm effectively optimizes a sequence of changing objectives as A is resampled. There is no analysis of the bias this introduces, stability, or whether the stochastic natural gradient still converges to a stationary point of a fixed objective. An ablation on small K comparing full K^3 vs mixture-of-deltas would help.
+- The PTM makes strong tying assumptions: all “two-equal, one-different” configurations share B_xx (regardless of the minority role), and all “all-distinct” share B_0. This drastically reduces expressiveness compared to MMTM. There is no analysis of identifiability or the conditions under which PTM can approximate MMTM-like heterogeneity. A discussion or theoretical justification (e.g., bias-variance tradeoff) is needed.
+
+Evaluation and baselines
+- Synthetic experiments: All methods are seeded with 2% ground-truth role hints. This is a strong and unrealistic assumption that advantages local-search procedures. Please report performance with standard random initializations; if seeding is necessary, motivate why and quantify sensitivity to the amount of supervision.
+- Key baselines are missing or underspecified:
+  - a-MMSB (stochastic variational) is the natural strong baseline; wall-clock claims cite prior papers but there is no direct head-to-head comparison under matched hardware/implementation constraints.
+  - Modern scalable embedding/link-prediction methods (even simple ones like spectral variants, or more recent representation learning methods) are not compared. At minimum, compare to a-MMSB and to a competitive embedding baseline on link prediction.
+- Link prediction: Only MMSB is compared. The evaluation protocol is underspecified (AUC? AP?), and details on hyperparameter tuning, repeated splits, and variance are missing. The scoring rule for PTM (“probability that triangle (i,j,k) will include edge i−j, marginalizing over k”) is unusual and may favor triangle-based models. Provide more details and alternatives (e.g., edge probability under a consistent projection of the triangular model).
+- Reported speedups rely on different codes/threads/hardware than prior work. For a fair comparison, provide wall-clock times for baselines re-run on the same machine (where feasible) or report normalized metrics (e.g., edges/second or triangles/second) and per-pass times.
+
+Modeling assumptions and limitations
+- The model is not a generative model of networks and does not enforce edge consistency across overlapping triangles. This is acknowledged, but it raises concerns about using it for edge-level tasks like link prediction. Some diagnostic showing that edge probabilities induced by the triangle model correlate well with actual edge frequencies would be helpful.
+- δ-subsampling: The claim that it “approximately preserves the distribution over open and closed triangles” is delegated to [8]. Here, a sensitivity analysis wrt δ on real data (accuracy-speed tradeoff) would strengthen the case. High-degree hubs are especially affected; report results on networks with heavy tails.
+- Memory/time practicality: For N=1M, K=100, storing γ is ~100M parameters; details on memory footprint and how sparsity (if any) is exploited would be useful.
+
+Minor issues and clarity
+- Several key equations and derivations are deferred to the appendix; ensure the supplementary contains full gradients and update expressions (including for φ_xxx and φ_xxy).
+- Please standardize notation and ensure that all hyperparameters (α, λ, δ, τ0, τ1, κ, minibatch size) and their tuning are clearly documented per dataset.
+- Proofread references (many entries lack years/venues).
+
+Pros
+- Clear motivation for triangle-based modeling and parameter parsimony.
+- Practical inference scheme that is easy to parallelize and appears to scale.
+- Promising empirical results and fast convergence in terms of data passes.
+
+Cons
+- Methodological issues (step-size schedule, changing variational family) not theoretically justified.
+- Expressiveness of PTM vs MMTM is not analyzed; potential loss of fidelity not quantified.
+- Missing strong baselines and incomplete evaluation details; reliance on seeded initializations.
+- Inconsistent complexity claims; fairness of runtime comparisons is unclear.
+
+Recommendation
+Borderline reject. The paper tackles an important problem and proposes plausible ideas that are promising for scale. However, given the strong simplifying assumptions and the new variational approximation, I expect more rigorous validation and cleaner comparisons to established baselines (especially a-MMSB), plus correction/clarification of the convergence setup. Strengthening the theoretical justification (or at least robust ablations) and the experimental comparisons would make this a much stronger submission.

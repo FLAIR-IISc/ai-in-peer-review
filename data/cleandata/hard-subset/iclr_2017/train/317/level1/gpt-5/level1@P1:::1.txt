@@ -1,0 +1,39 @@
+1. Summary of contributions
+- The paper proposes amortised MAP inference for single-image super-resolution (SR). It argues that conventional empirical risk minimization with MSE/MAE yields implausible, over-smoothed outputs, and instead seeks to learn a function that outputs MAP-consistent reconstructions under a natural image prior.
+- A key architectural contribution is an affine projection layer that enforces exact LR-HR consistency: ŷ = Π_Ax fθ(x) = (I − A+ A) fθ(x) + A+ x, where A is the downsampling operator and A+ its Moore–Penrose pseudoinverse. This guarantees Aŷ = x for any x and allows the SR training objective to reduce to minimising the cross-entropy H[qθ, pY] between the distribution of reconstructions qθ and the HR image distribution pY.
+- Three training approaches to approximate this objective are developed: (i) AffGAN, a GAN variant tailored to SR with the affine projection; it uses a modified generator update to approximate minimising KL[qθ||pY] and introduces “instance noise” to stabilise the discriminator; (ii) AffDG, which uses a denoiser to estimate ∂y log pY(y) and backpropagate these gradients to the SR network; (iii) AffLL, which uses a differentiable likelihood (PixelCNN-style with MCGSM) to train by maximum likelihood under a learned density model.
+- Empirically, on a 2D Swiss-roll toy problem, AffGAN/AffDG closely match brute-force MAP and achieve low estimated cross-entropy, while MSE/MAE fail. On image datasets (grass texture, CelebA, ImageNet, 4× upscaling), the affine projection does not hurt and can help MSE training; AffGAN produces sharper, more plausible outputs than MSE and soft-constraint GAN baselines; AffDG/AffLL tend to be blurry. The paper also discusses the conceptual link between (stochastic) AffGAN and amortised variational inference.
+
+2. Decision: Weak Accept
+Key reasons:
+- Novel, well-motivated formulation (amortised MAP for SR) and an elegant architectural mechanism (affine projection) that guarantees LR consistency and reframes training as distribution matching. The theory connecting the proposed GAN variant to KL minimisation and to amortised VI is insightful.
+- Empirical results and ablations provide credible evidence that the approach improves perceptual quality over MSE and that the affine projection is beneficial without paired supervision.
+
+3. Supporting arguments
+- Problem framing and motivation: The paper identifies a real issue (blurry outputs under MSE/MAE due to posterior averaging) and makes a clear case for MAP-style solutions. The toy Swiss-roll example lucidly illustrates why MAP can be preferable in underdetermined inverse problems.
+- Positioning in the literature: Prior SR work with GANs/perceptual losses used soft LR-consistency penalties; enforcing exact LR consistency via projection is a meaningful advance. The denoiser-gradient approach leverages known score-matching/denoising connections; the maximum-likelihood baseline is sensible and competitive among tractable density models.
+- Theoretical support: The decomposition of amortised MAP into cross-entropy minimisation is clean. The modified GAN generator objective and the argument that it approximates KL[qθ||pY], plus “instance noise” as a principled fix when supports do not overlap, are valuable. The appendix connecting stochastic AffGAN to amortised VI is intriguing and, to my knowledge, novel in the SR context.
+- Empirical support: 
+  - 2D experiments: direct estimates of H[qθ, pY] show AffGAN/AffDG near MAP, while MSE/MAE are worse; affine projection strictly enforces consistency (zero LR error), unlike soft constraints.
+  - CelebA: the affine projection does not degrade and can improve MSE performance (lower MSE/SSIM, faster training), which addresses concerns about expressivity constraints.
+  - Grass/ImageNet/CelebA: AffGAN yields visually sharper images than MSE and soft-constraint GAN; qualitative examples suggest improved plausibility. Instance noise is necessary for stable AffGAN training on ImageNet, supporting the proposed stabilisation.
+- Limitations: Quantitative perceptual evaluation is limited (PSNR/SSIM favour MSE, as expected); no user studies or alternative perceptual metrics are reported. AffDG/LL underperform, and the paper largely pivots to AffGAN in high dimensions. Comparisons against strong contemporaries (e.g., SRGAN variants with content loss) are not extensive. The prior pY is implicit; claims of “unsupervised” training hinge on known A and availability of HR and LR samples from the same domains.
+
+4. Additional feedback (to improve the paper; not all are decision-critical)
+- Perceptual evaluation: Add perceptual user studies or surrogate perceptual metrics available at the time (e.g., MS-SSIM variants, NIQE/BRISQUE) and report adversarial training stability metrics or discriminator losses with/without instance noise.
+- Baselines: Include a stronger comparison to SRGAN with content/perceptual losses (and soft LR penalties), and recent texture/feature-based SR methods. Provide runtime and parameter counts; evaluate the overhead of the projection layer.
+- Generalisation and robustness: 
+  - Test robustness to model mismatch in A (e.g., different blur kernels or unknown downsampling) and to noise. A blind-SR scenario would strengthen practical relevance.
+  - Explore other scale factors and color spaces. The discussion in Section 5.6 about representation dependence is important; an experiment in a learned feature space (e.g., VGG) could nuance the MAP debate.
+- AffDG/AffLL: Provide deeper analysis on why these blur in high dimensions. For AffDG, report the effect of the noise annealing schedule and denoiser capacity; for AffLL, assess calibration and gradient quality (e.g., likelihood landscapes) and try alternative continuous likelihoods or flow-based models.
+- Instance noise: Formalise the annealing heuristic (keep discriminator loss constant) and provide ablations on noise level vs convergence/stability. Discuss relation to contemporaneous techniques (e.g., one-sided label smoothing, gradient penalties).
+- Code/data: Release code for computing A+, and pretrained models to facilitate reproducibility.
+
+Questions for the authors
+- Training data: In large-scale experiments, did you strictly avoid paired supervision during AffGAN training (i.e., discriminator only sees HR; generator conditions on LR from an independent pX)? Or were LR images obtained by downsampling the same HR images with A? Please clarify the exact training protocol.
+- Degradation model: How sensitive is AffGAN to mismatch in A at test time? Have you tested on unknown blur kernels or real LR images with sensor noise/compression?
+- A+ estimation: What kernel sizes and optimisation settings were used to approximate A+? How does performance change if A+ is learned jointly or constrained differently? Any artifacts from finite support?
+- Instance noise: How did you set and anneal the noise variance in practice? How many discriminator steps per generator step did you use with instance noise, and did you ever fully optimise D per iteration?
+- AffDG specifics: What were the denoiser architectures/noise schedules on CelebA/ImageNet? Did score estimation accuracy (per σ) correlate with SR quality? Could you combine AffDG and AffGAN (e.g., as a regulariser) to reduce high-frequency noise?
+- Evaluation: Beyond PSNR/SSIM, did you run any preference studies or train a recogniser to test identity preservation on faces? Any failure modes beyond the “snake→water” example?
+- Stochastic AffGAN: Can you show posterior sampling diversity (multiple ŷ per x) with the stochastic extension, and how does that compare perceptually to MAP-like outputs?

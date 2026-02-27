@@ -1,0 +1,43 @@
+Summary and contributions
+The paper proposes Neural Architecture Search (NAS): using a controller RNN trained with policy gradients to generate variable-length descriptions of neural network architectures. The controller samples an architecture, a child network is instantiated and trained, and the validation performance serves as the reward (with a moving-average baseline) to update the controller via REINFORCE. The method is applied to two settings:
+- CNN search on CIFAR-10, including skip connections via a set-selection attention mechanism and optional pooling/stride choices. The search is scaled with a parameter-server and hundreds of replicas to evaluate thousands of architectures in parallel.
+- RNN cell search on PTB, where a controller specifies a compositional “tree” of operations over xt and ht−1 and how to inject and update cell state ct, yielding a novel recurrent cell (NASCell).
+Empirically, NAS discovers CNNs that are competitive with or better than human-designed architectures on CIFAR-10 and a recurrent cell that improves perplexity on PTB. The cell transfers to character-level LM and to GNMT with modest BLEU gains. The paper argues NAS is flexible (variable-length, supports complex connectivity) and effective, and describes engineering choices to stabilize training and avoid invalid graphs.
+
+Decision: Accept
+Key reasons:
+- Novel and influential formulation: an autoregressive controller trained by RL to generate variable-length architectures with skip connections and recurrent cells, demonstrating generality across vision and sequence modeling.
+- Strong empirical results across benchmarks with convincing wins over strong hand-designed baselines, and evidence of transfer.
+
+Supporting arguments
+- Methodological novelty and scope: The use of an RNN controller to define architectures token-by-token enables a much broader search space than fixed-length hyperparameter optimization. The set-selection attention for skip connections provides a principled way to propose sparse, content-informed connectivity. The recurrent-cell search via a base-8 computation tree with learned cell-state injection is a creative design space that subsumes standard RNN/LSTM motifs yet allows novel compositions.
+- Optimization approach: While REINFORCE is standard, the paper carefully addresses high-variance updates via a moving-average baseline, reward shaping, and heavy distributed parallelism with asynchronous updates. The depth-growth schedule is a pragmatic device to cope with nonstationary search difficulty. The random search control shows the controller learns a better-than-random policy over time, improving both best and top-k averages.
+- Empirical results: On CIFAR-10, the searched architectures achieve 5.50% without stride/pooling and 4.47% with pooling, improved to 3.65% after post-hoc widening, competitive with DenseNet variants. Architectures exhibit rectangular filters and short skip connections, consistent with human practice. On PTB, the discovered cell achieves 62.4 test perplexity, surpassing prior SOTA and running faster than RHN by avoiding multi-step per-timestep computation. Transfer to char-level LM achieves SOTA in a larger setting; the drop-in replacement in GNMT yields +0.5 BLEU with matched compute, indicating practical applicability without extensive retuning.
+- Positioning: The work is well situated relative to Bayesian optimization, random search, and neuro-evolution, and clarifies why prior methods struggle with variable-length structured search. It connects to meta-learning and RL for non-differentiable objectives.
+
+Concerns and limitations (do not overturn acceptance)
+- Compute budget and accessibility: The method relies on extreme parallelism (e.g., training ~12.8k CIFAR architectures with up to 800 concurrent GPUs; PTB with 400 concurrent CPUs). This raises concerns about reproducibility and practicality for the community. While the contribution is conceptual, reporting compute (GPU-days), search cost vs. final model cost, and sample efficiency would aid assessment.
+- Fairness of comparisons and tuning: Child models are trained under fixed hyperparameters during search, followed by a grid search for the final picked architecture. Comparisons to baselines may be sensitive to differing training recipes (e.g., use of embedding tying, dropout schemes, data preprocessing). The CIFAR-10 “3.65% with +40 filters” is a post-search modification, and comparisons to DenseNet note architectural differences (e.g., lack of 1x1 bottlenecks); speed comparisons are difficult to interpret without standardized FLOPs/latency metrics.
+- Search space design and handcrafting: To manage complexity, the CNN search inserts pooling at fixed layers and compresses prediction to blocks; the RNN search relies on a specific tree template. These choices, and heuristics for “compilation failures” (e.g., auto-connect image input, padding for size mismatches), introduce biases that could shape outcomes and limit generality.
+- Optimization details and stability: The paper uses reward shaping (accuracy cubed; perplexity-based reward) and moving-average baselines, but omits other common stabilizers (e.g., entropy regularization, advantage normalization, control variates). Ablations on these design choices, the depth-growth schedule, and asynchronous update accumulation would strengthen the evidence that the approach is robust.
+- Statistical rigor: Evaluation is primarily best-of-run without reporting variance across independent searches, confidence intervals, or significance tests. With large search and post-selection, overfitting to the validation split is a risk (especially with 5k validation from training on CIFAR-10).
+
+Suggestions to improve the paper
+- Report compute budgets (GPU/CPU days), number of architectures evaluated, and cost of the final trained models; include cost-aware comparisons (e.g., validation accuracy vs. total FLOPs of search).
+- Provide ablations: effect of reward shaping exponent, baseline type, entropy regularization, depth-growth schedule, and controller capacity. Include more detailed random-search baselines (e.g., matched wall-clock, multi-fidelity early stopping).
+- Strengthen fairness: train competitive baselines with the same training pipeline and report standardized metrics (FLOPs, parameters, inference time on a common platform).
+- Clarify and justify heuristics for invalid graphs and their frequency; analyze how often they are invoked and whether they bias the controller.
+- Release code for the controller and search, or at least detailed pseudocode and configurations to enhance reproducibility. Report results across multiple independent search seeds.
+- Evaluate generalization of the discovered cell on additional datasets (e.g., WikiText-2) and tasks; add analysis linking learned motifs to known gating/normalization patterns.
+
+Questions for the authors
+- PTB reward: You state the reward is c(validation perplexity)^2 with c≈80. Is the reward negated or inverted? Please clarify the exact reward transformation and its sensitivity.
+- Compute and efficiency: How many GPU/CPU days were used for CIFAR-10 and PTB searches respectively? What is the sample efficiency (top-1 accuracy/perplexity vs. number of evaluated architectures)?
+- Early stopping and training budget: How sensitive are outcomes to training each child for 50 (CIFAR) or 35 (PTB) epochs? Did you explore multi-fidelity/early-stopping strategies to reduce cost?
+- Invalid graph handling: What fraction of sampled architectures required the three heuristics? Do these interventions systematically benefit/penalize certain connectivity patterns?
+- Random search baseline: Are the random samples drawn from exactly the same search space and subject to the same invalid-graph handling and training budget? Can you report mean and variance over multiple random seeds?
+- Validation protocol: On CIFAR-10, you use 5k validation drawn from training. Did you repeat with different validation splits or cross-validation to assess selection bias?
+- Transferability: Beyond PTB and GNMT, how well does the NASCell perform on other corpora (e.g., WikiText-2, Enwik8) with matched regularization? Is there evidence the controller learns task-agnostic design principles?
+- Entropy/regularization: Did you try entropy regularization or advantage normalization for the controller policy? Any observed effects on exploration and convergence?
+
+Overall, this is a timely, impactful paper that opens a compelling line of research on learning to design architectures. Despite computational demands and some evaluation gaps, the ideas and results merit acceptance.

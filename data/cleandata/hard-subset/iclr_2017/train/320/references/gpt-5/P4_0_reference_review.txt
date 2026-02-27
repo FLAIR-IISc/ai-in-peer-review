@@ -1,0 +1,48 @@
+1) Summary of contributions
+The paper tackles visual servoing by combining pre-trained convolutional features, learned feature-space dynamics, and a sample-efficient reinforcement learning step that learns how to weight features for control. Specifically:
+- It proposes to use semantic features from a modified VGG-16 (with pooling removed/dilated convs) at multiple scales, arguing these provide invariances helpful for robustness.
+- It learns a bilinear, action-conditioned predictive model in feature space (with channel-wise and locally connected variants) to forecast how controls change features, enabling a one-step greedy servo objective that minimizes the predicted feature distance to a target image.
+- It casts the weighted servoing objective as a linear Q-function approximator in the weights (feature-channel and control regularization), enabling an efficient fitted Q-iteration (FQI) procedure with an α-scaling and bias update to stabilize/accelerate training.
+- In a synthetic quadrotor-car following benchmark, it reports strong performance and sample efficiency vs. pixel features, hand-crafted keypoints, a visual tracker + IBVS, and model-free deep RL (TRPO), while generalizing to novel cars. Code and simulator are released.
+
+The presentation is clear, the modeling choices are well-aligned with the task, and the experiments are reproducible.
+
+2) Decision
+Reject. Key reasons: (1) The methodological novelty is limited: the approach mainly combines existing components (pre-trained features, bilinear dynamics, fitted Q-iteration) with modest algorithmic additions; (2) The empirical validation is narrow (single synthetic domain), and several comparisons leave questions about fairness and external validity.
+
+3) Supporting arguments
+Technical soundness
+- The bilinear dynamics in feature space, the multi-scale objective, and the derivation of a quadratic-in-control objective leading to analytic minimization are technically consistent. The linearization used for optimization is exact for the proposed bilinear model, and computing the Jacobian via a forward pass is sound.
+- The Q-function approximation Qθ,b(s,u) = φ(s,u)^T θ + b, where φ encodes per-channel squared prediction errors and control penalties, is compatible with the servo objective; greedy action selection coincides with the servo controller. However, this approximator can only represent long-horizon value functions to the extent that myopic, one-step predictive errors correlate with long-horizon returns. No theoretical guarantees are provided that the learned θ yields a consistent Q beyond being a surrogate.
+- The FQI implementation with alternating updates for α,b (shared scaling) and θ,b (nonnegative), with L2 regularization, is reasonable and computationally efficient. Details on solving the nonnegative least-squares are not fully specified but appear standard.
+
+Novelty and placement
+- Using off-the-shelf deep features for servoing, bilinear feature dynamics, and fitted Q-iteration are each grounded in prior literature. The main novelty lies in their integration and the linear Q-approximation tailored to the one-step servo objective, plus the α-scaling trick. These are incremental advances.
+
+Empirical support
+- The synthetic car-following setup is articulated, with fixed train/validation/test splits and multiple feature-layer comparisons. Results indicate deeper (up to conv4_3) features outperform pixels and conv5_3, and learned feature weights via FQI beat unweighted/CEM/TRPO weight learning with far fewer trajectories. This supports the claim of sample efficiency within this domain.
+- Comparisons to model-free deep RL are favorable, but they are done in a single environment, and gains may partially stem from leveraging a learned forward model and strongly structured policy class. No comparisons are made to other strong model-based baselines (e.g., MPC with the learned dynamics over a short horizon, iLQR/DDP in feature space), which would be informative.
+- The paper contrasts with classical IBVS/tracker baselines; however, these baselines rely on ground-truth depth and tracker initialization from the first frame, which are generous assumptions and still perform worse or much slower. Nonetheless, the use of a single synthetic domain and a single task limits generality.
+
+Scope and limitations
+- All experiments are in simulation; there are no real-robot validations despite promising real-time inference claims.
+- The dynamics model is trained on 10k samples from a hand-coded policy centered near the task; coverage limitations may affect robustness. The overall sample efficiency claim for “RL” excludes these 10k dynamics samples; reporting total samples for the full pipeline would provide a more balanced view.
+- The approach is tailored to the one-step greedy controller; failure modes (e.g., in the presence of severe occlusions or unmodeled dynamics) and closed-loop stability analyses are not discussed.
+
+4) Additional feedback (to help improve the paper; not all part of the decision)
+- Clarify which bilinear dynamics variant is used for each feature type in the main experiments. Section 4.2 proposes both channel-wise fully connected and locally connected models; Appendix C mentions memory limits for semantic features—please state the chosen variant per layer.
+- Provide more ablations: (a) effect of dynamics accuracy on control performance; (b) no-dynamics or identity-dynamics baselines; (c) horizon-2/3 MPC with the learned model; (d) sensitivity to γ, λ, and the nonnegativity constraint.
+- Report dispersion (std/95% CI) for test costs and include success/failure rates to complement averages.
+- Detail the solver for the nonnegative least-squares in FQI, how constraints are enforced, and any regularization schedules. Explain how action bounds are handled in argminu and in min_u Q(s_{t+1},u).
+- Discuss computational budgets: wall-clock training time for dynamics and FQI vs. TRPO; inference breakdown beyond VGG feature extraction; any hardware used.
+- Consider adding at least one additional domain (e.g., a different object class or viewpoint dynamics) or a real-robot demo to strengthen external validity.
+
+Questions for the authors
+- How is the nonnegativity constraint on θ enforced in Eqs. (5)-(6)? Which optimizer/solver is used, and does it affect convergence?
+- How sensitive is performance to the choice of feature layer(s) and to the multi-scale weighting? Are results robust across random seeds, and what are the variances?
+- What is the total data budget including dynamics training (10k triplets) plus the RL trajectories? How does performance scale down if dynamics data is reduced?
+- How are action bounds enforced in the minimization over u for both the policy and the target in FQI? If bounds are active, is the closed-form solution still used?
+- Did you evaluate short-horizon MPC using the same bilinear model versus the one-step greedy policy? If so, how do performance and compute compare?
+- For IBVS/tracker baselines, providing ground-truth depth and first-frame bounding box is favorable. Did you evaluate variants without these privileges? If not, please discuss how this affects the relative comparison.
+- Can the feature extractor be fine-tuned jointly (e.g., with the dynamics loss) without sacrificing sample efficiency? If attempted, what were the outcomes?
+- What fraction of rollouts diverged or terminated early due to the car leaving FOV? Any qualitative failure modes observed?

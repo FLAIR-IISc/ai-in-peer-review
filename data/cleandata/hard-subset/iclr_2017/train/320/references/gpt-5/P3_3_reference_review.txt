@@ -1,0 +1,43 @@
+Summary and contributions
+- The paper tackles visual servoing for target following by combining: (i) pre-trained convolutional features (VGG-16 with reduced pooling/dilations), (ii) a learned bilinear, multiscale predictive model of feature dynamics under robot actions, and (iii) a fitted Q-iteration (FQI) scheme that learns nonnegative per-channel, per-scale feature weights (and control penalties) so that a simple one-step greedy servoing objective aligns with long-horizon returns.
+- The key idea is to keep the servoing controller very simple—minimize Euclidean distance between predicted next-step features and goal features—while (a) learning a local bilinear model that makes this optimization tractable (exact linearization in u) and (b) learning the weights via an efficient, linear Q-function approximator whose structure matches the servoing objective, enabling sample-efficient fitted Q-iteration.
+- Empirically, on a synthetic quadrotor-following-car benchmark (CitySim3D), the method outperforms IBSV with ORB/tracker features, pixel-intensity servoing, and model-free deep RL (TRPO) policies, and shows strong sample-efficiency (≈20 trajectories for RL vs ≈100× more for TRPO). It generalizes to novel car instances better than pixels and deeper-invariant conv5_3 features. The policy runs at ~16 Hz.
+
+Decision: Reject
+Key reasons:
+1) Limited novelty beyond a careful synthesis of known components: bilinear feature dynamics, pre-trained CNN features, and fitted Q-iteration. The main methodological contribution—learning feature weights so that a one-step greedy policy approximates long-horizon Q—is interesting but incremental.
+2) Empirical validation is restricted to a single synthetic domain with privileged training signals and limited ablations; comparisons may not be fully fair to strong baselines, and real-world viability is not demonstrated.
+
+Supporting arguments
+- Problem and motivation: Well-motivated within visual servoing—robustness to distractors and fast adaptation with minimal target-specific data. Using pre-trained features to gain invariances is reasonable and supported by prior transfer literature.
+- Methodology:
+  - The bilinear dynamics over feature maps is a sensible modeling choice here: it ties to image warp-like effects from camera motion and yields an exact linearization in controls. However, bilinear dynamical models over images/features and locally-connected parameterizations are established in prior work; the paper’s contribution is a specific instantiation and multiscale stacking.
+  - The Q-function approximator is cleverly matched to the servo objective, making the greedy action identical to the servo action and enabling analytic inner minimization. The trick of scaling α and bias b (observing policy invariance to α≥0 and b) to stabilize Bellman error minimization is reasonable, but the optimization scheme is heuristic and lacks theoretical guarantees or sensitivity analysis.
+  - The learned weights are global (state-independent) per channel/scale. This is a strong restriction; in cluttered scenes with variable distractors, state-dependent masks/weights or attention could be important. The paper shows that global weights already help, but it would be valuable to justify why this suffices and where it breaks.
+- Experiments:
+  - Strengths: comparisons to several baselines (pixels, various VGG layers, TRPO end-to-end, IBVS with ORB and C-COT tracker), analysis across seen vs novel cars, and concrete sample-efficiency gains. The observation that too-deep VGG layers are overly invariant for servoing is insightful.
+  - Limitations:
+    • Single synthetic domain with a single task (following a car). No real-robot or real-video experiments; no tests on different tasks (e.g., stationary object servoing, manipulation).
+    • The RL cost function uses ground-truth 3D car position in camera frame for shaping, early termination, and FOV checks. This privileged signal is unavailable without a detector/estimator at training time; the paper does not discuss how to obtain such supervision in realistic settings or how sensitive the learned weights are to this choice.
+    • Fairness of baselines: TRPO policies use modest architectures and potentially suboptimal hyperparameters; the C-COT tracker runs slower but its accuracy under optimal operating conditions might be stronger; IBVS is given ground-truth depth (and even car dynamics in a variant), yet the modeling mismatch remains. Overall, the comparisons are informative but not decisive.
+    • Ablations: It is unclear which elements contribute most—multiscale vs single scale, local vs fully connected bilinear, semantics vs pixels with learned weights, and the role of the α/b fitting step. The paper mentions memory constraints preventing locally connected semantics but does not clarify which dynamics variant is used for each feature layer in the main results.
+    • Generalization: testing on “novel cars” is good, but all data shares the same renderer, backgrounds, and lighting statistics. The claim that pre-trained features plus learned bilinear dynamics yield robustness to occlusions and viewpoint changes would benefit from out-of-domain tests or stronger stress tests.
+- Overall: The approach is coherent and practical, but the novelty is moderate and the experimental evidence, while promising, is not yet strong enough for ICLR given the reliance on simulation and privileged signals.
+
+Additional feedback (to improve the paper; not all affect the recommendation)
+- Provide a more thorough ablation: single-scale vs multiscale; local vs fully connected bilinear; effect of constraining θ≥0; removing the α/b step; and training data size for dynamics.
+- Analyze and visualize learned weights: which layers/channels are emphasized? Do these align with semantic car channels? Do weights differ when training on different target classes?
+- Clarify precisely which bilinear variant is used per feature layer in the main experiments, and report parameter counts and runtime per variant.
+- Discuss how to remove privileged cost signals: e.g., training costs from image-space surrogates (photometric objectives), weak labels, or self-supervision, and whether FQI still converges.
+- Compare against a simple learned attention/mask over y that is trained with the same data but without RL, to isolate the value of Q-weight fitting.
+- Strengthen baselines: tune TRPO/DDPG/SAC with better architectures and longer training budgets; consider model-based baselines that use learned video prediction with MPC; include a photometric visual servoing baseline with learned robust loss (e.g., Charbonnier) and pyramid alignment.
+- Add at least one real-video or hardware-in-the-loop experiment to support practical viability.
+
+Questions for the authors
+1) Which dynamics variant (fully vs locally connected) is used for each VGG layer in the main results? If locally connected is infeasible for semantics, what is the resulting parameterization and capacity?
+2) How sensitive is performance to the choice of pre-trained backbone (e.g., ResNet, smaller backbones) and to the removal of pooling/dilation changes?
+3) Can you quantify the contribution of the α/b fitting step to sample efficiency and stability? What happens if you fix α=1,b=0?
+4) Are the learned weights state- or goal-dependent in any way? Could conditioning weights on (xt, x*) further improve robustness?
+5) How would you train without access to ground-truth 3D car positions for costs and termination? Have you tried purely image-based surrogate costs during FQI?
+6) Can you report generalization to different backgrounds/lighting or a different renderer, and to other target classes (e.g., pedestrians, trucks)?
+7) What failure modes did you observe (e.g., severe occlusions, large viewpoint changes), and how does performance degrade with compounding prediction error in f?

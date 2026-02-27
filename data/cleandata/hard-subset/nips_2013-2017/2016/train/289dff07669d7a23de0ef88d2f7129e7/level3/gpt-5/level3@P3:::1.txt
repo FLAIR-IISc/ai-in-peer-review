@@ -1,0 +1,58 @@
+Summary and relation to prior work:
+This paper proposes Cholesky-CMA-ES, a variant of CMA-ES that maintains and updates the triangular Cholesky factor A of the covariance matrix C = A A^T instead of storing/updating C and recomputing its square root each iteration. The key change is in cumulative step-size adaptation (CSA): the inverse square root C^{-1/2} in the standard update is replaced by A^{-1}. The authors analyze the effect of this approximation via an RQ/polar-decomposition argument, showing that the induced rotation error in the CSA diminishes as the search distribution stabilizes, so the expected number of function evaluations is preserved. The covariance update is implemented as a sequence of rank-one updates to A with O(µ d^2) time and optimal O(d^2/2) storage, and the diagonal of A provides covariance eigenvalues “for free.” Empirically, Cholesky-CMA-ES matches the standard CMA-ES in function evaluations while delivering large wall-clock speedups, especially in higher dimensions.
+
+The work is well positioned relative to:
+- Delayed decompositions in CMA-ES (Hansen & Ostermeier; Hansen tutorial).
+- Restricted models (diagonal/low-memory CMA-ES; Ros & Hansen; Loshchilov, Sun et al.), which can hurt performance on non-separable ill-conditioned problems.
+- Prior Cholesky-based updates for specific CMA-ES variants ((1+1)-CMA-ES, MO-CMA-ES; Suttorp et al., Krause & Igel), which do not directly extend to the standard CMA-ES with CSA.
+The paper’s novelty is to make the Cholesky approach work for standard CMA-ES with a justified CSA approximation and to deliver a practically compelling implementation.
+
+Quality:
+- Technical soundness: The derivation of rank-one updates for A and the complexity analysis are clear and consistent with prior work. The CSA approximation is motivated by Lemma 1, which argues that the rotational discrepancy E_t E_{t-1}^T → I as the distribution shape stabilizes; while not a full stochastic convergence proof, it is a reasonable justification for the claimed practical equivalence in function evaluations.
+- Empirical support: On rotated benchmark suites across dimensions up to 256, Cholesky-CMA-ES matches CMA-ES in evaluations and yields substantial runtime gains (e.g., ~20x by d=64), with careful ablations versus delayed-decomposition CMA-ES and a non-triangular Cholesky variant.
+- Evaluation honesty: The authors note cache effects at d=256 and include a baseline with delayed updates (CMA-ES/d).
+
+Clarity:
+- The paper is clearly written, with helpful algorithms and a concise theoretical argument. The motivation and relation to prior work are well explained. The practical benefits (update complexity, memory, eigenvalues “for free,” efficient inversion) are crisply presented.
+
+Originality:
+- Extending Cholesky updating to the full CMA-ES with a modified, justified CSA is novel. The paper distinguishes itself from delayed decompositions and from previous non-triangular Cholesky updates.
+
+Significance:
+- The method offers clear, measurable practical advantages without degrading evaluation efficiency. Given how often CMA-ES is used in ML (direct policy search, hyperparameter tuning), this could become a strong default for medium/large-scale problems where full covariance adaptation is still desired.
+
+Strengths:
+- Reduces covariance update to O(µ d^2) time with optimal memory; stable rank-one updates to triangular factors.
+- Provides covariance eigenvalues at no extra cost; efficient A^{-1} updates.
+- Empirically preserves evaluation counts and improves wall-clock time substantially on high dimensions.
+- Good coverage of benchmarks with rotation tests; well written and relevant to ML, information geometry, RL, and supervised learning.
+
+Weaknesses and requests for clarification (minor):
+- Implementation comparability for wall-clock time: Please clarify that all variants (CMA-ES-Ref, CMA-ES/d, Suttorp-CMA-ES, and Cholesky-CMA-ES) were implemented in the same language (C++), within the same codebase (Shark), compiled with identical compiler flags, and linked to the same BLAS/LAPACK libraries (and versions). Detail CPU model, cache sizes, threading, RNG, and whether vectorization and memory layouts (row-/col-major, alignment) were consistent. This is important to ensure the reported CPU-time differences reflect algorithmic changes rather than library/implementation choices.
+- Figure 2 at d=256 for Cigar/Discus: The runtime gap appears less pronounced than expected. Potential reasons (please comment/quantify where possible):
+  - These functions often converge in fewer iterations at high d with strong anisotropy, reducing cumulative linear algebra cost so the advantage amortizes less.
+  - Memory bandwidth and cache effects dominate beyond L2, throttling both methods and shrinking relative gains; your note about L2 overflow supports this.
+  - On these problems µ and the number of effective rank-one updates may be smaller, and sampling/sorting/random number generation and memory traffic can dominate.
+  - If the reference eigen-decomposition benefits from batched or highly optimized symmetric routines on these specific shapes, the relative cost could be reduced.
+  An analysis of time breakdown per iteration (sampling, ranking, update, decomposition) would make this clearer.
+- CSA approximation and invariance: While Lemma 1 motivates small error as C stabilizes, could there be transient phases (e.g., during sharp conditioning changes or near non-convex bends like Rosenbrock) where the approximation measurably affects step-size dynamics? A short sensitivity or ablation (exact CSA using polar decomposition occasionally, or tracking the norm discrepancy induced by E_t) would strengthen the case.
+- Numerical stability: Algorithm 2 applies positive rank-one updates. Please comment on conditioning of A and the stability/accumulation of rounding errors over long runs, and whether periodic re-triangularization or jitter is ever required.
+
+Pros (arguments for acceptance):
+- Strong practical contribution with clear speedups and no evaluation penalty.
+- Methodologically clean, with a plausible theoretical justification for the CSA change.
+- Optimal asymptotic update/storage complexity for full-covariance CMA-ES.
+- High relevance and likely adoption in ML practice.
+
+Cons (arguments against acceptance):
+- Theoretical guarantees for CSA approximation remain qualitative (though persuasive); no formal convergence proof under stochastic dynamics.
+- Some runtime claims would benefit from a more detailed and fully controlled implementation parity description and per-component time breakdown.
+
+Suggestions to improve the paper:
+- Add a short “implementation details” subsection enumerating environment, compiler/BLAS versions, threading, and identical code paths across variants.
+- Provide a per-iteration time breakdown and/or cumulative time distribution across components to explain behavior in Figure 2 (especially Cigar/Discus at d=256).
+- Include a brief diagnostic measuring the rotational term E_t E_{t-1}^T and the induced norm error in CSA over time.
+- If possible, release code or scripts to reproduce figures using Shark + LAPACK with frozen seeds/configs.
+
+Overall assessment:
+This is a high-quality, well-executed paper with a clear and significant practical impact. The Cholesky-CMA-ES variant is a strong candidate to become the default for medium- to large-scale full-covariance CMA-ES. I recommend acceptance after addressing the minor clarifications above.

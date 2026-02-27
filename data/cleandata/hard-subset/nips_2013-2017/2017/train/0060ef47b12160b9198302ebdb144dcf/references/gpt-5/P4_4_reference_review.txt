@@ -1,0 +1,55 @@
+Summary and relation to prior work
+The paper introduces a trainable saliency masking model that, given an image and a class selector, predicts in a single forward pass a mask M that both (a) preserves minimally sufficient evidence for the class (SSR) and (b) removes minimally sufficient evidence to destroy the class (SDR). The method optimizes a composite loss with four terms: total variation (smoothness), area penalty (compactness), a term to keep the class probability high under the preserved region, and a term to drive the class probability low when the region is removed. To mitigate “introduced evidence” and adversarial artifacts, the masking is applied by mixing the original image with a randomly sampled alternative image A (either heavy blur or random color + noise), and the mask is regularized via TV and reduced resolution with upsampling. The masking model is a U-Net with a frozen ResNet-50 encoder; a class embedding gates the deepest feature map to perform initial localization, followed by upsampling with skip connections to produce a sharp mask. The authors also propose a saliency metric s(a, p) = log(ã) − log(p), where a is area fraction of a tight bounding box enclosing the mask (thresholded), resized and re-evaluated by the classifier; lower is better.
+
+Relative to backprop-based methods (e.g., Simonyan et al., Guided Backprop, Excitation Backprop) and optimization-based perturbation methods (e.g., Fong & Vedaldi’s Meaningful Perturbations), this work shifts from per-image iterative optimization to learning a feed-forward masker that generalizes across images for a fixed classifier, while optimizing a joint SSR+SDR objective. Compared to CAM-like methods (Zhou et al., 2016), the approach is classifier-agnostic in the sense of not modifying the classifier’s architecture or weights, and aims for precise pixel-level masks rather than coarse class activation maps.
+
+Strengths
+- Practical contribution: a real-time saliency generator with >100 images/s throughput, enabling video use cases.
+- Joint objective capturing both SSR and SDR, with thoughtful discussion and countermeasures for introduced evidence and adversarial artifacts via randomized baselines and TV regularization.
+- Architecture choices (U-Net with skip connections and class-embedding gating) yield sharp, localized masks that qualitatively improve over iterative perturbation maps.
+- Empirical validation on ImageNet with three distinct classifiers (AlexNet, GoogLeNet, ResNet-50), showing improved weakly supervised localization accuracy and better scores under the proposed saliency metric; additional CIFAR-10 demonstration without a pretrained encoder.
+- The new metric operationalizes a version of SSR that penalizes area and rewards high confidence, and is easy to compute.
+
+Weaknesses and points needing clarification
+- Loss function clarity: Equation (4) appears to have sign inconsistencies. As written, the “third term” includes log(fc(phi(X, M))) with a positive sign, which would encourage decreasing fc under minimization, contrary to the stated goal (“make sure that the classifier is able to recognize the selected class”). This likely should be −log fc(...) (or equivalent). The “fourth term” is written as 3 fc(phi(X,1−M))^4 with ambiguous notation; please provide the exact formula with signs and exponents, and rationale for the exponent (<1).
+- Black-box assumption: The method is described as “model agnostic” and “black box,” but training requires differentiating through the classifier to update the masking model (unless using score-only zeroth-order gradients, which are not described). The conclusion narrows this to “any differentiable image classifier.” Please clarify precisely what access is assumed (logits, probabilities, gradients, architecture) and reconcile the “black box” terminology.
+- Generalization scope: A separate masking model is trained per classifier, which limits portability. Experiments do not show whether a single masker can generalize across multiple classifiers or how performance transfers between trained-on and unseen classifiers.
+- Baseline coverage: Missing comparisons to strong and widely used post-hoc methods available by 2017 such as Grad-CAM (Selvaraju et al., ICCV 2017) and potentially SmoothGrad (Smilkov et al., 2017). These are natural, fast baselines for both localization and qualitative sharpness.
+- Metric validity: The new saliency metric depends on aspect-ratio-ignoring resize and on classifier invariances. The “information-theoretic” interpretation is heuristic. No sensitivity analysis is provided for the area threshold (0.05), the threshold used to binarize masks (0.5) for localization, or alternative cropping strategies. It would help to show correlations between this metric and standard localization metrics, and robustness to the resize choice.
+- Reproducibility: Several implementation details are missing (optimizer, learning rate/schedule, batch size, data augmentation, initialization of class embedding). Tables 1–3 are referenced but not included here; precise numeric results, confidence intervals, and per-class breakdowns would strengthen the claims.
+- Ablations: No ablations of key components (randomized A variants, TV weight, class embedding gating, skip connections, resolution of mask, fake-label training schedule) are presented. It would be informative to quantify the contribution of each to localization and the saliency metric.
+- CIFAR-10 evaluation is qualitative only; quantitative metrics (e.g., the proposed metric using the classifier’s confidence) would substantiate the claim that the method works at low resolution.
+
+Quality
+- The core idea is technically sound and well-motivated. The countermeasures against introduced evidence are sensible and align with concurrent work (e.g., randomized baselines, smoothness).
+- However, the paper contains nontrivial clarity issues in the objective definition and in the “black-box” assumption, and lacks key ablations and some strong contemporary baselines.
+
+Clarity
+- Generally well-written with a clear high-level motivation and architecture description. Some equations are ambiguous or have likely sign errors. The evaluation protocol is described but important details and the actual quantitative tables are missing in the provided text. Consistency in terminology (“black box” vs “differentiable access”) should be improved.
+
+Originality
+- Training a feed-forward masker to approximate iterative perturbation-based saliency is a meaningful extension. The combined SSR+SDR objective and the class-embedding gating within a U-Net are reasonable design choices. The proposed metric is simple and novel, though heuristic. The work is incremental relative to Fong & Vedaldi (simultaneous) and CAM-style methods but advances practicality and precision.
+
+Significance
+- Speed and improved localization make this approach potentially useful for real-time applications and large-scale analysis of model behavior. If the per-classifier training cost is acceptable, it could be a practical tool. Broader adoption would benefit from stronger baselines, ablations, and clearer guarantees around introduced evidence.
+
+Pros for acceptance
+- Fast, practical saliency generation with sharp masks and improved weakly supervised localization.
+- Thoughtful treatment of introduced evidence and adversarial artifacts.
+- Simple, general architecture and objective; works across multiple classifiers and datasets.
+- Introduces a usable saliency metric.
+
+Cons for acceptance
+- Ambiguities/errors in the formal objective; unclear black-box assumption.
+- Missing comparisons to Grad-CAM/SmoothGrad; limited ablations and quantitative CIFAR results.
+- New metric’s validity not thoroughly justified; sensitivity not analyzed.
+- Per-classifier training limits generality; cross-model generalization not studied.
+
+Suggestions for improvement
+- Correct and clearly present the full loss function with signs, exponents, and all hyperparameters; provide training details for reproducibility.
+- Clarify model access assumptions and, if gradients are required, avoid “black box” terminology; alternatively, demonstrate a score-only training variant.
+- Add comparisons to Grad-CAM (and CAM) both for localization and under the proposed metric.
+- Provide ablations (A choices, TV weight, class embedding, resolution, fake-label probability, threshold sensitivity).
+- Report quantitative CIFAR-10 metrics; consider using the proposed metric adapted to low-res.
+- Evaluate using both ground-truth and predicted classes; analyze robustness of the metric to resize/aspect ratio.
+- Consider cross-classifier generalization experiments or joint training on multiple black boxes.

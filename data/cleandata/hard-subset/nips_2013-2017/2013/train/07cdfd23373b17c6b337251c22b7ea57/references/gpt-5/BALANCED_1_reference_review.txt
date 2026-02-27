@@ -1,0 +1,55 @@
+Summary and relation to prior work
+This paper tackles scalable probabilistic latent space inference for large networks. It builds on the “bag-of-triangles” representation (Ho et al., NIPS’11 [8]) that summarizes a graph as counts of open/closed triads, which can be much smaller than the O(N^2) edge set for sparse networks. The main modeling contribution is the Parsimonious Triangular Model (PTM), which assigns each node a mixed-membership over K latent roles and parameterizes triangle formation probabilities with only O(K) parameters by sharing across role-triplet configurations: Bxxx for all-same, Bxx for two-same-one-different (independent of the minority role identity), and a single B0 for all-different. This contrasts with the O(K^3) tensor in MMTM [8] and O(K^2) block matrix in MMSB [1]. 
+
+On the inference side, the paper develops a structured stochastic variational inference (SVI) algorithm (cf. Hoffman et al. [10]) with natural gradients (cf. Amari; Sato; Wainwright & Jordan) that:
+- uses a per-triangle structured variational distribution q(s_i,jk, s_j,ik, s_k,ij) to avoid the rank-1 limitations of naive mean-field;
+- approximates the O(K^3) local updates with an O(K) “mixture-of-deltas” variational family that concentrates mass on K “diagonal” and O(K) random “off-diagonal” triplets;
+- subsamples triangles in mini-batches to obtain unbiased gradient estimates of the global objective over the chosen variational family;
+- parallelizes the local updates and discards local q’s between iterations to reduce memory.
+
+Experiments include synthetic data (from MMSB and a power-law latent-space simulator) for latent role recovery, and real/synthetic link prediction by ranking held-out edges. The method reportedly recovers roles more accurately than MMSB-variational and is far faster/more scalable than MMSB and MMTM/PTM Gibbs (O(NK) global update; O(K) per-triangle local update), converging in 2–5 passes. It handles a 1M-node YouTube network with K=100 in ~4 hours on 8 threads and outperforms MMSB on link prediction for larger social networks.
+
+Quality
+Strengths
+- Sound and well-motivated parameter sharing that reduces complexity from O(K^3) to O(K) while preserving meaningful distinctions (all-same vs. two-same vs. all-different roles), akin to a-MMSB’s O(K) inter-role parameter reduction [5].
+- Careful SVI design: structured local variational factors, natural gradients, minibatching triangles, and a practical O(K) local approximation that appears to retain accuracy.
+- Clear complexity analysis and strong empirical scalability; the reported 1M-node, K=100 result on a single machine is compelling.
+- Empirical evaluation includes both synthetic recovery and link prediction, with convergence plots and comparisons against established baselines.
+
+Weaknesses and technical questions
+- Expressiveness trade-off: PTM’s Bxx ties all “two-same-one-different” cases regardless of the minority role’s identity. This may conflate roles whose main difference lies in how they participate as minorities in triads. An explicit discussion and ablation on data generated from a full MMTM (with role-specific asymmetries) would help quantify the loss vs. O(K^3).
+- Triangle-only likelihood: The model is not a generative model of full graphs and ignores empty/single-edge triples. While this is stated, the implications for tasks like link prediction (which require edge-level probabilities) deserve deeper analysis. The ranking scheme that marginalizes over third nodes k may double-count overlapping configurations; computational details and complexity for this step are not provided.
+- δ-subsampling: The node-centric triangle subsampling is claimed to approximately preserve triangle distributions [8], but sensitivity and bias analyses are minimal. Results showing performance vs. δ and vs. degree distributions would strengthen the claim.
+- Variational approximation and convergence: The O(K) “mixture-of-deltas” restricts the variational family. While any restricted family yields a valid lower bound, the stated convergence guarantee (to a stationary point) depends on unbiased gradient estimates of the true objective under the chosen variational family. Because A (the random off-diagonals) is resampled, the objective being optimized is stochastic beyond minibatch sampling. Please clarify the target objective (e.g., expectation over A) and provide a brief justification that the stochastic natural gradient remains unbiased (or asymptotically unbiased) under this scheme.
+- Experimental details: Some critical details are missing in the narrative (e.g., link prediction metric—AUC/precision@k?). The synthetic recovery evaluation thresholds outputs at 0.125 and seeds 2% of nodes with ground-truth roles; this may inflate performance and is not realistic. Sensitivity to thresholding and to fully unsupervised initialization should be reported. Also, ablations showing the effect of structured vs. naive mean-field, and full vs. O(K) local updates, would be informative.
+
+Clarity
+- Generally well-written and organized; the PTM parameter-sharing scheme is clearly described. 
+- Notation is dense; key update equations for non-distinct role cases are deferred to the appendix. Including a compact summary in the main text would aid readability.
+- The step-size schedule is slightly confusing: Algorithm 1 uses ρ_t = τ0(τ1 + t)^(-κ); text sets κ = −0.5. Clarify that the effective decay exponent is −κ = 0.5 and state the standard constraints κ ∈ (0.5, 1] for convergence.
+
+Originality
+- The bag-of-triangles idea is from [8], and the parameter-sharing spirit is related to a-MMSB [5], but combining these with a structured SVI and an O(K) local approximation for triangle models appears novel and practically important. The empirical scale achieved is a differentiating contribution.
+
+Significance
+- High. Scalable, probabilistic latent role inference at million-node scale is valuable. The O(K) parameterization and O(NK) inference can influence future work on higher-order network models.
+
+Pros for acceptance
+- Strong scalability with principled probabilistic modeling and SVI.
+- Clear modeling innovation (parsimonious parameter sharing) with substantial empirical benefits.
+- Solid results on both synthetic recovery and real-world link prediction, with significant speedups.
+
+Cons against acceptance
+- Limited analysis of expressiveness loss due to parameter sharing; no stress tests on data generated by richer triangle models.
+- Unclear convergence guarantees for the stochastic “mixture-of-deltas” local approximation.
+- Evaluation depends on seeding and thresholding choices; missing metrics/details for link prediction.
+
+Suggestions for improvement
+- Provide an ablation on datasets generated from MMTM with role-specific minority behavior to quantify PTM’s expressiveness gap vs. K and data size.
+- Analyze the theoretical implications of resampling A on the objective and convergence; consider fixing A per triangle or using importance resampling to reduce variance/bias.
+- Report link prediction as AUC and/or precision@k, with computational cost of scoring, and compare to strong scalable baselines beyond MMSB (e.g., BigCLAM; factorization/embedding methods like DeepWalk/node2vec where appropriate).
+- Include sensitivity to δ, degree distributions, and unsupervised initializations; provide memory/runtime breakdowns for local vs. global updates.
+- Discuss when triangle-based modeling may be suboptimal (e.g., low-clustering graphs) and potential extensions (e.g., incorporating wedges or 4-node motifs).
+
+Recommendation
+Weak accept. The paper offers a principled and practically impactful advance in scalable latent space inference with convincing speed and competitive accuracy. Addressing the expressiveness and convergence concerns, and tightening the empirical evaluation, would strengthen it further.

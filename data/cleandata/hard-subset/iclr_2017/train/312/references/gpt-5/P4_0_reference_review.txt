@@ -1,0 +1,57 @@
+1. Summary of claims and contributions
+- Proposes Neural Architecture Search (NAS): a gradient-based, reinforcement learning approach where a controller RNN generates variable-length strings describing neural architectures (CNNs and RNN cells). The controller is trained with REINFORCE to maximize expected validation performance of sampled “child” networks.
+- Introduces mechanisms to expand the search space: set-selection-style predicted skip connections; prediction of additional layer types; and a scheme to generate recurrent cell computation graphs as trees with learned combinations/activations and memory injection points.
+- Scales training via distributed, asynchronous parameter-server updates: hundreds of controller replicas and child model trainings in parallel.
+- Demonstrates strong empirical results:
+  - CIFAR-10: discovers competitive CNNs, including a 39-layer model achieving 4.47% error, improved to 3.65% by adding filters, with reported speed advantages over a strong human-designed baseline.
+  - PTB language modeling: discovers a novel recurrent cell achieving 62.4 test perplexity, improving state-of-the-art by ~3.6 perplexity; also shows transfer to character LM and NMT with gains.
+- Provides ablations/controls: comparison to random search showing consistent gains during search; robustness when enlarging the cell search space (adding max and sin).
+- States plan to release code and provides a TensorFlow NASCell.
+
+2. Decision: Accept
+Key reasons:
+- Novelty and significance: a general, flexible, and effective framework for programmatically discovering architectures (including variable length and structured connectivity) using policy gradients, going beyond fixed-length hyperparameter search and prior neuro-evolution at this scale.
+- Empirical strength across modalities (vision and language) with competitive or state-of-the-art results, plus transfer demonstrations, supporting the method’s utility.
+
+3. Supporting arguments
+- Problem and motivation: Clear articulation that manual architecture design is costly and that prior hyperparameter optimization typically targets fixed-length spaces; NAS addresses discovering structure/connectivity with a learned controller. The paper is well situated in the literature (BO, neuroevolution, meta-learning, program induction, seq2seq, sequence-level RL).
+- Technical soundness:
+  - The controller’s objective J(θc)=E[R] and REINFORCE gradient estimator are correctly specified; baseline variance reduction via EMA is standard and unbiased. The skip-connection prediction mechanism (content-based sigmoids with sampling) fits seamlessly into the policy gradient framework.
+  - Practical concerns are addressed: handling invalid graphs (compilation failures), concatenation with padding, and aggregation of unconnected outputs.
+  - The recurrent cell search is systematically defined via labeled computation trees including memory interaction points, with a sufficiently expressive base (8).
+  - Distributed asynchronous updates are reasonable given the cost; while staleness is not analyzed theoretically, this is a common and practical choice.
+- Support for claims:
+  - CIFAR-10: The search settings, child training setup, and validation/test protocol are described. The reported errors are competitive. The paper provides insights into learned patterns (rectangular filters, skip usage) and local optimality tests (effects of removing/adding skips).
+  - PTB: The discovered cell outperforms strong LSTM baselines and RHN under comparable training regimes. Transfer to character LM and GNMT shows generalization. The random-search control and “bigger search space” control support the efficacy and robustness of the approach.
+- Clarity: The method is generally clearly described with equations, training details, and search-space definitions. The experimental procedures and distributed setup are outlined with key hyperparameters.
+
+Caveats (not blocking):
+- Computational cost is very high (e.g., 800 concurrent GPUs for CIFAR-10), raising practicality and accessibility concerns; sample efficiency is not deeply analyzed.
+- Comparisons could be more rigorously controlled for training budgets and parameter/FLOP counts; some improvements rely on post-search grid tuning and adding filters, which complicates fairness.
+- Early stopping for child models (fixed epochs) may bias towards architectures that learn faster; this is acknowledged implicitly but not analyzed.
+
+4. Additional feedback to improve the paper (helpful suggestions)
+- Report full compute budgets: total GPU/CPU-days for search and for final training; memory/throughput metrics for discovered models; distribution of child model train times, to contextualize practicality.
+- Provide stronger fairness controls: align parameter counts and FLOPs in comparisons; standardize data augmentation; ensure baselines receive similar hyperparameter tuning budgets; include wall-clock training time to target accuracy.
+- Analyze sample efficiency: performance vs. number of evaluated architectures; variance across independent NAS runs; sensitivity to controller learning rate, baseline, and reward shaping (e.g., cubing accuracy).
+- Study early stopping bias: compare results when child models are trained to different partial budgets; possibly incorporate techniques to correct for fast-learner bias.
+- Expand ablations: effect of skip-connection selection mechanism; impact of allowing strides/pooling; reward normalization/advantage baselines; effect of asynchronous staleness (e.g., accumulating k gradients).
+- Clarify the recurrent cell search tree: formal specification of indexing, permissible wiring patterns, parameter sharing, and the number of learned parameters relative to LSTM for fair comparisons.
+
+Questions for the authors
+- Compute and efficiency:
+  - What is the total compute cost (GPU/CPU-days) for the CIFAR-10 and PTB searches, and for training the final selected models? How many child models were fully trained to the specified epoch limit?
+  - What is the variance across multiple NAS runs (different seeds) in terms of best validation performance and time to reach a given threshold?
+- Fairness and comparability:
+  - For CIFAR-10, can you provide parameter counts and FLOPs for the discovered models vs. the baselines (including the version with added filters)? Were all models trained with exactly the same augmentation and schedules?
+  - For PTB, are embedding tying and dropout settings matched across baselines? Are the improvements still present when carefully equalizing parameter budgets and training budgets?
+- Methodological details:
+  - How sensitive are results to reward shaping (accuracy cubed; perplexity scaling) and to the choice of EMA baseline? Did you try advantage normalization or variance reduction techniques beyond EMA?
+  - How often do “compilation failures” occur in practice, and do the fallback rules (e.g., using the image as input, zero-padding) bias the search?
+  - For asynchronous training, what is the average gradient staleness, and did you observe instability due to stale updates?
+  - For the recurrent cell search, why choose base 8 specifically? How does performance vary with base size, and what is the trade-off with search difficulty?
+- Generalization:
+  - Have you evaluated the discovered CNN architectures on larger datasets (e.g., ImageNet) without manual redesign, or the discovered RNN cell on additional language tasks beyond PTB and GNMT?
+  - Does the controller transfer across datasets (e.g., pretrain on one dataset’s search, then fine-tune on another)?
+
+Overall, the paper presents a clear, technically sound, and novel framework with compelling results across domains. The main limitations are computational cost and some fairness/reproducibility details, which can be addressed with additional analyses and reporting.

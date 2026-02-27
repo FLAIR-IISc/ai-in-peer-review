@@ -1,0 +1,58 @@
+Summary
+This paper proposes a “constrain-then-train” backpropagation framework that operates in a probabilistic domain to produce networks that map directly to spiking neuromorphic hardware with binary synapses and limited fan-in. The key ideas are: (i) represent inputs, neuron outputs, and synaptic connections during training as probabilities in [0,1], so that synapses are Bernoulli (on/off) and neuron spikes are Bernoulli; (ii) use a Gaussian approximation to the sum of weighted Bernoulli inputs to derive a differentiable surrogate for spiking and to compute gradients; (iii) fix synaptic strength values to a small set and learn only connection probabilities and biases; (iv) use a progressive mixing/sliding-window topology tailored to TrueNorth constraints; (v) an initialization that balances ±1 strengths to minimize pairwise redundancy. The authors demonstrate MNIST on IBM TrueNorth, reporting up to 99.42% with a 64-member ensemble and 108 µJ/classification, and low-energy settings (0.268 µJ/classification at 92.7%). They claim improved SNN accuracy over prior spiking/binary results and strong energy efficiency.
+
+Relation to prior work: The paper situates itself among backprop for spiking neurons (with high-precision weights), binary/trinary synapses with continuous units, and probabilistic backprop for binary neurons. The combination of spiking neurons, binary synapses below trinary precision, and constrained connectivity trained end-to-end is presented as novel. The work is closest in spirit to stochastic/binarized networks trained with surrogate gradients, and to SNN conversions, but differs by training directly under hardware constraints.
+
+Strengths
+- A clear and appealing bridge between differentiable training and discrete spiking deployment via probabilistic modeling.
+- Hardware-realistic constraints are incorporated from the start (fan-in, binary synapses, axon types, bias quantization), with a concrete mapping to TrueNorth.
+- The initialization to reduce pairwise redundancy is principled and matches hardware structure.
+- Real-time, on-chip measurements with explicit energy/throughput numbers on a commercial neuromorphic platform are valuable.
+- The progressive mixing topology is a reasonable compromise between locality and coverage under core-to-core constraints.
+
+Weaknesses and detailed concerns
+Technical correctness/derivations:
+- Equation (3) for ñj (firing probability) appears malformed. The complementary CDF of a Gaussian should yield ñj = Φ((µj−θ)/σj) or 0.5·erfc((θ−µj)/(√2 σj)). The presented expression “1 − 1 + erf …” is dimensionally and numerically suspect.
+- Equation (4) for ∂ñj/∂c̃ij includes two terms (via µ and σ). The subsequent approximation drops the σ-dependent term based on assumptions (µ, ñi, c̃ij ≪ σ). This is not justified quantitatively; after learning, µ and bj need not be small, and σ depends on c̃ as well. No empirical check of the approximation error is provided.
+- The statement “corresponding gradient with respect to the bias term equals one” is incorrect; ∂ñj/∂bj = ∂ñj/∂µj, not 1. This raises doubt about implemented gradients.
+- Independence assumptions: the Gaussian approximation assumes independence of inputs and connections. However, c̃ induces shared randomness across synapses/neuron pairs, and inputs across neurons share sources. The effect of these dependencies on the Gaussian and gradient accuracy is neither analyzed nor ablated.
+- Loss function: The log loss is formulated per class with pk = P(average spike count > 0.5). For MNIST single-label tasks, a softmax cross-entropy is standard. Using independent sigmoids without a mutual-exclusion constraint can yield poorly calibrated decision boundaries. No justification or comparison is given.
+- Ensemble training/inference: pk uses a Gaussian approximation of an average across multiple neurons/ensemble members; gradients through this additional approximation are not detailed.
+
+Experimental methodology:
+- Reported energy numbers are inconsistent: the abstract/intro claim 4 µJ/classification at 95% accuracy and 1000/s, while Results report 0.268 µJ/classification at 92.7% and 108 µJ/classification at 99.42%. The 4 µJ figure is neither reproduced nor reconciled with the other measurements.
+- Energy accounting lacks detail: does it include I/O, host communication, memory transfers? The leakage allocation “fraction for cores in use” may underestimate network-level overhead and control power. Throughput differences (50 vs 1000 images/s) complicate fair comparison to [16].
+- Only MNIST is evaluated; there are no results on more challenging datasets (e.g., CIFAR-10) or event-data benchmarks. The generality claim is therefore not substantiated.
+- Heavy reliance on large ensembles (up to 64) to reach 99.42%; single-network performance and energy/accuracy tradeoffs are not thoroughly explored. No variance/confidence intervals over random seeds or ensemble samplings are reported.
+- Missing ablations: effect of the initialization vs random strengths; effect of ignoring the σ-term in gradients; role of dropout; influence of stride/window parameters; number of output neurons per class; time steps vs single-timestep input coding.
+- Reproducibility gaps: the exact LUT strength values per axon type, number of outputs per class, bias quantization procedure, total training epochs, early stopping/validation protocol, and data preprocessing specifics are insufficiently specified. Figures are referenced (Fig. 1–3) but not provided here; the text alone does not enable reproduction.
+
+Clarity/formatting:
+- Section numbering is inconsistent (e.g., “.1 Deployment network”), several typos (“backpropgation”, “lowlatency”), and some equations are poorly typeset or incorrect (see Eq. 3). The reference list has numerous formatting inconsistencies and missing details. Important recent related work on binarized networks (e.g., BinaryConnect/Binarized Neural Networks) is not cited.
+
+Originality and significance:
+- The constrain-then-train formulation mapped to TrueNorth is original and practically relevant. However, the methodological novelty is tempered by reliance on standard Gaussian approximations and surrogate-gradient-like updates; the paper would be stronger with rigorous justification or empirical validation of the approximations.
+- The significance is limited by the scope (MNIST only), reliance on ensembling to reach high accuracy, and unclear energy comparisons. Nevertheless, the on-chip demonstration is valuable.
+
+Questions for the authors
+- Please correct and re-derive Eq. (3), Eq. (4), and the bias gradient, and provide an empirical check of the dropped term’s contribution during training.
+- Clarify energy accounting (what components are included) and reconcile the 4 µJ figure with the results section. Provide confidence intervals over multiple runs.
+- Specify all architectural details needed for reproduction: number of outputs per class, exact LUT values per axon type, mapping from c̃ to s-values, total epochs/schedule, validation protocol, and the exact topology parameters for both networks.
+- Justify the use of independent sigmoids vs softmax for MNIST, and report the effect of switching.
+- Provide ablations on initialization, ensemble size, dropout, and number of time steps.
+
+Pros
+- Clear hardware-aware training-to-deployment pipeline.
+- Real hardware results with energy measurements.
+- Principled initialization to reduce redundancy.
+- Practical relevance to neuromorphic computing.
+
+Cons
+- Apparent errors/omissions in key equations and gradients.
+- Unjustified approximations and independence assumptions.
+- Limited evaluation (MNIST only), heavy ensembling, no variance/ablations.
+- Inconsistent energy claims and incomplete accounting.
+- Clarity/formatting/citation issues that hinder reproducibility.
+
+Recommendation
+Reject. The idea is promising and practically relevant, but the manuscript has multiple technical inaccuracies in core derivations, limited and somewhat confusing experimental validation, and significant clarity/reproducibility issues. A revised version that corrects the math, substantiates the approximations, broadens and clarifies the evaluation, and fixes presentation problems could be competitive.

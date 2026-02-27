@@ -1,0 +1,69 @@
+Summary
+The paper proposes an alternating, distributed learning framework that combines direct trajectory optimization (Contact-Invariant Optimization, CIO) with supervised neural network policy learning for real-time, interactive control of diverse 3D characters (bipeds, quadrupeds, swimmer, bird). Key ideas: (i) generate optimal trajectories with CIO; (ii) inject Gaussian noise into sensory inputs and regress the policy to a locally linearized, noise-aware target a + As ε, where As are “optimal feedback gains” derived efficiently from the CIO Hessian via a perturbation method; (iii) alternate between re-optimizing trajectories with a quadratic penalty tying them to the current policy and fitting the policy via SGD with added activation noise; (iv) execute policies in real time by solving a T=1 constrained optimization to match desired velocities/forces while softly enforcing dynamics. The system is implemented asynchronously on a cluster with a GPU. The authors claim robust, cyclic, realistic behaviors in 3D, and better performance than static training and no-noise variants.
+
+Relation to prior work: Closely related to GPS-style methods (e.g., Levine & Koltun, 2014; Mordatch & Todorov, 2014), which use trajectory optimization to supervise policy learning. The proposed feedback-gain derivation from a direct optimizer and the specific noise-injection scheme are the main methodological twists. The work also relates to MPC and to deep RL for control (TRPO, DDPG et al.), but comparisons are limited.
+
+Strengths
+- Ambitious goal with a unifying approach across very different morphologies; empirical breadth is appealing (bipeds, quadrupeds, swimmer, bird), all in 3D.
+- Practical alternating scheme that scales in a distributed setting; details on cluster setup are useful.
+- Clever reuse of CIO computations to derive stabilizing feedback gains via a Woodbury-based perturbation method; this is a nontrivial technical contribution.
+- Sensible use of input and hidden noise to improve robustness; ablations (no joint, no noise) indicate necessity.
+- Real-time execution via T=1 optimization is pragmatic and leverages the same machinery.
+
+Weaknesses / Concerns
+Methodological and empirical rigor:
+- The execution-time “policy” is not purely a closed-loop NN controller; it relies on solving an optimization at every step with soft dynamics constraints, including allowing nonphysical root forces. This can mask model errors and undermines claims about real-time neural control and physical realism. No timing or computational budget is reported for the T=1 solve; “real-time” is asserted, not measured.
+- Action space includes contact forces f. In most robotic systems these are not directly commanded; this limits applicability and comparability to RL baselines. It also blurs how “policy” vs. “physics” responsibilities are separated.
+- Costs are underspecified. Section 8 says goal + torque/contact magnitudes, but exact feature definitions, weights, and normalization are missing. Without them, results are not reproducible.
+- No quantitative evaluation of robustness (e.g., disturbance rejection, sensor noise sensitivity, changes in goal frequency), success rates, or cycle stability; figures/tables are referenced but no concrete numbers are included. The “two orders of magnitude” claim is not substantiated with metrics.
+- No comparison to strong model-free or model-based baselines on the same tasks (TRPO, DDPG/SAC, iLQR-MPC), beyond a qualitative note about MPC leading to non-cyclic solutions. The empirical case for improved performance over GPS variants is not convincingly made.
+
+Technical details and clarity:
+- Feedback gain derivation (Sec. 3.2): While the Woodbury expression is plausible, key details are missing: chosen λ, sensitivity to λ, conditioning of CXX and sX with finite differencing noise, and regularization needed to ensure numerical stability. The notation alternates between as, as̄, dads, aX; s(X) and s̄; and uses argmin* confusingly. Please clean up.
+- State/action definition is unusual: s_t uses q̇_{t−1} and f_{t−1} while a_t outputs q̇_t, ṙ_t, f_t. Rationale and impact on observability are not discussed. The dimension and role of the recurrent memory r are not specified.
+- The alternating optimization uses proximal terms, but the algorithm’s convergence behavior is only asserted; no monitoring of primal/penalty residuals or sensitivity to α, η is provided, and asynchronous updates via NFS file locking raise consistency questions.
+- The use of 50 ms timesteps is large for contact-rich dynamics; interaction between the implicit-like T=1 optimization and stability is not analyzed.
+
+Positioning vs. prior work:
+- The paper’s differences vs. GPS are not crisply articulated beyond the gain computation and 3D results. Prior GPS works also inject noise, alternate between trajectory optimization and policy learning, and use supervised targets with fitted linearizations. A careful side-by-side comparison (data efficiency, stability, gains, qualitative behavior) is missing.
+- Claims of novelty in 3D are interesting but require quantitative benchmarks and videos with ablation of the T=1 optimizer to isolate the policy’s contribution.
+
+Quality
+- Partial. The core ideas are promising and technically sound in spirit, but insufficient detail, weak quantification, and reliance on a per-step optimizer undermine the empirical support.
+
+Clarity
+- Mixed. High-level story is clear. Many notation inconsistencies, missing hyperparameters, and incomplete experimental details hinder reproducibility.
+
+Originality
+- Moderate. The method is an incremental but potentially useful extension of GPS-style approaches, with a neat gain-computation trick.
+
+Significance
+- Potentially significant for character control if substantiated. For ML/control, impact is limited by incomplete evaluation and the reliance on per-step optimization.
+
+Questions for the authors
+1. What is the dimension of r, and how is it initialized/regularized? Why use q̇_{t−1} in s rather than q̇_t?
+2. How fast is the T=1 optimization at execution (ms per step, CPU/GPU), and what fraction of steps require nonzero root forces? Can you run a policy-only rollout (no T=1 solve) and report stability?
+3. Please provide exact cost terms and weights, and ranges for λ, α, η, σε, σγ, and their sensitivity.
+4. How are feedback gains regularized to avoid ill-conditioning from finite-differenced sX and aX?
+5. Can you compare against a standard GPS implementation and against TRPO/DDPG on at least one 3D task with shared observation/action spaces?
+6. How often is goal changed during training and testing? How robust is the controller to abrupt goal changes and external pushes?
+
+Minor issues / typos
+- “unity these disparate approaches” → “unify”. “changed changed” duplicated. “location common approaches” → “locomotion”. “patter” → “pattern”.
+- Many references are incomplete (missing years/venues/pages) and some venues are incorrect (e.g., “I. J. Humanoid Robotics”).
+- Algorithm 1 numbering is inconsistent; step 3 label missing.
+- Notation: a_s vs as, dads; argmin*; s(X)=s̄ and s̄ reuse; inconsistent bold/transpose.
+- Section 8 cites figure/table results (Fig. 2, Table 1, Fig. 3) without numerical values; ensure all figures/tables exist and are legible.
+
+Pros
+- Practical, scalable alternating framework; distributed implementation details.
+- Novel reuse of CIO Hessians for stabilizing gains.
+- Diverse 3D characters controlled with one architecture; plausible robust behaviors via noise injection.
+
+Cons
+- Heavy reliance on per-step optimization and soft dynamics (root forces) at execution.
+- Insufficient quantitative evaluation and missing baselines.
+- Incomplete methodological and experimental details; notation/formatting issues.
+
+Recommendation: Reject
+The paper presents interesting ideas with promising qualitative results, but the methodological ambiguities, incomplete evaluation, reliance on an optimizer at execution, and numerous clarity/formatting issues make it premature for NIPS in its current form. Strengthening the quantitative evaluation, clarifying the algorithm, and disentangling the role of the T=1 optimization would significantly improve the work.

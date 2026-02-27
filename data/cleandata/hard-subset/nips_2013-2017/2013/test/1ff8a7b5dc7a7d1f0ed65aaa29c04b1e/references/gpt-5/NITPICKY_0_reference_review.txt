@@ -1,0 +1,55 @@
+Summary and relation to prior work
+This paper studies stacked recurrent neural networks (“deep recurrent neural networks,” DRNNs) for character-level language modeling. Each layer is a tanh RNN receiving the previous layer’s hidden state; outputs are either taken only from the top layer (DRNN-1O) or from all layers (DRNN-AO) by summing logits before the softmax. Training uses SGD with gradient normalization (divide by norm) and a linearly decaying learning rate; DRNN-1O uses an incremental, layer-wise schedule. On the 1.4B-char Wikipedia corpus (95-char vocabulary; last 10M chars as test), the authors report BPC comparable to multiplicative RNNs trained with Hessian-free optimization. They analyze temporal hierarchies via perturbation experiments, context-switch effects on BPC, and a parentheses-closing probe, arguing stacked RNNs learn multi-timescale dynamics.
+
+The idea of stacking RNNs is not new (e.g., El Hihi & Bengio 1996; Fernández et al. 2007; Graves et al. 2013), and deep supervision from intermediate layers is also known. The paper’s main contributions are: (a) a straightforward SGD training recipe for stacked tanh RNNs on a large dataset; (b) empirical evidence that layers capture different timescales; (c) qualitative analyses of long-term behavior (parentheses).
+
+Strengths
+- Addresses a relevant, large-scale benchmark and provides analysis beyond headline numbers.
+- Clear architectural variants (1O vs AO) and qualitative ablations (removing a layer’s logit contribution).
+- The timescale and parentheses analyses are interesting and, if made more rigorous, could be valuable to the community.
+- Implementation on a single GPU with simple SGD is practically appealing.
+
+Weaknesses and detailed comments
+Quality/reproducibility
+- Equation (3) appears incorrect and contradicts the text. You state the learning rate “drops linearly,” yet use θ(j+1)=θ(j)−η0(−j/T) ∇/||∇||. This makes the step size zero at j=0 and increases linearly to η0 at j=T (and changes sign), which is the opposite of what’s described. Please clarify the intended schedule (likely η0(1−j/T)) and fix the sign. Also specify handling when ||∇||≈0 (epsilon?).
+- Gradient “normalization” is underspecified. Is this per-parameter-set global normalization, per-layer, per-minibatch? How does it differ from standard gradient clipping at a threshold? What threshold or normalization constant is used?
+- Bias handling is inconsistent. You state “augment the corresponding variables with an element equal to one,” but in the recurrence you augment a_{i−1} and s, not a_i(t−1). This seems to omit recurrent biases. Please specify which connections include biases explicitly.
+- Initialization of all output weights to zero implies zero gradient to hidden states at the first step (since ∂L/∂a ∝ U^Tδ and U=0). Training then updates only U on the first iteration. This is not necessarily wrong, but should be acknowledged; also clarify whether this interacts with the layer-wise training in DRNN-1O (each stage reinitializes U to zero).
+- Data split/vocabulary comparability: You use a 95-char alphabet vs 86 in [19], claim it has negligible effect on cross-entropy, and compare to MRNN results. This is not justified quantitatively. Please report BPC for exactly the same preprocessing as [19], or provide a conversion/analysis showing the effect of the different alphabet on BPC.
+- No validation set is reported; learning rates decay to zero with no clear stopping criterion. Provide a validation split and curves to rule out under/overfitting.
+- Training details missing/ambiguous: hidden state initialization (zero vs carried across minibatches); whether sequences overlap; whether state is reset between minibatches/epochs; any regularization (weight decay, dropout); momentum; exact parameter counts per model; effective tokens seen. These materially affect reproducibility and results.
+- Only three model instantiations are tested due to cost; no variance across seeds is reported. Claims of “state-of-the-art for recurrent networks” should be tempered given the small sweep and dataset/preprocessing mismatch.
+- Baselines: There is no LSTM or gated RNN baseline, despite citing LSTM and its known advantages for long-term dependencies. Given the timeframe and related work, a stacked LSTM would be a more appropriate comparison than MRNN alone.
+- AO vs 1O training fairness: DRNN-1O uses staged training with increasing T per stage, resulting in more total updates/passes than AO. The comparison is therefore confounded by different training budgets. Normalize for total updates or total tokens seen.
+- Timescale analyses:
+  - Euclidean distance between hidden states is layer-size dependent; although layer sizes are equal within DRNNs, the RNN baseline has a different dimension (2119 vs 706). Distances across models are not directly comparable. Consider normalized metrics.
+  - The method “use perturbed hidden state of an individual layer and unperturbed others for generating output” is unclear given inter-layer coupling. Describe precisely how this hybrid state is constructed at each time step.
+  - Report confidence intervals across the 50k trials.
+- Parentheses experiment:
+  - The quantitative closure test is welcome, but lacks error bars and a non-neural baseline (e.g., strong n-gram/PPM/PAQ). Also discuss nested parentheses failure rates explicitly.
+- Claims: “state-of-the-art performance for recurrent networks” is stated but numerical results are not in the paper text provided (Table 1 is referenced but values are missing here). The claim should be backed by exact numbers, same preprocessing, and clear compute/training budget comparisons.
+
+Clarity/organization
+- Several typos/grammar: “wellsuited,” “the the top layer,” “synergies might exists,” “DRNNAO,” inconsistent capitalization of Long Short-term Memory, etc.
+- References are incomplete (missing years, venues, pages) and inconsistent. Ensure all are properly formatted.
+- Footnotes appear inline and disrupt flow. Please use proper formatting.
+- Figures/Tables are heavily referenced but not fully described in text; ensure captions are self-contained and axes clearly labeled.
+
+Originality
+- Stacked RNNs with deep supervision are not novel; the primary novelty is the particular empirical analysis of timescales on a large dataset. The methodological contributions are incremental.
+
+Significance
+- If claims are rigorously supported, the analysis of emergent time scales and the demonstration that simple SGD can train deep stacked tanh RNNs at scale would be of interest. However, the current experimental evidence is limited, confounded, and lacks key baselines and controls.
+
+Pros
+- Addresses an important problem; practical training recipe.
+- Interesting qualitative analyses (timescales, parentheses).
+- Potentially competitive results with simple methods.
+
+Cons
+- Equation and training-spec errors; missing/broken details hinder reproducibility.
+- Comparisons not on identical preprocessing; no LSTM baseline; unequal training budgets.
+- Limited ablations/variance; overclaiming “state-of-the-art.”
+- Numerous writing/formatting issues.
+
+Recommendation: Reject (borderline). The paper contains many minor but cumulative issues (incorrect/unclear update rule, insufficiently controlled comparisons, missing key baseline, incomplete experimental details, reference/formatting problems) that undermine confidence in the results despite interesting analyses. I encourage a revision addressing the above, adding a stacked LSTM baseline on the exact dataset/preprocessing, fixing Eq. (3) and bias specs, normalizing training budgets, and expanding the rigor of the timescale experiments.

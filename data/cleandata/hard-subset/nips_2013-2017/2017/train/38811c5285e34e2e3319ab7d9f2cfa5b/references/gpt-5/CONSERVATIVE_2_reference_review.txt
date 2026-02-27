@@ -1,0 +1,53 @@
+Summary
+The paper proposes a generic parallelization scheme for regularized risk minimization, dubbed the Radon machine. The idea is to train base learners independently on many random data subsets and then aggregate the resulting hypotheses up a tree using Radon points (instead of averaging). The key theoretical claim is that for convex hypothesis spaces with finite Radon number r, the probability that the aggregated hypothesis is ε-bad decreases doubly-exponentially with the height h of the aggregation tree: δ → (rδ)^(2^h). Under additional assumptions on sample complexity and runtime of the base learner, the authors argue the scheme attains polylogarithmic runtime (in the target sample complexity) when run on quasi-polynomially many processors. Experiments compare the Radon machine to averaging-at-the-end and to several Spark MLlib algorithms, reporting similar AUC and substantial wall-clock speedups.
+
+Strengths
+- Conceptually simple, black-box wrapper that can apply broadly to convex ERM learners.
+- Clean geometric idea; Radon aggregation yields a clear, provable confidence amplification (Proposition 2, Theorem 3).
+- Theoretical development is mostly sound under the stated assumptions and connects to parallel complexity notions (NC).
+- Code availability and an empirical section across several datasets, with substantial observed speedups.
+- Discussion section candidly acknowledges limitations (high dimension, non-linear models) and suggests reasonable remedies (random features, projections).
+
+Weaknesses and concerns
+Quality/methodology
+- Practicality of assumptions: r equals the Radon number, which in Rd is r=d+2. The number of processors required is r^h and h is chosen ≈ log M, making the processor count c ≈ r^h = M^(log r). Unless d is polylogarithmic in M, this is super-polynomial; even when d is modest (e.g., 10^4), c can be astronomically large. Theorem 4 explicitly requires r bounded polylogarithmically in sample complexity—this is a strong and often unrealistic condition for modern high-dimensional problems, and undermines the NC connection in typical settings.
+- Data/sample blowup: Achieving the double-exponential confidence reduction requires base hypotheses to be trained to δ ≤ 1/(2r), forcing each base learner to use N0(ε,δ) samples and overall using r^h times as many samples as a single run. The empirical section typically fixes the total data and varies h; there is no validation that the per-leaf δ assumption holds, nor any measurement of achieved confidence. Thus, the central theoretical guarantee is not empirically corroborated.
+- Complexity of Radon aggregation: Computing a Radon point in Rd involves solving a linear system derived from r points in d dimensions. The paper states r^3 per node, but in practice one must also account for forming the system, which is O(d r^2); storing hypotheses costs O(d), not O(r) as suggested. For large d this overhead may dominate, and experiments avoid such regimes.
+- Experimental comparisons are not apples-to-apples:
+  - Reported speedups (up to 700×) are against single-machine WEKA/scikit learners, while the Radon machine uses a cluster (and the paper inconsistently cites 150 vs 125 processors). Comparing single-threaded baselines to a 100+ core cluster overstates speedups.
+  - Comparisons to Spark MLlib use different algorithms and possibly different optimization goals; details on tuning parity and resource usage are limited. Stronger distributed ERM/SGD baselines (e.g., CoCoA, DANE, ADMM variants, better-tuned mini-batch SGD) are not included.
+  - The averaging baseline is weak; robust aggregation alternatives such as geometric median / median-of-means (which have established tail bounds) are not considered.
+- Mismatch between theory and metrics: Theory is for convex excess risk; experiments evaluate AUC and classification accuracy, not tied to the convex losses used in the guarantees, and do not report confidence improvements as a function of h.
+- Generality/black-box claim: The method requires hypotheses as vectors in a convex Euclidean space. For kernel SVMs or models represented implicitly, the paper suggests random features or low-rank approximations, which changes the hypothesis class and may hurt accuracy. This weakens the “black-box” claim.
+
+Clarity
+- Generally well-organized and readable. However:
+  - A more precise accounting of Radon point computation costs in Rd would improve clarity.
+  - The discussion oscillates between theoretical processor counts and the practical cluster used; resource accounting and reproducibility details (datasets, exact processor counts, thread settings) should be clarified.
+  - Some notation collisions (D for distribution/data) and assumptions (independence across layers) could be stated more crisply.
+
+Originality
+- Using Radon points for distributed aggregation is a nice twist on averaging, with an elegant proof technique. However, related robust aggregation ideas (geometric median, median-of-means, robust distributed learning/Byzantine resilience) are not discussed or compared, limiting the positioning relative to prior work.
+
+Significance
+- As a theoretical exploration, the confidence amplification via Radon aggregation is interesting. However, the headline claim of “polylogarithmic time” requires quasi-polynomial processors with r polylog-bounded, which appears rare in practice. The empirical gains seem primarily from parallelizing base learners on many small shards, a strategy shared by numerous existing methods, and the added benefit of Radon aggregation over averaging is modest in reported metrics.
+
+Questions for the authors
+- Provide an exact cost for computing a Radon point in Rd, including forming the system, and discuss the effect for d in the thousands.
+- How is h chosen in practice without knowing δ, and what happens when δ > 1/(2r)?
+- Can you compare against geometric median or median-of-means aggregation (and cite relevant literature)?
+- Resolve the processor-count inconsistency (150 vs 125), and provide detailed resource/tuning parity for Spark baselines.
+- Any experiments in truly high-dimensional settings (e.g., text, d≥10^4) showing aggregation overhead and accuracy effects?
+
+Pros
+- Simple, broadly applicable idea with clear theory under stated assumptions.
+- Connects geometric properties (Radon points) to distributed learning.
+- Code and empirical results on several datasets; speedups observed.
+
+Cons
+- Core theoretical “NC-like” payoff relies on restrictive assumptions (small r, quasi-polynomial processors).
+- Empirical evaluation does not validate the central confidence claims and uses weak baselines.
+- Limited applicability to high-dimensional and non-linear models without substantial modification.
+
+Recommendation
+Lean reject. The geometric insight and theoretical bounds are appealing, but the practicality and significance are undercut by strong assumptions on r and processor counts, and the empirical section does not convincingly validate the claimed benefits over stronger, established distributed learning baselines. Strengthening the comparison to robust aggregation methods, tightening the complexity accounting, and demonstrating benefits under more realistic resource constraints would substantially improve the paper.

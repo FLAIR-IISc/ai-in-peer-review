@@ -1,0 +1,49 @@
+Summary and relationship to prior work
+This paper proposes “on-the-job learning,” a decision-theoretic framework that mixes machine predictions with on-demand crowd queries at test time to maintain high accuracy from the outset while reducing cost and latency over time as the model improves. The authors formalize the interaction as a stochastic game between the system and the crowd. The system chooses among actions: issue a query on a specific sub-label (e.g., a token in NER), wait for pending responses, or return a prediction. Utilities trade off expected accuracy, monetary cost, and elapsed time. The environment model factors into a CRF pθ(y|x), a response noise model pR, and a response-time model pT. Because exact planning is intractable, they approximate with Monte Carlo Tree Search (UCT) plus progressive widening to handle continuous time. Experiments on NER, sentiment, and image classification using a retainer-based crowd report substantial cost savings versus majority-vote crowdsourcing and accuracy gains versus online learning and single-vote baselines. The system, LENSE, is open-sourced.
+
+This work connects to online learning (improving over time), active learning and active classification (value of information at test time), structured prediction under partial observations/measurements, and decision-theoretic control of crowdsourcing (e.g., TurKontrol). The paper’s novelty is to bring these elements together: structured outputs (CRF), continuous-time crowd modeling, and sequential budgeted querying with a principled utility, implemented with MCTS.
+
+Strengths
+- Clear and pragmatic problem formulation that addresses a real deployment need: delivering high-quality outputs before a model is trained, with explicit time and monetary constraints.
+- Decision-theoretic approach that unifies accuracy, latency, and cost through a utility; the induced strategies (parallel vs sequential querying, redundancy for noise) are intuitive.
+- Use of structured prediction is well-motivated for NER; leveraging label correlations to reduce queries is a genuine benefit over per-item majority vote.
+- MCTS with progressive widening is a reasonable approximation for continuous-time, high-branching planning; the algorithmic description is clear.
+- Empirical results suggest meaningful cost reductions at comparable or better quality, with diminishing reliance on the crowd over time when model capacity permits.
+- Reproducibility and availability of code and datasets are strong.
+
+Weaknesses and concerns
+- Environment modeling assumptions are simplistic and potentially brittle:
+  - pR assumes a fixed 70% accuracy and independence across queries and items. This ignores worker heterogeneity, item difficulty, and correlation in errors—factors known to be consequential in crowdsourcing. Established latent-variable models (e.g., Dawid-Skene, GLAD) could be incorporated to update pR online and would likely improve decisions.
+  - Response-time model pT is mentioned but not specified or learned per task/worker; time is central to the utility, so calibration of pT matters.
+- The expected utility surrogate ExpAcc is underspecified and potentially mismatched:
+  - ExpAcc is defined as Ep(y)[Accuracy(argmax p(y’))]. For 0–1 sequence accuracy this equals maxy p(y), and for Hamming token accuracy equals sum_i max_yi p(yi). The paper should make explicit which accuracy is used and explain the computational approximation (CRF marginals vs MAP sequence). Calibration of pθ critically affects this surrogate; no calibration analysis is provided.
+- Planning/action space restrictions: The system cannot interleave issuing new queries while waiting for a response (“no mid-wait launching”). This constraint simplifies search but may sacrifice latency/utility in settings with highly variable pT.
+- Experimental design raises fairness and ecological validity issues:
+  - “Frozen pools” of five responses and delays per label sampled without replacement improve comparability across methods but are extremely small and may underestimate variance and dependency structure (e.g., difficulty-conditioned error and time). This could bias the planning policy learned/tuned under these assumptions.
+  - Baselines could be stronger. In addition to majority vote, include adaptive stopping rules for redundant labeling (e.g., sequential probability ratio tests), POMDP/myopic VOI-based policies akin to TurKontrol, and budgeted test-time acquisition baselines from active classification (e.g., cost-sensitive decision trees). The “threshold baseline” is a strawman that doesn’t reason about time and assumes fixed error reduction, which favors LENSE.
+  - The “online learning” baseline uses gold labels after each example; while a useful upper bound on training information, it cannot query at test time, so its early-accuracy deficit is expected. Consider an “online + limited test-time queries” baseline with simple heuristics to isolate the contribution of planning versus merely having access to crowd signals.
+- Claims need clarification:
+  - “Boosting performance relative to the expert provided labels” is surprising; if the gold is expert-annotated, how does the system surpass it? If this refers to training labels vs test performance, or to noisy expert annotations, please clarify.
+- Missing ablations and sensitivity:
+  - No study of sensitivity to wM and wT, or to the progressive widening/UCT hyperparameters, or the algorithmic overhead (planner latency vs human latency). In real-time settings, planning overhead may matter.
+  - No analysis of how violations of the pR/pT assumptions affect performance (e.g., adversarial or low-quality workers, heavy-tailed response times).
+- Theoretical guarantees: While MCTS is standard, there are no convergence or performance guarantees under the progressive widening scheme used here; a discussion of limitations would help.
+
+Clarity and presentation
+- Generally well-written and organized. Some notation/footnote glitches and missing details (exact form of pT, accuracy metric used in utility, CRF features, training schedule) should be addressed to enable full reproducibility.
+- Figures described in text are convincing, but more quantitative plots of latency-accuracy-cost trade-offs and planner compute time would help.
+
+Significance and impact
+- The problem is important and underexplored in a unified framework. The contribution is a solid systemization and deployment-oriented approach rather than a fundamentally new theory. For NER, the structured advantage appears meaningful; for unstructured tasks, benefits over strong adaptive baselines remain to be demonstrated.
+- If the framework incorporated richer crowd and time models and compared to stronger baselines, it could become a reference approach for budgeted, real-time human-in-the-loop prediction.
+
+Suggestions for improvement
+- Learn pR and pT online (e.g., Dawid-Skene/GLAD-style worker/item models; hierarchical priors for times), and evaluate robustness to misspecification.
+- Clarify ExpAcc and the accuracy metric; assess calibration and consider proper scoring rules (e.g., log score) in the utility.
+- Add stronger adaptive baselines and ablations (weights, UCT parameters, planner latency).
+- Relax the “no mid-wait” constraint or empirically justify its negligible impact.
+- Report per-task breakdowns (class imbalance effects, structured vs unstructured gains).
+
+Recommendation: Weak accept. The paper addresses a timely and practical problem with a principled formulation and promising results, but would benefit from stronger baselines, clearer utility specification, and more realistic crowd/time modeling.
+
+Confidence: High.

@@ -1,0 +1,390 @@
+{
+  "name" : "84d2004bf28a2095230e8e14993d398d.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Distributed Submodular Maximization: Identifying Representative Elements in Massive Data",
+    "authors" : [ "Baharan Mirzasoleiman" ],
+    "emails" : [ ],
+    "sections" : [ {
+      "heading" : null,
+      "text" : "Many large-scale machine learning problems (such as clustering, non-parametric learning, kernel machines, etc.) require selecting, out of a massive data set, a manageable yet representative subset. Such problems can often be reduced to maximizing a submodular set function subject to cardinality constraints. Classical approaches require centralized access to the full data set; but for truly large-scale problems, rendering the data centrally is often impractical. In this paper, we consider the problem of submodular function maximization in a distributed fashion. We develop a simple, two-stage protocol GREEDI, that is easily implemented using MapReduce style computations. We theoretically analyze our approach, and show, that under certain natural conditions, performance close to the (impractical) centralized approach can be achieved. In our extensive experiments, we demonstrate the effectiveness of our approach on several applications, including sparse Gaussian process inference and exemplar-based clustering, on tens of millions of data points using Hadoop."
+    }, {
+      "heading" : "1 Introduction",
+      "text" : "Numerous machine learning algorithms require selecting representative subsets of manageable size out of large data sets. Applications range from exemplar-based clustering [1], to active set selection for large-scale kernel machines [2], to corpus subset selection for the purpose of training complex prediction models [3]. Many such problems can be reduced to the problem of maximizing a submodular set function subject to cardinality constraints [4, 5].\nSubmodularity is a property of set functions with deep theoretical and practical consequences. Submodular maximization generalizes many well-known problems, e.g., maximum weighted matching, max coverage, and finds numerous applications in machine learning and social networks, such as influence maximization [6], information gathering [7], document summarization [3] and active learning [8, 9]. A seminal result of Nemhauser et al. [10] states that a simple greedy algorithm produces solutions competitive with the optimal (intractable) solution. In fact, if assuming nothing but submodularity, no efficient algorithm produces better solutions in general [11, 12].\nData volumes are increasing faster than the ability of individual computers to process them. Distributed and parallel processing is therefore necessary to keep up with modern massive datasets. The greedy algorithms that work well for centralized submodular optimization, however, are unfortunately sequential in nature; therefore they are poorly suited for parallel architectures. This mismatch makes it inefficient to apply classical algorithms directly to distributed setups.\nIn this paper, we develop a simple, parallel protocol called GREEDI for distributed submodular maximization. It requires minimal communication, and can be easily implemented in MapReduce style parallel computation models [13]. We theoretically characterize its performance, and show that under some natural conditions, for large data sets the quality of the obtained solution is competitive with the best centralized solution. Our experimental results demonstrate the effectiveness of our approach on a variety of submodular maximization problems. We show that for problems such as exemplar-based clustering and active set selection, our approach leads to parallel solutions that are very competitive with those obtained via centralized methods (98% in exemplar based clustering and 97% in active set selection). We implement our approach in Hadoop, and show how it enables sparse Gaussian process inference and exemplar-based clustering on data sets containing tens of millions of points."
+    }, {
+      "heading" : "2 Background and Related Work",
+      "text" : "Due to the rapid increase in data set sizes, and the relatively slow advances in sequential processing capabilities of modern CPUs, parallel computing paradigms have received much interest. Inhabiting a sweet spot of resiliency, expressivity and programming ease, the MapReduce style computing model [13] has emerged as prominent foundation for large scale machine learning and data mining algorithms [14, 15]. MapReduce works by distributing the data to independent machines, where it is processed in parallel by map tasks that produce key-value pairs. The output is shuffled, and combined by reduce tasks. Hereby, each reduce task processes inputs that share the same key. Their output either comprises the ultimate result, or forms the input to another MapReduce computation.\nThe problem of centralized maximization of submodular functions has received much interest, starting with the seminal work of [10]. Recent work has focused on providing approximation guarantees for more complex constraints. See [5] for a recent survey. The work in [16] considers an algorithm for online distributed submodular maximization with an application to sensor selection. However, their approach requires k stages of communication, which is unrealistic for large k in a MapReduce style model. The authors in [4] consider the problem of submodular maximization in a streaming model; however, their approach is not applicable to the general distributed setting. There has also been new improvements in the running time of the greedy solution for solving SET-COVER when the data is large and disk resident [17]. However, this approach is not parallelizable by nature.\nRecently, specific instances of distributed submodular maximization have been studied. Such scenarios often occur in large-scale graph mining problems where the data itself is too large to be stored on one machine. Chierichetti et al. [18] address the MAX-COVER problem and provide a (1−1/e− ) approximation to the centralized algorithm, however at the cost of passing over the data set many times. Their result is further improved by Blelloch et al. [19]. Lattanzi et al. [20] address more general graph problems by introducing the idea of filtering, namely, reducing the size of the input in a distributed fashion so that the resulting, much smaller, problem instance can be solved on a single machine. This idea is, in spirit, similar to our distributed method GREEDI. In contrast, we provide a more general framework, and analyze in which settings performance competitive with the centralized setting can be obtained."
+    }, {
+      "heading" : "3 The Distributed Submodular Maximization Problem",
+      "text" : "We consider the problem of selecting subsets out of a large data set, indexed by V (called ground set). Our goal is to maximize a non-negative set function f : 2V → R+, where, for S ⊆ V , f(S) quantifies the utility of set S, capturing, e.g., how well S represents V according to some objective. We will discuss concrete instances of functions f in Section 3.1. A set function f is naturally associated with a discrete derivative\n4f (e|S) . = f(S ∪ {e})− f(S), (1)\nwhere S ⊆ V and e ∈ V , which quantifies the increase in utility obtained when adding e to set S. f is called monotone iff for all e and S it holds that4f (e|S) ≥ 0. Further, f is submodular iff for all A ⊆ B ⊆ V and e ∈ V \\B the following diminishing returns condition holds:\n4f (e|A) ≥ 4f (e|B). (2)\nThroughout this paper, we focus on such monotone submodular functions. For now, we adopt the common assumption that f is given in terms of a value oracle (a black box) that computes f(S) for any S ⊆ V . In Section 4.5, we will discuss the setting where f(S) itself depends on the entire data set V , and not just the selected subset S. Submodular functions contain a large class of functions that naturally arise in machine learning applications (c.f., [5, 4]). The simplest example of such functions are modular functions for which the inequality (2) holds with equality.\nThe focus of this paper is on maximizing a monotone submodular function (subject to some constraint) in a distributed manner. Arguably, the simplest form of constraints are cardinality constraints. More precisely, we are interested in the following optimization problem:\nmax S⊆V\nf(S) s.t. |S| ≤ k. (3)\nWe will denote by Ac[k] the subset of size at most k that achieves the above maximization, i.e., the best centralized solution. Unfortunately, problem (3) is NP-hard, for many classes of submodular functions [12]. However, a seminal result by Nemhauser et al. [10] shows that a simple greedy algorithm provides a (1 − 1/e) approximation to (3). This greedy algorithm starts with the empty set S0, and at each iteration i, it chooses an element e ∈ V that maximizes (1), i.e., Si = Si−1 ∪ {arg maxe∈V 4f (e|Si−1)}. Let Agc[k] denote this greedy-centralized solution of size at most k. For several classes of monotone submodular functions, it is known that (1 − 1/e) is the best approximation guarantee that one can hope for [11, 12, 21]. Moreover, the greedy algorithm can be accelerated using lazy evaluations [22].\nIn many machine learning applications where the ground set |V | is large (e.g., cannot be stored on a single computer), running a standard greedy algorithm or its variants (e.g., lazy evaluation) in a centralized manner is infeasible. Hence, in those applications we seek a distributed solution, e.g., one that can be implemented using MapReduce-style computations (see Section 5). From the algorithmic point of view, however, the above greedy method is in general difficult to parallelize, since at each step, only the object with the highest marginal gain is chosen and every subsequent step depends on the preceding ones. More precisely, the problem we are facing in this paper is the following. Let the ground set V be partitioned into V1, V2, . . . , Vm, i.e., V = V1 ∪ V2, · · · ∪ Vm and Vi ∩ Vj = ∅ for i 6= j. We can think of Vi as a subset of elements (e.g., images) on machine i. The questions we are trying to answer in this paper are: how to distribute V among m machines, which algorithm should run on each machine, and how to merge the resulting solutions."
+    }, {
+      "heading" : "3.1 Example Applications Suitable for Distributed Submodular Maximization",
+      "text" : "In this part, we discuss two concrete problem instances, with their corresponding submodular objective functions f , where the size of the datasets often requires a distributed solution for the underlying submodular maximization.\nActive Set Selection in Sparse Gaussian Processes (GPs): Formally a GP is a joint probability distribution over a (possibly infinite) set of random variables XV , indexed by our ground set V , such that every (finite) subset XS for S = {e1, . . . , es} is distributed according to a multivariate normal distribution, i.e., P (XS = xS) = N (xS ;µS ,ΣS,S), where µS = (µe1 , . . . , µes) and ΣS,S = [Kei,ej ](1 ≤ i, j ≤ k) are the prior mean vector and prior covariance matrix, respectively. The covariance matrix is parametrized via a (positive definite kernel) function K. For example, a commonly used kernel function in practice where elements of the ground set V are embedded in a Euclidean space is the squared exponential kernel Kei,ej = exp(−|ei− ej |22/h2). In GP regression, each data point e ∈ V is considered a random variable. Upon observations yA = xA + nA (where nA is a vector of independent Gaussian noise with variance σ2), the predictive distribution of a new data point e ∈ V is a normal distribution P (Xe | yA) = N (µe|A,Σ2e|A), where\nµe|A = µe + Σe,A(ΣA,A + σ 2I)−1(xA − µA), σ2e|A = σ 2 e − Σe,A(ΣA,A + σ2I)−1ΣA,e. (4)\nNote that evaluating (4) is computationally expensive as it requires a matrix inversion. Instead, most efficient approaches for making predictions in GPs rely on choosing a small – so called active – set of data points. For instance, in the Informative Vector Machine (IVM) one seeks a set S such that the information gain, f(S) = I(YS ;XV ) = H(XV )−H(XV |YS) = 12 log det(I + σ\n−2ΣS,S) is maximized. It can be shown that this choice of f is monotone submodular [21]. For medium-scale problems, the standard greedy algorithms provide good solutions. In Section 5, we will show how GREEDI can choose near-optimal subsets out of a data set of 45 million vectors.\nExemplar Based Clustering: Suppose we wish to select a set of exemplars, that best represent a massive data set. One approach for finding such exemplars is solving the k-medoid problem [23], which aims to minimize the sum of pairwise dissimilarities between exemplars and elements of the dataset. More precisely, let us assume that for the data set V we are given a distance function d : V × V → R (not necessarily assumed symmetric, nor obeying the triangle inequality) such that d(·, ·) encodes dissimilarity between elements of the underlying set V . Then, the loss function for k-medoid can be defined as follows: L(S) = 1|V | ∑ e∈V minυ∈S d(e, υ). By introducing an auxiliary element e0 (e.g., = 0) we can turn L into a monotone submodular function: f(S) = L({e0})−L(S∪{e0}). In words, f measures the decrease in the loss associated with the set S versus the loss associated with just the auxiliary element. It is easy to see that for suitable choice of e0, maximizing f is equivalent to minimizing L. Hence, the standard greedy algorithm provides a very good solution. But again, the problem becomes computationally challenging when we have a large data set and we wish to extract a small set of exemplars. Our distributed solution GREEDI addresses this challenge."
+    }, {
+      "heading" : "3.2 Naive Approaches Towards Distributed Submodular Maximization",
+      "text" : "One way of implementing the greedy algorithm in parallel would be the following. We proceed in rounds. In each round, all machines – in parallel – compute the marginal gains of all elements in their sets Vi. They then communicate their candidate to a central processor, who identifies the globally best element, which is in turn communicated to the m machines. This element is then taken into account when selecting the next element and so on. Unfortunately, this approach requires synchronization after each of the k rounds. In many applications, k is quite large (e.g., tens of thousands or more), rendering this approach impractical for MapReduce style computations.\nAn alternative approach for large k would be to – on each machine – greedily select k/m elements independently (without synchronization), and then merge them to obtain a solution of size k. This approach is much more communication efficient, and can be easily implemented, e.g., using a single MapReduce stage. Unfortunately, many machines may select redundant elements, and the merged solution may suffer from diminishing returns.\nIn Section 4, we introduce an alternative protocol GREEDI, which requires little communication, while at the same time yielding a solution competitive with the centralized one, under certain natural additional assumptions."
+    }, {
+      "heading" : "4 The GREEDI Approach for Distributed Submodular Maximization",
+      "text" : "In this section we present our main results. We first provide our distributed solution GREEDI for maximizing submodular functions under cardinality constraints. We then show how we can make use of the geometry of data inherent in many practical settings in order to obtain strong datadependent bounds on the performance of our distributed algorithm."
+    }, {
+      "heading" : "4.1 An Intractable, yet Communication Efficient Approach",
+      "text" : "Before we introduce GREEDI, we first consider an intractable, but communication–efficient parallel protocol to illustrate the ideas. This approach, shown in Alg. 1, first distributes the ground set V to m machines. Each machine then finds the optimal solution, i.e., a set of cardinality at most k, that maximizes the value of f in each partition. These solutions are then merged, and the optimal subset of cardinality k is found in the combined set. We call this solution f(Ad[m, k]).\nAs the optimum centralized solutionAc[k] achieves the maximum value of the submodular function, it is clear that f(Ac[k]) ≥ f(Ad[m, k]). Further, for the special case of selecting a single element k = 1, we have Ac[1] = Ad[m, 1]. In general, however, there is a gap between the distributed and the centralized solution. Nonetheless, as the following theorem shows, this gap cannot be more than 1/min(m, k). Furthermore, this is the best result one can hope for under our two-round model.\nTheorem 4.1. Let f be a monotone submodular function and let k > 0. Then, f(Ad[m, k])) ≥ 1 min(m,k)f(A c[k]). In contrast, for any value of m, and k, there is a data partition and a monotone submodular function f such that f(Ac[k]) = min(m, k) · f(Ad[m, k]).\nAlgorithm 1 Exact Distrib. Submodular Max. Input: Set V , #of partitions m, constraints k. Output: Set Ad[m, k].\n1: Partition V into m sets V1, V2, . . . , Vm. 2: In each partition Vi find the optimum set Aci [k] of cardinality k. 3: Merge the resulting sets: B = ∪mi=1Aci [k]. 4: Find the optimum set of cardinality k in B.\nOutput this solution Ad[m, k].\nAlgorithm 2 Greedy Dist. Subm. Max. (GREEDI) Input: Set V , #of partitions m, constraints l, κ. Output: Set Agd[m,κ, l].\n1: Partition V into m sets V1, V2, . . . , Vm. 2: Run the standard greedy algorithm on each set Vi. Find a solution A gc i [κ]. 3: Merge the resulting sets: B = ∪mi=1A gc i [κ]. 4: Run the standard greedy algorithm on B until l elements are selected. Return Agd[m,κ, l].\nThe proof of all the theorems can be found in the supplement. The above theorem fully characterizes the performance of two-round distributed algorithms in terms of the best centralized solution. A similar result in fact also holds for non-negative (not necessarily monotone) functions. Due to space limitation, the result is reported in the appendix. In practice, we cannot run Alg. 1. In particular, there is no efficient way to identify the optimum subset Aci [k] in set Vi, unless P=NP. In the following, we introduce our efficient approximation GREEDI."
+    }, {
+      "heading" : "4.2 Our GREEDI Approximation",
+      "text" : "Our main efficient distributed method GREEDI is shown in Algorithm 2. It parallels the intractable Algorithm 1, but replaces the selection of optimal subsets by a greedy algorithm. Due to the approximate nature of the greedy algorithm, we allow the algorithms to pick sets slightly larger than k. In particular, GREEDI is a two-round algorithm that takes the ground set V , the number of partitions m, and the cardinality constraints l (final solution) and κ (intermediate outputs). It first distributes the ground set over m machines. Then each machine separately runs the standard greedy algorithm, namely, it sequentially finds an element e ∈ Vi that maximizes the discrete derivative shown in (1). Each machine i – in parallel – continues adding elements to the set Agci [·] until it reaches κ elements. Then the solutions are merged: B = ∪mi=1A gc i [κ], and another round of greedy selection is performed over B, which this time selects l elements. We denote this solution by Agd[m,κ, l]: the greedy solution for parameters m,κ and l. The following result parallels Theorem 4.1.\nTheorem 4.2. Let f be a monotone submodular function and let l, κ, k > 0. Then\nf(Agd[m,κ, l])) ≥ (1− e −κ/k)(1− e−l/κ) min(m, k) f(Ac[k]).\nFor the special case of κ = l = k the result of 4.2 simplifies to f(Agd[m,κ, k]) ≥ (1−1/e) 2\nmin(m,k)f(A c[k]).\nFrom Theorem 4.1, it is clear that in general one cannot hope to eliminate the dependency of the distributed solution on min(k,m). However, as we show below, in many practical settings, the ground set V and f exhibit rich geometrical structure that can be used to prove stronger results."
+    }, {
+      "heading" : "4.3 Performance on Datasets with Geometric Structure",
+      "text" : "In practice, we can hope to do much better than the worst case bounds shown above by exploiting underlying structures often present in real data and important set functions. In this part, we assume that a metric d exists on the data elements, and analyze performance of the algorithm on functions that change gracefully with change in the input. We refer to these as Lipschitz functions. More formally, a function f : 2V → R is λ-Lipschitz, if for equal sized sets S = {e1, e2, . . . , ek} and S′ = {e′1, e′2, . . . , e′k} and for any matching of elements: M = {(e1, e′1), (e2, e′2) . . . , (ek, e′k)}, the difference between f(S) and f(S′) is bounded by the total of distances between respective elements: |f(S)− f(S′)| ≤ λ\n∑ i d(ei, e ′ i). It is easy to see that the objective functions from both\nexamples in Section 3.1 are λ-Lipschitz for suitable kernels/distance functions. Two sets S and S′ are ε-close with respect to f , if |f(S) − f(S′)| ≤ ε. Sets that are close with respect to f can be thought of as good candidates to approximate the value of f over each-other; thus one such set is a good representative of the other. Our goal is to find sets that are suitably close to Ac[k]. At an element v ∈ V , let us define its α-neighborhood to be the set of elements within a distance α from\nv (i.e., α-close to v): Nα(v) = {w : d(v, w) ≤ α}. We can in general consider α-neighborhoods of points of the metric space.\nOur algorithm GREEDI partitions V into sets V1, V2, . . . Vm for parallel processing. In this subsection, we assume that GREEDI performs the partition by assigning elements uniformly randomly to the machines. The following theorem says that if the α-neighborhoods are sufficiently dense and f is a λ-lipschitz function, then this method can produce a solution close to the centralized solution:\nTheorem 4.3. If for each ei ∈ Ac[k], |Nα(ei)| ≥ km log(k/δ1/m), and algorithm GREEDI assigns elements uniformly randomly to m processors , then with probability at least (1− δ),\nf(Agd[m,κ, l]) ≥ (1− e−κ/k)(1− e−l/κ)(f(Ac[k])− λαk)."
+    }, {
+      "heading" : "4.4 Performance Guarantees for Very Large Data Sets",
+      "text" : "Suppose that our data set is a finite sample drawn from an underlying infinite set, according to some unknown probability distribution. LetAc[k] be an optimal solution in the infinite set such that around each ei ∈ Ac[k], there is a neighborhood of radius at least α∗, where the probability density is at least β at all points, for some constants α∗ and β. This implies that the solution consists of elements coming from reasonably dense and therefore representative regions of the data set.\nLet us consider g : R→ R, the growth function of the metric. g(α) is defined to be the volume of a ball of radius α centered at a point in the metric space. This means, for ei ∈ Ac[k] the probability of a random element being in Nα(ei) is at least βg(α) and the expected number of α neighbors of ei is at least E[|Nα(ei)|] = nβg(α). As a concrete example, Euclidean metrics of dimension D have g(α) = O(αD). Note that for simplicity we are assuming the metric to be homogeneous, so that the growth function is the same at every point. For heterogeneous spaces, we require g to be a uniform lower bound on the growth function at every point.\nIn these circumstances, the following theorem guarantees that if the data set V is sufficiently large and f is a λ-lipschitz function, then GREEDI produces a solution close to the centralized solution.\nTheorem 4.4. For n ≥ 8km log(k/δ 1/m)\nβg( ελk ) , where ελk ≤ α ∗, if the algorithm GREEDI assigns\nelements uniformly randomly to m processors , then with probability at least (1− δ),\nf(Agd[m,κ, l]) ≥ (1− e−κ/k)(1− e−l/κ)(f(Ac[k])− ε)."
+    }, {
+      "heading" : "4.5 Handling Decomposable Functions",
+      "text" : "So far, we have assumed that the objective function f is given to us as a black box, which we can evaluate for any given set S independently of the data set V . In many settings, however, the objective f depends itself on the entire data set. In such a setting, we cannot use GREEDI as presented above, since we cannot evaluate f on the individual machines without access to the full set V . Fortunately, many such functions have a simple structure which we call decomposable. More precisely, we call a monotone submodular function f decomposable if it can be written as a sum of (non-negative) monotone submodular functions as follows: f(S) = 1|V | ∑ i∈V fi(S). In other words, there is separate monotone submodular function associated with every data point i ∈ V . We require that each fi can be evaluated without access to the full set V . Note that the exemplar based clustering application we discussed in Section 3.1 is an instance of this framework, among many others.\nLet us define the evaluation of f restricted to D ⊆ V as follows: fD(S) = 1|D| ∑ i∈D fi(S). Then, in the remaining of this section, our goal is to show that assigning each element of the data set randomly to a machine and running GREEDI will provide a solution that is with high probability close to the optimum solution. For this, let us assume the fi’s are bounded, and without loss of generality 0 ≤ fi(S) ≤ 1 for 1 ≤ i ≤ |V |, S ⊆ V . Similar to Section 4.3 we assume that GREEDI performs the partition by assigning elements uniformly randomly to the machines. These machines then each greedily optimize fVi . The second stage of GREEDI optimizes fU , where U ⊆ V is chosen uniformly at random, of size dn/me. Then, we can show the following result.\nTheorem 4.5. Let m, k, δ > 0, < 1/4 and let n0 be an integer such that for n ≥ n0 we have ln(n)/n ≤ 2/(mk). For n ≥ max(n0,m log(δ/4m)/ 2), and under the assumptions of Theorem 4.4, we have, with probability at least 1− δ,\nf(Agd[m,κ, l]) ≥ (1− e−κ/k)(1− e−l/κ)(f(Ac[k])− 2ε).\nThe above result demonstrates why GREEDI performs well on decomposable submodular functions with massive data even when they are evaluated locally on each machine. We will report our experimental results on exemplar-based clustering in the next section."
+    }, {
+      "heading" : "5 Experiments",
+      "text" : "In our experimental evaluation we wish to address the following questions: 1) how well does GREEDI perform compared to a centralized solution, 2) how good is the performance of GREEDI when using decomposable objective functions (see Section 4.5), and finally 3) how well does GREEDI scale on massive data sets. To this end, we run GREEDI on two scenarios: exemplar based clustering and active set selection in GPs. Further experiments are reported in the supplement.\nWe compare the performance of our GREEDI method (using different values of α = κ/k) to the following naive approaches: a) random/random: in the first round each machine simply outputs k randomly chosen elements from its local data points and in the second round k out of the mergedmk elements, are again randomly chosen as the final output. b) random/greedy: each machine outputs k randomly chosen elements from its local data points, then the standard greedy algorithm is run over mk elements to find a solution of size k. c) greedy/merge: in the first round k/m elements are chosen greedily from each machine and in the second round they are merged to output a solution of size k. d) greedy/max: in the first round each machine greedily finds a solution of size k and in the second round the solution with the maximum value is reported. For data sets where we are able to find the centralized solution, we report the ratio of f(Adist[k])/f(Agc[k]), where Adist[k] is the distributed solution (in particular Agd[m,αk, k] = Adist[k] for GREEDI).\nExemplar based clustering. Our exemplar based clustering experiment involves GREEDI applied to the clustering utility f(S) (see Sec. 3.1) with d(x, x′) = ‖x−x′‖2. We performed our experiments on a set of 10,000 Tiny Images [24]. Each 32 by 32 RGB pixel image was represented by a 3,072 dimensional vector. We subtracted from each vector the mean value, normalized it to unit norm, and used the origin as the auxiliary exemplar. Fig. 1a compares the performance of our approach to the benchmarks with the number of exemplars set to k = 50, and varying number of partitionsm. It can be seen that GREEDI significantly outperforms the benchmarks and provides a solution that is very close to the centralized one. Interestingly, even for very small α = κ/k < 1, GREEDI performs very well. Since the exemplar based clustering utility function is decomposable, we repeated the experiment for the more realistic case where the function evaluation in each machine was restricted to the local elements of the dataset in that particular machine (rather than the entire dataset). Fig 1b shows similar qualitative behavior for decomposable objective functions.\nLarge scale experiments with Hadoop. As our first large scale experiment, we applied GREEDI to the whole dataset of 80,000,000 Tiny Images [24] in order to select a set of 64 exemplars. Our experimental infrastructure was a cluster of 10 quad-core machines running Hadoop with the number of reducers set to m = 8000. Hereby, each machine carried out a set of reduce tasks in sequence. We first partitioned the images uniformly at random to reducers. Each reducer separately performed the lazy greedy algorithm on its own set of 10,000 images (≈123MB) to extract 64 images with the highest marginal gains w.r.t. the local elements of the dataset in that particular partition. We then merged the results and performed another round of lazy greedy selection on the merged results to extract the final 64 exemplars. Function evaluation in the second stage was performed w.r.t a randomly selected subset of 10,000 images from the entire dataset. The maximum running time per reduce task was 2.5 hours. As Fig. 1c shows, GREEDI highly outperforms the other distributed benchmarks and can scale well to very large datasets. Fig. 1d shows a set of cluster exemplars discovered by GREEDI where each column in Fig. 1h shows 8 nearest images to exemplars 9 and 16 (shown with red borders) in Fig. 1d.\nActive set selection. Our active set selection experiment involves GREEDI applied to the information gain f(S) (see Sec. 3.1) with Gaussian kernel, h = 0.75 and σ = 1. We used the Parkinsons Telemonitoring dataset [25] consisting of 5,875 bio-medical voice measurements with 22 attributes\nfrom people with early-stage Parkinson’s disease. We normalized the vectors to zero mean and unit norm. Fig. 1f compares the performance GREEDI to the benchmarks with fixed k = 50 and varying number of partitions m. Similarly, Fig 1e shows the results for fixed m = 10 and varying k. We find that GREEDI significantly outperforms the benchmarks.\nLarge scale experiments with Hadoop. Our second large scale experiment consists of 45,811,883 user visits from the Featured Tab of the Today Module on Yahoo! Front Page [26]. For each visit, both the user and each of the candidate articles are associated with a feature vector of dimension 6. Here, we used the normalized user features. Our experimental setup was a cluster of 5 quad-core machines running Hadoop with the number of reducers set tom = 32. Each reducer performed the lazy greedy algorithm on its own set of 1,431,621 vectors (≈34MB) in order to extract 128 elements with the highest marginal gains w.r.t the local elements of the dataset in that particular partition. We then merged the results and performed another round of lazy greedy selection on the merged results to extract the final active set of size 128. The maximum running time per reduce task was 2.5 hours. Fig. 1g shows the performance of GREEDI compared to the benchmarks. We note again that GREEDI significantly outperforms the other distributed benchmarks and can scale well to very large datasets."
+    }, {
+      "heading" : "6 Conclusion",
+      "text" : "We have developed an efficient distributed protocol GREEDI, for maximizing a submodular function subject to cardinality constraints. We have theoretically analyzed the performance of our method and showed under certain natural conditions it performs very close to the centralized (albeit impractical in massive data sets) greedy solution. We have also demonstrated the effectiveness of our approach through extensive large scale experiments using Hadoop. We believe our results provide an important step towards solving submodular optimization problems in very large scale, real applications.\nAcknowledgments. This research was supported by SNF 200021-137971, DARPA MSEE FA8650-11-1-7156, ERC StG 307036, a Microsoft Faculty Fellowship, an ETH Fellowship, Scottish Informatics and Computer Science Alliance."
+    } ],
+    "references" : [ {
+      "title" : "Non-metric affinity propagation for unsupervised image categorization",
+      "author" : [ "Delbert Dueck", "Brendan J. Frey" ],
+      "venue" : "In ICCV,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : "1",
+      "year" : 2007
+    }, {
+      "title" : "Gaussian Processes for Machine Learning (Adaptive Computation and Machine Learning)",
+      "author" : [ "Carl Edward Rasmussen", "Christopher K.I. Williams" ],
+      "venue" : null,
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 2006
+    }, {
+      "title" : "A class of submodular functions for document summarization",
+      "author" : [ "Hui Lin", "Jeff Bilmes" ],
+      "venue" : "In North American chapter of the Assoc. for Comp. Linguistics/Human Lang. Tech.,",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 2011
+    }, {
+      "title" : "Budgeted nonparametric learning from data streams",
+      "author" : [ "Ryan Gomes", "Andreas Krause" ],
+      "venue" : "In Proc. International Conference on Machine Learning (ICML),",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : "4",
+      "year" : 2010
+    }, {
+      "title" : "Submodular function maximization. In Tractability: Practical Approaches to Hard Problems",
+      "author" : [ "Andreas Krause", "Daniel Golovin" ],
+      "venue" : null,
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : "5",
+      "year" : 2013
+    }, {
+      "title" : "Maximizing the spread of influence through a social network",
+      "author" : [ "David Kempe", "Jon Kleinberg", "Éva Tardos" ],
+      "venue" : "In Proceedings of the ninth ACM SIGKDD,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : "6",
+      "year" : 2003
+    }, {
+      "title" : "Submodularity and its applications in optimized information gathering",
+      "author" : [ "Andreas Krause", "Carlos Guestrin" ],
+      "venue" : "ACM Transactions on Intelligent Systems and Technology,",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : "7",
+      "year" : 2011
+    }, {
+      "title" : "Active semi-supervised learning using submodular functions",
+      "author" : [ "Andrew Guillory", "Jeff Bilmes" ],
+      "venue" : "In Uncertainty in Artificial Intelligence (UAI),",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : "8",
+      "year" : 2011
+    }, {
+      "title" : "Adaptive submodularity: Theory and applications in active learning and stochastic optimization",
+      "author" : [ "Daniel Golovin", "Andreas Krause" ],
+      "venue" : "Journal of Artificial Intelligence Research,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 2011
+    }, {
+      "title" : "An analysis of approximations for maximizing submodular set functions - I",
+      "author" : [ "George L. Nemhauser", "Laurence A. Wolsey", "Marshall L. Fisher" ],
+      "venue" : "Mathematical Programming,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : "10",
+      "year" : 1978
+    }, {
+      "title" : "Best algorithms for approximating the maximum of a submodular set function",
+      "author" : [ "G.L. Nemhauser", "L.A. Wolsey" ],
+      "venue" : "Math. Oper. Research,",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 1978
+    }, {
+      "title" : "A threshold of ln n for approximating set cover",
+      "author" : [ "Uriel Feige" ],
+      "venue" : "Journal of the ACM,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 1998
+    }, {
+      "title" : "Mapreduce: Simplified data processing on large clusters",
+      "author" : [ "Jeffrey Dean", "Sanjay Ghemawat" ],
+      "venue" : "In OSDI,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 2004
+    }, {
+      "title" : "Mapreduce for machine learning on multicore",
+      "author" : [ "Cheng-Tao Chu", "Sang Kyun Kim", "Yi-An Lin", "YuanYuan Yu", "Gary Bradski", "Andrew Y. Ng" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 2006
+    }, {
+      "title" : "Online distributed sensor selection",
+      "author" : [ "Daniel Golovin", "Matthew Faulkner", "Andreas Krause" ],
+      "venue" : "In IPSN,",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : "16",
+      "year" : 2010
+    }, {
+      "title" : "Max-cover in map-reduce",
+      "author" : [ "Flavio Chierichetti", "Ravi Kumar", "Andrew Tomkins" ],
+      "venue" : "In Proceedings of the 19th international conference on World wide web,",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : "18",
+      "year" : 2010
+    }, {
+      "title" : "Linear-work greedy parallel approximate set cover and variants",
+      "author" : [ "Guy E. Blelloch", "Richard Peng", "Kanat Tangwongsan" ],
+      "venue" : "In SPAA,",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : "19",
+      "year" : 2011
+    }, {
+      "title" : "Filtering: a method for solving graph problems in mapreduce",
+      "author" : [ "Silvio Lattanzi", "Benjamin Moseley", "Siddharth Suri", "Sergei Vassilvitskii" ],
+      "venue" : "In SPAA,",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : "20",
+      "year" : 2011
+    }, {
+      "title" : "Near-optimal nonmyopic value of information in graphical models",
+      "author" : [ "A. Krause", "C. Guestrin" ],
+      "venue" : "In Proc. of Uncertainty in Artificial Intelligence (UAI),",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : "21",
+      "year" : 2005
+    }, {
+      "title" : "Accelerated greedy algorithms for maximizing submodular set functions",
+      "author" : [ "M. Minoux" ],
+      "venue" : "Optimization Techniques,",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : "22",
+      "year" : 1978
+    }, {
+      "title" : "Finding groups in data: an introduction to cluster analysis, volume 344",
+      "author" : [ "Leonard Kaufman", "Peter J Rousseeuw" ],
+      "venue" : null,
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : "23",
+      "year" : 2009
+    }, {
+      "title" : "80 million tiny images: A large data set for nonparametric object and scene recognition",
+      "author" : [ "Antonio Torralba", "Rob Fergus", "William T Freeman" ],
+      "venue" : "IEEE Trans. Pattern Anal. Mach. Intell.,",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : "24",
+      "year" : 2008
+    }, {
+      "title" : "Enhanced classical dysphonia measures and sparse regression for telemonitoring of parkinson’s disease progression",
+      "author" : [ "Athanasios Tsanas", "Max A Little", "Patrick E McSharry", "Lorraine O Ramig" ],
+      "venue" : "In IEEE Int. Conf. Acoust. Speech Signal Process.,",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : "25",
+      "year" : 2010
+    }, {
+      "title" : "Clustering in weighted networks",
+      "author" : [ "Tore Opsahl", "Pietro Panzarasa" ],
+      "venue" : "Social networks,",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : "27",
+      "year" : 2009
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 0,
+      "context" : "Applications range from exemplar-based clustering [1], to active set selection for large-scale kernel machines [2], to corpus subset selection for the purpose of training complex prediction models [3].",
+      "startOffset" : 50,
+      "endOffset" : 53
+    }, {
+      "referenceID" : 1,
+      "context" : "Applications range from exemplar-based clustering [1], to active set selection for large-scale kernel machines [2], to corpus subset selection for the purpose of training complex prediction models [3].",
+      "startOffset" : 111,
+      "endOffset" : 114
+    }, {
+      "referenceID" : 2,
+      "context" : "Applications range from exemplar-based clustering [1], to active set selection for large-scale kernel machines [2], to corpus subset selection for the purpose of training complex prediction models [3].",
+      "startOffset" : 197,
+      "endOffset" : 200
+    }, {
+      "referenceID" : 3,
+      "context" : "Many such problems can be reduced to the problem of maximizing a submodular set function subject to cardinality constraints [4, 5].",
+      "startOffset" : 124,
+      "endOffset" : 130
+    }, {
+      "referenceID" : 4,
+      "context" : "Many such problems can be reduced to the problem of maximizing a submodular set function subject to cardinality constraints [4, 5].",
+      "startOffset" : 124,
+      "endOffset" : 130
+    }, {
+      "referenceID" : 5,
+      "context" : ", maximum weighted matching, max coverage, and finds numerous applications in machine learning and social networks, such as influence maximization [6], information gathering [7], document summarization [3] and active learning [8, 9].",
+      "startOffset" : 147,
+      "endOffset" : 150
+    }, {
+      "referenceID" : 6,
+      "context" : ", maximum weighted matching, max coverage, and finds numerous applications in machine learning and social networks, such as influence maximization [6], information gathering [7], document summarization [3] and active learning [8, 9].",
+      "startOffset" : 174,
+      "endOffset" : 177
+    }, {
+      "referenceID" : 2,
+      "context" : ", maximum weighted matching, max coverage, and finds numerous applications in machine learning and social networks, such as influence maximization [6], information gathering [7], document summarization [3] and active learning [8, 9].",
+      "startOffset" : 202,
+      "endOffset" : 205
+    }, {
+      "referenceID" : 7,
+      "context" : ", maximum weighted matching, max coverage, and finds numerous applications in machine learning and social networks, such as influence maximization [6], information gathering [7], document summarization [3] and active learning [8, 9].",
+      "startOffset" : 226,
+      "endOffset" : 232
+    }, {
+      "referenceID" : 8,
+      "context" : ", maximum weighted matching, max coverage, and finds numerous applications in machine learning and social networks, such as influence maximization [6], information gathering [7], document summarization [3] and active learning [8, 9].",
+      "startOffset" : 226,
+      "endOffset" : 232
+    }, {
+      "referenceID" : 9,
+      "context" : "[10] states that a simple greedy algorithm produces solutions competitive with the optimal (intractable) solution.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 10,
+      "context" : "In fact, if assuming nothing but submodularity, no efficient algorithm produces better solutions in general [11, 12].",
+      "startOffset" : 108,
+      "endOffset" : 116
+    }, {
+      "referenceID" : 11,
+      "context" : "In fact, if assuming nothing but submodularity, no efficient algorithm produces better solutions in general [11, 12].",
+      "startOffset" : 108,
+      "endOffset" : 116
+    }, {
+      "referenceID" : 12,
+      "context" : "It requires minimal communication, and can be easily implemented in MapReduce style parallel computation models [13].",
+      "startOffset" : 112,
+      "endOffset" : 116
+    }, {
+      "referenceID" : 12,
+      "context" : "Inhabiting a sweet spot of resiliency, expressivity and programming ease, the MapReduce style computing model [13] has emerged as prominent foundation for large scale machine learning and data mining algorithms [14, 15].",
+      "startOffset" : 110,
+      "endOffset" : 114
+    }, {
+      "referenceID" : 13,
+      "context" : "Inhabiting a sweet spot of resiliency, expressivity and programming ease, the MapReduce style computing model [13] has emerged as prominent foundation for large scale machine learning and data mining algorithms [14, 15].",
+      "startOffset" : 211,
+      "endOffset" : 219
+    }, {
+      "referenceID" : 9,
+      "context" : "The problem of centralized maximization of submodular functions has received much interest, starting with the seminal work of [10].",
+      "startOffset" : 126,
+      "endOffset" : 130
+    }, {
+      "referenceID" : 14,
+      "context" : "The work in [16] considers an algorithm for online distributed submodular maximization with an application to sensor selection.",
+      "startOffset" : 12,
+      "endOffset" : 16
+    }, {
+      "referenceID" : 3,
+      "context" : "The authors in [4] consider the problem of submodular maximization in a streaming model; however, their approach is not applicable to the general distributed setting.",
+      "startOffset" : 15,
+      "endOffset" : 18
+    }, {
+      "referenceID" : 15,
+      "context" : "[18] address the MAX-COVER problem and provide a (1−1/e− ) approximation to the centralized algorithm, however at the cost of passing over the data set many times.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 17,
+      "context" : "[20] address more general graph problems by introducing the idea of filtering, namely, reducing the size of the input in a distributed fashion so that the resulting, much smaller, problem instance can be solved on a single machine.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 11,
+      "context" : "Unfortunately, problem (3) is NP-hard, for many classes of submodular functions [12].",
+      "startOffset" : 80,
+      "endOffset" : 84
+    }, {
+      "referenceID" : 9,
+      "context" : "[10] shows that a simple greedy algorithm provides a (1 − 1/e) approximation to (3).",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 10,
+      "context" : "For several classes of monotone submodular functions, it is known that (1 − 1/e) is the best approximation guarantee that one can hope for [11, 12, 21].",
+      "startOffset" : 139,
+      "endOffset" : 151
+    }, {
+      "referenceID" : 11,
+      "context" : "For several classes of monotone submodular functions, it is known that (1 − 1/e) is the best approximation guarantee that one can hope for [11, 12, 21].",
+      "startOffset" : 139,
+      "endOffset" : 151
+    }, {
+      "referenceID" : 18,
+      "context" : "For several classes of monotone submodular functions, it is known that (1 − 1/e) is the best approximation guarantee that one can hope for [11, 12, 21].",
+      "startOffset" : 139,
+      "endOffset" : 151
+    }, {
+      "referenceID" : 19,
+      "context" : "Moreover, the greedy algorithm can be accelerated using lazy evaluations [22].",
+      "startOffset" : 73,
+      "endOffset" : 77
+    }, {
+      "referenceID" : 18,
+      "context" : "It can be shown that this choice of f is monotone submodular [21].",
+      "startOffset" : 61,
+      "endOffset" : 65
+    }, {
+      "referenceID" : 20,
+      "context" : "One approach for finding such exemplars is solving the k-medoid problem [23], which aims to minimize the sum of pairwise dissimilarities between exemplars and elements of the dataset.",
+      "startOffset" : 72,
+      "endOffset" : 76
+    }, {
+      "referenceID" : 0,
+      "context" : "Further, for the special case of selecting a single element k = 1, we have Ac[1] = Ad[m, 1].",
+      "startOffset" : 77,
+      "endOffset" : 80
+    }, {
+      "referenceID" : 21,
+      "context" : "We performed our experiments on a set of 10,000 Tiny Images [24].",
+      "startOffset" : 60,
+      "endOffset" : 64
+    }, {
+      "referenceID" : 21,
+      "context" : "As our first large scale experiment, we applied GREEDI to the whole dataset of 80,000,000 Tiny Images [24] in order to select a set of 64 exemplars.",
+      "startOffset" : 102,
+      "endOffset" : 106
+    }, {
+      "referenceID" : 22,
+      "context" : "We used the Parkinsons Telemonitoring dataset [25] consisting of 5,875 bio-medical voice measurements with 22 attributes",
+      "startOffset" : 46,
+      "endOffset" : 50
+    } ],
+    "year" : 2013,
+    "abstractText" : "Many large-scale machine learning problems (such as clustering, non-parametric learning, kernel machines, etc.) require selecting, out of a massive data set, a manageable yet representative subset. Such problems can often be reduced to maximizing a submodular set function subject to cardinality constraints. Classical approaches require centralized access to the full data set; but for truly large-scale problems, rendering the data centrally is often impractical. In this paper, we consider the problem of submodular function maximization in a distributed fashion. We develop a simple, two-stage protocol GREEDI, that is easily implemented using MapReduce style computations. We theoretically analyze our approach, and show, that under certain natural conditions, performance close to the (impractical) centralized approach can be achieved. In our extensive experiments, we demonstrate the effectiveness of our approach on several applications, including sparse Gaussian process inference and exemplar-based clustering, on tens of millions of data points using Hadoop.",
+    "creator" : null
+  }
+}

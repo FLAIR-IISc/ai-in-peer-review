@@ -1,0 +1,63 @@
+Summary and relation to prior work:
+The paper proposes a Locally Adaptive Normal Distribution (LAND), obtained by replacing the Euclidean metric in a Gaussian with a learned, smoothly varying Riemannian metric M(x) on R^D. The metric is constructed as the inverse of a local diagonal covariance estimated via Gaussian kernel smoothing; geodesics under this metric are used to define a Riemannian normal pM(x|µ,Σ) ∝ exp(-1/2 ⟨Log_µ(x), Σ^{-1} Log_µ(x)⟩). Since the normalizing constant depends on the manifold (and on µ), the authors estimate it via Monte Carlo integration over T_µM, using samples from N(0, Σ) and evaluating Exp_µ(v) and √|M(Exp_µ(v))|. They derive gradients for maximum likelihood estimation of µ and Σ (with Σ^{-1}=A^T A) and present an alternating optimization scheme. They also sketch a mixture-of-LANDs with an EM algorithm. Experiments on synthetic data and on EEG-derived 5D features (REM/awake/non-REM) suggest LAND can capture non-elliptical structure better than GMMs and outperforms intrinsic least-squares (non-ML) estimators.
+
+This work connects Riemannian statistics (e.g., Pennec’s Riemannian Gaussian) to manifold learning via a learned metric (cf. Hauberg et al., probabilistic geometries). Compared to mixtures on known manifolds (e.g., Simo-Serra et al., Straub et al.), the novelty is estimating the manifold from data and accounting for the normalization constant in ML/EM.
+
+Strengths:
+- Ambitious and timely attempt to bring principled Riemannian modeling (maximum entropy Riemannian normal) into learned-manifold settings.
+- Sensible Monte Carlo strategy over the tangent space; using IVPs for Exp (faster than BVPs for Log) is practical.
+- Clear intuition: the metric inflates volume in low-density regions, discouraging means/covariances that stray off the data manifold; the ML LAND mean can avoid low-density regions where intrinsic LS means may fail.
+- Empirically demonstrates qualitatively improved modeling of curved clusters; the synthetic studies are aligned with the stated goal.
+
+Major concerns (technical correctness and completeness):
+1) Missing Jacobian of Exp in the change of variables for the normalizer. Eq. (9) replaces ∫_M (…) dM(x) with ∫_{T_µM} √|M(Exp_µ(v))| exp(-½ v^T Σ^{-1} v) dv. In normal coordinates via Exp, the Riemannian volume form pulls back to √det(g(v)) dv, where g(v) is the pullback metric; in general √det(g(v)) = |det dExp_µ(v)| √|M(Exp_µ(v))|. The derivation in the paper drops |det dExp_µ(v)|. This is not negligible in curved regions and makes the normalizer (and thus likelihood and gradients) mathematically incorrect unless justified by an approximation regime (e.g., small v, nearly flat metric), which is neither stated nor analyzed.
+
+2) Gradients with respect to µ. The paper uses ∂/∂µ ⟨Log_µ(x), Σ^{-1} Log_µ(x)⟩ = -2 Σ^{-1} Log_µ(x) and then takes a “steepest descent” direction d_µ = -Σ ∇_µ. On a manifold with metric M(µ), the Riemannian gradient involves M(µ), not Σ, and Log_µ(x) depends nontrivially on µ. The presented formula seems to mix Euclidean and Riemannian gradients and preconditioning by Σ without justification. This is critical for correctness and convergence.
+
+3) Validity of Monte Carlo estimators. The gradients include ratios Z/C(µ,Σ) times expectations under N(0,Σ). Implementation details about reuse of samples for numerator/denominator, estimator bias/variance, and variance-reduction are absent. Without control variates or proper handling of ratio estimators, optimization can be unstable; no sensitivity analysis is given.
+
+4) Global geometry and injectivity. Mapping x ↔ v via Exp/Log requires staying within the injectivity radius; the paper integrates over all v ∈ T_µM, assumes unique geodesics, and does not discuss cut loci or non-injectivity—especially problematic with learned, highly inhomogeneous metrics.
+
+5) Mixture model practicality. The EM E-step requires evaluating pM(x|µ_k,Σ_k), hence C(µ_k,Σ_k) and Log_µk(x) for each component/data point. This is computationally heavy (ODE IVPs/BVPs per evaluation). There are no complexity analyses, wall-clock times, or scaling experiments; “scalable” is claimed but not substantiated.
+
+6) Evaluation methodology. For the synthetic study, the description “generate 10,000 samples from each fitted model and compute mean NLL of the true generative distribution” is unconventional and possibly favors certain models; it’s unclear how LAND samples are drawn from the correct density (pushforward of N(0,Σ) via Exp is not the LAND unless weighted) and whether normalizers are known. For EEG, σ is either fixed to 1 or chosen via a grid to “present the best result achieved by LAND,” which appears to use labels to pick σ—invalid for unsupervised evaluation. Number of components K for mixtures and cross-validation procedures are unclear; no variance/error bars are reported across subjects/runs.
+
+Modeling assumptions and limitations:
+- The learned metric is diagonal and not invariant under linear transformations; results are coordinate-dependent and cannot capture local anisotropy (off-diagonal structure). No ablation justifies this restriction beyond speed/overfitting concerns.
+- The manifold is as high-dimensional as the ambient space; no dimensionality reduction; scaling to larger D is acknowledged as challenging but not addressed.
+
+Clarity and presentation issues:
+- Overloaded notation: M denotes both the manifold and the metric tensor M(x).
+- Algorithm 1 is incomplete (termination criterion truncated), step-size selection unspecified.
+- Several figures, algorithmic/supplement details, and key derivations are deferred to the supplement; as-is, the paper does not provide enough to reproduce results.
+- References are incomplete/inconsistent (missing years/venues, malformed author lists).
+- Several typos and formatting glitches (e.g., stray captions, missing table).
+
+Originality:
+- The idea of a Riemannian Gaussian is not new; the main novelty is combining it with a learned metric and proposing a practical MC-based ML estimation. This is interesting, but the above technical gaps limit confidence.
+
+Significance:
+- If made correct and robust, LAND could be a useful drop-in for manifold-aware generative modeling. However, due to the missing Jacobian, gradient issues, and evaluation weaknesses, the current impact is uncertain.
+
+Pros:
+- Conceptually appealing bridge between manifold learning and Riemannian statistics.
+- Practical observation about using Exp (IVPs) rather than Log (BVPs) in MC.
+- Qualitative improvements on curved synthetic data.
+
+Cons:
+- Likely incorrect normalizer due to missing |det dExp| term.
+- Questionable gradient derivations and use of Σ for “steepest descent.”
+- Computational burden not quantified; scalability claims unsubstantiated.
+- Evaluation methodology unclear; possible hyperparameter tuning with labels.
+- Many presentation/formatting/reference issues; reproducibility concerns.
+
+Questions for the authors:
+- Please provide a correct change-of-variables derivation for Eq. (9), addressing |det dExp_µ(v)| and injectivity/cut loci.
+- Clarify the gradient derivation for µ on a manifold with metric M(µ); why is “steepest descent” proportional to Σ?
+- How are samples drawn from LAND for synthetic evaluation? How are normalizers computed there?
+- Provide runtime and scaling (N, D, K, S) and variance analyses for the MC estimators.
+- How is σ chosen without labels? What is K and how is it selected in EEG?
+
+Recommendation: Reject. The accumulation of technical and experimental issues—especially the apparent error in the normalizing constant and unclear gradients—outweighs the otherwise promising idea.
+
+Confidence: High.

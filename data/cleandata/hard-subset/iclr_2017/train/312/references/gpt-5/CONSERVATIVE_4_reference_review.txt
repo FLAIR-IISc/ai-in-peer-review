@@ -1,0 +1,46 @@
+1. Summary of contributions
+The paper proposes Neural Architecture Search (NAS), using a controller RNN trained with REINFORCE to generate variable-length neural network architectures. The child networks defined by sampled “architectures” are trained; their validation accuracy provides a reward used to update the controller. The approach supports skip connections via an attention-based set-selection mechanism and extends to designing recurrent cells via a tree-structured search space. The authors present:
+- CIFAR-10: automatically found CNNs achieving competitive error (down to 3.65% with scaling) and demonstrating nontrivial connectivity (e.g., selective skip connections, heterogeneous filter sizes).
+- PTB: a learned RNN cell outperforming strong LSTM baselines (down to 62.4 perplexity), with evidence of transfer to character-level modeling and to GNMT (small BLEU gain).
+- A large-scale distributed training framework enabling asynchronous controller updates and parallel child training; a random-search control experiment indicating advantage of policy gradient.
+
+Overall, this is an ambitious, well-engineered system that targets an important problem: automating architecture design over a rich, variable-length space.
+
+2. Decision: Reject
+Key reasons:
+- The empirical validation, while promising, does not yet meet the methodological rigor needed to justify endorsement of a new paradigm: critical baselines, ablations, and statistical analyses are missing, and several comparisons are not apples-to-apples.
+- The approach depends on extreme compute (hundreds of GPUs/CPUs, tens of thousands of trained models) without a clear cost–benefit analysis or evidence of sample efficiency relative to established alternatives (e.g., BO, evolution), raising concerns about practicality and reproducibility.
+
+3. Supporting arguments
+What problem is tackled?
+- Automatically designing neural architectures (both CNNs and RNN cells) in a variable-length space, optimizing non-differentiable validation metrics.
+
+Is the approach well motivated and placed in the literature?
+- Motivation is clear: manual architecture design is costly. The connection to policy gradient for sequence generation is reasonable. However, the positioning vs. established hyperparameter optimization and neuroevolution is incomplete: the paper cites BO/evolution but does not provide rigorous head-to-head comparisons under matched compute, nor strong discussion of sample efficiency and scaling laws.
+
+Do results support the claims with rigor?
+- CIFAR-10: The reported test errors are competitive, but (i) comparisons to DenseNet/WRN are not strictly matched in augmentation, training schedules, parameter counts, or FLOPs; (ii) the best number involves post-hoc scaling and hyperparameter grid search on the discovered architecture, while competing methods may not receive analogous tuning; (iii) child models during search are trained for only 50 epochs, raising concerns about rank correlation between proxy reward and final performance. No error bars or sensitivity analyses are provided.
+- PTB: The learned cell achieves strong perplexity, but regularization choices (dropout variants, embedding tying) are entangled with the cell design; it is unclear whether equivalently tuned LSTM baselines under identical code produce similar numbers. Results lack multiple seeds and confidence intervals; the random-search comparison is limited and not compute-matched to other HPO methods. The transfer experiments are encouraging but modest (e.g., +0.5 BLEU in GNMT) and insufficient to establish generality.
+- Methodology: REINFORCE with a moving-average baseline is known to have high variance; the paper does not report variance reduction efficacy, learning dynamics, or stability under the asynchronous updates. Reward shaping (cubed accuracy, perplexity with constant) is introduced without ablation. The schedule that grows depth over time and the padding/compilation fallbacks can bias the search; no ablations quantify these design choices.
+- Compute and reproducibility: The controller evaluates ~12,800–15,000 architectures with 800 GPUs or 400 CPUs in parallel. The paper does not report total GPU/CPU-days, nor how performance scales with budget. This hampers reproducibility and fairness: competing methods are not given matched budgets, and practical users cannot replicate results.
+
+4. Additional feedback to improve the paper (helpful, not necessarily decisive)
+- Provide compute accounting: number of architectures evaluated to reach the best model; wall-clock time; GPU/CPU-days; FLOPs/params of final models; controller training curves; and how performance scales with budget.
+- Strengthen baselines: compare against strong, modern BO (e.g., TPE, SMAC), evolutionary strategies, and random search under identical search space and matched total compute/evaluations (including post-hoc tuning allowances). Include an LSTM baseline on PTB with all your regularization and training tricks and matched parameter budget.
+- Statistical rigor: report results over multiple independent controller runs/seeds, with confidence intervals for top-k architectures; assess rank correlation between proxy reward (short training) and final accuracy after full training.
+- Ablations: reward shaping (cubed accuracy/perplexity transform), baseline choice, asynchronous update frequency, depth-schedule, skip-connection mechanism, search space size (e.g., with/without pooling/stride), and the padding/concatenation policy.
+- Fair comparisons: on CIFAR-10, ensure identical data preprocessing/augmentation and matched compute/parameter/FLOP budgets when claiming speed/accuracy improvements vs WRN/DenseNet; report wall-clock speed on identical hardware.
+- Overfitting safeguards: discuss how repeated evaluation on the same validation set affects overfitting; consider a nested validation or hold-out validation-for-selection separate from reward.
+- Clarity: precisely specify the controller’s action space, termination criteria, and how invalid architectures are handled; detail the final grid-search sizes for discovered models to make the comparison fair.
+
+Questions for the authors
+- What is the total search cost (GPU/CPU-days) to obtain the best CIFAR-10 model and the best PTB cell? How does performance scale with 10%, 25%, 50% of this budget?
+- How sensitive are the results to the reward shaping (accuracy^3; c·perplexity^2), the moving-average baseline, and the asynchronous gradient accumulation policy?
+- What is the rank correlation between 50-epoch validation accuracy (reward) and final accuracy after full training for a sample of architectures?
+- Can you provide matched-compute comparisons against BO (e.g., TPE) and evolution on your exact search spaces? How does NAS compare in sample efficiency?
+- For CIFAR-10, are augmentation, training schedules, parameter counts, and FLOPs strictly matched to WRN/DenseNet in the reported numbers? Please report identical-hardware wall-clock times.
+- For PTB, can you report results for a fully-tuned LSTM under your codebase with the same regularization and post-hoc grid search? Also provide variance across ≥3 controller runs.
+- How do you mitigate overfitting to the validation set used as reward over thousands of evaluations? Did you use a secondary validation or techniques like resampling?
+- How robust are the discovered cells/architectures across seeds and slight changes in the search space (beyond the “max/sin” control), and across tasks beyond PTB/char PTB/GNMT?
+
+The paper is exciting and potentially impactful, but I would like to see stronger, compute-matched baselines, ablations, and statistical rigor before recommending acceptance.

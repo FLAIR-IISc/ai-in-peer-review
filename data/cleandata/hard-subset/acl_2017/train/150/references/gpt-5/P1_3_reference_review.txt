@@ -1,0 +1,37 @@
+Summary and main contributions
+This paper proposes a hierarchical character-level NMT system (DCNMT) that keeps word-level sequence lengths while enabling open-vocabulary decoding. The key ideas are:
+- A character-to-word encoder that aims to learn morphology: two character-level RNNs produce (i) prefix representations and (ii) position-dependent weights; a weighted sum over prefix states yields a word embedding.
+- A hierarchical decoder: a first-level “word” decoder produces per-word states; a second-level character decoder (HGRU) resets its state to the word state at predicted delimiters and generates characters for each word. An unfolding/batching trick is introduced to align per-word states with per-character steps during training.
+
+Empirically, on WMT En–Fr and En–Cs/Cs–En, DCNMT achieves BLEU competitive with published character/subword models, with smaller parameter counts and fewer training days (on a single GPU). Qualitative analyses suggest the encoder captures morphemic structure and helps with misspellings/nonce words.
+
+Contributions (as I see them)
+1) A practical hierarchical character-level NMT architecture with an efficient batching mechanism for conditioning the character decoder on word-level states (engineering contribution with clear benefit).
+2) A novel character-to-word encoder that softly segments words and composes morpheme-like units via weighted prefix representations (methodological contribution).
+3) Empirical evidence that this approach is competitive in BLEU while being efficient to train, plus qualitative demonstrations of OOV/misspelling robustness (experimental contribution).
+
+Strengths
+- Clear motivation and practical value: The model directly addresses OOV and misspellings while avoiding the long sequence issues of fully character-level encoders. The hierarchical design preserves word-length sequences on the encoder side and decodes at character level, a compelling tradeoff.
+- Efficient training recipe: The HGRU with a “settable” state and the unfolding matrix for batch training is a neat, implementable trick that appears to reduce the cost relative to prior two-pass hybrids. Despite six RNNs, the model size is modest (~54M) and reported wall-clock time compares favorably to prior char-level systems.
+- Competitive results on standard benchmarks: On En–Fr and En–Cs/Cs–En (WMT), DCNMT matches or improves over several published BPE/char baselines cited, often with fewer epochs/days. Reporting both one-epoch and final results is useful to illustrate faster convergence.
+- Qualitative evidence of morphology learning: PCA plots and “energy” profiles correlate with morpheme boundaries; examples show correct handling of misspellings and nonce derivations (e.g., “convenienter”), supporting the claim that the encoder captures subword regularities.
+- Ablation vs. ordinary RNN word encoder: The CNMT vs. DCNMT comparison (changing only the word encoder) helps attribute gains to the proposed morphology-aware encoder.
+
+Weaknesses
+- Novelty and conceptual clarity of the word encoder: The weighted-sum-over-prefix-states is interesting but close to known character-to-word approaches (e.g., BiLSTM/CNN encoders, attention over characters). The description of weights is unclear: wt = exp(aff(ht)), then “instead of normalizing … we use tanh,” but tanh is applied to the final sum, not to normalize weights. This raises questions about stability and interpretability of “energies” as weights. A clearer formulation or comparison to a normalized attention would strengthen the contribution.
+- Evaluation fairness and completeness: Comparisons pool numbers from different papers with different setups (data filtering, length limits, hardware). Training time and epochs are not directly comparable; some baselines use different max sequence lengths (e.g., 600 chars vs. 300/450). No statistical significance tests. End-to-end apples-to-apples runs (same preprocessing, hardware, optimizer, beam) are needed for firm claims of superiority.
+- Limited quantitative validation of morphology learning: The evidence is mostly anecdotal (PCA plots, a few words, qualitative segmentation on PTB lines). No intrinsic evaluation (e.g., morpheme boundary F1 vs. a gold morphological segmentation) or quantitative analysis linking “energy” peaks to true morphemes. The claim that morphology “speeds up learning” would benefit from controlled ablations.
+- Dependence on explicit word boundaries and character shortlist: The approach relies on whitespace-delimited word boundaries for both the encoder and the hierarchical decoder (to reset at delimiters), which may not transfer to languages without spaces or with complex tokenization. Moreover, restricting to the top 120 characters and mapping others to <unk> limits “open vocabulary,” especially for diacritics or noisy text; the impact is not analyzed.
+- Missing ablations on the hierarchical decoder: It is unclear how much of the gain comes from the HGRU/reset mechanism versus the word encoder. A comparison to a simpler char decoder without the unfolding trick, or to a standard hybrid (Luong & Manning), under the same setup would clarify contribution.
+
+Questions to authors
+- Word encoder clarity: Are the weights wt used without normalization? If so, how do you avoid exploding/saturating sums? Did you try a standard attention with softmax-normalized weights over character positions, and how did it compare?
+- Boundaries in training and decoding: During training, you use the true delimiters (spaces) to construct the unfolding matrix R and a_t. At test time, are delimiters generated by the character decoder, or are they forced after each word-level step? How is beam search organized across the two levels?
+- Applicability to languages without whitespace: How would the hierarchical decoder operate for scripts without explicit word boundaries (e.g., Chinese, Japanese)? Could the model learn delimiters as latent variables?
+- Character vocabulary: Why 120 characters per language? What fraction of training/dev/test characters are mapped to <unk>? Any degradation on rare diacritics or punctuation?
+- Efficiency: What are tokens/sec and decoding speed vs. BPE baselines on the same hardware? How does the unfolding trick affect memory footprint?
+
+Additional comments
+- Please proofread math (indices, variables, eq. (2)–(6)) and clarify the role of tanh in equation (for rword) and the interpretation of “energy.”
+- Provide code or pseudocode for the batching/unfolding mechanism and beam search to facilitate reproducibility.
+- Consider reporting BLEU with standard tokenization/case for WMT and include significance tests. An ablation table (normalized vs. unnormalized weights; with/without HGRU reset; different char limits) would greatly strengthen the paper.

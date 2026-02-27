@@ -1,0 +1,39 @@
+Summary of contributions
+The paper proposes Doc2VecC, a simple and efficient framework for learning document representations by averaging word embeddings learned jointly with a corruption process. The key idea is to force the global document vector (used to predict words alongside the local CBOW context) to be the average of (corrupted) word embeddings during training. The corruption (masking words with unbiased scaling) yields two benefits: (i) substantial training speed-ups by updating only the surviving words, and (ii) a principled, data-dependent regularizer that shrinks embeddings of frequent, non-informative words toward zero while preserving informative ones. The authors give a second-order Taylor analysis of the expected training objective to derive this regularizer, connecting it to dropout/mDAE-style adaptive penalties. Empirically, Doc2VecC matches or outperforms Word2Vec+post-processing, Paragraph Vectors, SDA, and Skip-thought on sentiment analysis, document classification, and semantic relatedness, while training and test-time inference are substantially faster. The method also yields improved word embeddings on word analogies.
+
+Decision: Accept
+Key reasons: (1) A clean, well-motivated method that is both scalable and effective; (2) a compelling and novel analysis showing how corruption induces an IDF-like, data-dependent regularization; and (3) strong empirical results with substantial efficiency gains and simple test-time inference.
+
+Supporting arguments
+- Methodology and novelty: The architecture is refreshingly simple: a CBOW-style predictor augmented with a global document vector computed as a masked and rescaled average of word embeddings. Unlike Paragraph Vectors, there are no per-document parameters, so parameter count depends only on vocabulary size; yet the global document signal is trained to be predictive. The corruption mechanism is applied to the global document representation, not the local context, which is a smart way to push the document average to capture information complementary to local context.
+- Theoretical motivation: The Taylor expansion around the corruption mean and the derivation of a variance-weighted diagonal Hessian penalty is sound in spirit and aligns with analyses of dropout and marginalized DAEs. The qualitative implications—stronger shrinkage for frequent words unless they are predictive—are insightful and match empirical observations (stopwords’ embeddings collapse). This gives a principled explanation of why naive averaging improves when combined with an appropriate training-time bias.
+- Empirical validation:
+  - IMDB sentiment: Doc2VecC matches or exceeds PV and clearly beats BoW and Word2Vec+IDF, with large efficiency gains at test time (no inference needed). The analysis of subsampling vs. learned shrinkage is useful.
+  - Word analogies: Substantial gains over Word2Vec are noteworthy and support the claim that the learned word embeddings are improved, not just the document vectors.
+  - Wikipedia classification: Consistent gains across representation sizes, with clear qualitative clustering via t-SNE.
+  - SICK relatedness: Slightly behind LSTM/Skip-thought, but competitive given the simplicity and efficiency. The trade-off between long-document robustness (Doc2VecC) and short-sentence sequence modeling (LSTMs) is plausible.
+- Efficiency: Training and test-time advantages are clear and practically important. The decoupling of parameter size from corpus size and use of simple averaging at test time are strong points.
+
+Additional feedback to improve the paper (helpful, not central to my decision)
+- Clarity on BoW vs. counts: The notation defines x as binary BoW (xj=1 if word j appears), but the global contribution is 1/T·Ux̃ and the text says “average of all words in the document,” which suggests token counts. Please clarify whether x contains counts and whether averaging is over tokens or unique types during training and at test time. This is important for both the theory (variance term) and implementation (computational cost).
+- Negative sampling distribution: You use uniform Pv, while Word2Vec commonly uses unigram^(3/4). This choice can materially affect quality and fairness. Please report results with the standard distribution for all methods, or justify the choice and ensure parity across baselines.
+- Ablations and sensitivity:
+  - No-corruption ablation (q=0) to isolate the benefit of the regularizer.
+  - Vary q and report performance/throughput vs. corruption rate.
+  - Remove local context (showing the collapse to a DAE-like model) to quantify the contribution of local vs. global signals.
+  - Analyze the effect of the 1/T normalization (e.g., using |D|^-α with α∈[0,1]).
+- Baselines: Include or discuss fastText-style baselines (Joulin et al., 2016/2017) for text classification and sentence/document averages with SIF weighting (Arora et al., 2017), which are very relevant contemporaries relying on simple averaging plus weighting.
+- Fair comparison on dimensionality: For Skip-thought, dimensionality is much larger (4800). Consider (i) projecting to the same dimension, and/or (ii) scaling Doc2VecC to higher dimensions to rule out capacity effects.
+- Statistics and reproducibility: Provide standard deviations over multiple runs and more training details (window size, negatives per target, learning rate schedulers, corpus subsampling thresholds) for all methods. The code link is appreciated.
+- Word analogy setup: Specify exactly the training corpora, preprocessing, negative sampling parameters, and whether subword information or position-dependent weights are used (none, presumably).
+- Visualizations: t-SNE is illustrative but not evidence; consider quantitative clustering metrics or retrieval performance.
+
+Questions for the authors
+1. Is x binary or count-based during training? If binary, why multiply by 1/T (token length) rather than by number of unique words? If count-based, please correct the notation and derivation accordingly.
+2. What negative sampling k and window sizes were used across experiments? Did all baselines (Word2Vec, PV) use the same k, window, subsampling thresholds, and sampling distributions?
+3. How sensitive is performance to the corruption rate q and to the unbiased scaling 1/(1−q)? Did you try Bernoulli keep-prob with/without rescaling (i.e., standard dropout) and what changed?
+4. Does the regularizer overly shrink function words needed for syntactic tasks? Can you report POS-stratified norm changes and their effects on syntactic vs. semantic analogy subsets?
+5. On IMDB, do results hold when representation learning excludes the test set? Please report both settings consistently for all baselines in one table with variances.
+6. On SICK, you pretrain on a large book corpus and fine-tune embeddings on SICK without labels. Did you also allow adaptation of the corruption mechanism and U/V during fine-tuning? How do results change if you disallow fine-tuning?
+7. Throughput: Can you report tokens/sec for training on large corpora and memory footprint, to substantiate the “billions of words/hour” claim?
+8. Could Doc2VecC benefit from subword features (as in fastText) to improve OOV handling and morphology? If tried, how does it affect the shrinkage behavior?

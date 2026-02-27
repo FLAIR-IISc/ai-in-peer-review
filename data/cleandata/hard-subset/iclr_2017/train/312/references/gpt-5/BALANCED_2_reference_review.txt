@@ -1,0 +1,55 @@
+1. Summary of contributions
+The paper proposes Neural Architecture Search (NAS), an RL-based framework that uses a recurrent “controller” network to generate variable-length strings specifying neural network architectures. The controller is trained with REINFORCE on the non-differentiable reward of validation performance of “child” models, and leverages distributed, asynchronous training to explore large search spaces. The method is extended to:
+- Convolutional architectures with learned skip connections (via set-selection attention), and optional pooling/stride choices.
+- Recurrent cell design, where the controller labels operations in a computation tree to define a novel RNN cell; the approach generalizes LSTM-like structures and learns where to connect memory variables.
+Empirically, the method yields strong results:
+- On CIFAR-10, searched CNNs reach 3.65% test error (with post-hoc widening), competitive with human-designed models while being 1.05× faster than a DenseNet baseline at similar accuracy.
+- On PTB, the learned RNN cell achieves test perplexity 62.4, surpassing prior state of the art, and transfers to character modeling and GNMT with gains.
+The paper also includes ablations on skip connections, a random search comparison, search-space robustness (adding extra ops), and some transfer experiments.
+
+2. Decision: Accept
+Key reasons:
+- Novel and well-motivated approach to variable-length architecture search that is simple yet flexible, with strong empirical results across both CNNs and RNNs.
+- Careful engineering to handle skip connections and large-scale parallel training, plus evidence of transferability of the learned RNN cell.
+
+3. Supporting arguments
+What problem is tackled? Automating neural architecture design over large, variable-length spaces with a scalable, learning-based strategy rather than hand design or black-box HPO. This is a timely and important problem.
+
+Is the approach well-motivated and well-placed in the literature? Yes. The paper clearly contrasts with Bayesian optimization (typically fixed-length hyperparameters) and neuro-evolution (flexible but often slow), and relates to sequence modeling, BLEU-optimized RL, and meta-learning. The controller-as-decoder perspective and handling of non-differentiable rewards via REINFORCE are coherent. The skip-connection mechanism is well thought out.
+
+Do the claims hold, with rigor? The empirical evidence is strong:
+- The controller reliably discovers performant CNNs and RNN cells; random search baselines are outperformed both in best and top-k averages.
+- Variants show reasonable robustness to changes in search space (adding sin, max).
+- The discovered RNN cell transfers to character LM and GNMT with non-trivial improvements.
+However, there are weaknesses:
+- Compute demands are enormous (e.g., 800 GPUs concurrently for CIFAR-10; 400 CPUs for PTB), which raises concerns about accessibility and fairness in comparison. Search cost is not quantified (e.g., total GPU-hours).
+- Some search space choices are hand-engineered (e.g., fixed positions for pooling in one setting; later, narrowing by using 13 “blocks”), limiting claims of fully automated design.
+- The final CIFAR-10 number includes a post-hoc width increase not explored during search; this blurs the comparison and may advantage NAS over baselines not similarly tuned.
+- Child models are trained for limited epochs during search; the paper mitigates this with grid search and final full training, but the correlation between early reward and final performance is not analyzed.
+- Statistical variability and multiple runs are not reported; no confidence intervals; validation split stability is not assessed.
+Overall, despite these issues, the empirical gains, breadth across domains, and the clear, reusable methodology justify acceptance.
+
+4. Additional feedback and questions (to help improve the paper; not all are decision-critical)
+Suggestions for strengthening the paper:
+- Report total search cost (GPU/CPU hours), wall-clock time, energy estimates, and cost-performance tradeoffs versus strong manual baselines. Include a “compute normalized” comparison.
+- Analyze rank correlation between validation reward (with early stopping and reward shaping) and final test accuracy/perplexity to justify search-time proxies.
+- Include ablations on controller design: effect of controller size, entropy regularization, advantage normalization, baseline choice, and reward shaping (cube of accuracy; value of c in perplexity).
+- Clarify and rationalize search space engineering. For CIFAR-10, explain the choice to fix pooling at specific layers and subsequently reduce to 13 blocks of 3 layers, and whether the controller could learn pooling placement. Consider a more unified space where pooling/stride/width are always learned.
+- Fairness of comparisons: ensure equivalent hyperparameter tuning budgets for baselines; report parameter counts, FLOPs, and training time for final models; avoid post-hoc width changes unless applied equally to baselines.
+- Multi-objective search: consider including model size/FLOPs/latency in the reward, or report Pareto fronts.
+- Reproducibility: provide exact search spaces, controller hyperparameters, reward baselines, and seeds; release the architectures discovered during the search, not only the best.
+- Robustness: evaluate sensitivity to the validation split (e.g., multiple splits), and perform multiple independent search runs to report variance.
+- CNN transfer: demonstrate transfer of discovered CNN architectures to other datasets (e.g., SVHN, ImageNet subset) to mirror the RNN transfer.
+
+Questions for the authors:
+- What is the total compute budget (e.g., GPU-hours) for the CIFAR-10 and PTB searches, and how does this compare to the cost of training the final models and to baselines?
+- Reward shaping: Why cube the CIFAR-10 validation accuracy and square c·perplexity on PTB? How sensitive are results to these choices? Did you use entropy regularization or advantage normalization?
+- Baseline details: What is the EMA decay rate for the baseline b? Did you try learned baselines or critic networks?
+- How often did “compilation failures” occur due to incompatible skip connections, and how do the padding/default-input heuristics affect representational bias?
+- In the CIFAR-10 “39-layer” experiments, why fix pooling at layers 13 and 24 and switch to 13 blocks? Could the controller learn pooling placement directly without preset positions?
+- On the 3.65% CIFAR-10 result, the architecture is widened by +40 filters post hoc. Did you apply similar width scaling to competing human-designed baselines? How does the searched architecture perform at the original width?
+- Random search baseline: Was it given identical search space, number of samples, and training/evaluation protocol? Please include quantitative curves and final best-of-N statistics in the main text.
+- For PTB baselines, were regularization and training schedules tuned to the same extent as your searched models? Please provide matched parameter counts and training-time comparisons for the RHN comparison.
+- Correlation between early stopping reward and final accuracy/perplexity: can you report Spearman correlations across a sample of architectures?
+
+Overall, this is an influential and promising direction; addressing compute transparency, comparison fairness, and ablations would make the paper even stronger.

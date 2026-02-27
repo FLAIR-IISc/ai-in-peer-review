@@ -1,0 +1,440 @@
+{
+  "name" : "c7635bfd99248a2cdef8249ef7bfbef4.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Inference by Learning: Speeding-up Graphical Model Optimization via a Coarse-to-Fine Cascade of Pruning Classifiers",
+    "authors" : [ "Bruno Conejo", "Nikos Komodakis" ],
+    "emails" : [ "bconejo@caltech.edu", "nikos.komodakis@enpc.fr", "leprincs@caltech.edu", "avouac@gps.caltech.edu" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Graphical models in computer vision Optimization of undirected graphical models such as Markov Random Fields, MRF, or Conditional Random Fields, CRF, is of fundamental importance in computer vision. Currently, a wide spectrum of problems including stereo matching [25, 13], optical flow estimation [27, 16], image segmentation [23, 14], image completion and denoising [10], or, object recognition [8, 2] rely on finding the mode of the distribution associated to the random field, i.e., the Maximum A Posteriori (MAP) solution. The MAP estimation, often referred as the labeling problem, is posed as an energy minimization task. While this task is NP-Hard, strong optimum solutions or even the optimal solutions can be obtained [3]. Over the past 20 years, tremendous progress has been made in term of computational cost, and, many different techniques have been developed such as move making approaches [3, 19, 22, 21, 28], and message passing methods [9, 32, 18, 20]. A review of their effectiveness has been published in [31, 12]. Nevertheless, the ever increasing dimensionality of the problems and the need for larger solution space greatly challenge these tech-\n∗This work was supported by USGS through the Measurements of surface ruptures produced by continental earthquakes from optical imagery and LiDAR project (USGS Award G13AP00037), the Terrestrial Hazard Observation and Reporting Center of Caltech, and the Moore foundation through the Advanced Earth Surface Observation Project (AESOP Grant 2808).\nniques as even the best ones have a highly super-linear computational cost and memory requirement relatively to the dimensionality of the problem.\nOur goal in this work is to develop a general MRF optimization framework that can provide a significant speed-up for such methods while maintaining the accuracy of the estimated solutions. Our strategy for accomplishing this goal will be to gradually reduce (by a significant amount) the size of the discrete state space via exploiting the fact that an optimal labeling is typically far from being random. Indeed, most MRF optimization problems favor solutions that are piecewise smooth. In fact, this spatial structure of the MAP solution has already been exploited in prior work to reduce the dimensionality of the solution space.\nRelated work A first set of methods of this type, referred here for short as the super-pixel approach [30], defines a grouping heuristic to merge many random variables together in super-pixels. The grouping heuristic can be energy-aware if it is based on the energy to minimize as in [15], or, energyagnostic otherwise as in [7, 30]. All random variables belonging to the same super-pixel are forced to take the same label. This restricts the solution space and results in an optimization speed-up as a smaller number of variables needs to be optimized. The super-pixel approach has been applied with segmentation, stereo and object recognition [15]. However, if the grouping heuristic merges variables that should have a different label in the MAP solution, only an approximate labeling is computed. In practice, defining general yet efficient grouping heuristics is difficult. This represents the key limitation of super-pixel approaches.\nOne way to overcome this limitation is to mimic the multi-scale scheme used in continuous optimization by building a coarse to fine representation of the graphical model. Similarly to the superpixel approach, such a multi-scale method, relies again on a grouping of variables for building the required coarse to fine representation [17, 24, 26]. However, contrary to the super-pixel approach, if the grouping merges variables that should have a different label in the MAP solution, there always exists a scale at which these variables are not grouped. This property thus ensures that the MAP solution can still be recovered. Nevertheless, in order to manage a significant speed-up of the optimization, the multi-scale approach also needs to progressively reduce the number of labels per random variable (i.e., the solution space). Typically, this is achieved by use, for instance, of a heuristic that keeps only a small fixed number of labels around the optimal label of each node found at the current scale, while pruning all other labels, which are therefore not considered thereafter [5]. This strategy, however, may not be optimal or even valid for all types of problems. Furthermore, such a pruning heuristic is totally inappropriate (and can thus lead to errors) for nodes located along discontinuity boundaries of an optimal solution, where such boundaries are always expected to exist in practice. An alternative strategy followed by some other methods relies on selecting a subset of the MRF nodes at each scale (based on some criterion) and then fixing their labels according to the optimal solution estimated at the current scale (essentially, such methods contract the entire label set of a node to a single label). However, such a fixing strategy may be too aggressive and can also easily lead to eliminating good labels.\nProposed approach Our method simultaneously makes use of the following two strategies for speeding-up the MRF optimization process:\n(i) it solves the problem through a multi-scale approach that gradually refines the MAP estimation based on a coarse-to-fine representation of the graphical model,\n(ii) and, at the same time, it progressively reduces the label space of each variable by cleverly utilizing the information computed during the above coarse-to-fine process.\nTo achieve that, we propose to significantly revisit the way that the pruning of the solution space takes place. More specifically:\n(i) we make use of and incorporate into the above process a fine-grained pruning scheme that allows an arbitrary subset of labels to be discarded, where this subset can be different for each node,\n(ii) additionally, and most importantly, instead of trying to manually come up with some criteria for deciding what labels to prune or keep, we introduce the idea of relying entirely on a sequence of trained classifiers for taking such decisions, where different classifiers per scale are used.\nWe name such an approach Inference by Learning, and show that it is particularly efficient and effective in reducing the label space while omitting very few correct labels. Furthermore, we demonstrate that the training of these classifiers can be done based on features that are not application specific but depend solely on the energy function, which thus makes our approach generic and applicable to any MRF problem. The end result of this process is to obtain both an important speed-up and a significant decrease in memory consumption as the solution space is progressively reduced. Furthermore, as each scale refines the MAP estimation, a further speed-up is obtained as a result of a warm-start initialization that can be used when transitioning between different scales.\nBefore proceeding, it is worth also noting that there exists a body of prior work [29] that focuses on fixing the labels of a subset of nodes of the graphical model by searching for a partial labeling with the so-called persistency property (which means that this labeling is provably guaranteed to be part of an optimal solution). However, finding such a set of persistent variables is typically very time consuming. Furthermore, in many cases only a limited number of these variables can be detected. As a result, the focus of these works is entirely different from ours, since the main motivation in our case is how to obtain a significant speed-up for the optimization.\nHereafter, we assume without loss of generality that the graphical model is a discrete pairwise CRF/MRF. However, one can straightforwardly apply our approach to higher order models.\nOutline of the paper We briefly review the optimization problem related to a discrete pairwise MRF and introduce the necessary notations in section 2. We describe our general multi-scale pruning framework in section 3. We explain how classifiers are trained in section 4. Experimental results and their analysis are presented in 5. Finally, we conclude the paper in section 6."
+    }, {
+      "heading" : "2 Notation and preliminaries",
+      "text" : "To represent a discrete MRF modelM, we use the following notation\nM = ( V, E ,L, {φi}i∈V , {φij}(i,j)∈E ) . (1)\nHere V and E represent respectively the nodes and edges of a graph, and L represents a discrete label set. Furthermore, for every i ∈ V and (i, j) ∈ E , the functions φi : L → R and φij : L2 → R represent respectively unary and pairwise costs (that are also known connectively as MRF potentials φ = { {φi}i∈V , {φij}(i,j)∈E } ). A solution x = (xi)i∈V of this model consists of one variable per vertex i, taking values in the label set L, and the total cost (energy) E(x|M) of such a solution is\nE(x|M) = ∑ i∈V φi(xi) + ∑ (i,j)∈E φij(xi, xj) .\nThe goal of MAP estimation is to find a solution that has minimum energy, i.e., computes\nxMAP = arg min x∈L|V|\nE(x|M) .\nThe above minimization takes place over the full solution space of modelM, which is L|V|. Here we will also make use of a pruned solution space S(M, A), which is defined based on a binary function A : V × L → {0, 1} (referred to as the pruning matrix hereafter) that specifies the status (active or pruned) of a label for a given vertex, i.e.,\nA(i, l) = { 1 if label l is active at vertex i 0 if label l is pruned at vertex i (2)\nDuring optimization, active labels are retained while pruned labels are discarded. Based on a given A, the corresponding pruned solution space of modelM is defined as\nS(M, A) = { x ∈ L|V| | (∀i), A(i, xi) = 1 } ."
+    }, {
+      "heading" : "3 Multiscale Inference by Learning",
+      "text" : "In this section we describe the overall structure of our MAP estimation framework, beginning by explaining how to construct the coarse-to-fine representation of the input graphical model."
+    }, {
+      "heading" : "3.1 Model coarsening",
+      "text" : "Given a model M (defined as in (1)), we wish to create a “coarser” version of this model M′ =( V ′, E ′,L, {φ′i}i∈V′ , {φ′ij}(i,j)∈E′ ) . Intuitively, we want to partition the nodes of M into groups, and treat each group as a single node of the coarser modelM′ (the implicit assumption is that nodes of M that are grouped together are assigned the same label). To that end, we will make use of a grouping function g : V → N . The nodes and edges of the coarser model are then defined as follows\nWith a slight abuse of notation, we will hereafter use g(M) to denote the coarser model resulting fromM when using the grouping function g, i.e., we define g(M) =M′. Also, given a solution x′ ofM′, we can “upsample” it into a solution x ofM by setting xi = x′g(i) for each i ∈ V . We will use the following notation in this case: g−1(x′) = x. We provide a toy example in supplementary materials."
+    }, {
+      "heading" : "3.2 Coarse-to-fine optimization and label pruning",
+      "text" : "To estimate the MAP of an input modelM, we first construct a series ofN+1 progressively coarser models (M(s))0≤s≤N by use of a sequence of N grouping functions (g(s))0≤s<N , where\nM(0) =M and (∀s), M(s+1) = g(s)(M(s)) . This provides a multiscale (coarse-to-fine) representation of the original model., where the elements of the resulting models are denoted as follows:\nM(s) = ( V(s), E(s),L, {φ(s)i }i∈V(s) , {φ (s) ij }(i,j)∈E(s) ) In our framework, MAP estimation proceeds from the coarsest to the finest scale (i.e., from model M(N) toM(0)). During this process, a pruning matrix A(s) is computed at each scale s, which is used for defining a restricted solution space S(M(s), A(s)). The elements of the matrix A(N) at the coarsest scale are all set equal to 1 (i.e., no label pruning is used in this case), whereas in all other scales A(s) is computed by use of a trained classifier f (s).\nMore specifically, at any given scale s, the following steps take place:\ni. We approximately minimize (via any existing MRF optimization method) the energy of the modelM(s) over the restricted solution space S(M(s), A(s)), i.e., we compute\nx(s) ≈ arg minx∈S(M(s),A(s))E(x|M(s)) .\nii. Given the estimated solution x(s), a feature map z(s) : V(s) × L → RK is computed at the current scale, and a trained classifier f (s) : RK → {0, 1} uses this feature map z(s) to construct the pruning matrix A(s−1) for the next scale as follows\n(∀i ∈ V(s−1), ∀l ∈ L), A(s−1)(i, l) = f (s)(z(s)(g(s−1)(i), l)) . iii. Solution x(s) is “upsampled” into x(s−1) = [g(s−1)]−1(x(s)) and used as the initializa-\ntion for the optimization at the next scale s − 1. Note that, due to (5) and (6), it holds E(x(s−1)|M(s−1)) = E(x(s)|M(s)). Therefore, this initialization ensures that energy will continually decrease if the same is true for the optimization applied per scale. Furthermore, it can allow for a warm-starting strategy when transitioning between scales.\nThe pseudocode of the resulting algorithm appears in Algo. 1.\nAlgorithm 1: Inference by learning framework Data: ModelM, grouping functions (g(s))0≤s<N , classifiers (f (s))0<s≤N Result: x(0) Compute the coarse to fine sequence of MRFs: M(0) ←M for s = [0 . . . N − 1] do M(s+1) ← g(s)(M(s))\nOptimize the coarse to fine sequence of MRFs over pruned solution spaces: (∀i ∈ V(N),∀l ∈ L), A(N)(i, l)← 1 Initialize x(N) for s = [N...0] do\nUpdate x(s) by iterative minimization: x(s) ≈ arg minx∈S(M(s),A(s))E(x|M(s)) if s 6= 0 then\nCompute feature map z(s) Update pruning matrix for next finer scale: A(s−1)(i, l) = f (s)(z(s)(g(s−1)(i), l)) Upsample x(s) for initializing solution x(s−1) at next scale: x(s−1) ← [g(s−1)]−1(x(s))"
+    }, {
+      "heading" : "4 Features and classifier for label pruning",
+      "text" : "For each scale s, we explain how the set of features comprising the feature map z(s) is computed and how we train (off-line) the classifier f (s). This is a crucial step for our approach. Indeed, if the classifier wrongly prunes labels that belong to the MAP solution, then, only an approximate labeling might be found at the finest scale. Moreover, keeping too many active labels will result in a poor speed-up for MAP estimation."
+    }, {
+      "heading" : "4.1 Features",
+      "text" : "The feature map z(s) : V(s) × L → RK is formed by stacking K individual real-valued features defined on V(s) × L. We propose to compute features that are not application specific but depend solely on the energy function and the current solution x(s). This makes our approach generic and applicable to any MRF problem. However, as we establish a general framework, specific application features can be straightforwardly added in future work.\nPresence of strong discontinuity This binary feature, PSD(s), accounts for the existence of discontinuity in solution x(s) when a strong link (i.e., φij(x (s) i , x (s) j ) > ρ) exists between neighbors. Its definition follows for any vertex i ∈ V(s) and any label l ∈ L :\nPSD(s)(i, l) =\n{ 1 ∃(i, j) ∈ E(s)| φij(x(s)i , x (s) j ) > ρ\n0 otherwise (7)\nLocal energy variation This feature represents the local variation of the energy around the current solution x(s). It accounts for both the unary and pairwise terms associated to a vertex and a label. As in [11], we remove the local energy of the current solution as it leads to a higher discriminative power. The local energy variation feature, LEV(s), is defined for any i ∈ V(s) and l ∈ L as follows:\nLEV(s)(i, l) = φ (s) i (l)− φ (s) i (x (s) i )\nN (s) V (i)\n+ ∑\nj:(i,j)∈E(s)\nφ (s) ij (l, x (s) j )− φ (s) ij (x (s) i , x (s) j )\nN (s) E (i)\n(8)\nwith N (s)V (i) = card{i′ ∈ V(s−1) : g(s−1)(i′) = i} and N (s) E (i) = card{(i′, j′) ∈ E(s−1) : g(s−1)(i′) = i, g(s−1)(j′) = j}.\nUnary “coarsening” This feature, UC(s), aims to estimate an approximation of the coarsening induced in the MRF unary terms when going from modelM(s−1) to modelM(s), i.e., as a result of\napplying the grouping function g(s−1). It is defined for any i ∈ V(s) and l ∈ L as follows\nUC(s)(i, l) = ∑\ni′∈V(s−1)|g(s−1)(i′)=i\n|φ(s−1)i′ (l)− φ (s) i (l)\nN (s) V (i)\n|\nN (s) V (i)\n(9)\nFeature normalization The features are by design insensitive to any additive term applied on all the unary and pairwise terms. However, we still need to apply a normalization to the LEV(s) and UC(s) features to make them insensitive to any positive global scaling factor applied on both the unary and pairwise terms (such scaling variations are commonly used in computer vision). Hence, we simply divide group of features, LEV(s) and UC(s) by their respective mean value."
+    }, {
+      "heading" : "4.2 Classifier",
+      "text" : "To train the classifiers, we are given as input a set of MRF instances (all of the same class, e.g., stereo-matching) along with the ground truth MAP solutions. We extract a subset of MRFs for offline learning and a subset for on-line testing. For each MRF instance in the training set, we apply the algorithm 1 without any pruning (i.e., A(s) ≡ 1) and, at each scale, we keep track of the features z(s) and also compute the binary function X(s)MAP : V(s) × L → {0, 1} defined as follows:\n(∀i ∈ V,∀l ∈ L), X(0)MAP(i, l) = { 1, if l is the ground truth label for node i 0, otherwise\n(∀s > 0)(∀i ∈ V(s),∀l ∈ L), X(s)MAP(i, l) = ∨\ni′∈V(s−1):g(s)(i′)=i\nX (s−1) MAP (i ′, l) ,\nwhere ∨\ndenotes the binary OR operator. The values 0 and 1 in X(s)MAP define respectively the two classes c0 and c1 when training the classifier f (s), where c0 means that the label can be pruned and c1 that the label should not be pruned.\nTo treat separately the nodes that are on the border of a strong discontinuity, we split the feature map z(s) into two groups z(s)0 and z (s) 1 , where z (s) 0 contains only features where PSD\n(s) = 0 and z(s)1 contains only features where PSD(s) = 1 (strong discontinuity). For each group, we train a standard linear C-SVM classifier with l2-norm regularization (regularization parameter was set to C = 10). The linear classifiers give good enough accuracy during training while also being fast to evaluate at test time\nDuring training (and for each group), we also introduce weights to balance the different number of elements in each class (c0 is much larger than c1), and to also strongly penalize misclassification in c1 (as such misclassification can have a more drastic impact on the accuracy of MAP estimation). To accomplish that, we set the weight for class c0 to 1, and the weight for class c1 to λ\ncard(c0) card(c1) , where card(·) counts the number of training samples in each class. Parameter λ is a positive scalar (common to both groups) used for tuning the penalization of misclassification in c1 (it will be referred to as the pruning aggressiveness factor hereafter as it affects the amount of labels that get pruned). During on-line testing, depending on the value of the PSD feature, f (s) applies the linear classifier learned on group z(s)0 if PSD (s) = 0, or the linear classifier learned on group z(s)1 if PSD (s) = 1."
+    }, {
+      "heading" : "5 Experimental results",
+      "text" : "We evaluate our framework on pairwise MRFs from stereo-matching, image restoration, and, optical flow estimation problems. The corresponding MRF graphs consist of regular 4-connected grids in this case. At each scale, the grouping function merges together vertices of 2× 2 subgrids. We leave more advanced grouping functions [15] for future work. As MRF optimization subroutine, we use the Fast-PD algorithm [21]. We make our code available on-line [4].\nExperimental setup For the stereo matching problem, we estimate the disparity map from images IR and IL where each label encodes a potential disparity d (discretized at quarter of a pixel precision), with MRF potentials φp(d) = ||IL(yp, xp)−IR(yp, xp−d)||1 and φpq(d0, d1) = wpq|d0−d1|, with the weight wpq varying based on the image gradient (parameters are adjusted for each sequence). We train the classifier on the well-known Tsukuba stereo-pair (61 labels), and use all other\nstereo-pairs of [6] (2001, 2003, 2005 and 2006) for testing. For image restoration, we estimate the pixel intensity of a noisy and incomplete image I with MRF potentials φp(l) = ||I(yp, xp) − l||22 and φ(l0, l1) = 25 min(||l0 − l1||22, 200). We train the classifier on the Penguin image stereo-pair (256 labels), and use House (256 labels) for testing (dataset [31]). For the optical flow estimation, we estimate a subpixel-accurate 2D displacement field between two frames by extending the stereo matching formulation to 2D. Using the dataset of [1], we train the classifier on Army (1116 labels), and test on RubberWhale (625 labels) and Dimetrodon (483 labels). For all experiments, we use 5 scales and set in (7) ρ = 5w̄pq with w̄pq being the mean value of edge weights.\nEvaluations We evaluate three optimization strategies: the direct optimization (i.e., optimizing the full MRF at the finest scale), the multi-scale optimization (λ = 0, i.e., our framework without any pruning), and our Inference by Learning optimization, where we experiment with different error ratios λ that range between 0.001 and 1.\nWe assess the performance by computing the energy ratio, i.e., the ratio between the current energy and the energy computed by the direct optimization, the best label agreement, i.e., the proportion of labels that coincides with the labels of the lowest computed energy, the speed-up factor, i.e., the ratio of computation time between the direct optimization and the current optimization strategy, and, the active label ratio, i.e., the percentage of active labels at the finest scale.\nResults and discussion For all problems, we present in Fig. 2 the performance of our Inference by Learning approach for all tested aggressiveness factors and show in Fig. 3 estimated results for λ = 0.01. We present additional results in the supplementary material.\nFor every problem and aggressiveness factors until λ = 0.1, our pruning-based optimization obtains a lower energy (column (c) of Fig. 2) in less computation time, achieving a speed-up factor (column (a) of Fig. 2) close to 5 for Stereo-matching, above 10 for Optical-flow and up to 3 for image restoration. (note that these speed-up factors are with respect to an algorithm, FastPD, that was the most efficient one in recent comparisons [12]). The percentage of active labels (Fig. 2 column (b)) strongly correlates with the speed-up factor. The best labeling agreement (Fig. 2 column (d)) is never worse than 97% (except for the image restoration problems because of the in-painted area)\nand is always above 99% for λ 6 0.1. As expected, less pruning happens near label discontinuities as illustrated in column (d,e,f) of Fig. 3 justifying the use of a dedicated linear classifier. Moreover, large homogeneously labeled regions are pruned earlier in the coarse to fine scale."
+    }, {
+      "heading" : "6 Conclusion and future work",
+      "text" : "Our Inference by Learning approach consistently speeds-up the graphical model optimization by a significant amount while maintaining an excellent accuracy of the labeling estimation. On most experiments, it even obtains a lower energy than direct optimization.\nIn future work, we plan to experiment with problems that require general pairwise potentials where message-passing techniques can be more effective than graph-cut based methods but are at the same time much slower. Our framework is guaranteed to provide an even more dramatic speedup in this case since the computational complexity of message-passing methods is quadratic with respect to the number of labels while being linear for graph-cut based methods used in our experiments. We also intend to explore the use of application specific features, learn the grouping functions used in the coarse-to-fine scheme, jointly train the cascade of classifiers, and apply our framework to high order graphical models."
+    } ],
+    "references" : [ {
+      "title" : "A database and evaluation methodology for optical flow",
+      "author" : [ "S. Baker", "S. Roth", "D. Scharstein", "M.J. Black", "J.P. Lewis", "R. Szeliski" ],
+      "venue" : "ICCV 2007.,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : null,
+      "year" : 2007
+    }, {
+      "title" : "A study of parts-based object class detection using complete graphs",
+      "author" : [ "Martin Bergtholdt", "Jörg Kappes", "Stefan Schmidt", "Christoph Schnörr" ],
+      "venue" : null,
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 2010
+    }, {
+      "title" : "Fast approximate energy minimization via graph cuts",
+      "author" : [ "Y. Boykov", "O. Veksler", "R. Zabih" ],
+      "venue" : "PAMI,",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : null,
+      "year" : 2001
+    }, {
+      "title" : "Fast global stereo matching via energy pyramid minimization",
+      "author" : [ "B. Conejo", "S. Leprince", "F. Ayoub", "J.P. Avouac" ],
+      "venue" : "ISPRS Ann. Photogramm. Remote Sens. Spatial Inf. Sci.,",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Efficient graph-based image segmentation",
+      "author" : [ "Pedro F. Felzenszwalb", "Daniel P. Huttenlocher" ],
+      "venue" : null,
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : "7",
+      "year" : 2004
+    }, {
+      "title" : "Pictorial structures for object recognition",
+      "author" : [ "Pedro F. Felzenszwalb", "Daniel P. Huttenlocher" ],
+      "venue" : null,
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : "8",
+      "year" : 2005
+    }, {
+      "title" : "Efficient belief propagation for early vision",
+      "author" : [ "P.F. Felzenszwalb", "D.P. Huttenlocher" ],
+      "venue" : "CVPR,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : null,
+      "year" : 2004
+    }, {
+      "title" : "Learning low-level vision",
+      "author" : [ "W.T. Freeman", "E.C. Pasztor" ],
+      "venue" : "ICCV,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : null,
+      "year" : 1999
+    }, {
+      "title" : "A quantitative evaluation of confidence measures for stereo vision",
+      "author" : [ "Xiaoyan Hu", "P. Mordohai" ],
+      "venue" : "PAMI.,",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 2012
+    }, {
+      "title" : "A comparative study of modern inference techniques for discrete energy minimization problems",
+      "author" : [ "J.H. Kappes", "B. Andres", "F.A. Hamprecht", "C. Schnorr", "S. Nowozin", "D. Batra", "Sungwoong Kim", "B.X. Kausler", "J. Lellmann", "N. Komodakis", "C. Rother" ],
+      "venue" : "In CVPR,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 2013
+    }, {
+      "title" : "Visual correspondence using energy minimization and mutual information",
+      "author" : [ "Junhwan Kim", "V. Kolmogorov", "R. Zabih" ],
+      "venue" : "In ICCV,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 2003
+    }, {
+      "title" : "Image segmentation using higher-order correlation",
+      "author" : [ "S. Kim", "C. Yoo", "S. Nowozin", "P. Kohli" ],
+      "venue" : null,
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 2014
+    }, {
+      "title" : "Variable grouping for energy minimization",
+      "author" : [ "Taesup Kim", "S. Nowozin", "P. Kohli", "C.D. Yoo" ],
+      "venue" : "In CVPR,",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : "15",
+      "year" : 2011
+    }, {
+      "title" : "Domain decomposition for variational optical-flow computation",
+      "author" : [ "T. Kohlberger", "C. Schnorr", "A. Bruhn", "J. Weickert" ],
+      "venue" : "IEEE Transactions on Information Theory/Image Processing,",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : null,
+      "year" : 2005
+    }, {
+      "title" : "Uncertainty driven multi-scale optimization",
+      "author" : [ "Pushmeet Kohli", "Victor S. Lempitsky", "Carsten Rother" ],
+      "venue" : "In DAGM-Symposium,",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : "17",
+      "year" : 2010
+    }, {
+      "title" : "Convergent tree-reweighted message passing for energy minimization",
+      "author" : [ "V. Kolmogorov" ],
+      "venue" : "PAMI,",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : null,
+      "year" : 2006
+    }, {
+      "title" : "What energy functions can be minimized via graph cuts",
+      "author" : [ "V. Kolmogorov", "R. Zabin" ],
+      "venue" : null,
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : "19",
+      "year" : 2004
+    }, {
+      "title" : "Mrf optimization via dual decomposition: Message-passing revisited",
+      "author" : [ "N. Komodakis", "N. Paragios", "G. Tziritas" ],
+      "venue" : "CVPR,",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : null,
+      "year" : 2007
+    }, {
+      "title" : "Fast, approximately optimal solutions for single and dynamic mrfs",
+      "author" : [ "N. Komodakis", "G. Tziritas", "N. Paragios" ],
+      "venue" : "CVPR,",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : null,
+      "year" : 2007
+    }, {
+      "title" : "Map estimation of semi-metric mrfs via hierarchical graph cuts",
+      "author" : [ "M. Pawan Kumar", "Daphne Koller" ],
+      "venue" : "In UAI,",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : "22",
+      "year" : 2009
+    }, {
+      "title" : "Obj cut",
+      "author" : [ "M.P. Kumar", "P.H.S. Ton", "A. Zisserman" ],
+      "venue" : "CVPR,",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : null,
+      "year" : 2005
+    }, {
+      "title" : "A multilevel banded graph cuts method for fast image segmentation",
+      "author" : [ "H. Lombaert", "Yiyong Sun", "L. Grady", "Chenyang Xu" ],
+      "venue" : null,
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : "24",
+      "year" : 2005
+    }, {
+      "title" : "Globally optimal solutions for energy minimization in stereo vision using reweighted belief propagation",
+      "author" : [ "T. Meltzer", "C. Yanover", "Y. Weiss" ],
+      "venue" : "ICCV,",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : null,
+      "year" : 2005
+    }, {
+      "title" : "Restriction of a markov random field on a graph and multiresolution statistical image modeling",
+      "author" : [ "P. Perez", "F. Heitz" ],
+      "venue" : "IEEE Transactions on Information Theory/Image Processing,",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : null,
+      "year" : 1996
+    }, {
+      "title" : "Fields of experts: a framework for learning image priors",
+      "author" : [ "S. Roth", "M.J. Black" ],
+      "venue" : "CVPR,",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : null,
+      "year" : 2005
+    }, {
+      "title" : "Optimizing binary mrfs via extended roof duality",
+      "author" : [ "C. Rother", "V. Kolmogorov", "V. Lempitsky", "M. Szummer" ],
+      "venue" : "CVPR,",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : null,
+      "year" : 2007
+    }, {
+      "title" : "Maximum persistency in energy minimization",
+      "author" : [ "Alexander Shekhovtsov" ],
+      "venue" : "In CVPR,",
+      "citeRegEx" : "29",
+      "shortCiteRegEx" : "29",
+      "year" : 2014
+    }, {
+      "title" : "Normalized cuts and image segmentation",
+      "author" : [ "Jianbo Shi", "Jitendra Malik" ],
+      "venue" : "PAMI.,",
+      "citeRegEx" : "30",
+      "shortCiteRegEx" : "30",
+      "year" : 2000
+    }, {
+      "title" : "A comparative study of energy minimization methods for markov random fields with smoothness-based priors",
+      "author" : [ "R. Szeliski", "R. Zabih", "D. Scharstein", "O. Veksler", "V. Kolmogorov", "Aseem Agarwala", "M. Tappen", "C. Rother" ],
+      "venue" : null,
+      "citeRegEx" : "31",
+      "shortCiteRegEx" : "31",
+      "year" : 2008
+    }, {
+      "title" : "Map estimation via agreement on trees: messagepassing and linear programming",
+      "author" : [ "M.J. Wainwright", "T.S. Jaakkola", "A.S. Willsky" ],
+      "venue" : "IEEE Transactions on Information Theory/Image Processing,",
+      "citeRegEx" : "32",
+      "shortCiteRegEx" : null,
+      "year" : 2005
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 22,
+      "context" : "Currently, a wide spectrum of problems including stereo matching [25, 13], optical flow estimation [27, 16], image segmentation [23, 14], image completion and denoising [10], or, object recognition [8, 2] rely on finding the mode of the distribution associated to the random field, i.",
+      "startOffset" : 65,
+      "endOffset" : 73
+    }, {
+      "referenceID" : 10,
+      "context" : "Currently, a wide spectrum of problems including stereo matching [25, 13], optical flow estimation [27, 16], image segmentation [23, 14], image completion and denoising [10], or, object recognition [8, 2] rely on finding the mode of the distribution associated to the random field, i.",
+      "startOffset" : 65,
+      "endOffset" : 73
+    }, {
+      "referenceID" : 24,
+      "context" : "Currently, a wide spectrum of problems including stereo matching [25, 13], optical flow estimation [27, 16], image segmentation [23, 14], image completion and denoising [10], or, object recognition [8, 2] rely on finding the mode of the distribution associated to the random field, i.",
+      "startOffset" : 99,
+      "endOffset" : 107
+    }, {
+      "referenceID" : 13,
+      "context" : "Currently, a wide spectrum of problems including stereo matching [25, 13], optical flow estimation [27, 16], image segmentation [23, 14], image completion and denoising [10], or, object recognition [8, 2] rely on finding the mode of the distribution associated to the random field, i.",
+      "startOffset" : 99,
+      "endOffset" : 107
+    }, {
+      "referenceID" : 20,
+      "context" : "Currently, a wide spectrum of problems including stereo matching [25, 13], optical flow estimation [27, 16], image segmentation [23, 14], image completion and denoising [10], or, object recognition [8, 2] rely on finding the mode of the distribution associated to the random field, i.",
+      "startOffset" : 128,
+      "endOffset" : 136
+    }, {
+      "referenceID" : 11,
+      "context" : "Currently, a wide spectrum of problems including stereo matching [25, 13], optical flow estimation [27, 16], image segmentation [23, 14], image completion and denoising [10], or, object recognition [8, 2] rely on finding the mode of the distribution associated to the random field, i.",
+      "startOffset" : 128,
+      "endOffset" : 136
+    }, {
+      "referenceID" : 7,
+      "context" : "Currently, a wide spectrum of problems including stereo matching [25, 13], optical flow estimation [27, 16], image segmentation [23, 14], image completion and denoising [10], or, object recognition [8, 2] rely on finding the mode of the distribution associated to the random field, i.",
+      "startOffset" : 169,
+      "endOffset" : 173
+    }, {
+      "referenceID" : 5,
+      "context" : "Currently, a wide spectrum of problems including stereo matching [25, 13], optical flow estimation [27, 16], image segmentation [23, 14], image completion and denoising [10], or, object recognition [8, 2] rely on finding the mode of the distribution associated to the random field, i.",
+      "startOffset" : 198,
+      "endOffset" : 204
+    }, {
+      "referenceID" : 1,
+      "context" : "Currently, a wide spectrum of problems including stereo matching [25, 13], optical flow estimation [27, 16], image segmentation [23, 14], image completion and denoising [10], or, object recognition [8, 2] rely on finding the mode of the distribution associated to the random field, i.",
+      "startOffset" : 198,
+      "endOffset" : 204
+    }, {
+      "referenceID" : 2,
+      "context" : "While this task is NP-Hard, strong optimum solutions or even the optimal solutions can be obtained [3].",
+      "startOffset" : 99,
+      "endOffset" : 102
+    }, {
+      "referenceID" : 2,
+      "context" : "Over the past 20 years, tremendous progress has been made in term of computational cost, and, many different techniques have been developed such as move making approaches [3, 19, 22, 21, 28], and message passing methods [9, 32, 18, 20].",
+      "startOffset" : 171,
+      "endOffset" : 190
+    }, {
+      "referenceID" : 16,
+      "context" : "Over the past 20 years, tremendous progress has been made in term of computational cost, and, many different techniques have been developed such as move making approaches [3, 19, 22, 21, 28], and message passing methods [9, 32, 18, 20].",
+      "startOffset" : 171,
+      "endOffset" : 190
+    }, {
+      "referenceID" : 19,
+      "context" : "Over the past 20 years, tremendous progress has been made in term of computational cost, and, many different techniques have been developed such as move making approaches [3, 19, 22, 21, 28], and message passing methods [9, 32, 18, 20].",
+      "startOffset" : 171,
+      "endOffset" : 190
+    }, {
+      "referenceID" : 18,
+      "context" : "Over the past 20 years, tremendous progress has been made in term of computational cost, and, many different techniques have been developed such as move making approaches [3, 19, 22, 21, 28], and message passing methods [9, 32, 18, 20].",
+      "startOffset" : 171,
+      "endOffset" : 190
+    }, {
+      "referenceID" : 25,
+      "context" : "Over the past 20 years, tremendous progress has been made in term of computational cost, and, many different techniques have been developed such as move making approaches [3, 19, 22, 21, 28], and message passing methods [9, 32, 18, 20].",
+      "startOffset" : 171,
+      "endOffset" : 190
+    }, {
+      "referenceID" : 6,
+      "context" : "Over the past 20 years, tremendous progress has been made in term of computational cost, and, many different techniques have been developed such as move making approaches [3, 19, 22, 21, 28], and message passing methods [9, 32, 18, 20].",
+      "startOffset" : 220,
+      "endOffset" : 235
+    }, {
+      "referenceID" : 29,
+      "context" : "Over the past 20 years, tremendous progress has been made in term of computational cost, and, many different techniques have been developed such as move making approaches [3, 19, 22, 21, 28], and message passing methods [9, 32, 18, 20].",
+      "startOffset" : 220,
+      "endOffset" : 235
+    }, {
+      "referenceID" : 15,
+      "context" : "Over the past 20 years, tremendous progress has been made in term of computational cost, and, many different techniques have been developed such as move making approaches [3, 19, 22, 21, 28], and message passing methods [9, 32, 18, 20].",
+      "startOffset" : 220,
+      "endOffset" : 235
+    }, {
+      "referenceID" : 17,
+      "context" : "Over the past 20 years, tremendous progress has been made in term of computational cost, and, many different techniques have been developed such as move making approaches [3, 19, 22, 21, 28], and message passing methods [9, 32, 18, 20].",
+      "startOffset" : 220,
+      "endOffset" : 235
+    }, {
+      "referenceID" : 28,
+      "context" : "A review of their effectiveness has been published in [31, 12].",
+      "startOffset" : 54,
+      "endOffset" : 62
+    }, {
+      "referenceID" : 9,
+      "context" : "A review of their effectiveness has been published in [31, 12].",
+      "startOffset" : 54,
+      "endOffset" : 62
+    }, {
+      "referenceID" : 27,
+      "context" : "Related work A first set of methods of this type, referred here for short as the super-pixel approach [30], defines a grouping heuristic to merge many random variables together in super-pixels.",
+      "startOffset" : 102,
+      "endOffset" : 106
+    }, {
+      "referenceID" : 12,
+      "context" : "The grouping heuristic can be energy-aware if it is based on the energy to minimize as in [15], or, energyagnostic otherwise as in [7, 30].",
+      "startOffset" : 90,
+      "endOffset" : 94
+    }, {
+      "referenceID" : 4,
+      "context" : "The grouping heuristic can be energy-aware if it is based on the energy to minimize as in [15], or, energyagnostic otherwise as in [7, 30].",
+      "startOffset" : 131,
+      "endOffset" : 138
+    }, {
+      "referenceID" : 27,
+      "context" : "The grouping heuristic can be energy-aware if it is based on the energy to minimize as in [15], or, energyagnostic otherwise as in [7, 30].",
+      "startOffset" : 131,
+      "endOffset" : 138
+    }, {
+      "referenceID" : 12,
+      "context" : "The super-pixel approach has been applied with segmentation, stereo and object recognition [15].",
+      "startOffset" : 91,
+      "endOffset" : 95
+    }, {
+      "referenceID" : 14,
+      "context" : "Similarly to the superpixel approach, such a multi-scale method, relies again on a grouping of variables for building the required coarse to fine representation [17, 24, 26].",
+      "startOffset" : 161,
+      "endOffset" : 173
+    }, {
+      "referenceID" : 21,
+      "context" : "Similarly to the superpixel approach, such a multi-scale method, relies again on a grouping of variables for building the required coarse to fine representation [17, 24, 26].",
+      "startOffset" : 161,
+      "endOffset" : 173
+    }, {
+      "referenceID" : 23,
+      "context" : "Similarly to the superpixel approach, such a multi-scale method, relies again on a grouping of variables for building the required coarse to fine representation [17, 24, 26].",
+      "startOffset" : 161,
+      "endOffset" : 173
+    }, {
+      "referenceID" : 3,
+      "context" : "Typically, this is achieved by use, for instance, of a heuristic that keeps only a small fixed number of labels around the optimal label of each node found at the current scale, while pruning all other labels, which are therefore not considered thereafter [5].",
+      "startOffset" : 256,
+      "endOffset" : 259
+    }, {
+      "referenceID" : 26,
+      "context" : "Before proceeding, it is worth also noting that there exists a body of prior work [29] that focuses on fixing the labels of a subset of nodes of the graphical model by searching for a partial labeling with the so-called persistency property (which means that this labeling is provably guaranteed to be part of an optimal solution).",
+      "startOffset" : 82,
+      "endOffset" : 86
+    }, {
+      "referenceID" : 8,
+      "context" : "As in [11], we remove the local energy of the current solution as it leads to a higher discriminative power.",
+      "startOffset" : 6,
+      "endOffset" : 10
+    }, {
+      "referenceID" : 12,
+      "context" : "We leave more advanced grouping functions [15] for future work.",
+      "startOffset" : 42,
+      "endOffset" : 46
+    }, {
+      "referenceID" : 18,
+      "context" : "As MRF optimization subroutine, we use the Fast-PD algorithm [21].",
+      "startOffset" : 61,
+      "endOffset" : 65
+    }, {
+      "referenceID" : 28,
+      "context" : "We train the classifier on the Penguin image stereo-pair (256 labels), and use House (256 labels) for testing (dataset [31]).",
+      "startOffset" : 119,
+      "endOffset" : 123
+    }, {
+      "referenceID" : 0,
+      "context" : "Using the dataset of [1], we train the classifier on Army (1116 labels), and test on RubberWhale (625 labels) and Dimetrodon (483 labels).",
+      "startOffset" : 21,
+      "endOffset" : 24
+    }, {
+      "referenceID" : 9,
+      "context" : "(note that these speed-up factors are with respect to an algorithm, FastPD, that was the most efficient one in recent comparisons [12]).",
+      "startOffset" : 130,
+      "endOffset" : 134
+    } ],
+    "year" : 2014,
+    "abstractText" : "We propose a general and versatile framework that significantly speeds-up graphical model optimization while maintaining an excellent solution accuracy. The proposed approach, refereed as Inference by Learning or in short as IbyL, relies on a multi-scale pruning scheme that progressively reduces the solution space by use of a coarse-to-fine cascade of learnt classifiers. We thoroughly experiment with classic computer vision related MRF problems, where our novel framework constantly yields a significant time speed-up (with respect to the most efficient inference methods) and obtains a more accurate solution than directly optimizing the MRF. We make our code available on-line [4].",
+    "creator" : null
+  }
+}

@@ -1,0 +1,442 @@
+{
+  "name" : "dc912a253d1e9ba40e2c597ed2376640.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Trading Computation for Communication: Distributed Stochastic Dual Coordinate Ascent",
+    "authors" : [ "Tianbao Yang" ],
+    "emails" : [ "tyang@nec-labs.com" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "In recent years of machine learning applications, the size of data has been observed with an unprecedented growth. In order to efficiently solve large scale machine learning problems with millions of and even billions of data points, it has become popular to take advantage of the computational power of multi-cores in a single machine or multi-machines on a cluster to optimize the problems in a parallel fashion or a distributed fashion [2].\nIn this paper, we consider the following generic optimization problem arising ubiquitously in supervised machine learning applications:\nmin w∈Rd\nP (w), where P (w) = 1\nn n∑ i=1 φ(w>xi; yi) + λg(w), (1)\nwhere w ∈ Rd denotes the linear predictor to be optimized, (xi, yi), xi ∈ Rd, i = 1, . . . , n denote the instance-label pairs of a set of data points, φ(z; y) denotes a loss function and g(w) denotes a regularization on the linear predictor. Throughout the paper, we assume the loss function φ(z; y) is convex w.r.t the first argument and we refer to the problem in (1) as Regularized Loss Minimization (RLM) problem.\nThe RLM problem has been studied extensively in machine learning, and many efficient sequential algorithms have been developed in the past decades [8, 16, 10]. In this work, we aim to solve the problem in a distributed framework by leveraging the capabilities of tens of hundreds of CPU cores. In contrast to previous works of distributed optimization that are based on either (stochastic) gradient descent (GD and SGD) methods [21, 11] or alternating direction methods of multipliers (ADMM) [2, 23], we motivate our research from the recent advances on (stochastic) dual coordinate ascent (DCA and SDCA) algorithms [8, 16]. It has been observed that DCA and SDCA algorithms can have comparable and sometimes even better convergence speed than GD and SGD methods. However, it lacks efforts in studying them in a distributed fashion and comparing to those SGDbased and ADMM-based distributed algorithms.\nIn this work, we bridge the gap by developing a Distributed Stochastic Dual Coordinate Ascent (DisDCA) algorithm for solving the RLM problem. We summarize the proposed algorithm and our contributions as follows:\n• The presented DisDCA algorithm possesses two key characteristics: (i) parallel computation over K machines (or cores); (ii) sequential updating of m dual variables per iteration on individual machines followed by a “reduce” step for communication among processes. It enjoys a strong guarantee of convergence rates for smooth or no-smooth loss functions.\n• We analyze the tradeoff between computation and communication of DisDCA invoked by m and K. Intuitively, increasing the number m of dual variables per iteration aims at reducing the number of iterations for convergence and therefore mitigating the pressure caused by communication. Theoretically, our analysis reveals the effective region of m,K versus the regularization path of λ.\n• We present a practical variant of DisDCA and make a comparison with distributed ADMM. We verify our analysis by experiments and demonstrate the effectiveness of DisDCA by comparing with SGD-based and ADMM-based distributed optimization algorithms running in the same distributed framework."
+    }, {
+      "heading" : "2 Related Work",
+      "text" : "Recent years have seen the great emergence of distributed algorithms for solving machine learning related problems [2, 9]. In this section, we focus our review on distributed optimization techniques. Many of them are based on stochastic gradient descent methods or alternating direction methods of multipliers.\nDistributed SGD methods utilize the computing resources of multiple machines to handle a large number of examples simultaneously, which to some extent alleviates the high computational load per iteration of GD methods and also improve the performances of sequential SGD methods. The simplest implementation of a distributed SGD method is to calculate the stochastic gradients on multiple machines, and to collect these stochastic gradients for updating the solution on a master machine. This idea has been implemented in a MapReduce framework [13, 4] and a MPI framework [21, 11]. Many variants of GD methods have be deployed in a similar style [1]. ADMM has been employed for solving machine learning problems in a distributed fashion [2, 23], due to its superior convergences and performances [5, 23]. The original ADMM [7] is proposed for solving equality constrained minimization problems. The algorithms that adopt ADMM for solving the RLM problems in a distributed framework are based on the idea of global variable consensus. Recently, several works [19, 14] have made efforts to extend ADMM to its online or stochastic versions. However, they suffer relatively low convergence rates.\nThe advances on DCA and SDCA algorithms [12, 8, 16] motivate the present work. These studies have shown that in some regimes (e.g., when a relatively high accurate solution is needed), SDCA can outperform SGD methods. In particular, S. Shalev-Shwartz and T. Zhang [16] have derived new bounds on the duality gap, which have been shown to be superior to earlier results. However, there still lacks of efforts in extending these types of methods to a distributed fashion and comparing them with SGD-based algorithms and ADMM-based distributed algorithms. We bridge this gap by presenting and studying a distributed stochastic dual ascent algorithm. It has been brought to our attention that M. Takác et al. [20] have recently published a paper to study the parallel speedup of mini-batch primal and dual methods for SVM with hinge loss and establish the convergence bounds of mini-batch Pegasos and SDCA depending on the size of the mini-batch. This work differentiates from their work in that (i) we explicitly take into account the tradeoff between computation and communication; (ii) we present a more practical variant and make a comparison between the proposed algorithm and ADMM in view of solving the subproblems, and (iii) we conduct empirical studies for comparison with these algorithms. Other related but different work include [3], which presents Shotgun, a parallel coordinate descent algorithm for solving `1 regularized minimization problems.\nThere are other unique issues arising in distributed optimization, e.g., synchronization vs asynchronization, star network vs arbitrary network. All these issues are related to the tradeoff between communication and computation [22, 24]. Research in these aspects are beyond the scope of this work and can be considered as future work."
+    }, {
+      "heading" : "3 Distributed Stochastic Dual Coordinate Ascent",
+      "text" : "In this section, we present a distributed stochastic dual coordinate ascent (DisDCA) algorithm and its convergence bound, and analyze the tradeoff between computation and communication. We also present a practical variant of DisDCA and make a comparison with ADMM. We first present some notations and preliminaries.\nFor simplicity of presentation, we let φi(w>xi) = φ(w>xi; yi). Let φ∗i (α) and g ∗(v) be the convex conjugate of φi(z) and g(w), respectively. We assume g∗(v) is continuous differentiable. It is easy to show that the problem in (1) has a dual problem given below:\nmax α∈Rn\nD(α), where D(α) = 1\nn n∑ i=1 −φ∗i (−αi)− λg∗ ( 1 λn n∑ i=1 αixi ) . (2)\nLet w∗ be the optimal solution to the primal problem in (1) and α∗ be the optimal solution to the dual problem in (2). If we define v(α) = 1λn ∑n i=1 αixi, and w(α) = ∇g∗(v), it can be verified that w(α∗) = w∗, P (w(α∗)) = D(α∗). In this paper, we aim to optimize the dual problem (2) in a distributed environment where the data are distributed evenly across over K machines. Let (xk,i, yk,i), i = 1, . . . , nk denote the training examples on machine k. For ease of analysis, we assume nk = n/K. We denote by αk,i the associated dual variable of xk,i, and by φk,i(·), φ∗k,i(·) the corresponding loss function and its convex conjugate. To simplify the analysis of our algorithm and without loss of generality, we make the following assumptions about the problem:\n• φi(z) is either a (1/γ)-smooth function or a L-Lipschitz continuous function (c.f. the definitions given below). Exemplar smooth loss functions include e.g., L2 hinge loss φi(z) = max(0, 1 − yiz)2, logistic loss φi(z) = log(1 + exp(−yiz)). Commonly used Lipschitz continuous functions are L1 hinge loss φi(z) = max(0, 1 − yiz) and absolute loss φi(z) = |yi − z|. • g(w) is a 1-strongly convex function w.r.t to ‖ · ‖2. Examples include `2 norm square\n1/2‖w‖22 and elastic net 1/2‖w‖22 + µ‖w‖1. • For all i, ‖xi‖2 ≤ 1, φi(z) ≥ 0 and φi(0) ≤ 1.\nDefinition 1. A function φ(z) : R → R is a L-Lipschitz continuous function, if for all a, b ∈ R |φ(a) − φ(b)| ≤ L|a − b|. A function φ(z) : R → R is (1/γ)-smooth, if it is differentiable and its gradient ∇φ(z) is (1/γ)-Lipschitz continuous, or for all a, b ∈ R, we have φ(a) ≤ φ(b) + (a − b)>∇φ(b) + 12γ (a− b)\n2. A convex function g(w) : Rd → R is β-strongly convex w.r.t a norm ‖ · ‖, if for any s ∈ [0, 1] and w1, w2 ∈ Rd, g(sw1 + (1 − s)w2) ≤ sg(w1) + (1 − s)g(w2) − 12s(1 − s)β‖w1 − w2‖2."
+    }, {
+      "heading" : "3.1 DisDCA Algorithm: The Basic Variant",
+      "text" : "The detailed steps of the basic variant of the DisDCA algorithm are described by a pseudo code in Figure 1. The algorithm deploys K processes running simultaneously on K machines (or cores)1, each of which only accesses its associated training examples. Each machine calls the same procedure SDCA-mR, where mR manifests two unique characteristics of SDCA-mR compared to SDCA. (i) At each iteration of the outer loop,m examples instead of one are randomly sampled for updating their dual variables. This is implemented by an inner loop that costs the most computation at each outer iteration. (ii) After updating the m randomly selected dual variables, it invokes a function Reduce to collect the updated information from all K machines that accommodates naturally to the distributed environment. The Reduce function acts exactly like MPI::AllReduce if one wants to implement the algorithm in a MPI framework. It essentially sends ∆vk = 1λn ∑m j=1 ∆αk,ijxij to a process, adds all of them to vt−1, and then broadcasts the updated vt to allK processes. It is this step that involves the communication among theK machines. Intuitively, smallerm yields less computation and slower convergence and therefore more communication and vice versa. In next subsection, we would give a rigorous analysis about the convergence, computation and communication.\nRemark: The goal of the updates is to increase the dual objective. The particular options presented in routine IncDual is to maximize the lower bounds of the dual objective. More options are provided\n1We use process and machine interchangeably.\nin supplementary materials. The solutions to option I have closed forms for several loss functions (e.g., L1, L2 hinge losses, square loss and absolute loss) [16]. Note that different from the options presented in [16], the ones in Incdual use a slightly different scalar factor mK in the quadratic term to adapt for the number of updated dual variables."
+    }, {
+      "heading" : "3.2 Convergence Analysis: Tradeoff between Computation and Communication",
+      "text" : "In this subsection, we present the convergence bound of the DisDCA algorithm and analyze the tradeoff between computation, convergence or communication. The theorem below states the convergence rate of DisDCA algorithm for smooth loss functions (The omitted proofs and other derivations can be found in supplementary materials) . Theorem 1. For a (1/γ)-smooth loss function φi and a 1-strongly convex function g(w), to obtain an p duality gap of E[P (wT )−D(αT )] ≤ P , it suffices to have\nT ≥ ( n\nmK +\n1\nλγ\n) log (( n\nmK +\n1\nλγ\n) 1\nP\n) .\nRemark: In [20], the authors established a convergence bound of mini-batch SDCA for L1-SVM that depends on the spectral norm of the data. Applying their trick to our algorithmic framework is equivalent to replacing the scalarmK in DisDCA algorithm with βmK that characterizes the spectral norm of sampled data across all machines XmK = (x11, . . . x1m, . . . , xKm). The resulting convergence bound for (1/γ)-smooth loss functions is given by substituting the term 1λγ with βmK mK 1 λγ . The value of βmK is usually smaller than mK and the authors in [20] have provided an expression for computing βmK based on the spectral norm σ of the data matrix X/ √ n = (x1, . . . xn)/ √ n. However, in practice the value of σ cannot be computed exactly. A safe upper bound of σ = 1 assuming ‖xi‖2 ≤ 1 gives the value mK to βmK , which reduces to the scalar as presented in Figure 1. The authors in [20] also presented an aggressive variant to adjust β adaptively and observed improvements. In Section 3.3 we develop a practical variant that enjoys more speed-up compared to the basic variant and their aggressive variant.\nTradeoff between Computation and Communication We are now ready to discuss the tradeoff between computation and communication based on the worst case analysis as indicated by Theo-\nrem 1. For the analysis of tradeoff between computation and communication invoked by the number of samples m and the number of machines K, we fix the number of examples n and the number of dimensions d. When we analyze the tradeoff involving m, we fix K and vice versa. In the following analysis, we assume the size of model to be communicated is fixed d and is independent of m, though in some cases (e.g., high dimensional sparse data) one may communicate a smaller size of data that depends on m.\nIt is notable that in the bound of the number of iterations, there is a term 1/(λγ). To take this term into account, we first consider an interesting region of λ for achieving a good generalization error. Several pieces of works [17, 18, 6] have suggested that in order to obtain an optimal generalization error, the optimal λ scales like Θ(n−1/(1+τ)), where τ ∈ (0, 1]. For example, the analysis in [18] suggests λ = Θ ( 1√ n ) for SVM.\nFirst, we consider the tradeoff involving the number of samples m by fixing the number processes K. We note that the communication cost is proportional to the number of iterations T = Ω ( n mK + n1/(1+τ) γ ) , while the computation cost per node is proportional to mT =\nΩ ( n K + mn1/(1+τ) γ ) due to that each iteration involves m examples. When m ≤ Θ ( nτ/(1+τ) K ) , the communication cost decreases as m increases, and the computation costs increases as m increases, though it is dominated by Ω(n/K). When the value of m is greater than Θ ( nτ/(1+τ)\nK\n) ,\nthe communication cost is dominated by Ω ( n1/(1+τ)\nγ\n) , then increasing the value of m will become\nless influential on reducing the communication cost; while the computation cost would blow up substantially.\nSimilarly, we can also understand how the number of nodes K affects the tradeoff between the communication cost, proportional to Ω̃(KT ) = Ω̃ ( n m + Kn1/(1+τ) γ ) 2, and the computation cost, pro-\nportional to Ω ( n K + mn1/(1+τ) γ ) . When K ≤ Θ ( nτ/(1+τ) m ) , as K increases the computation cost\nwould decrease and the communication cost would increase. When it is greater than Θ ( nτ/(1+τ)\nm\n) ,\nthe computation cost would be dominated by Ω ( mn1/(1+τ)\nγ\n) and the effect of increasing K on\nreducing the computation cost would diminish.\nAccording to the above analysis, we can conclude that when mK ≤ Θ (nλγ), to which we refer as the effective region of m and K, the communication cost can be reduced by increasing the number of samples m and the computation cost can be reduced by increasing the number of nodes K. Meanwhile, increasing the number of samples m would increase the computation cost and similarly increasing the number of nodes K would increase the communication cost. It is notable that the larger the value of λ the wider the effective region ofm andK, and vice versa. To verify the tradeoff of communication and computation, we present empirical studies in Section 4. Although the smooth loss functions are the most interesting, we present in the theorem below about the convergence of DisDCA for Lipschitz continuous loss functions.\nTheorem 2. For a L-Lipschitz continuous loss function φi and a 1-strongly convex function g(w), to obtain an P duality gap E[P (w̄T )−D(ᾱT )] ≤ P , it suffices to have\nT ≥ 4L 2\nλ P + T0 +\nn mK ≥ 20L\n2\nλ P + max\n( 0, n\nmK log\n( λn\n2mKL2\n)) + n\nmK ,\nwhere w̄T = ∑T−1 t=T0 wt/(T − T0), ᾱT = ∑T−1 t=T0 αt/(T − T0).\nRemark: In this case, the effective region of m and K is mK ≤ Θ(nλ P ) which is narrower than that for smooth loss functions, especially when P γ. Similarly, if one can obtain an accurate estimate of the spectral norm of all data and use βmK in place of mK in Figure 1, the convergence bound can be improved with 4L 2\nλ P\nβmK mK in place of\n4L2 λ P . Again, the practical variant presented in next\nsection yields more speed-up.\n2We simply ignore the communication delay in our analysis."
+    }, {
+      "heading" : "3.3 A Practical Variant of DisDCA and A Comparison with ADMM",
+      "text" : "In this section, we first present a practical variant of DisDCA motivated by intuition and then we make a comparison between DisDCA and ADMM, which provides us more insight about the practical variant of DisDCA and differences between the two algorithms. In what follows, we are particularly interested in `2 norm regularization where g(w) = ‖w‖22/2 and v = w. A Practical Variant We note that in Algorithm 1, when updating the values of the following sampled dual variables, the algorithm does not use the updated information but instead wt−1 from last iteration. Therefore a potential improvement would be leveraging the up-to-date information for updating the dual variables. To this end, we maintain a local copy of wk in each machine. At the beginning of the iteration t, all w0k, k = 1, · · · ,K are synchronized with the global wt−1. Then in individual machines, the j-th sampled dual variable is updated by IncDual(wj−1k , k) and the local copy wjk is also updated by w j k = w j−1 k + 1 λnk\n∆αk,ijxk,ij for updating the next dual variable. At the end of the iteration, the local solutions are synchronized to the global variable wt = wt−1 + 1λn ∑K k=1 ∑m j=1 ∆α t k,ij\nxk,ij . It is important to note that the scalar factor in IncDual is now k because the dual variables are updated incrementally and there are k processes running parallell. The detailed steps are presented in Figure 2, where we abuse the same notation ujt for the local variable at all processes. The experiments in Section 4 verify the improvements of the practical variant vs the basic variant. It still remains an open problem to us what is the convergence bound of this practical variant. However, next we establish a connection between DisDCA and ADMM that sheds light on the motivation behind the practical variant and the differences between the two algorithms.\nA Comparison with ADMM First we note that the goal of the updates at each iteration in DisDCA is to increase the dual objective by maximizing the following objective:\nmax α\n1\nnk m∑ i=1 −φ∗i (−αi)− λ 2 ∥∥∥∥∥ŵt−1 + 1/(λnk) m∑ i=1 αixi ∥∥∥∥∥ 2\n2\n, (3)\nwhere ŵt−1 = wt−1− 1/(λnk) ∑m i=1 α t−1 i xi and we suppress the subscript k associated with each machine. The updates presented in Algorithm 1 are solutions to maximizing the lower bounds of the above objective function by decoupling the m dual variables. It is not difficult to derive that the dual problem in (3) has the following primal problem (a detailed derivation and others can be found in supplementary materials):\nDisDCA: min w\n1\nnk m∑ i=1 φi(x > i w) + λ 2 ∥∥∥∥∥w − ( wt−1 − 1/(λnk) m∑ i=1 αt−1i xi )∥∥∥∥∥ 2\n2\n. (4)\nWe refer to ŵt as the penalty solution. Second let us recall the updating scheme in ADMM. The (deterministic) ADMM algorithm at iteration t solves the following problems in each machine:\nADMM: wtk = arg min w\n1\nnk nk∑ i=1 φi(x > i w) + ρK 2 ‖w − (wt−1 − ut−1k )︸ ︷︷ ︸\nŵt−1\n‖22, (5)\nwhere ρ is a penalty parameter and wt−1 is the global primal variable updated by\nwt = ρK(w̄t + ūt−1)\nρK + λ , with w̄t =\n1\nK K∑ k=1 wtk, ū t−1 = 1 K K∑ k=1 ut−1k ,\nand ut−1k is the local “dual” variable updated by u t k = u t−1 k + w t k − wt. Comparing the subproblem (4) in DisDCA and the subproblem (5) in ADMM leads to the following observations. (1) Both aim at solving the same type of problem to increase the dual objective or decrease the primal objective. DisDCA uses only m randomly selected examples while ADMM uses all examples. (2) However, the penalty solution ŵt−1 and the penalty parameter are different. In DisDCA, ŵt−1 is constructed by subtracting from the global solution the local solution defined by the dual variables α, while in ADMM it is constructed by subtracting from the global solution the local Lagrangian variables u. The penalty parameter in DisDCA is given by the regularization parameter λ while that in ADMM is a parameter that is needed to be specified by the user.\nNow, let us explain the practical variant of DisDCA from the viewpoint of inexactly solving the subproblem (4). Note that if the optimal solution to (3) is denoted by α∗i , i = 1, . . . ,m, then the optimal solution u∗ to (4) is given by u∗ = ŵt−1 + 1λnk ∑m i=1 α ∗ i xi. In fact, the updates at the t-th iteration of the practical variant of DisDCA is to optimize the subproblem (4) by the SDCA algorithm with only one pass of the sampled data points and an initialization of α0i = αt−1i , i = 1 . . . ,m. It means that the initial primal solution for solving the subproblem (3) is u0 = ŵt−1 + 1λnk ∑m i=1 α t−1 i xi = w t−1. That explains the initialization step in Figure 2.\nIn a recent work [23] of applying ADMM to solving the L2-SVM problem in the same distributed fashion, the authors exploited different strategies for solving the subproblem (5) associated with L2-SVM, among which the DCA algorithm with only one pass of all data points gives the best performance in terms of running time (e.g., it is better than DCA with several passes of all data points and is also better than a trusted region Newton method). This from another point of view validates the practical variant of DisDCA.\nFinally, it is worth to mention that unlike ADMM whose performance is significantly affected by the value of the penalty parameter ρ, DisDCA is a parameter free algorithm."
+    }, {
+      "heading" : "4 Experiments",
+      "text" : "In this section, we present some experimental results to verify the theoretical results and the empirical performances of the proposed algorithms. We implement the algorithms by C++ and openMPI and run them in cluster. On each machine, we only launch one process. The experiments are performed on two large data sets with different number of features, covtype and kdd. Covtype data has a total of 581, 012 examples and 54 features. Kdd data is a large data used in kdd cup 2010, which contains 19, 264, 097 training examples and 29, 890, 095 features. For covtype data, we use 522, 911 examples for training. We apply the algorithms to solving two SVM formulations, namely L2-SVM with hinge loss square and L1-SVM with hinge loss, to demonstrate the capabilities of DisDCA in solving smooth loss functions and Lipschitz continuous loss functions. In the legend of figures, we use DisDCA-b to denote the basic variant, DisDCA-p to denote the practical variant, and DisDCA-a to denote the aggressive variant of DisDCA [20].\nTradeoff between Communication and Computation To verify the convergence analysis, we show in Figures 3(a)∼3(b), 3(d)∼3(e) the duality gap of the basic variant and the practical variant of the DisDCA algorithm versus the number of iterations by varying the number of samples m per iteration, the number of machines K and the values of λ. The results verify the convergence bound in Theorem 1. At the beginning of increasing the values of m or K, the performances are improved. However, when their values exceed certain number, the impact of increasing m or K diminishes. Additionally, the larger the value of λ the wider the effective region ofm andK. It is notable that the effective region of m and K of the practical variant is much larger than that of the basic variant. We also briefly report a running time result: to obtain an = 10−3 duality gap for optimizing L2-SVM on covtype data with λ = 10−3, the running time of DisDCA-p with m = 1, 10, 102, 103 by fixing K = 10 are 30, 4, 0, 5 seconds 3, respectively, and the running time with K = 1, 5, 10, 20 by fixing m = 100 are 3, 0, 0, 1 seconds, respectively. The speed-up gain on kdd data by increasing m is even larger because the communication cost is much higher. In supplement, we present more results on visualizing the communication and computation tradeoff.\nThe Practical Variant vs The Basic Variant To further demonstrate the usefulness of the practical variant, we present a comparison between the practical variant and the basic variant for optimizing\n30 second means less than 1 second. We exclude the time for computing the duality gap at each iteration.\nthe two SVM formulations in supplementary material. We also include the performances of the aggressive variant proposed in [20], by applying the aggressive updates on the m sampled examples in each machine without incurring additional communication cost. The results show that the practical variant converges much faster than the basic variant and the aggressive variant.\nComparison with other baselines Lastly, we compare DisDCA with SGD-based and ADMMbased distributed algorithms running in the same distributed framework. For optimizing L2-SVM, we implement the stochastic average gradient (SAG) algorithm [15], which also enjoys a linear convergence for smooth and strongly convex problems. We use the constant step size (1/Ls) suggested by the authors for obtaining a good practical performance, where the Ls denotes the smoothness parameter of the problem, set to 2R+λ given ‖xi‖22 ≤ R,∀i. For optimizing L1-SVM, we compare to the stochastic Pegasos. For ADMM-based algorithms, we implement a stochastic ADMM in [14] (ADMM-s) and a deterministic ADMM in [23] (ADMM-dca) that employes the DCA algorithm for solving the subproblems. In the stochastic ADMM, there is a step size parameter ηt ∝ 1/ √ t. We choose the best initial step size among [10−3, 103]. We run all algorithms on K = 10 machines and setm = 104, λ = 10−6 for all stochastic algorithms. In terms of the parameter ρ in ADMM, we find that ρ = 10−6 yields good performances by searching over a range of values. We compare DisDCA with SAG, Pegasos and ADMM-s in Figures 3(c), 3(f) 4, which clearly demonstrate that DisDCA is a strong competitor in optimizing SVMs. In supplement we compare DisDCA by setting m = nk against ADMM-dca with four different values of ρ = 10−6, 10−4, 10−2, 1 on kdd. The results show that the performances deteriorate significantly if the ρ is not appropriately set, while DisDCA can produce comparable performance without additional efforts in tuning the parameter."
+    }, {
+      "heading" : "5 Conclusions",
+      "text" : "We have presented a distributed stochastic dual coordinate descent algorithm and its convergence rates, and analyzed the tradeoff between computation and communication. The practical variant has substantial improvements over the basic variant and other variants. We also make a comparison with other distributed algorithms and observe competitive performances.\n4The primal objective of Pegasos on covtype is above the display range."
+    } ],
+    "references" : [ {
+      "title" : "Distributed delayed stochastic optimization",
+      "author" : [ "A. Agarwal", "J.C. Duchi" ],
+      "venue" : "In CDC, pages 5451–5452,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : "1",
+      "year" : 2012
+    }, {
+      "title" : "Distributed optimization and statistical learning via the alternating direction method of multipliers",
+      "author" : [ "S. Boyd", "N. Parikh", "E. Chu", "B. Peleato", "J. Eckstein" ],
+      "venue" : "Found. Trends Mach. Learn.,",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 2011
+    }, {
+      "title" : "Parallel Coordinate Descent for L1- Regularized Loss Minimization",
+      "author" : [ "J.K. Bradley", "A. Kyrola", "D. Bickson", "C. Guestrin" ],
+      "venue" : "In ICML,",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 2011
+    }, {
+      "title" : "Map-Reduce for machine learning on multicore",
+      "author" : [ "C.T. Chu", "S.K. Kim", "Y.A. Lin", "Y. Yu", "G.R. Bradski", "A.Y. Ng", "K. Olukotun" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : "4",
+      "year" : 2006
+    }, {
+      "title" : "On the global and linear convergence of the generalized alternating direction method of multipliers",
+      "author" : [ "W. Deng", "W. Yin" ],
+      "venue" : "Technical report,",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : "5",
+      "year" : 2012
+    }, {
+      "title" : "Optimal learning rates for least squares svms using gaussian kernels",
+      "author" : [ "M. Eberts", "I. Steinwart" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : "6",
+      "year" : 2011
+    }, {
+      "title" : "A dual algorithm for the solution of nonlinear variational problems via finite element approximation",
+      "author" : [ "D. Gabay", "B. Mercier" ],
+      "venue" : "Comput. Math. Appl.,",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : "7",
+      "year" : 1976
+    }, {
+      "title" : "A dual coordinate descent method for large-scale linear svm",
+      "author" : [ "C.-J. Hsieh", "K.-W. Chang", "C.-J. Lin", "S.S. Keerthi", "S. Sundararajan" ],
+      "venue" : "In ICML,",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : "8",
+      "year" : 2008
+    }, {
+      "title" : "Protocols for learning classifiers on distributed data",
+      "author" : [ "H.D. III", "J.M. Phillips", "A. Saha", "S. Venkatasubramanian" ],
+      "venue" : "JMLR- Proceedings Track,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 2012
+    }, {
+      "title" : "Stochastic block-coordinate frank-wolfe optimization for structural svms",
+      "author" : [ "S. Lacoste-Julien", "M. Jaggi", "M.W. Schmidt", "P. Pletscher" ],
+      "venue" : "CoRR, abs/1207.4747,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : "10",
+      "year" : 2012
+    }, {
+      "title" : "Slow learners are fast",
+      "author" : [ "J. Langford", "A. Smola", "M. Zinkevich" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 2009
+    }, {
+      "title" : "On the convergence of the coordinate descent method for convex differentiable minimization",
+      "author" : [ "Z.Q. Luo", "P. Tseng" ],
+      "venue" : "Journal of Optimization Theory and Applications,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 1992
+    }, {
+      "title" : "Efficient Large-Scale distributed training of conditional maximum entropy models",
+      "author" : [ "G. Mann", "R. McDonald", "M. Mohri", "N. Silberman", "D. Walker" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 2009
+    }, {
+      "title" : "Stochastic alternating direction method of multipliers",
+      "author" : [ "H. Ouyang", "N. He", "L. Tran", "A.G. Gray" ],
+      "venue" : "In ICML,",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 2013
+    }, {
+      "title" : "A stochastic gradient method with an exponential convergence rate for finite training sets",
+      "author" : [ "N.L. Roux", "M.W. Schmidt", "F. Bach" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : "15",
+      "year" : 2012
+    }, {
+      "title" : "Stochastic Dual Coordinate Ascent Methods for Regularized Loss Minimization",
+      "author" : [ "S. Shalev-Shwartz", "T. Zhang" ],
+      "venue" : null,
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : "16",
+      "year" : 2013
+    }, {
+      "title" : "Estimating the approximation error in learning theory",
+      "author" : [ "S. Smale", "D.-X. Zhou" ],
+      "venue" : "Anal. Appl. (Singap.),",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : "17",
+      "year" : 2003
+    }, {
+      "title" : "Fast rates for regularized objectives",
+      "author" : [ "K. Sridharan", "S. Shalev-Shwartz", "N. Srebro" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : "18",
+      "year" : 2008
+    }, {
+      "title" : "Dual averaging and proximal gradient descent for online alternating direction multiplier method",
+      "author" : [ "T. Suzuki" ],
+      "venue" : "In ICML,",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : "19",
+      "year" : 2013
+    }, {
+      "title" : "Mini-batch primal and dual methods for svms",
+      "author" : [ "M. Takác", "A.S. Bijral", "P. Richtárik", "N. Srebro" ],
+      "venue" : "In ICML,",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : "20",
+      "year" : 2013
+    }, {
+      "title" : "Bundle methods for regularized risk minimization",
+      "author" : [ "C.H. Teo", "S. Vishwanthan", "A.J. Smola", "Q.V. Le" ],
+      "venue" : null,
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : "21",
+      "year" : 2010
+    }, {
+      "title" : "Communication/computation tradeoffs in consensus-based distributed optimization",
+      "author" : [ "K.I. Tsianos", "S. Lawlor", "M.G. Rabbat" ],
+      "venue" : "In NIPS, pages 1952–1960,",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : "22",
+      "year" : 2012
+    }, {
+      "title" : "Efficient distributed linear classification algorithms via the alternating direction method of multipliers",
+      "author" : [ "C. Zhang", "H. Lee", "K.G. Shin" ],
+      "venue" : "In AISTAT,",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : "23",
+      "year" : 2012
+    }, {
+      "title" : "Parallelized stochastic gradient descent",
+      "author" : [ "M. Zinkevich", "M. Weimer", "A. Smola", "L. Li" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : "24",
+      "year" : 2010
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 1,
+      "context" : "In order to efficiently solve large scale machine learning problems with millions of and even billions of data points, it has become popular to take advantage of the computational power of multi-cores in a single machine or multi-machines on a cluster to optimize the problems in a parallel fashion or a distributed fashion [2].",
+      "startOffset" : 324,
+      "endOffset" : 327
+    }, {
+      "referenceID" : 7,
+      "context" : "The RLM problem has been studied extensively in machine learning, and many efficient sequential algorithms have been developed in the past decades [8, 16, 10].",
+      "startOffset" : 147,
+      "endOffset" : 158
+    }, {
+      "referenceID" : 15,
+      "context" : "The RLM problem has been studied extensively in machine learning, and many efficient sequential algorithms have been developed in the past decades [8, 16, 10].",
+      "startOffset" : 147,
+      "endOffset" : 158
+    }, {
+      "referenceID" : 9,
+      "context" : "The RLM problem has been studied extensively in machine learning, and many efficient sequential algorithms have been developed in the past decades [8, 16, 10].",
+      "startOffset" : 147,
+      "endOffset" : 158
+    }, {
+      "referenceID" : 20,
+      "context" : "In contrast to previous works of distributed optimization that are based on either (stochastic) gradient descent (GD and SGD) methods [21, 11] or alternating direction methods of multipliers (ADMM) [2, 23], we motivate our research from the recent advances on (stochastic) dual coordinate ascent (DCA and SDCA) algorithms [8, 16].",
+      "startOffset" : 134,
+      "endOffset" : 142
+    }, {
+      "referenceID" : 10,
+      "context" : "In contrast to previous works of distributed optimization that are based on either (stochastic) gradient descent (GD and SGD) methods [21, 11] or alternating direction methods of multipliers (ADMM) [2, 23], we motivate our research from the recent advances on (stochastic) dual coordinate ascent (DCA and SDCA) algorithms [8, 16].",
+      "startOffset" : 134,
+      "endOffset" : 142
+    }, {
+      "referenceID" : 1,
+      "context" : "In contrast to previous works of distributed optimization that are based on either (stochastic) gradient descent (GD and SGD) methods [21, 11] or alternating direction methods of multipliers (ADMM) [2, 23], we motivate our research from the recent advances on (stochastic) dual coordinate ascent (DCA and SDCA) algorithms [8, 16].",
+      "startOffset" : 198,
+      "endOffset" : 205
+    }, {
+      "referenceID" : 22,
+      "context" : "In contrast to previous works of distributed optimization that are based on either (stochastic) gradient descent (GD and SGD) methods [21, 11] or alternating direction methods of multipliers (ADMM) [2, 23], we motivate our research from the recent advances on (stochastic) dual coordinate ascent (DCA and SDCA) algorithms [8, 16].",
+      "startOffset" : 198,
+      "endOffset" : 205
+    }, {
+      "referenceID" : 7,
+      "context" : "In contrast to previous works of distributed optimization that are based on either (stochastic) gradient descent (GD and SGD) methods [21, 11] or alternating direction methods of multipliers (ADMM) [2, 23], we motivate our research from the recent advances on (stochastic) dual coordinate ascent (DCA and SDCA) algorithms [8, 16].",
+      "startOffset" : 322,
+      "endOffset" : 329
+    }, {
+      "referenceID" : 15,
+      "context" : "In contrast to previous works of distributed optimization that are based on either (stochastic) gradient descent (GD and SGD) methods [21, 11] or alternating direction methods of multipliers (ADMM) [2, 23], we motivate our research from the recent advances on (stochastic) dual coordinate ascent (DCA and SDCA) algorithms [8, 16].",
+      "startOffset" : 322,
+      "endOffset" : 329
+    }, {
+      "referenceID" : 1,
+      "context" : "2 Related Work Recent years have seen the great emergence of distributed algorithms for solving machine learning related problems [2, 9].",
+      "startOffset" : 130,
+      "endOffset" : 136
+    }, {
+      "referenceID" : 8,
+      "context" : "2 Related Work Recent years have seen the great emergence of distributed algorithms for solving machine learning related problems [2, 9].",
+      "startOffset" : 130,
+      "endOffset" : 136
+    }, {
+      "referenceID" : 12,
+      "context" : "This idea has been implemented in a MapReduce framework [13, 4] and a MPI framework [21, 11].",
+      "startOffset" : 56,
+      "endOffset" : 63
+    }, {
+      "referenceID" : 3,
+      "context" : "This idea has been implemented in a MapReduce framework [13, 4] and a MPI framework [21, 11].",
+      "startOffset" : 56,
+      "endOffset" : 63
+    }, {
+      "referenceID" : 20,
+      "context" : "This idea has been implemented in a MapReduce framework [13, 4] and a MPI framework [21, 11].",
+      "startOffset" : 84,
+      "endOffset" : 92
+    }, {
+      "referenceID" : 10,
+      "context" : "This idea has been implemented in a MapReduce framework [13, 4] and a MPI framework [21, 11].",
+      "startOffset" : 84,
+      "endOffset" : 92
+    }, {
+      "referenceID" : 0,
+      "context" : "Many variants of GD methods have be deployed in a similar style [1].",
+      "startOffset" : 64,
+      "endOffset" : 67
+    }, {
+      "referenceID" : 1,
+      "context" : "ADMM has been employed for solving machine learning problems in a distributed fashion [2, 23], due to its superior convergences and performances [5, 23].",
+      "startOffset" : 86,
+      "endOffset" : 93
+    }, {
+      "referenceID" : 22,
+      "context" : "ADMM has been employed for solving machine learning problems in a distributed fashion [2, 23], due to its superior convergences and performances [5, 23].",
+      "startOffset" : 86,
+      "endOffset" : 93
+    }, {
+      "referenceID" : 4,
+      "context" : "ADMM has been employed for solving machine learning problems in a distributed fashion [2, 23], due to its superior convergences and performances [5, 23].",
+      "startOffset" : 145,
+      "endOffset" : 152
+    }, {
+      "referenceID" : 22,
+      "context" : "ADMM has been employed for solving machine learning problems in a distributed fashion [2, 23], due to its superior convergences and performances [5, 23].",
+      "startOffset" : 145,
+      "endOffset" : 152
+    }, {
+      "referenceID" : 6,
+      "context" : "The original ADMM [7] is proposed for solving equality constrained minimization problems.",
+      "startOffset" : 18,
+      "endOffset" : 21
+    }, {
+      "referenceID" : 18,
+      "context" : "Recently, several works [19, 14] have made efforts to extend ADMM to its online or stochastic versions.",
+      "startOffset" : 24,
+      "endOffset" : 32
+    }, {
+      "referenceID" : 13,
+      "context" : "Recently, several works [19, 14] have made efforts to extend ADMM to its online or stochastic versions.",
+      "startOffset" : 24,
+      "endOffset" : 32
+    }, {
+      "referenceID" : 11,
+      "context" : "The advances on DCA and SDCA algorithms [12, 8, 16] motivate the present work.",
+      "startOffset" : 40,
+      "endOffset" : 51
+    }, {
+      "referenceID" : 7,
+      "context" : "The advances on DCA and SDCA algorithms [12, 8, 16] motivate the present work.",
+      "startOffset" : 40,
+      "endOffset" : 51
+    }, {
+      "referenceID" : 15,
+      "context" : "The advances on DCA and SDCA algorithms [12, 8, 16] motivate the present work.",
+      "startOffset" : 40,
+      "endOffset" : 51
+    }, {
+      "referenceID" : 15,
+      "context" : "Zhang [16] have derived new bounds on the duality gap, which have been shown to be superior to earlier results.",
+      "startOffset" : 6,
+      "endOffset" : 10
+    }, {
+      "referenceID" : 19,
+      "context" : "[20] have recently published a paper to study the parallel speedup of mini-batch primal and dual methods for SVM with hinge loss and establish the convergence bounds of mini-batch Pegasos and SDCA depending on the size of the mini-batch.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 2,
+      "context" : "Other related but different work include [3], which presents Shotgun, a parallel coordinate descent algorithm for solving `1 regularized minimization problems.",
+      "startOffset" : 41,
+      "endOffset" : 44
+    }, {
+      "referenceID" : 21,
+      "context" : "All these issues are related to the tradeoff between communication and computation [22, 24].",
+      "startOffset" : 83,
+      "endOffset" : 91
+    }, {
+      "referenceID" : 23,
+      "context" : "All these issues are related to the tradeoff between communication and computation [22, 24].",
+      "startOffset" : 83,
+      "endOffset" : 91
+    }, {
+      "referenceID" : 15,
+      "context" : ", L1, L2 hinge losses, square loss and absolute loss) [16].",
+      "startOffset" : 54,
+      "endOffset" : 58
+    }, {
+      "referenceID" : 15,
+      "context" : "Note that different from the options presented in [16], the ones in Incdual use a slightly different scalar factor mK in the quadratic term to adapt for the number of updated dual variables.",
+      "startOffset" : 50,
+      "endOffset" : 54
+    }, {
+      "referenceID" : 19,
+      "context" : "Remark: In [20], the authors established a convergence bound of mini-batch SDCA for L1-SVM that depends on the spectral norm of the data.",
+      "startOffset" : 11,
+      "endOffset" : 15
+    }, {
+      "referenceID" : 19,
+      "context" : "The value of βmK is usually smaller than mK and the authors in [20] have provided an expression for computing βmK based on the spectral norm σ of the data matrix X/ √ n = (x1, .",
+      "startOffset" : 63,
+      "endOffset" : 67
+    }, {
+      "referenceID" : 19,
+      "context" : "The authors in [20] also presented an aggressive variant to adjust β adaptively and observed improvements.",
+      "startOffset" : 15,
+      "endOffset" : 19
+    }, {
+      "referenceID" : 16,
+      "context" : "Several pieces of works [17, 18, 6] have suggested that in order to obtain an optimal generalization error, the optimal λ scales like Θ(n−1/(1+τ)), where τ ∈ (0, 1].",
+      "startOffset" : 24,
+      "endOffset" : 35
+    }, {
+      "referenceID" : 17,
+      "context" : "Several pieces of works [17, 18, 6] have suggested that in order to obtain an optimal generalization error, the optimal λ scales like Θ(n−1/(1+τ)), where τ ∈ (0, 1].",
+      "startOffset" : 24,
+      "endOffset" : 35
+    }, {
+      "referenceID" : 5,
+      "context" : "Several pieces of works [17, 18, 6] have suggested that in order to obtain an optimal generalization error, the optimal λ scales like Θ(n−1/(1+τ)), where τ ∈ (0, 1].",
+      "startOffset" : 24,
+      "endOffset" : 35
+    }, {
+      "referenceID" : 17,
+      "context" : "For example, the analysis in [18] suggests λ = Θ ( 1 √ n ) for SVM.",
+      "startOffset" : 29,
+      "endOffset" : 33
+    }, {
+      "referenceID" : 22,
+      "context" : "In a recent work [23] of applying ADMM to solving the L2-SVM problem in the same distributed fashion, the authors exploited different strategies for solving the subproblem (5) associated with L2-SVM, among which the DCA algorithm with only one pass of all data points gives the best performance in terms of running time (e.",
+      "startOffset" : 17,
+      "endOffset" : 21
+    }, {
+      "referenceID" : 19,
+      "context" : "In the legend of figures, we use DisDCA-b to denote the basic variant, DisDCA-p to denote the practical variant, and DisDCA-a to denote the aggressive variant of DisDCA [20].",
+      "startOffset" : 169,
+      "endOffset" : 173
+    }, {
+      "referenceID" : 19,
+      "context" : "We also include the performances of the aggressive variant proposed in [20], by applying the aggressive updates on the m sampled examples in each machine without incurring additional communication cost.",
+      "startOffset" : 71,
+      "endOffset" : 75
+    }, {
+      "referenceID" : 14,
+      "context" : "For optimizing L2-SVM, we implement the stochastic average gradient (SAG) algorithm [15], which also enjoys a linear convergence for smooth and strongly convex problems.",
+      "startOffset" : 84,
+      "endOffset" : 88
+    }, {
+      "referenceID" : 13,
+      "context" : "For ADMM-based algorithms, we implement a stochastic ADMM in [14] (ADMM-s) and a deterministic ADMM in [23] (ADMM-dca) that employes the DCA algorithm for solving the subproblems.",
+      "startOffset" : 61,
+      "endOffset" : 65
+    }, {
+      "referenceID" : 22,
+      "context" : "For ADMM-based algorithms, we implement a stochastic ADMM in [14] (ADMM-s) and a deterministic ADMM in [23] (ADMM-dca) that employes the DCA algorithm for solving the subproblems.",
+      "startOffset" : 103,
+      "endOffset" : 107
+    } ],
+    "year" : 2013,
+    "abstractText" : "We present and study a distributed optimization algorithm by employing a stochastic dual coordinate ascent method. Stochastic dual coordinate ascent methods enjoy strong theoretical guarantees and often have better performances than stochastic gradient descent methods in optimizing regularized loss minimization problems. It still lacks of efforts in studying them in a distributed framework. We make a progress along the line by presenting a distributed stochastic dual coordinate ascent algorithm in a star network, with an analysis of the tradeoff between computation and communication. We verify our analysis by experiments on real data sets. Moreover, we compare the proposed algorithm with distributed stochastic gradient descent methods and distributed alternating direction methods of multipliers for optimizing SVMs in the same distributed framework, and observe competitive performances.",
+    "creator" : null
+  }
+}

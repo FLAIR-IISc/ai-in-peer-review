@@ -1,0 +1,60 @@
+Summary
+The paper proposes the Locally Adaptive Normal Distribution (LAND): replace the Euclidean metric in a Gaussian with a Riemannian distance induced by a smoothly varying, data-driven metric M(x). The metric is diagonal, built from locally weighted variances via a Gaussian kernel. The density is the Riemannian normal pM(x|µ,Σ) ∝ exp(−1/2 ⟨Logµ(x), Σ−1 Logµ(x)⟩) with normalization constant C that depends on µ, Σ, and M. The authors propose: (i) MC estimation of C by integrating over the tangent space at µ using samples v ∼ N(0, Σ) and Expµ(v), (ii) gradient-based MLE for µ and Σ, and (iii) a mixture (EM) extension. Experiments on synthetic data and EEG clustering suggest advantages over GMM and LS-based Riemannian estimators.
+
+Strengths
+- Conceptually appealing bridge between manifold learning (position-dependent metrics) and Riemannian statistics; using learned geodesics to define generative densities is interesting.
+- Practical motivation for integrating over the tangent space (IVPs) rather than directly over the manifold (BVPs).
+- Empirical results suggest improved modeling of non-elliptical structure and better clustering alignment on EEG.
+- Discussion candidly notes limitations (e.g., computational cost of Log maps, sensitivity to σ).
+
+Major concerns (technical correctness)
+1) Change of variables in normalization (Eq. 9): The derivation appears incomplete/incorrect. Starting from C = ∫ exp(−1/2 ⟨Logµ(x), Σ−1 Logµ(x)⟩) dM(x) with dM(x) = √|M(x)| dx in ambient coordinates, the substitution x = Expµ(v) requires the Jacobian |det d(Expµ)_v|:
+C = ∫ √|M(Expµ(v))| · |det d(Expµ)_v| · exp(−1/2 ⟨v, Σ−1 v⟩) dv.
+Eq. 9 keeps only √|M(Expµ(v))| and seems to omit |det d(Expµ)_v|, which in general is not 1 (except infinitesimally at v=0). This omission affects both the estimator (Eq. 10) and all gradients. This is a central issue.
+
+2) Gradients for µ and Σ (Eqs. 12–13): The µ-gradient of log C should involve ∂/∂µ of m(µ,v) and, if the correct change-of-variables is used, ∂/∂µ of |det dExp| as well. The formula in Eq. 12 produces a term proportional to EN[m(µ,v) v], which is not obviously justified. Likewise, the Σ-gradient in Eq. 13 ignores how Σ affects the sampling distribution vs ∼ N(0, Σ) and any dependence of m on Σ via Expµ (if reparameterization is used). The derivations are deferred to the supplement; as written, they are not convincing.
+
+3) Steepest descent direction: The replacement of the gradient by the “steepest descent” direction dµφ = −Σ ∇µφ is introduced without defining the metric on parameter space under which this is steepest. This preconditioning may be sensible but needs justification.
+
+4) Statistical evaluation on synthetic data: The metric “mean negative log-likelihood of the true generative distribution using samples from the fitted model” estimates Ex∼model[−log ptrue(x)], i.e., a cross-entropy with expectation under the model, not a standard measure of goodness of fit (e.g., Ex∼true[−log pmodel(x)]). This choice can be misleading (e.g., a mode-collapsed model can look artificially good). Please justify and/or report standard metrics.
+
+5) EM for mixtures: Details are missing. In mixtures, each component has its own normalization C(µk, Σk) that depends on µk and Ak; responsibilities and M-steps require consistent approximations. The supplement should make clear how MC noise is handled and whether common random numbers are used to stabilize E- and M-steps.
+
+6) Identifiability and scaling: Since both M(x) and Σ define geometry in TµM, there may be scale ambiguities (e.g., multiplying M by c and Σ by 1/c). This is not discussed.
+
+Methodological and experimental weaknesses
+- Metric restriction: M(x) is diagonal in ambient coordinates and not invariant to rotations/linear transforms. This is acknowledged but, in practice, can severely limit performance and comparability across datasets; a discussion of preprocessing (e.g., whitening) is needed.
+- Hyperparameter tuning: For EEG, σ is selected by sweeping and reporting the best F-measure; it is unclear whether labels are used to pick σ (risking optimistic bias). If GMM baselines are not similarly tuned, the comparison is unfair. Provide a principled selection (e.g., via likelihood, unsupervised criteria) or ensure equal tuning for baselines.
+- Computational cost: The method requires S evaluations of Exp per C(µ,Σ) estimate and Log for each data point per iteration. No runtimes, scaling with D, N, K, or S, or variance analyses are reported (beyond S=3000 “works”). Convergence criteria in Algorithm 1 are truncated.
+- Robustness: Sensitivity to ρ (regularization), σ, step sizes (αµ, αA), and S is not reported, nor are failure modes (e.g., cut-locus issues, geodesic non-uniqueness).
+- Reproducibility: Many critical derivations are delegated to the supplement; code, seeds, and parameter settings are not provided.
+
+Clarity and presentation
+- Numerous formatting/citation issues: many references lack years/pages; some are malformed; figures appear as dangling captions (“Geodesics”, “LAND model”); “th Conference...” is truncated; Algorithm 1 stopping condition is incomplete; inconsistent notation (dist2 with/without metric); occasional missing subscripts/spaces.
+- Some claims are stated without proof or precise conditions (e.g., differentiability of Log, domain D(µ̂)=RD).
+- Theoretical framing around maximum-entropy is overemphasized given the learned nonparametric metric.
+
+Originality and significance
+- Novelty lies in using a learned Riemannian metric (via kernel-smoothed local variances) to define a Riemannian normal and performing ML estimation with MC normalization. The idea is interesting and could be impactful if the technical issues are resolved.
+- However, without a correct normalization and verified gradients, the contribution is not yet reliable enough for NeurIPS.
+
+Pros
+- Interesting and timely idea connecting manifold learning and generative modeling.
+- Empirically promising qualitative behavior on curved data.
+- Practical proposal (tangent-space MC) that could be valuable if made correct.
+
+Cons
+- Likely incorrect normalization (missing Jacobian of Exp) and questionable gradient derivations.
+- Evaluation choices and hyperparameter tuning raise fairness concerns.
+- Significant clarity, completeness, and presentation issues.
+- No runtime/variance analysis; scalability not demonstrated.
+
+Questions for authors
+- Please provide a full derivation of Eq. 9, explicitly accounting for |det dExpµ(v)|. If you claim it cancels or equals 1 for your construction, under what assumptions?
+- Provide detailed derivations for Eqs. 12–13, clarifying how the dependence of m on µ and Σ is handled, and whether reparameterization or score-function estimators are used.
+- How are step sizes chosen? What is the stopping criterion (Algorithm 1 is truncated)? Runtimes?
+- How is σ selected in EEG without label leakage? Are GMM baselines tuned equivalently?
+- Discuss scaling/identifiability between M and Σ. Does global rescaling of M change the model?
+
+Recommendation
+Reject. The core idea is appealing, but the technical foundation of the normalization and gradients appears flawed/incomplete, and the experimental evaluation and presentation have numerous issues. If the normalization is corrected (including Jacobians), derivations made rigorous, and experiments strengthened with fair tuning, runtime/scaling analyses, and cleaner presentation, this could become a solid contribution.

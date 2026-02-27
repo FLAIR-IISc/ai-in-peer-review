@@ -1,0 +1,44 @@
+1) Summary and contributions
+The paper proposes Neural Architecture Search (NAS), a reinforcement-learning-based framework that uses a recurrent “controller” to generate variable-length descriptions of neural network architectures. A sampled “child” architecture is trained on the target task; its validation performance serves as a reward to update the controller via REINFORCE with a moving-average baseline. The method supports:
+- CNN architecture search, including skip connections predicted via a set-selection attention mechanism and support for pooling/batch norm.
+- RNN cell search, where the controller specifies a computation tree over xt and ht−1, including where to inject and extract memory ct.
+- Large-scale, asynchronous distributed training to evaluate many children in parallel.
+
+Empirically, NAS finds competitive-to-state-of-the-art CNNs on CIFAR-10 (down to 3.65% test error after capacity scaling) and outperforms prior RNN cells on Penn Treebank (test perplexity 62.4), with additional transfer gains on character-level PTB and a small yet positive improvement in GNMT without retuning. Control experiments demonstrate robustness to enlarging the search space and superiority over random search on PTB.
+
+2) Decision
+Accept. Key reasons: (i) Clear, novel, and well-motivated approach to directly learn architecture generators over variable-length design spaces; (ii) Strong empirical results across modalities (vision and language), including transfer, with careful engineering to make the search scalable.
+
+3) Supporting arguments
+- Problem and motivation: The paper tackles the expensive, expertise-heavy process of manual architecture design. Prior hyperparameter optimization often assumes fixed-length design vectors; neuroevolution is flexible but slow and heuristic-heavy. Using an autoregressive controller with policy gradients is a principled way to explore large, structured, variable-length spaces, well-situated in meta-learning and sequence modeling literature.
+
+- Method novelty and clarity: The controller predicts a full architecture as a sequence of actions. The set-selection attention for predicting skip connections extends the search space to modern architectures. The RNN-cell search space is carefully constructed via a computation tree with memory injection/extraction, enabling discovery of nontrivial cells beyond LSTM. The use of an EMA baseline and reward shaping is sensible; distributed asynchronous training is crucial and well described.
+
+- Empirical strength: 
+  - CIFAR-10: The method discovers competitive CNNs. Notably, without stride/pooling, a relatively shallow 15-layer model achieves 5.50% error; with expanded search (strides and pooled blocks) and capacity scaling, 3.65% is reached, close to leading hand-designed models of the time. The qualitative analysis of skip connections and filter shapes suggests meaningful architectural motifs emerge.
+  - PTB: The discovered cell substantially improves perplexity (62.4), while being more computationally efficient than some strong baselines (e.g., RHN with many micro-steps). The transfer experiments to char-level modeling and GNMT further support generality.
+  - Robustness: Adding extra operations (max, sin) still yields good performance; comparison to random search shows both best-of-run and top-k averages improve as training progresses.
+
+- Rigor: The paper provides extensive training details, ablations (e.g., with/without stride/pooling, control experiments on PTB), and a clear reward/baseline specification. The decision to test once on the final best-validation model is appropriate.
+
+4) Suggestions for improvement (to help the authors; not all affect my decision)
+- Compute and reproducibility: Quantify the total compute budget (GPU/CPU hours), wall-clock time, and sample efficiency. Report how many architectures are needed to surpass baseline performance, variance across controller seeds, and the stability of learning. This will help practitioners gauge feasibility without 800 GPUs/large CPU farms.
+- Validation overfitting: The controller is trained against a fixed 5k validation subset reused thousands of times. Provide evidence of limited overfitting (e.g., performance on a second unseen validation split, or k-fold rotation during search). Discuss the effect of reward shaping (accuracy^3) on potential over-optimization.
+- Early stopping bias and training budget: Analyze correlation between child early-validation accuracy (after 50 epochs on CIFAR, 35 on PTB) and fully trained test performance. This would justify the training budget used during search and the final selection procedure.
+- Fairness and capacity controls: On CIFAR-10, the best number (3.65%) is achieved after increasing filter counts uniformly. Provide direct comparisons at matched parameter counts and/or FLOPs against reference baselines, and clarify whether the “1.05x faster than DenseNet” refers to inference throughput, training speed, or both.
+- Search space and ablations: 
+  - CIFAR: Provide ablations isolating the contribution of skip-connection prediction and the depth-increase schedule. Compare to random search on this space to mirror the PTB study.
+  - PTB: Discuss sensitivity to the “base number = 8,” choice of combination/activation sets, and where ct is injected/extracted.
+- Alternatives to REINFORCE: Given high variance, discuss whether actor-critic or advantage-weighted methods were tried, and their effects on convergence speed and sample efficiency.
+- Handling of invalid architectures: The paper pads to resolve size mismatches and uses default inputs for disconnected layers. Quantify how often such cases occur and whether they correlate with poorer performance.
+
+5) Questions for the authors
+- Compute and efficiency: What is the total compute cost (e.g., GPU/CPU hours) for the CIFAR-10 and PTB searches? How does performance improve as a function of number of evaluated architectures?
+- Validation leakage: Did you test the final selected architecture on a completely separate validation split before the single test evaluation to ensure the controller did not overfit the 5k validation subset?
+- Reward shaping: Why cube the validation accuracy on CIFAR, and square a scaled 1/perplexity on PTB? How sensitive are results to these transformations and to the EMA baseline hyperparameters?
+- Random search on CIFAR: How does random search perform under the same training budget and search space? Do you observe a similar gap as on PTB?
+- Controller stability: How many independent controller runs are needed to consistently reach competitive architectures? What is the variance across runs?
+- Search space sensitivity: On PTB, how does performance change with different base sizes (e.g., 4, 6, 10) or expanded operator sets? On CIFAR, how critical is the skip-connection set-selection mechanism relative to a simpler parameterization?
+- Speed claim: Please clarify the “1.05x faster than DenseNet” claim: inference speed, training time to target accuracy, or both? Under what hardware and batch sizes?
+
+Overall, this work is impactful, well-motivated, and empirically convincing, and it opens a concrete path toward automated architecture design.

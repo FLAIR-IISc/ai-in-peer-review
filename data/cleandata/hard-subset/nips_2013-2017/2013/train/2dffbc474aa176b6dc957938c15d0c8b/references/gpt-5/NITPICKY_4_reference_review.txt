@@ -1,0 +1,50 @@
+Summary
+This paper studies fully Bayesian inference and learning in Gaussian Process State-Space Models (GP-SSMs) by marginalizing the transition function f and sampling the latent states x0:T and hyperparameters θ using Particle MCMC, specifically Particle Gibbs with Ancestor Sampling (PGAS). The key idea is to collapse f to obtain a non-Markovian prior over state trajectories p(x1:T | x0, θ) that factorizes into GP one-step predictive Gaussians (Eq. 3), leading to a “Gaussian-looking” joint expression (Eq. 4) that depends nonlinearly on x1:t. SMC is adapted to the non-Markovian setting, and PGAS provides mixing over long horizons. A sparse FIC prior is proposed to reduce computational cost to O(M^2T). After smoothing, learning f reduces to standard GP regression, yielding a mixture-of-Gaussians predictive model (Eq. 10). Experiments include a nonlinear 1D benchmark with ambiguous signs and a cart-pole system.
+
+Relation to prior work: The paper positions itself against EM/MAP approaches to GP-SSMs (Turner et al., Wang et al.) and inference with learned GP dynamics (Deisenroth et al.). It leverages PMCMC (Andrieu et al.) and PGAS (Lindsten et al.), and adopts sparse GP ideas (Quiñonero-Candela & Rasmussen; Snelson & Ghahramani).
+
+Strengths
+- Conceptually clean fully Bayesian treatment that respects the nonparametric nature of GP dynamics by integrating out f.
+- Clever use of PGAS to address path degeneracy and sample non-Markovian latent trajectories.
+- Clear articulation of how to form predictive distributions as mixtures of GPs after smoothing, capturing multimodality.
+- Complexity discussion acknowledges the naive O(T^4), with thoughtful use of rank-one updates/downdates and sparse FIC to reduce cost.
+- Allowing arbitrary measurement models p(yt | xt, θy) is attractive.
+
+Weaknesses and detailed comments
+Technical soundness and details:
+- The proposal distribution in SMC (Eq. 5) is ambiguous: “xit ∼ p(xt | θ, xait0:t−1, y0:t).” For general non-Gaussian p(yt | xt), this “optimal” proposal is intractable. If the authors intend to use p(xt | θ, x0:t−1) instead, weights should reflect p(yt | xt); if they actually use the optimal proposal, they should provide the closed form (Gaussian only under additive Gaussian observation) or the approximation used. As written, the algorithmic step is underspecified.
+- Multi-output GP modeling is not defined. For nx > 1, are state dimensions modeled by independent GPs with shared kernel hyperparameters (i.e., block-diagonal structure with scalar kernel times I)? Or is there a full multi-output kernel (coregionalization)? K0:t−1 is said to be (nxt)×(nxt) with blocks k(xi, xj), but the nature and parametrization of those blocks are not specified. This directly affects correctness of Eqs. 3b–3c and implementation complexity.
+- “Exact marginalization” of f is correct for the chosen prior, but when switching to the FIC prior the paper states “we do not consider the resulting model to be an approximation to GP-SSM.” This is misleading: using FIC changes the prior and yields an approximation to the full GP-SSM with the original kernel. Please clarify that it is an exact inference for a different (sparser) prior, which approximates the full GP prior.
+- Computational claims need more rigor. The Cholesky rank-1 updates/downdates for replacing nx rows/columns per time step are nontrivial in stability; replacing a contiguous block is not strictly a sequence of guaranteed-stable downdates unless carefully implemented. Memory cost of storing Lit per particle is O(N T^2), which can be prohibitive; this is not discussed. Similarly, in the FIC case, achieving O(M^2T) “requires… reuse not only matrix factorizations, but also intermediate matrix–vector multiplications”—this is too high-level for replication; details (e.g., recursions, exact cached quantities) are missing.
+- Ancestor sampling weights (Eq. 6): the cancellation of likelihood terms is correct only up to constants independent of i; this should be stated, and a brief derivation for the non-Markovian case would help. Also, the notation p({xi0:t−1, x̃t:T}) is unusual; explicitly define how Eq. 4 is used to compute p(x̃t:T | xi0:t−1).
+- Hyperparameter sampling via slice sampling is called “straightforward,” but evaluating p(θx | x0:T) requires repeated log|K̃| and quadratic forms with θx-dependent K̃; practical mixing and computational burden are not reported. Which priors and parameterizations (e.g., log-lengthscales) are used?
+- The mixture-of-Gaussians predictive model (Eq. 10) may be expensive for large L; thinning and kernel herding are mentioned but without empirical assessment. Also, learning a single GP to approximate the mixture is a heuristic—state whether this is used in experiments.
+
+Empirical evaluation:
+- The 1D benchmark uses N=20 particles, 50 PGAS iterations; no diagnostics (autocorrelation, ESS, R-hat, runtime) are reported. Claims of “very good mixing” are not quantified.
+- Predictive RMSE is defined on f(xt, ut) vs. ground truth using true states xt from a long test sequence. In practice xt is latent; reporting multi-step predictive accuracy on observations y, and robustness to state uncertainty, would be more informative.
+- The cart-pole experiment is qualitative (means and error bars) with no baselines, no multi-step rollouts, and no system identification metrics. Given the paper’s claims, stronger quantitative evaluation is needed.
+- Sparse FIC with 40 inducing points is briefly mentioned; no analysis of M-sensitivity, inducing point placement strategy, or comparison of speed/accuracy trade-offs.
+
+Clarity and presentation:
+- Notation issues: f(xt) ∼ GP is nonstandard (write f ∼ GP; ft = f(xt)). xt ∈ X , Rnx has stray comma. In Eq. (2a) mθx and kθx take x as input but u is omitted; be explicit about handling of u in kernels and mean. Subscripts/superscripts sometimes inconsistent (e.g., “It ⊗Q,” “K̃,” “K̃ −1 0:t−2”). Minor grammar (e.g., “different to”→“different from”).
+- References are inconsistently formatted, often missing years/venues/pages; some claims would benefit from explicit theorems or citations (e.g., complexity of PGAS for non-Markovian models).
+- Figures/Tables are referenced (Fig. 2, Table 1) but not described in sufficient detail to assess significance; please ensure reproducible settings (priors, kernel choices, initialization).
+
+Originality and significance:
+- Collapsing f and using PGAS for the resulting non-Markovian model is a compelling combination; to my knowledge, this specific instantiation for GP-SSMs was not standard in the cited literature and could be impactful.
+- However, the empirical section does not convincingly demonstrate advances over EM/MAP or learned-GP baselines, nor scalability beyond small T and nx.
+
+Pros
+- Principled fully Bayesian approach preserving nonparametric flexibility.
+- Appropriate use of PGAS for non-Markovian trajectories.
+- Thoughtful computational discussion and sparse variant.
+
+Cons
+- Underspecified proposal/weighting in SMC for general likelihoods.
+- Unclear multi-output GP modeling assumptions.
+- Fragile/opaque complexity claims and memory considerations.
+- Weak quantitative evaluation and lack of diagnostics/baselines.
+- Numerous minor notation/formatting issues and incomplete references.
+
+Recommendation: Reject (lean). The idea is promising, but the paper needs clearer algorithmic specification (especially proposal and multi-output GP), stronger and more quantitative experiments (with baselines and diagnostics), and more rigorous/comprehensive implementation details to support the complexity claims. Addressing these issues would substantially strengthen the submission.

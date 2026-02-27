@@ -1,0 +1,627 @@
+{
+  "name" : "38811c5285e34e2e3319ab7d9f2cfa5b.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Effective Parallelisation for Machine Learning",
+    "authors" : [ "Michael Kamp", "Mario Boley" ],
+    "emails" : [ "kamp@cs.uni-bonn.de", "mboley@mpi-inf.mpg.de", "olanam@google.com", "thomas.gaertner@nottingham.ac.uk" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "This paper contributes a novel and provably effective parallelisation scheme for a broad class of learning algorithms. The significance of this result is to allow the confident application of machine learning algorithms with growing amounts of data. In critical application scenarios, i.e., when errors have almost prohibitively high cost, this confidence is essential [27, 36]. To this end, we consider the parallelisation of an algorithm to be effective if it achieves the same confidence and error bounds as the sequential execution of that algorithm in much shorter time. Indeed, our parallelisation scheme can reduce the runtime of learning algorithms from polynomial to polylogarithmic. For that, it consumes more data and is executed on a quasi-polynomial number of processing units.\nTo formally describe and analyse our parallelisation scheme, we consider the regularised risk minimisation setting. For a fixed but unknown joint probability distribution D over an input space X and an output space Y , a dataset D ⊆ X ×Y of size N ∈ N drawn iid from D, a convex hypothesis space F of functions f : X → Y , a loss function ` : F × X × Y → R that is convex in F , and a convex regularisation term Ω: F → R, regularised risk minimisation algorithms solve\nL(D) = argmin f∈F ∑ (x,y)∈D ` (f, x, y) + Ω(f) . (1)\nThe aim of this approach is to obtain a hypothesis f ∈ F with small regret Q (f) = E [` (f, x, y)]− argmin\nf ′∈F E [` (f ′, x, y)] . (2)\n31st Conference on Neural Information Processing Systems (NIPS 2017), Long Beach, CA, USA.\nRegularised risk minimisation algorithms are typically designed to be consistent and efficient. They are consistent if there is a function N0 : R+ ×R+ → R+ such that for all ε > 0, ∆ ∈ (0, 1], N ∈ N with N ≥ N0(ε,∆), and training data D ∼ DN , the probability of generating an ε-bad hypothesis is no greater than ∆, i.e., P (Q (L(D)) > ε) ≤ ∆ . (3) They are efficient if the sample complexity N0(ε,∆) is polynomial in 1/ε, log 1/∆ and the runtime complexity TL is polynomial in the sample complexity. This paper considers the parallelisation of such consistent and efficient learning algorithms, e.g., support vector machines, regularised least squares regression, and logistic regression. We additionally assume that data is abundant and that F can be parametrised in a fixed, finite dimensional Euclidean space Rd such that the convexity of the regularised risk minimisation problem (Equation 1) is preserved. In other cases, (non-linear) low-dimensional embeddings [2, 28] can preprocess the data to facilitate parallel learning with our scheme. With slight abuse of notation, we identify the hypothesis space with its parametrisation.\nThe main theoretical contribution of this paper is to show that algorithms satisfying the above conditions can be parallelised effectively. We consider a parallelisation to be effective if the (ε,∆)guarantees (Equation 3) are achieved in time polylogarithmic in N0(ε,∆). The cost for achieving this reduction in runtime comes in the form of an increased data size and in the number of processing units used. For the parallelisation scheme presented in this paper, we are able to bound this cost by a quasi-polynomial in 1/ε and log 1/∆. The main practical contribution of this paper is an effective parallelisation scheme that treats the underlying learning algorithm as a black-box, i.e., it can be parallelised without further mathematical derivations and without writing dedicated code.\nSimilar to averaging-based parallelisations [32, 45, 46], we apply the underlying learning algorithm in parallel to random subsets of the data. Each resulting hypothesis is assigned to a leaf of an aggregation tree which is then traversed bottom-up. Each inner node computes a new hypothesis that is a Radon point [30] of its children’s hypotheses. In contrast to aggregation by averaging, the Radon point increases the confidence in the aggregate doubly-exponentially with the height of the aggregation tree. We describe our parallelisation scheme, the Radon machine, in detail in Section 2. Comparing the Radon machine to the underlying learning algorithm which is applied to a dataset of the size necessary to achieve the same confidence, we are able to show a reduction in runtime from polynomial to polylogarithmic in Section 3.\nThe empirical evaluation of the Radon machine in Section 4 confirms its potential in practical settings. Given the same amount of data as the underlying learning algorithm, the Radon machine achieves a substantial reduction of computation time in realistic applications. Using 150 processors, the Radon machine is between 80 and around 700-times faster than the underlying learning algorithm on a single processing unit. Compared with parallel learning algorithms from Spark’s MLlib, it achieves hypotheses of similar quality, while requiring only 15− 85% of their runtime. Parallel computing [18] and its limitations [13] have been studied for a long time in theoretical computer science [7]. Parallelising polynomial time algorithms ranges from being ‘embarrassingly’ [26] easy to being believed to be impossible. For the class of decision problems that are the hardest in P, i.e., for P-complete problems, it is believed that there is no efficient parallel algorithm in the sense of Nick’s Class (NC [9]): efficient parallel algorithms in this sense are those that can be executed in polylogarithmic time on a polynomial number of processing units. Our paper thus contributes to\nAlgorithm 1 Radon Machine Input: learning algorithm L, dataset D ⊆ X × Y , Radon number r ∈ N, and parameter h ∈ N Output: hypothesis f ∈ F\n1: divide D into rh iid subsets Di of roughly equal size 2: run L in parallel to obtain fi = L(Di) 3: S ← {f1, . . . , frh} 4: for i = h− 1, . . . , 1 do 5: partition S into iid subsets S1, . . . , Sri of size r each 6: calculate Radon points r(S1), . . . , r(Sri) in parallel # see Definition 1 and Appendix C.1 7: S ← {r(S1), . . . , r(Sri)} 8: end for 9: return r(S)\nunderstanding the extent to which efficient parallelisation of polynomial time learning algorithms is possible. This connection and other approaches to parallel learning are discussed in Section 5."
+    }, {
+      "heading" : "2 From Radon Points to Radon Machines",
+      "text" : "The Radon machine, described in Algorithm 1, first executes the underlying (base) learning algorithm on random subsets of the data to quickly achieve weak hypotheses and then iteratively aggregates them to stronger ones. Both the generation of weak hypotheses and the aggregation can be executed in parallel. To aggregate hypotheses, we follow along the lines of the iterated Radon point algorithm which was originally devised to approximate the centre point, i.e., a point of largest Tukey depth [38], of a finite set of points [8]. The Radon point [30] of a set of points is defined as follows: Definition 1. A Radon partition of a set S ⊂ F is a pair A,B ⊂ S such that A ∩ B = ∅ but 〈A〉 ∩ 〈B〉 6= ∅, where 〈·〉 denotes the convex hull. The Radon number of a space F is the smallest r ∈ N such that for all S ⊂ F with |S| ≥ r there is a Radon partition; or ∞ if no S ⊂ F with Radon partition exists. A Radon point of a set S with Radon partition A,B is any r ∈ 〈A〉 ∩ 〈B〉.\nWe now present the Radon machine (Algorithm 1), which is able to effectively parallelise consistent and efficient learning algorithms. Input to this parallelisation scheme is a learning algorithm L on a hypothesis space F , a dataset D ⊆ X × Y , the Radon number r ∈ N of the hypothesis space F , and a parameter h ∈ N. It divides the dataset into rh subsets D1, . . . , Drh (line 1) and runs the algorithm L on each subset in parallel (line 2). Then, the set of hypotheses (line 3) is iteratively aggregated to form better sets of hypotheses (line 4-8). For that the set is partitioned into subsets of size r (line 5) and the Radon point of each subset is calculated in parallel (line 6). The final step of each iteration is to replace the set of hypotheses by the set of Radon points (line 7).\nThe scheme requires a hypothesis space with a valid notion of convexity and finite Radon number. While other notions of convexity are possible [16, 33], in this paper we restrict our consideration to Euclidean spaces with the usual notion of convexity. Radon’s theorem [30] states that the Euclidean space Rd has Radon number r = d + 2. Radon points can then be obtained by solving a system of linear equations of size r × r (to be fully self-contained we state the system of linear equations explicitly in Appendix C.1). The next proposition gives a guarantee on the quality of Radon points: Proposition 2. Given a probability measure P over a hypothesis space F with finite Radon number r, let F denote a random variable with distribution P . Furthermore, let r be the random variable obtained by computing the Radon point of r random points drawn according to P r. Then it holds for the expected regret Q and all ε ∈ R that\nP (Q (r) > ε) ≤ (rP (Q (F ) > ε))2 .\nThe proof of Proposition 2 is provided in Section 7. Note that this proof also shows the robustness of the Radon point compared to the average: if only one of r points is ε-bad, the Radon point is still ε-good, while the average may or may not be; indeed, in a linear space with any set of ε-good hypotheses and any ε′ ≥ ε, we can always find a single ε′-bad hypothesis such that the average of all these hypotheses is ε′-bad.\nA direct consequence of Proposition 2 is a bound on the probability that the output of the Radon machine with parameter h is bad: Theorem 3. Given a probability measure P over a hypothesis space F with finite Radon number r, let F denote a random variable with distribution P . Denote by r1 the random variable obtained by computing the Radon point of r random points drawn iid according to P and by P1 its distribution. For any h ∈ N, let rh denote the Radon point of r random points drawn iid from Ph−1 and by Ph its distribution. Then for any convex function Q : F → R and all ε ∈ R it holds that\nP (Q(rh) > ε) ≤ (rP (Q(F ) > ε))2 h .\nThe proof of Theorem 3 is also provided in Section 7. For the Radon machine with parameter h, Theorem 3 shows that the probability of obtaining an ε-bad hypothesis is doubly exponentially reduced: with a bound δ on this probability for the base learning algorithm, the bound ∆ on this probability for the Radon machine is\n∆ = (rδ) 2h\n. (4) In the next section we compare the Radon machine to its base learning algorithm which is applied to a dataset of the size necessary to achieve the same ε and ∆."
+    }, {
+      "heading" : "3 Sample and Runtime Complexity",
+      "text" : "In this section we first derive the sample and runtime complexity of the Radon machine R from the sample and runtime complexity of the base learning algorithm L. We then relate the runtime complexity of the Radon machine to an application of the base learning algorithm which achieves the same (ε,∆)-guarantee. For that, we consider consistent and efficient base learning algorithms with a sample complexity of the form NL0 (ε, δ) = (αε + βε ld 1/δ)\nk, for some1 αε, βε ∈ R, and k ∈ N. From now on, we also assume that δ ≤ 1/2r for the base learning algorithm.\nThe Radon machine creates rh base hypotheses and, with ∆ as in Equation 4, has sample complexity\nNR0 (ε,∆) = r hNL0 (ε, δ) = r h · ( αε + βε ld 1\nδ\n)k . (5)\nTheorem 3 then implies that the Radon machine with base learning algorithm L is consistent: with N ≥ NR0 (ε,∆) samples it achieves an (ε,∆)-guarantee. To achieve the same guarantee as the Radon machine, the application of the base learning algorithm L itself (sequentially) would require M ≥ NL0 (ε,∆) samples, where\nNL0 (ε,∆) = N L 0\n( ε, (rδ)2 h ) = ( αε + 2 h · βε ld 1\nrδ\n)k . (6)\nFor base learning algorithms L with runtime TL(n) polynomial in the data size n ∈ N, i.e., TL(n) ∈ O (nκ) with κ ∈ N, we now determine the runtime TR,h(N) of the Radon machine with h iterations and c = rh processing units on N ∈ N samples. In this case all base learning algorithms can be executed in parallel. In practical applications fewer physical processors can be used to simulate rh processing units—we discuss this case in Section 5.\nThe runtime of the Radon machine can be decomposed into the runtime of the base learning algorithm and the runtime for the aggregation. The base learning algorithm requires n ≥ NL0 (ε, δ) samples and can be executed on rh processors in parallel in time TL(n). The Radon point in each of the h iterations can then be calculated in parallel in time r3 (see Appendix C.1). Thus, the runtime of the Radon machine with N = rhn samples is\nTR,h(N) = TL (n) + hr 3 . (7)\nIn contrast, the runtime of the base learning algorithm for achieving the same guarantee is TL(M) with M ≥ NL0 (ε,∆). Ignoring logarithmic and constant terms, NL0 (ε,∆) behaves as 2hNL0 (ε, δ). To obtain polylogarithmic runtime of R compared to TL(M), we choose the parameter h ≈ ldM − ld ldM such that n ≈ M/2h = ldM . Thus, the runtime of the Radon machine is in O ( ldκM + r3 ldM ) . This result is formally summarised in Theorem 4.\nTheorem 4. The Radon machine with a consistent and efficient regularised risk minimisation algorithm on a hypothesis space with finite Radon number has polylogarithmic runtime on quasipolynomially many processing units if the Radon number can be upper bounded by a function polylogarithmic in the sample complexity of the efficient regularised risk minimisation algorithm.\nThe theorem is proven in Appendix A.1 and relates to Nick’s Class [1]: A decision problem can be solved efficiently in parallel in the sense of Nick’s Class, if it can be decided by an algorithm in polylogarithmic time on polynomially many processors (assuming, e.g., PRAM model). For the class of decision problems that are the hardest in P , i.e., for P -complete problems, it is believed that there is no efficient parallel algorithm for solving them in this sense. Theorem 4 provides a step towards finding efficient parallelisations of regularised risk minimisers and towards answering the open question: is consistent regularised risk minimisation possible in polylogarithmic time on polynomially many processors. A similar question, for the case of learning half spaces, has been called a fundamental open problem by Long and Servedio [21] who gave an algorithms which runs on polynomially many processors in time that depends polylogarithmically on the sample size but is inversely proportional to a parameter of the learning problem. While Nick’s Class as a notion of efficiency has been criticised [17], it is the only notion of efficiency that forms a proper complexity class in the sense of Blum [4]. To overcome the weakness of using only this notion, Kruskal et al. [17] suggested to consider also the inefficiency of simulating the parallel algorithm on a single processing unit. We discuss the inefficiency and the speed-up in Appendix A.2.\n1We derive αε, βε for hypothesis spaces with finite VC [41] and Rademacher [3] complexity in App. C.2."
+    }, {
+      "heading" : "4 Empirical Evaluation",
+      "text" : "This empirical study compares the Radon machine to state-of-the-art parallel machine learning algorithms from the Spark machine learning library [25], as well as the natural baseline of averaging hypotheses instead of calculating their Radon point (averaging-at-the-end, Avg). We use base learning algorithms from WEKA [44] and scikit-learn [29]. We compare the Radon machine to the base learning algorithms on moderately sized datasets, due to scalability limitations of the base learners, and reserve larger datasets for the comparison with parallel learners. The experiments are executed on a Spark cluster (5 worker nodes, 25 processors per node)2. All results are obtained using 10-fold cross validation. We apply the Radon machine with parameter h = 1 and the maximal parameter h such that each instance of the base learning algorithm is executed on a subset of size at least 100 (denoted h = max). Averaging-at-the-end executes the base learning algorithm on the same number of subsets rh as the Radon machine with that parameter and is denoted in the Figures by stating the parameter h as for the Radon machine. All other parameters of the learning algorithms are optimised on an independent split of the datasets. See Appendix B for additional details.\nWhat is the speed-up of our scheme in practice? In Figure 1(a), we compare the Radon machine to its base learners on moderately sized datasets (details on the datasets are provided in Appendix B).\n2The source code implementation in Spark can be found in the bitbucket repository https://bitbucket.org/Michael_Kamp/radonmachine.\nThere, the Radon machine is between 80 and around 700-times faster than the base learner using 150 processors. The speed-up is detailed in Figure 2. On the SUSY dataset (with 5 000 000 instances and 18 features), the Radon machine on 150 processors with h = 3 is 721 times faster than its base learning algorithms. At the same time, their predictive performances, measured by the area under the ROC curve (AUC) on an independent test dataset, are comparable.\nHow does the scheme compare to averagingat-the-end? In Figure 1(b) we compare the runtime and AUC of the parallelisation scheme against the averaging-at-the-end baseline (Avg). In terms of the AUC, the Radon machine outperforms the averaging-at-the-end baseline on all datasets by at least 10%. The runtimes can hardly be distinguished in that figure. A small difference can however be noted in Figure 4 which is discussed in more details in the next paragraph. Since averaging is less computationally expensive than calculating the Radon point, the runtimes of the averaging-at-the-end baselines are slightly lower than the ones of the Radon machine. However, compared to the computational complexity of executing the base learner, this advantage becomes negligible.\nHow does our scheme compare to state-of-the-art Spark machine learning algorithms? We compare the Radon machine to various Spark machine learning algorithms on 5 large datasets. The results in Figure 1(c) indicate that the proposed parallelisation scheme with h = max has a substantially smaller runtime than the Spark algorithms on all datasets. On the SUSY and HIGGS dataset, the Radon machine is one order of magnitude faster than the Spark implementations—here the comparatively small number of features allows for a high level of parallelism. On the CASP9 dataset, the Radon machine is 15% faster than the fastest Spark algorithm. The performance in terms of AUC of the Radon machine is similar to the Spark algorithms. In particular, when using WekaLogReg with h = max, the Radon machine outperforms the Spark algorithms in terms of AUC and runtime on the datasets SUSY, wikidata, and CASP9. Details are given in the Appendix B. A summarizing comparison of the parallel approaches in terms of their trade-off between runtime and predictive performance is depicted in Figure 4. Here, results are shown for the Radon machine and averagingat-the-end with parameter h = max and for the two Spark algorithms most similar to the base\nlearning algorithms. Note that it is unclear what caused the consistently weak performance of all algorithms on wikidata. Nonetheless, the results show that on all datasets the Radon machine has comparable predictive performance to the Spark algorithms and substantially higher predictive performance than averaging-at-the-end. At the same time, the Radon machine has a runtime comparable to averaging-at-the-end on all datasets and both are substantially faster than the Spark algorithms.\nHow does the runtime depend on the dataset size in a real-world system? The runtime of the Radon machine can be distinguished into its learning phase and its aggregation phase. While the learning phase fully benefits from parallelisation, this comes at the cost of additional runtime for the aggregation phase. The time for aggregating the hypotheses does not depend on the number of instances in the dataset but for a fixed parameter h it only depends on the dimension of the hypothesis space and that parameter. In Figure 3 we compare the runtimes of all base learning algorithms per dataset size to the Radon machines. Results indicate that, while the runtimes of the base learning algorithms depends on the dataset size with an average exponent of 1.57, the runtime of the Radon machine depends on the dataset size with an exponent of only 1.17.\nHow generally applicable is the scheme? As an indication of the general applicability in practice, we also consider regression and multi-class classification. For regression, we apply the scheme to the Scikit-learn implementation of regularised least squares regression [29]. On the dataset YearPredictionMSD, regularised least squares regression achieves an RMSE of 12.57, whereas the Radon machine achieved an RMSE of 13.64. At the same time, the Radon machine is 197-times faster. We also compare the Radon machine on a multi-class prediction problem using conditional maximum entropy models. For multi-class classification, we use the implementation described in Mcdonald et al. [23], who propose to use averaging-at-the-end for distributed training. We compare the Radon machine to averaging-at-the-end with conditional maximum entropy models on two large multiclass datasets (drift and spoken-arabic-digit). On average, our scheme performs better with only slightly longer runtime. The minimal difference in runtime can be explained—similar to the results in Figure 1(b)—by the smaller complexity of calculating the average instead of the Radon point."
+    }, {
+      "heading" : "5 Discussion and Future Work",
+      "text" : "In the experiments we considered datasets where the number of dimensions is much smaller than the number of instances. What about high-dimensional models? The basic version of the parallelisation scheme presented in this paper cannot directly be applied to cases in which the size of the dataset is not at least a multiple of the Radon number of the hypothesis space. For various types of data such as text, this might cause concerns. However, random projections [15] or low-rank approximations [2, 28] can alleviate this problem and are already frequently employed in machine learning. An alternative might be to combine our parallelisation scheme with block coordinate descent [37]. In this case, the scheme can be applied iteratively to subsets of the features.\nIn the experiments we considered only linear models. What about non-linear models? Learning non-linear models causes similar problems to learning high-dimensional ones. In non-parametric methods like kernel methods, for instance, the dimensionality of the optimisation problem is equal to the number of instances, thus prohibiting the application of our parallelisation scheme. However, similar low-rank approximation techniques as described above can be applied with non-linear kernels [11]. Furthermore, methods for speeding up the learning process for non-linear models explicitly approximate an embedding in which then a linear model can be learned [31]. Using explicitly constructed feature spaces, Radon machines can directly be applied to non-linear models.\nWe have theoretically analysed our parallelisation scheme for the case that there are enough processing units available to find each weak hypothesis on a separate processing units. What if there are not rh, but only c < rh processing units? The parallelisation scheme can quite naturally be “deparallelised” and partially executed in sequence. For the runtime this implies an additional factor of max{1, rh/c}. Thus, the Radon machine can be applied with any number of processing units. The scheme improves ∆ doubly exponentially in its parameter h but for that it requires the weak hypotheses to already achieve δ ≤ 1/2r. Is the scheme only applicable in high-confidence domains? Many application scenarios require high-confidence error bounds, e.g., in the medical domain [27] or in intrusion detection [36]. In practice our scheme achieves similar predictive quality much faster than its base learner.\nBesides runtime, communication plays an essential role in parallel learning. What is the communication complexity of the scheme? As for all aggregation at the end strategies, the overall amount of communication is low compared to periodically communicating schemes. For the parallel aggregation of hypotheses, the scheme requires O(rh+1) messages (which can be sent in parallel) each containing a single hypothesis of size O(r). Our scheme is ideally suited for inherently distributed data and might even mitigate privacy concerns.\nIn a lot of applications data is available in the form of potentially infinite data streams. Can the scheme be applied to distributed data streams? For each data stream, a hypotheses could be maintained using an online learning algorithm and periodically aggregated using the Radon machine, similar to the federated learning approach proposed by McMahan et al. [24].\nIn this paper, we investigated the parallelisation of machine learning algorithms. Is the Radon machine more generally applicable? The parallelisation scheme could be applied to more general randomized convex optimization algorithms with unknown and random target functions. We will investigate its applicability for learning in non-Euclidean, abstract convexity spaces."
+    }, {
+      "heading" : "6 Conclusion and Related Work",
+      "text" : "In this paper we provided a step towards answering an open problem: Is parallel machine learning possible in polylogarithmic time using a polynomial number of processors only? This question has been posed for half-spaces by Long and Servedio [21] and called “a fundamental open problem about the abilities and limitations of efficient parallel learning algorithms”. It relates machine learning to Nick’s Class of parallelisable decision problems and its variants [13]. Early theoretical treatments of parallel learning with respect to NC considered probably approximately correct (PAC) [5, 39] concept learning. Vitter and Lin [42] introduced the notion of NC-learnable for concept classes for which there is an algorithm that outputs a probably approximately correct hypothesis in polylogarithmic time using a polynomial number of processors. In this setting, they proved positive and negative learnability results for a number of concept classes that were previously known to be PAC-learnable in polynomial time. More recently, the special case of learning half spaces in parallel was considered by Long and Servedio [21] who gave an algorithm for this case that runs on polynomially many processors in time that depends polylogarithmically on the size of the instances but is inversely proportional to a parameter of the learning problem. Our paper complements these theoretical treatments of parallel machine learning and provides a provably effective parallelisation scheme for a broad class of regularised risk minimisation algorithms.\nSome parallelisation schemes also train learning algorithms on small chunks of data and average the found hypotheses. While this approach has advantages [12, 32], current error bounds do not allow a derivation of polylogarithmic runtime [20, 35, 45] and it has been doubted to have any benefit over learning on a single chunk [34]. Another popular class of parallel learning algorithms is based on stochastic gradient descent, targeting expected risk minimisation directly [34, and references therein]. The best so far known algorithm in this class [34] is the distributed mini-batch algorithm [10]. This algorithm still runs for a number of rounds inversely proportional to the desired optimisation error, hence not in polylogarithmic time. A more traditional approach is to minimise the empirical risk, i.e., an empirical sample-based approximation of the expected risk, using any, deterministic or randomised, optimisation algorithm. This approach relies on generalisation guarantees relating the expected and empirical risk minimisation as well as a guarantee on the optimisation error introduced by the optimisation algorithm. The approach is readily parallelisable by employing available parallel optimisation algorithms [e.g., 6]. It is worth noting that these algorithms solve a harder than necessary optimisation problem and often come with prohibitively high communication cost in distributed settings [34]. Recent results improve over these [22] but cannot achieve polylogarithmic time as the number of iterations depends linearly on the number of processors.\nApart from its theoretical advantages, the Radon machine also has several practical benefits. In particular, it is a black-box parallelisation scheme in the sense that it is applicable to a wide range of machine learning algorithms and it does not depend on the implementation of these algorithms. It speeds up learning while achieving a similar hypothesis quality as the base learner. Our empirical evaluation indicates that in practice the Radon machine achieves either a substantial speed-up or a higher predictive performance than other parallel machine learning algorithms."
+    }, {
+      "heading" : "7 Proof of Proposition 2 and Theorem 3",
+      "text" : "In order to prove Proposition 2 and consecutively Theorem 3, we first investigate some properties of Radon points and convex functions. We proof these properties for the more general case of quasiconvex functions. Since every convex function is also quasi-convex, the results hold for convex functions as well. A quasi-convex function is defined as follows. Definition 5. A function Q : F → R is called quasi-convex if all its sublevel sets are convex, i.e.,\n∀θ ∈ R : {f ∈ F | Q (f) < θ} is convex.\nFirst we give a different characterisation of quasi-convex functions. Proposition 6. A function Q : F → R is quasi-convex if and only if for all S ⊆ F and all s′ ∈ 〈S〉 there exists an s ∈ S with Q (s) ≥ Q (s′).\nProof.\n(⇒) Suppose this direction does not hold. Then there is a quasi-convex functionQ, a set S ⊆ F , and an s′ ∈ 〈S〉 such that for all s ∈ S it holds that Q (s) < Q (s′) (therefore s′ /∈ S). Let C = {c ∈ F | Q (c) < Q (s′)}. As S ⊆ C = 〈C〉 we also have that 〈S〉 ⊆ 〈C〉 which contradicts 〈S〉 3 s′ /∈ C.\n(⇐) Suppose this direction does not hold. Then there exists an ε such that S = {s ∈ F | Q (s) < ε} is not convex and therefore there is an s′ ∈ 〈S〉 \\ S. By assumption ∃s ∈ S : Q (s) ≥ Q (s′). Hence Q (s′) < ε and we have a contradiction since this would imply s′ ∈ S.\nThe next proposition concerns the value of any convex function at a Radon point. Proposition 7. For every set S with Radon point r and every quasi-convex function Q it holds that |{s ∈ S | Q (s) ≥ Q (r)}| ≥ 2.\nProof. We show a slightly stronger result: Take any family of pairwise disjoint sets Ai with⋂ i〈Ai〉 6= ∅ and r ∈ ⋂ i〈Ai〉. From proposition 6 follows directly the existence of an ai ∈ Ai such that Q (ai) ≥ Q (r). The desired result follows then from ai 6= aj ⇐ i 6= j.\nWe are now ready to proof Proposition 2 and Theorem 3 (which we re-state here for convenience). Theorem 3. Given a probability measure P over a hypothesis space F with finite Radon number r, let F denote a random variable with distribution P . Denote by r1 the random variable obtained by computing the Radon point of r random points drawn iid according to P and by P1 its distribution. For any h ∈ N, let rh denote the Radon point of r random points drawn iid from Ph−1 and by Ph its distribution. Then for any convex function Q : F → R and all ε ∈ R it holds that\nP (Q(rh) > ε) ≤ (rP (Q(F ) > ε))2 h .\nProof of Proposition 2 and Theorem 3. By proposition 7, for any Radon point r of a set S there must be two points a, b ∈ S with Q (a) ,Q (b) ≥ Q (r). Henceforth, the probability of Q (r) > ε is less than or equal to the probability of the pair a, b havingQ (a) ,Q (b) > ε. Proposition 2 follows by an application of the union bound on all pairs from S. Repeated application of the proposition proves Theorem 3."
+    }, {
+      "heading" : "Acknowledgements",
+      "text" : "Part of this work was conducted while Mario Boley, Olana Missura, and Thomas Gärtner were at the University of Bonn and partially funded by the German Science Foundation (DFG, under ref. GA 1615/1-1 and GA 1615/2-1). The authors would like to thank Dino Oglic, Graham Hutton, Roderick MacKenzie, and Stefan Wrobel for valuable discussions and comments."
+    } ],
+    "references" : [ {
+      "title" : "Computational complexity: A modern approach",
+      "author" : [ "Sanjeev Arora", "Boaz Barak" ],
+      "venue" : null,
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : "1",
+      "year" : 2009
+    }, {
+      "title" : "Communication efficient distributed kernel principal component analysis",
+      "author" : [ "Maria Florina Balcan", "Yingyu Liang", "Le Song", "David Woodruff", "Bo Xie" ],
+      "venue" : "In Proceedings of the 22nd ACM SIGKDD International Conference on Knowledge Discovery and Data Mining,",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 2016
+    }, {
+      "title" : "Rademacher and gaussian complexities: Risk bounds and structural results",
+      "author" : [ "Peter L. Bartlett", "Shahar Mendelson" ],
+      "venue" : "Journal of Machine Learning Research,",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 2003
+    }, {
+      "title" : "A machine-independent theory of the complexity of recursive functions",
+      "author" : [ "Manuel Blum" ],
+      "venue" : "Journal of the ACM (JACM),",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : "4",
+      "year" : 1967
+    }, {
+      "title" : "Learnability and the Vapnik-Chervonenkis dimension",
+      "author" : [ "Anselm Blumer", "Andrzej Ehrenfeucht", "David Haussler", "Manfred K Warmuth" ],
+      "venue" : "Journal of the ACM (JACM),",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : "5",
+      "year" : 1989
+    }, {
+      "title" : "Distributed optimization and statistical learning via the alternating direction method of multipliers",
+      "author" : [ "Stephen Boyd", "Neal Parikh", "Eric Chu", "Borja Peleato", "Jonathan Eckstein" ],
+      "venue" : "Foundations and Trends® in Machine Learning,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : "6",
+      "year" : 2011
+    }, {
+      "title" : "Approximating center points with iterative Radon points",
+      "author" : [ "Kenneth L. Clarkson", "David Eppstein", "Gary L. Miller", "Carl Sturtivant", "Shang-Hua Teng" ],
+      "venue" : "International Journal of Computational Geometry & Applications,",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : "8",
+      "year" : 1996
+    }, {
+      "title" : "Deterministic CFL’s are accepted simultaneously in polynomial time and log squared space",
+      "author" : [ "Stephen A. Cook" ],
+      "venue" : "In Proceedings of the eleventh annual ACM symposium on Theory of computing,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 1979
+    }, {
+      "title" : "Optimal distributed online prediction using mini-batches",
+      "author" : [ "Ofer Dekel", "Ran Gilad-Bachrach", "Ohad Shamir", "Lin Xiao" ],
+      "venue" : "Journal of Machine Learning Research,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : "10",
+      "year" : 2012
+    }, {
+      "title" : "Efficient svm training using low-rank kernel representations",
+      "author" : [ "Shai Fine", "Katya Scheinberg" ],
+      "venue" : "Journal of Machine Learning Research,",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 2002
+    }, {
+      "title" : "Why averaging classifiers can protect against overfitting",
+      "author" : [ "Yoav Freund", "Yishay Mansour", "Robert E. Schapire" ],
+      "venue" : "In Proceedings of the 8th International Workshop on Artificial Intelligence and Statistics,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 2001
+    }, {
+      "title" : "Limits to parallel computation: P-completeness theory",
+      "author" : [ "Raymond Greenlaw", "H. James Hoover", "Walter L. Ruzzo" ],
+      "venue" : null,
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 1995
+    }, {
+      "title" : "The optimal sample complexity of PAC learning",
+      "author" : [ "Steve Hanneke" ],
+      "venue" : "Journal of Machine Learning Research,",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 2016
+    }, {
+      "title" : "Extensions of lipschitz mappings into a hilbert space",
+      "author" : [ "William B. Johnson", "Joram Lindenstrauss" ],
+      "venue" : "Contemporary mathematics,",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : "15",
+      "year" : 1984
+    }, {
+      "title" : "Axiomatic convexity theory and relationships between the Carathéodory",
+      "author" : [ "David Kay", "Eugene W. Womble" ],
+      "venue" : "Helly, and Radon numbers. Pacific Journal of Mathematics,",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : "16",
+      "year" : 1971
+    }, {
+      "title" : "A complexity theory of efficient parallel algorithms",
+      "author" : [ "Clyde P. Kruskal", "Larry Rudolph", "Marc Snir" ],
+      "venue" : "Theoretical Computer Science,",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : "17",
+      "year" : 1990
+    }, {
+      "title" : "Introduction to parallel computing: design and analysis of algorithms",
+      "author" : [ "Vipin Kumar", "Ananth Grama", "Anshul Gupta", "George Karypis" ],
+      "venue" : "Benjamin-Cummings Publishing Co., Inc.,",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : "18",
+      "year" : 1994
+    }, {
+      "title" : "Distributed learning with regularized least squares",
+      "author" : [ "Shao-Bo Lin", "Xin Guo", "Ding-Xuan Zhou" ],
+      "venue" : "Journal of Machine Learning Research,",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : "20",
+      "year" : 2017
+    }, {
+      "title" : "Algorithms and hardness results for parallel large margin learning",
+      "author" : [ "Philip M. Long", "Rocco A. Servedio" ],
+      "venue" : "Journal of Machine Learning Research,",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : "21",
+      "year" : 2013
+    }, {
+      "title" : "Distributed optimization with arbitrary local solvers",
+      "author" : [ "Chenxin Ma", "Jakub Konečný", "Martin Jaggi", "Virginia Smith", "Michael I. Jordan", "Peter Richtárik", "Martin Takáč" ],
+      "venue" : "Optimization Methods and Software,",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : "22",
+      "year" : 2017
+    }, {
+      "title" : "Efficient large-scale distributed training of conditional maximum entropy models",
+      "author" : [ "Ryan Mcdonald", "Mehryar Mohri", "Nathan Silberman", "Dan Walker", "Gideon S. Mann" ],
+      "venue" : "In Advances in Neural Information Processing Systems,",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : "23",
+      "year" : 2009
+    }, {
+      "title" : "Communication-efficient learning of deep networks from decentralized data",
+      "author" : [ "Brendan McMahan", "Eider Moore", "Daniel Ramage", "Seth Hampson", "Blaise Aguera y Arcas" ],
+      "venue" : "In Artificial Intelligence and Statistics,",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : "24",
+      "year" : 2017
+    }, {
+      "title" : "Mllib: Machine learning in apache spark",
+      "author" : [ "Xiangrui Meng", "Joseph Bradley", "Burak Yavuz", "Evan Sparks", "Shivaram Venkataraman", "Davies Liu", "Jeremy Freeman", "DB Tsai", "Manish Amde", "Sean Owen", "Doris Xin", "Reynold Xin", "Michael J. Franklin", "Reza Zadeh", "Matei Zaharia", "Ameet Talwalkar" ],
+      "venue" : "Journal of Machine Learning Research,",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : "25",
+      "year" : 2016
+    }, {
+      "title" : "Matrix computation on distributed memory multiprocessors",
+      "author" : [ "Cleve Moler" ],
+      "venue" : "Hypercube Multiprocessors,",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : "26",
+      "year" : 1986
+    }, {
+      "title" : "Machine learning classification with confidence: application of transductive conformal predictors to MRI-based diagnostic and prognostic markers in depression",
+      "author" : [ "Ilia Nouretdinov", "Sergi G. Costafreda", "Alexander Gammerman", "Alexey Chervonenkis", "Vladimir Vovk", "Vladimir Vapnik", "Cynthia H.Y. Fu" ],
+      "venue" : null,
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : "27",
+      "year" : 2011
+    }, {
+      "title" : "Nyström method with kernel k-means++ samples as landmarks",
+      "author" : [ "Dino Oglic", "Thomas Gärtner" ],
+      "venue" : "In Proceedings of the 34th International Conference on Machine Learning,",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : "28",
+      "year" : 2017
+    }, {
+      "title" : "Scikit-learn: Machine learning in Python",
+      "author" : [ "Fabian Pedregosa", "Gaël Varoquaux", "Alexandre Gramfort", "Vincent Michel", "Bertrand Thirion", "Olivier Grisel", "Mathieu Blondel", "Peter Prettenhofer", "RRon Weiss", "Vincent Dubourg", "Jake Vanderplas", "AAlexandre Passos", "David Cournapeau", "Matthieu Brucher", "Matthieu Perrot", "Édouard Duchesnay Duchesnay" ],
+      "venue" : "Journal of Machine Learning Research,",
+      "citeRegEx" : "29",
+      "shortCiteRegEx" : "29",
+      "year" : 2011
+    }, {
+      "title" : "Mengen konvexer Körper, die einen gemeinsamen Punkt enthalten",
+      "author" : [ "Johann Radon" ],
+      "venue" : "Mathematische Annalen,",
+      "citeRegEx" : "30",
+      "shortCiteRegEx" : "30",
+      "year" : 1921
+    }, {
+      "title" : "Random features for large-scale kernel machines",
+      "author" : [ "Ali Rahimi", "Benjamin Recht" ],
+      "venue" : "In Advances in Neural Information Processing Systems,",
+      "citeRegEx" : "31",
+      "shortCiteRegEx" : "31",
+      "year" : 2007
+    }, {
+      "title" : "On the optimality of averaging in distributed statistical learning",
+      "author" : [ "Jonathan D. Rosenblatt", "Boaz Nadler" ],
+      "venue" : "Information and Inference,",
+      "citeRegEx" : "32",
+      "shortCiteRegEx" : "32",
+      "year" : 2016
+    }, {
+      "title" : "Abstract convexity and global optimization, volume 44",
+      "author" : [ "Alexander M. Rubinov" ],
+      "venue" : "Springer Science & Business Media,",
+      "citeRegEx" : "33",
+      "shortCiteRegEx" : "33",
+      "year" : 2013
+    }, {
+      "title" : "Distributed stochastic optimization and learning",
+      "author" : [ "Ohad Shamir", "Nathan Srebro" ],
+      "venue" : "In Proceedings of the 52nd Annual Allerton Conference on Communication, Control, and Computing,",
+      "citeRegEx" : "34",
+      "shortCiteRegEx" : "34",
+      "year" : 2014
+    }, {
+      "title" : "Communication-efficient distributed optimization using an approximate newton-type method",
+      "author" : [ "Ohad Shamir", "Nati Srebro", "Tong Zhang" ],
+      "venue" : "In International conference on machine learning,",
+      "citeRegEx" : "35",
+      "shortCiteRegEx" : "35",
+      "year" : 2014
+    }, {
+      "title" : "Outside the closed world: On using machine learning for network intrusion detection",
+      "author" : [ "Robin Sommer", "Vern Paxson" ],
+      "venue" : "In Symposium on Security and Privacy,",
+      "citeRegEx" : "36",
+      "shortCiteRegEx" : "36",
+      "year" : 2010
+    }, {
+      "title" : "Optimization for machine learning",
+      "author" : [ "Suvrit Sra", "Sebastian Nowozin", "Stephen J. Wright" ],
+      "venue" : null,
+      "citeRegEx" : "37",
+      "shortCiteRegEx" : "37",
+      "year" : 2012
+    }, {
+      "title" : "Mathematics and the picturing of data",
+      "author" : [ "John W Tukey" ],
+      "venue" : "In Proceedings of the International Congress of Mathematicians,",
+      "citeRegEx" : "38",
+      "shortCiteRegEx" : "38",
+      "year" : 1975
+    }, {
+      "title" : "A theory of the learnable",
+      "author" : [ "Leslie G. Valiant" ],
+      "venue" : "Communications of the ACM,",
+      "citeRegEx" : "39",
+      "shortCiteRegEx" : "39",
+      "year" : 1984
+    }, {
+      "title" : "OpenML: Networked science in machine learning",
+      "author" : [ "Joaquin Vanschoren", "Jan N. van Rijn", "Bernd Bischl", "Luis Torgo" ],
+      "venue" : "SIGKDD Explorations,",
+      "citeRegEx" : "40",
+      "shortCiteRegEx" : "40",
+      "year" : 2013
+    }, {
+      "title" : "On the uniform convergence of relative frequencies of events to their probabilities",
+      "author" : [ "Vladimir N. Vapnik", "Alexey Y. Chervonenkis" ],
+      "venue" : "Theory of Probability & Its Applications,",
+      "citeRegEx" : "41",
+      "shortCiteRegEx" : "41",
+      "year" : 1971
+    }, {
+      "title" : "Learning in parallel",
+      "author" : [ "Jeffrey S. Vitter", "Jyh-Han Lin" ],
+      "venue" : "Information and Computation,",
+      "citeRegEx" : "42",
+      "shortCiteRegEx" : "42",
+      "year" : 1992
+    }, {
+      "title" : "Statistical learning theory: models, concepts, and results",
+      "author" : [ "Ulrike Von Luxburg", "Bernhard Schölkopf" ],
+      "venue" : null,
+      "citeRegEx" : "43",
+      "shortCiteRegEx" : "43",
+      "year" : 2011
+    }, {
+      "title" : "Data Mining: Practical machine learning tools and techniques",
+      "author" : [ "Ian H. Witten", "Eibe Frank", "Mark A. Hall", "Christopher J. Pal" ],
+      "venue" : null,
+      "citeRegEx" : "44",
+      "shortCiteRegEx" : "44",
+      "year" : 2017
+    }, {
+      "title" : "Communication-efficient algorithms for statistical optimization",
+      "author" : [ "Yuchen Zhang", "John C. Duchi", "Martin J. Wainwright" ],
+      "venue" : "Journal of Machine Learning Research,",
+      "citeRegEx" : "45",
+      "shortCiteRegEx" : "45",
+      "year" : 2013
+    }, {
+      "title" : "Parallelized stochastic gradient descent",
+      "author" : [ "Martin Zinkevich", "Markus Weimer", "Alexander J. Smola", "Lihong Li" ],
+      "venue" : "In Advances in Neural Information Processing Systems,",
+      "citeRegEx" : "46",
+      "shortCiteRegEx" : "46",
+      "year" : 2010
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 24,
+      "context" : ", when errors have almost prohibitively high cost, this confidence is essential [27, 36].",
+      "startOffset" : 80,
+      "endOffset" : 88
+    }, {
+      "referenceID" : 33,
+      "context" : ", when errors have almost prohibitively high cost, this confidence is essential [27, 36].",
+      "startOffset" : 80,
+      "endOffset" : 88
+    }, {
+      "referenceID" : 1,
+      "context" : "In other cases, (non-linear) low-dimensional embeddings [2, 28] can preprocess the data to facilitate parallel learning with our scheme.",
+      "startOffset" : 56,
+      "endOffset" : 63
+    }, {
+      "referenceID" : 25,
+      "context" : "In other cases, (non-linear) low-dimensional embeddings [2, 28] can preprocess the data to facilitate parallel learning with our scheme.",
+      "startOffset" : 56,
+      "endOffset" : 63
+    }, {
+      "referenceID" : 29,
+      "context" : "Similar to averaging-based parallelisations [32, 45, 46], we apply the underlying learning algorithm in parallel to random subsets of the data.",
+      "startOffset" : 44,
+      "endOffset" : 56
+    }, {
+      "referenceID" : 42,
+      "context" : "Similar to averaging-based parallelisations [32, 45, 46], we apply the underlying learning algorithm in parallel to random subsets of the data.",
+      "startOffset" : 44,
+      "endOffset" : 56
+    }, {
+      "referenceID" : 43,
+      "context" : "Similar to averaging-based parallelisations [32, 45, 46], we apply the underlying learning algorithm in parallel to random subsets of the data.",
+      "startOffset" : 44,
+      "endOffset" : 56
+    }, {
+      "referenceID" : 27,
+      "context" : "Each inner node computes a new hypothesis that is a Radon point [30] of its children’s hypotheses.",
+      "startOffset" : 64,
+      "endOffset" : 68
+    }, {
+      "referenceID" : 16,
+      "context" : "Parallel computing [18] and its limitations [13] have been studied for a long time in theoretical computer science [7].",
+      "startOffset" : 19,
+      "endOffset" : 23
+    }, {
+      "referenceID" : 11,
+      "context" : "Parallel computing [18] and its limitations [13] have been studied for a long time in theoretical computer science [7].",
+      "startOffset" : 44,
+      "endOffset" : 48
+    }, {
+      "referenceID" : 23,
+      "context" : "Parallelising polynomial time algorithms ranges from being ‘embarrassingly’ [26] easy to being believed to be impossible.",
+      "startOffset" : 76,
+      "endOffset" : 80
+    }, {
+      "referenceID" : 7,
+      "context" : ", for P-complete problems, it is believed that there is no efficient parallel algorithm in the sense of Nick’s Class (NC [9]): efficient parallel algorithms in this sense are those that can be executed in polylogarithmic time on a polynomial number of processing units.",
+      "startOffset" : 121,
+      "endOffset" : 124
+    }, {
+      "referenceID" : 35,
+      "context" : ", a point of largest Tukey depth [38], of a finite set of points [8].",
+      "startOffset" : 33,
+      "endOffset" : 37
+    }, {
+      "referenceID" : 6,
+      "context" : ", a point of largest Tukey depth [38], of a finite set of points [8].",
+      "startOffset" : 65,
+      "endOffset" : 68
+    }, {
+      "referenceID" : 27,
+      "context" : "The Radon point [30] of a set of points is defined as follows: Definition 1.",
+      "startOffset" : 16,
+      "endOffset" : 20
+    }, {
+      "referenceID" : 14,
+      "context" : "While other notions of convexity are possible [16, 33], in this paper we restrict our consideration to Euclidean spaces with the usual notion of convexity.",
+      "startOffset" : 46,
+      "endOffset" : 54
+    }, {
+      "referenceID" : 30,
+      "context" : "While other notions of convexity are possible [16, 33], in this paper we restrict our consideration to Euclidean spaces with the usual notion of convexity.",
+      "startOffset" : 46,
+      "endOffset" : 54
+    }, {
+      "referenceID" : 27,
+      "context" : "Radon’s theorem [30] states that the Euclidean space R has Radon number r = d + 2.",
+      "startOffset" : 16,
+      "endOffset" : 20
+    }, {
+      "referenceID" : 0,
+      "context" : "1 and relates to Nick’s Class [1]: A decision problem can be solved efficiently in parallel in the sense of Nick’s Class, if it can be decided by an algorithm in polylogarithmic time on polynomially many processors (assuming, e.",
+      "startOffset" : 30,
+      "endOffset" : 33
+    }, {
+      "referenceID" : 18,
+      "context" : "A similar question, for the case of learning half spaces, has been called a fundamental open problem by Long and Servedio [21] who gave an algorithms which runs on polynomially many processors in time that depends polylogarithmically on the sample size but is inversely proportional to a parameter of the learning problem.",
+      "startOffset" : 122,
+      "endOffset" : 126
+    }, {
+      "referenceID" : 15,
+      "context" : "While Nick’s Class as a notion of efficiency has been criticised [17], it is the only notion of efficiency that forms a proper complexity class in the sense of Blum [4].",
+      "startOffset" : 65,
+      "endOffset" : 69
+    }, {
+      "referenceID" : 3,
+      "context" : "While Nick’s Class as a notion of efficiency has been criticised [17], it is the only notion of efficiency that forms a proper complexity class in the sense of Blum [4].",
+      "startOffset" : 165,
+      "endOffset" : 168
+    }, {
+      "referenceID" : 15,
+      "context" : "[17] suggested to consider also the inefficiency of simulating the parallel algorithm on a single processing unit.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 38,
+      "context" : "(1)We derive αε, βε for hypothesis spaces with finite VC [41] and Rademacher [3] complexity in App.",
+      "startOffset" : 57,
+      "endOffset" : 61
+    }, {
+      "referenceID" : 2,
+      "context" : "(1)We derive αε, βε for hypothesis spaces with finite VC [41] and Rademacher [3] complexity in App.",
+      "startOffset" : 77,
+      "endOffset" : 80
+    }, {
+      "referenceID" : 22,
+      "context" : "This empirical study compares the Radon machine to state-of-the-art parallel machine learning algorithms from the Spark machine learning library [25], as well as the natural baseline of averaging hypotheses instead of calculating their Radon point (averaging-at-the-end, Avg).",
+      "startOffset" : 145,
+      "endOffset" : 149
+    }, {
+      "referenceID" : 41,
+      "context" : "We use base learning algorithms from WEKA [44] and scikit-learn [29].",
+      "startOffset" : 42,
+      "endOffset" : 46
+    }, {
+      "referenceID" : 26,
+      "context" : "We use base learning algorithms from WEKA [44] and scikit-learn [29].",
+      "startOffset" : 64,
+      "endOffset" : 68
+    }, {
+      "referenceID" : 2,
+      "context" : "Figure 1: (a) Runtime (log-scale) and AUC of base learners and their parallelisation using the Radon machine (PRM) for 6 datasets with N ∈ [488 565, 5 000 000], d ∈ [3, 18].",
+      "startOffset" : 165,
+      "endOffset" : 172
+    }, {
+      "referenceID" : 16,
+      "context" : "Figure 1: (a) Runtime (log-scale) and AUC of base learners and their parallelisation using the Radon machine (PRM) for 6 datasets with N ∈ [488 565, 5 000 000], d ∈ [3, 18].",
+      "startOffset" : 165,
+      "endOffset" : 172
+    }, {
+      "referenceID" : 26,
+      "context" : "For regression, we apply the scheme to the Scikit-learn implementation of regularised least squares regression [29].",
+      "startOffset" : 111,
+      "endOffset" : 115
+    }, {
+      "referenceID" : 20,
+      "context" : "[23], who propose to use averaging-at-the-end for distributed training.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 13,
+      "context" : "However, random projections [15] or low-rank approximations [2, 28] can alleviate this problem and are already frequently employed in machine learning.",
+      "startOffset" : 28,
+      "endOffset" : 32
+    }, {
+      "referenceID" : 1,
+      "context" : "However, random projections [15] or low-rank approximations [2, 28] can alleviate this problem and are already frequently employed in machine learning.",
+      "startOffset" : 60,
+      "endOffset" : 67
+    }, {
+      "referenceID" : 25,
+      "context" : "However, random projections [15] or low-rank approximations [2, 28] can alleviate this problem and are already frequently employed in machine learning.",
+      "startOffset" : 60,
+      "endOffset" : 67
+    }, {
+      "referenceID" : 34,
+      "context" : "An alternative might be to combine our parallelisation scheme with block coordinate descent [37].",
+      "startOffset" : 92,
+      "endOffset" : 96
+    }, {
+      "referenceID" : 9,
+      "context" : "However, similar low-rank approximation techniques as described above can be applied with non-linear kernels [11].",
+      "startOffset" : 109,
+      "endOffset" : 113
+    }, {
+      "referenceID" : 28,
+      "context" : "Furthermore, methods for speeding up the learning process for non-linear models explicitly approximate an embedding in which then a linear model can be learned [31].",
+      "startOffset" : 160,
+      "endOffset" : 164
+    }, {
+      "referenceID" : 24,
+      "context" : ", in the medical domain [27] or in intrusion detection [36].",
+      "startOffset" : 24,
+      "endOffset" : 28
+    }, {
+      "referenceID" : 33,
+      "context" : ", in the medical domain [27] or in intrusion detection [36].",
+      "startOffset" : 55,
+      "endOffset" : 59
+    }, {
+      "referenceID" : 18,
+      "context" : "In this paper we provided a step towards answering an open problem: Is parallel machine learning possible in polylogarithmic time using a polynomial number of processors only? This question has been posed for half-spaces by Long and Servedio [21] and called “a fundamental open problem about the abilities and limitations of efficient parallel learning algorithms”.",
+      "startOffset" : 242,
+      "endOffset" : 246
+    }, {
+      "referenceID" : 11,
+      "context" : "It relates machine learning to Nick’s Class of parallelisable decision problems and its variants [13].",
+      "startOffset" : 97,
+      "endOffset" : 101
+    }, {
+      "referenceID" : 4,
+      "context" : "Early theoretical treatments of parallel learning with respect to NC considered probably approximately correct (PAC) [5, 39] concept learning.",
+      "startOffset" : 117,
+      "endOffset" : 124
+    }, {
+      "referenceID" : 36,
+      "context" : "Early theoretical treatments of parallel learning with respect to NC considered probably approximately correct (PAC) [5, 39] concept learning.",
+      "startOffset" : 117,
+      "endOffset" : 124
+    }, {
+      "referenceID" : 39,
+      "context" : "Vitter and Lin [42] introduced the notion of NC-learnable for concept classes for which there is an algorithm that outputs a probably approximately correct hypothesis in polylogarithmic time using a polynomial number of processors.",
+      "startOffset" : 15,
+      "endOffset" : 19
+    }, {
+      "referenceID" : 18,
+      "context" : "More recently, the special case of learning half spaces in parallel was considered by Long and Servedio [21] who gave an algorithm for this case that runs on polynomially many processors in time that depends polylogarithmically on the size of the instances but is inversely proportional to a parameter of the learning problem.",
+      "startOffset" : 104,
+      "endOffset" : 108
+    }, {
+      "referenceID" : 10,
+      "context" : "While this approach has advantages [12, 32], current error bounds do not allow a derivation of polylogarithmic runtime [20, 35, 45] and it has been doubted to have any benefit over learning on a single chunk [34].",
+      "startOffset" : 35,
+      "endOffset" : 43
+    }, {
+      "referenceID" : 29,
+      "context" : "While this approach has advantages [12, 32], current error bounds do not allow a derivation of polylogarithmic runtime [20, 35, 45] and it has been doubted to have any benefit over learning on a single chunk [34].",
+      "startOffset" : 35,
+      "endOffset" : 43
+    }, {
+      "referenceID" : 17,
+      "context" : "While this approach has advantages [12, 32], current error bounds do not allow a derivation of polylogarithmic runtime [20, 35, 45] and it has been doubted to have any benefit over learning on a single chunk [34].",
+      "startOffset" : 119,
+      "endOffset" : 131
+    }, {
+      "referenceID" : 32,
+      "context" : "While this approach has advantages [12, 32], current error bounds do not allow a derivation of polylogarithmic runtime [20, 35, 45] and it has been doubted to have any benefit over learning on a single chunk [34].",
+      "startOffset" : 119,
+      "endOffset" : 131
+    }, {
+      "referenceID" : 42,
+      "context" : "While this approach has advantages [12, 32], current error bounds do not allow a derivation of polylogarithmic runtime [20, 35, 45] and it has been doubted to have any benefit over learning on a single chunk [34].",
+      "startOffset" : 119,
+      "endOffset" : 131
+    }, {
+      "referenceID" : 31,
+      "context" : "While this approach has advantages [12, 32], current error bounds do not allow a derivation of polylogarithmic runtime [20, 35, 45] and it has been doubted to have any benefit over learning on a single chunk [34].",
+      "startOffset" : 208,
+      "endOffset" : 212
+    }, {
+      "referenceID" : 31,
+      "context" : "The best so far known algorithm in this class [34] is the distributed mini-batch algorithm [10].",
+      "startOffset" : 46,
+      "endOffset" : 50
+    }, {
+      "referenceID" : 8,
+      "context" : "The best so far known algorithm in this class [34] is the distributed mini-batch algorithm [10].",
+      "startOffset" : 91,
+      "endOffset" : 95
+    }, {
+      "referenceID" : 31,
+      "context" : "It is worth noting that these algorithms solve a harder than necessary optimisation problem and often come with prohibitively high communication cost in distributed settings [34].",
+      "startOffset" : 174,
+      "endOffset" : 178
+    }, {
+      "referenceID" : 19,
+      "context" : "Recent results improve over these [22] but cannot achieve polylogarithmic time as the number of iterations depends linearly on the number of processors.",
+      "startOffset" : 34,
+      "endOffset" : 38
+    } ],
+    "year" : 2017,
+    "abstractText" : "We present a novel parallelisation scheme that simplifies the adaptation of learning algorithms to growing amounts of data as well as growing needs for accurate and confident predictions in critical applications. In contrast to other parallelisation techniques, it can be applied to a broad class of learning algorithms without further mathematical derivations and without writing dedicated code, while at the same time maintaining theoretical performance guarantees. Moreover, our parallelisation scheme is able to reduce the runtime of many learning algorithms to polylogarithmic time on quasi-polynomially many processing units. This is a significant step towards a general answer to an open question on the efficient parallelisation of machine learning algorithms in the sense of Nick’s Class (NC). The cost of this parallelisation is in the form of a larger sample complexity. Our empirical study confirms the potential of our parallelisation scheme with fixed numbers of processors and instances in realistic application scenarios.",
+    "creator" : null
+  }
+}

@@ -1,0 +1,38 @@
+Summary and contributions
+The paper proposes a visual servoing framework that combines (i) pre-trained CNN features (modified VGG-16 with dilations at multiple spatial scales), (ii) a locally connected bilinear model to predict one-step feature dynamics as a function of robot controls, and (iii) a fitted Q-iteration (FQI) scheme that learns non-negative per-channel, per-scale feature weights (and control penalties) so that a simple one-step greedy servoing policy aligns predicted features to a goal image. The Q-function is linear in these weights, enabling an analytic, efficient policy and a relatively simple FQI update with a scaling/bias calibration step. Experiments in a simulated quadcopter–car-following benchmark (CitySim3D) report: (a) better performance than photometric pixel-based servoing and hand-designed keypoint IBVS; (b) improved sample efficiency versus TRPO/CEM (e.g., “20 trajectories” for RL weight learning); and (c) some generalization to novel car models. Code and simulator are released.
+
+Decision: Reject
+Key reasons:
+1) Evidence and scope are too limited: all results are in a single synthetic environment with a narrow task; no real-world experiments; and the RL component relies on a privileged shaped cost using ground-truth 3D car pose, undermining the central sample-efficiency claim.
+2) Methodological novelty and rigor are insufficient: the core controller is a weighted one-step photometric objective with a bilinear dynamics model and an essentially linear Q approximator; while sensible, this is an incremental combination of established ideas. Several baselines are not fully convincing or aligned to test the paper’s key claims.
+
+Supporting arguments
+- Reliance on privileged cost/reward: The RL signal uses ground-truth target position in the camera frame (Appendix B). This is not available in realistic visual servoing, and shaped costs of this kind can dramatically improve sample efficiency compared to what would be achievable from image-only rewards. The main claim—that FQI learns robust feature weightings with “just 20 trajectories”—is therefore not substantiated for the setting the paper targets.
+- Narrow evaluation: Only one simulated task (target following) with 5 training cars for dynamics learning, tested on similar simulated conditions. No experiments on real robots, real imagery, or other tasks (e.g., reaching/manipulation). The claimed robustness to occlusion/appearance change is anecdotal; quantitative robustness metrics (e.g., controlled occlusion levels, lighting/viewpoint sweeps) are not provided.
+- Questionable fairness/completeness of baselines:
+  - Model-free RL: TRPO comparisons are limited and may be underpowered (small CNN, fixed exploration std, no stronger algorithms like PPO/SAC/DDPG). The sample count for TRPO is orders of magnitude larger than FQI, but this is expected when the reward uses privileged information and the policy structure differs.
+  - Model-based or classical baselines: IBVS with ORB is known to be brittle; the tracker-based IBVS baseline depends on a heavy tracker with a given initial box but still lacks dynamics knowledge. Stronger baselines such as modern photometric visual servoing with robust costs and Gauss-Newton updates, or learned dense correspondence/flow with classical control, are not reported.
+- Overfitting and capacity concerns: The number of learned weights (per channel per scale, likely in the hundreds to thousands) is large relative to the 20 RL trajectories used to fit them, even with non-negativity and L2 regularization. The selection by validation on 10 trajectories risks overfitting; learning curves and generalization gaps are not thoroughly analyzed.
+- Dynamics data cost and coverage: The claimed sample efficiency pertains only to weight learning; the dynamics model requires 10k supervised triplets (100 trajectories). There is no ablation on coverage or distribution shift in the dynamics data, nor a multi-step prediction error analysis to support the bilinear assumption beyond one step.
+- Design choices need stronger justification: The modification of VGG (pooling removal/dilations), choice of feature scales, the locally connected bilinear form and its neighborhood size, and the non-negativity constraint on weights are sensible but their impact is only partially explored. The conv5_3 failure is hypothesized to be due to spatial invariance, but more direct evidence (e.g., resolution/attenuation analysis) is missing.
+
+Constructive feedback to improve the paper
+- Replace the privileged cost with image-based rewards (e.g., photometric error, alignment of segmentation/flow to goal, or tracker overlap) and demonstrate comparable sample efficiency. Alternatively, treat this as imitation/DAgger with an oracle cost and make that explicit.
+- Broaden evaluation: add at least one real-world dataset or sim-to-real transfer test; include a distinct servoing task (e.g., viewpoint alignment to a textured object or a manipulation-oriented scene) to demonstrate generality.
+- Strengthen baselines:
+  - Photometric visual servoing with modern robust costs, pyramidal Gauss-Newton, and learned/estimated depth; compare runtime and accuracy.
+  - Model-based control on learned dense correspondence/optical flow.
+  - Stronger RL baselines (PPO/SAC/DDPG), and versions that exploit the same one-step predictive model to plan/control (e.g., MPC with learned dynamics and proper shooting/CEM).
+- Provide a thorough ablation: impact of each VGG layer, multiscale vs single-scale, locally connected vs fully connected bilinear dynamics, neighborhood size, and weight regularization/non-negativity. Report multi-step prediction errors vs horizon and how that correlates with control performance.
+- Analyze sample complexity: separate contributions from dynamics data vs RL data; vary dynamics dataset size and coverage; quantify sensitivity to the hand-coded data collection policy.
+- Clarify computational aspects: parameter counts for dynamics and θ; runtime on CPU/GPU; memory footprint for locally connected operators.
+
+Questions for the authors
+1) How many weights are learned in θ for the best-performing setting (per-scale, per-channel), and what is the ratio of parameters to RL samples? How do you prevent overfitting beyond non-negativity and L2?
+2) Can you reproduce your “20-trajectory” result with an image-only reward (no ground-truth pose), and if not, what is the degradation?
+3) What are the multi-step prediction errors of your bilinear dynamics over horizons 1–10 across VGG layers, and how do these errors relate to control performance?
+4) How sensitive is FQI to the exploration noise level and the validation-based early stopping? Do you see instability without the α/b re-scaling step?
+5) How does performance vary with the amount and coverage of dynamics training data (e.g., 25/50/100 trajectories)?
+6) Could you include stronger model-free baselines (e.g., PPO/SAC with comparable policy capacity) and a model-based MPC baseline using your learned dynamics but without the special Q-function structure?
+7) Did you try fine-tuning the VGG feature extractor end-to-end for the servoing objective? If not, why? If yes, what prevented gains?
+8) Runtime numbers: is the reported 16 Hz on GPU? What are CPU-only speeds and the breakdown between feature extraction, Jacobian computation, and optimization?

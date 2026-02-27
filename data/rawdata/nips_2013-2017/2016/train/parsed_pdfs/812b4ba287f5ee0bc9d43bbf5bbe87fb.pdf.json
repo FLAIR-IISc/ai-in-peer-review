@@ -1,0 +1,456 @@
+{
+  "name" : "812b4ba287f5ee0bc9d43bbf5bbe87fb.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Tree-Structured Reinforcement Learning for Sequential Object Localization",
+    "authors" : [ "Zequn Jie", "Xiaodan Liang", "Jiashi Feng", "Xiaojie Jin", "Wen Feng Lu", "Shuicheng Yan" ],
+    "emails" : [ ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Modern state-of-the-art object detection systems [1, 2] usually adopt a two-step pipeline: extract a set of class-independent object proposals at first and then classify these object proposals with a pre-trained classifier. Existing object proposal algorithms usually search for possible object regions over dense locations and scales separately [3, 4, 5]. However, the critical correlation cues among different proposals (e.g., relative spatial layouts or semantic correlations) are often ignored. This in fact deviates from the human perception process — as claimed in [6], humans do not search for objects within each local image patch separately, but start with perceiving the whole scene and successively explore a small number of regions of interest via sequential attention patterns. Inspired by this observation, extracting one object proposal should incorporate the global dependencies of proposals by considering the cues from the previous predicted proposals and future possible proposals jointly.\nIn this paper, in order to fully exploit global interdependency among objects, we propose a novel Tree-structured Reinforcement Learning (Tree-RL) approach that learns to localize multiple objects sequentially based on both the current observation and historical search paths. Starting from the entire image, the Tree-RL approach sequentially acts on the current search window either to refine the object location prediction or discover new objects by following a learned policy. In particular, the localization agent is trained by deep RL to learn the policy that maximizes a long-term reward for localizing all the objects, providing better global reasoning. For better training the agent, we\n30th Conference on Neural Information Processing Systems (NIPS 2016), Barcelona, Spain.\npropose a novel reward stimulation that well balances the exploration of uncovered new objects and refinement of the current one for quantifying the localization accuracy improvements.\nThe Tree-RL adopts a tree-structured search scheme that enables the agent to more accurately find objects with large variation in scales. The tree search scheme consists of two branches of pre-defined actions for each state, one for locally translating the current window and the other one for scaling the window to a smaller one. Starting from the whole image, the agent recursively selects the best action from each of the two branches according to the current observation (see Fig. 1). The proposed tree search scheme enables the agent to learn multiple near-optimal policies in searching multiple objects. By providing a set of diverse near-optimal policies, Tree-RL can better cover objects in a wide range of scales and locations.\nExtensive experiments on PASCAL VOC 2007 and 2012 [7] demonstrate that the proposed model can achieve a similar recall rate as the state-of-the-art object proposal algorithm RPN [5] yet using a significantly smaller number of candidate windows. Moreover, the proposed approach also provides more accurate localizations than RPN. Combined with the Fast R-CNN detector [2], the proposed approach also achieves higher detection mAP than RPN."
+    }, {
+      "heading" : "2 Related Work",
+      "text" : "Our work is related to the works which utilize different object localization strategies instead of sliding window search in object detection. Existing works trying to reduce the number of windows to be evaluated in the post-classification can be roughly categorized into two types, i.e., object proposal algorithms and active object search with visual attention.\nEarly object proposal algorithms typically rely on low-level image cues, e.g., edge, gradient and saliency [3, 4, 8]. For example, Selective Search [9] hierarchically merges the most similar segments to form proposals based on several low-level cues including color and texture; Edge Boxes [4] scores a set of densely distributed windows based on edge strengths fully inside the window and outputs the high scored ones as proposals. Recently, RPN [5] utilizes a Fully Convolutional Network (FCN) [10] to densely generate the proposals in each local patch based on several pre-defined “anchors” in the patch, and achieves state-of-the-art performance in object recall rate. Nevertheless, object proposal algorithms assume that the proposals are independent and usually perform window-based classification on a set of reduced windows individually, which may still be wasteful for images containing only a few objects.\nAnother type of works attempts [11, 12, 13, 14] to reduce the number of windows with an active object detection strategy. Lampert et al. [15] proposed a branch-and-bound approach to find the highest scored windows while only evaluating a few locations. Alexe et al. [11] proposed a context driven active object searching method, which involves a nearest-neighbor search over all the training\nimages. Gonzeles-Garcia et al. [12] proposed an active search scheme to sequentially evaluate selective search object proposals based on spatial context information.\nVisual attention models are also related to our work. These models are often leveraged to facilitate the decision by gathering information from previous steps in the sequential decision making vision tasks. Xu et al. [16] proposed an attention model embedded in recurrent neural networks (RNN) to generate captions for images by focusing on different regions in the sequential word prediction process. Minh et al. [17] and Ba et al. [18] also relied on RNN to gradually refine the focus regions to better recognize characters.\nPerhaps [19] and [20] are the closest works to ours. [19] learned an optimal policy to localize a single object through deep Q-learning. To handle multiple objects cases, it runs the whole process starting from the whole image multiple times and uses an inhibition-of-return mechanism to manually mark the objects already found. [20] proposed a top-down search strategy to recursively divide a window into sub-windows. Then similar to RPN, all the visited windows serve as “anchors” to regress the locations of object bounding boxes. Compared to them, our model can localize multiple objects in a single run starting from the whole image. The agent learns to balance the exploration of uncovered new objects and the refinement of covered ones with deep Q-learning. Moreover, our top-down tree search does not produce “anchors” to regress the object locations, but provides multiple near-optimal search paths and thus requires less computation."
+    }, {
+      "heading" : "3 Tree-Structured Reinforcement Learning for Object Localization",
+      "text" : ""
+    }, {
+      "heading" : "3.1 Multi-Object Localization as a Markov Decision Process",
+      "text" : "The Tree-RL is based on a Markov decision process (MDP) which is well suitable for modeling the discrete time sequential decision making process. The localization agent sequentially transforms image windows within the whole image by performing one of pre-defined actions. The agent aims to maximize the total discounted reward which reflects the localization accuracy of all the objects during the whole running episode. The design of the reward function enables the agent to consider the trade-off between further refinement of the covered objects and searching for uncovered new objects. The actions, state and reward of our proposed MDP model are detailed as follows.\nActions: The available actions of the agent consist of two groups, one for scaling the current window to a sub-window, and the other one for translating the current window locally. Specifically, the scaling group contains five actions, each corresponding to a certain sub-window with the size 0.55 times as the current window (see Fig. 2). The local translation group is composed of eight actions, with each one changing the current window in one of the following ways: horizontal moving to left/right, vertical moving to up/down, becoming shorter/longer horizontally and becoming shorter/longer vertically, as shown in Fig. 2, which are similar to [19]. Each local translation action moves the window by 0.25 times of the current window size. The next state is then deterministically obtained after taking the last action. The scaling actions are designed to facilitate the search of objects in various scales, which cooperate well with the later discussed tree search scheme in localizing objects in a wide range of scales. The translation actions aim to perform successive changes of visual focus, playing an important role in both refining the current attended object and searching for uncovered new objects.\nStates: At each step, the state of MDP is the concatenation of three components: the feature vector of the current window, the feature vector of the whole image and the history of taken actions. The features of both the current window and the whole image are extracted using a VGG-16 [21] layer CNN model pre-trained on ImageNet. We use the feature vector of layer “fc6” in our problem. To accelerate the feature extraction, all the feature vectors are computed on top of pre-computed feature maps of the layer “conv5_3” after using ROI Pooling operation to obtain a fixed-length feature representation of the specific windows, which shares the spirit of Fast R-CNN. It is worth mentioning that the global feature here not only provides context cues to facilitate the refinement of the currently attended object, but also allows the agent to be aware of the existence of other uncovered new objects and thus make a trade-off between further refining the attended object and exploring the uncovered ones. The history of the taken actions is a binary vector that tells which actions have been taken in the past. Therefore, it implies the search paths that have already been gone through and the objects already attended by the agent. Each action is represented by a 13-d binary vector where all values are zeros except for the one corresponding to the taken action. 50 past actions are encoded in the state to save a full memory of the paths from the start.\nRewards: The reward function r(s, a) reflects the localization accuracy improvements of all the objects by taking the action a under the state s. We adopt the simple yet indicative localization quality measurement, Intersection-over-Union (IoU) between the current window and the ground-truth object bounding boxes. Given the current window w and a ground-truth object bounding box g, IoU between w and g is defined as IoU(w, g) , area(w ∩ g)/area(w ∪ g). Assuming that the agent moves from state s to state s′ after taking the action a, each state s has an associated window w, and there are n ground-truth objects g1 ... gn, then the reward r(s, a) is defined as follows:\nr(s, a) = max 1≤i≤n\nsign(IoU(w′, gi)− IoU(w, gi)). (1)\nThis reward function returns +1 or −1. Basically, if any ground-truth object bounding box has a higher IoU with the next window than the current one, the reward of the action moving from the current window to the next one is +1, and −1 otherwise. Such binary rewards reflect more clearly which actions can drive the window towards the ground-truths and thus facilitate the agent’s learning. This reward function encourages the agent to localize any objects freely, without any limitation or guidance on which object should be localized at that step. Such a free localization strategy is especially important in a multi-object localization system for covering multiple objects by running only a single episode starting from the whole image.\nAnother key reward stimulation +5 is given to those actions which cover any ground-truth objects with an IoU greater than 0.5 for the first time. For ease of explanation, we define fi,t as the hit flag of the ground-truth object gi at the tth step which indicates whether the maximal IoU between gi and all the previously attended windows {wj}tj=1 is greater than 0.5, and assign +1 to fi,t if max1≤j≤t IoU(wj , gi) is greater than 0.5 and −1 otherwise. Then supposing the action a is taken at the tth step under state s, the reward function integrating the first-time hit reward can be written as follows:\nr(s, a) =  +5, if max1≤i≤n(fi,t+1 − fi,t) > 0max 1≤i≤n sign(IoU(w′, gi)− IoU(w, gi)), otherwise. (2)\nThe high reward given to the actions which hit the objects with an IoU > 0.5 for the first time avoids the agent being trapped in the endless refinement of a single object and promotes the search for uncovered new objects."
+    }, {
+      "heading" : "3.2 Tree-Structured Search",
+      "text" : "The Tree-RL relies on a tree structured search strategy to better handle objects in a wide range of scales. For each window, the actions with the highest predicted value in both the scaling action group and the local translation action group are selected respectively. The two best actions are both taken to obtain two next windows: one is a sub-window of the current one and the other is a nearby window to the current one after local translation. Such bifurcation is performed recursively by each window starting from the whole image in a top-down fashion, as illustrated in Fig. 3. With tree search, the agent is enforced to take both scaling action and local translation action simultaneously at\nlevel 1\nlevel 2\nlevel 3\nlevel 4\nconv5_3 feature map\nFigure 3: Illustration of the top-down tree search. Starting from the whole image, each window recursively takes the best actions from both action groups. Solid arrows and dashed arrows represent scaling actions and local translation actions, respectively.\neach state, and thus travels along multiple near-optimal search paths instead of a single optimal path. This is crucial for improving the localization accuracy for objects in different scales. Because only the scaling actions significantly change the scale of the attended window while the local translation actions almost keep the scale the same as the previous one. However there is no guarantee that the scaling actions are often taken as the agent may tend to go for large objects which are easier to be covered with an IoU larger than 0.5, compared to scaling the window to find small objects."
+    }, {
+      "heading" : "3.3 Deep Q-learning",
+      "text" : "The optimal policy of maximizing the sum of the discounted rewards of running an episode starting from the whole image is learned with reinforcement learning. However, due to the high-dimensional continuous image input data and the model-free environment, we resort to the Q-learning algorithm combined with the function approximator technique to learn the optimal value for each state-action pair which generalizes well to unseen inputs. Specifically, we use the deep Q-network proposed by [22, 23] to estimate the value for each state-action pair using a deep neural network. The detailed architecture of our Q-network is illustrated in Fig. 4. Please note that similar to [23], we also use the pre-trained CNN as the regional feature extractor instead of training the whole hierarchy of CNN, considering the good generalization of the CNN trained on ImageNet [24].\nDuring training, the agent runs sequential episodes which are paths from the root of the tree to its leafs. More specifically, starting from the whole image, the agent takes one action from the whole action set at each step to obtain the next state. The agent’s behavior during training is -greedy. Specifically, the agent selects a random action from the whole action set with probability , and selects a random action from the two best actions in the two action groups (i.e. scaling group and local translation group) with probability 1− , which differs from the usual exploitation behavior that the single best action with the highest estimated value is taken. Such exploitation is more consistent with the proposed tree search scheme that requires the agent to take the best actions from both action groups. We also incorporate a replay memory following [23] to store the experiences of the past episodes, which allows one transition to be used in multiple model updates and breaks the short-time strong correlations between training samples. Each time Q-learning update is applied, a mini batch randomly sampled from the replay memory is used as the training samples. The update for the network weights at the ith iteration θi given transition samples (s, a, r, s′) is as follows:\nθi+1 = θi + α(r + γmax a′\nQ(s′, a′; θi)−Q(s, a; θi))∇θiQ(s, a; θi), (3)\nwhere a′ represents the actions that can be taken at state s′, α is the learning rate and γ is the discount factor."
+    }, {
+      "heading" : "3.4 Implementation Details",
+      "text" : "We train a deep Q-network on VOC 2007+2012 trainval set [7] for 25 epochs. The total number of training images is around 16,000. Each epoch is ended after performing an episode in each training\nimage. During -greedy training, is annealed linearly from 1 to 0.1 over the first 10 epochs. Then is fixed to 0.1 in the last 15 epochs. The discount factor γ is set to 0.9. We run each episode with maximal 50 steps during training. During testing, using the tree search, one can set the number of levels of the search tree to obtain the desired number of proposals. The replay memory size is set to 800,000, which contains about 1 epoch of transitions. The mini batch size in training is set to 64. The implementations are based on the publicly available Torch7 [25] platform on a single NVIDIA GeForce Titan X GPU with 12GB memory."
+    }, {
+      "heading" : "4 Experimental Results",
+      "text" : "We conduct comprehensive experiments on PASCAL VOC 2007 and 2012 testing sets of detection benchmarks to evaluate the proposed method. The recall rate comparisons are conducted on VOC 2007 testing set because VOC 2012 does not release the ground-truth annotations publicly and can only return a detection mAP (mean average precision) of the whole VOC 2012 testing set from the online evaluation server.\nTree-RL vs Single Optimal Search Path RL: We first compare the performance in recall rate between the proposed Tree-RL and a single optimal search path RL on PASCAL VOC 2007 testing set. For the single optimal search path RL, it only selects the best action with the highest estimated value by the deep Q-network to obtain one next window during testing, instead of taking two best actions from the two action groups. As for the exploitation in the -greedy behavior during training, the agent in the single optimal path RL always takes the action with the highest estimated value in the whole action set with probability 1 − . Apart from the different search strategy in testing and exploitation behavior during training, all the actions, state and reward settings are the same as Tree-RL. Please note that for Tree-RL, we rank the proposals in the order of the tree depth levels. For example, when setting the number of levels to 5, we have 1+2+4+8+16=31 proposals. The recall rates of the single optimal search path RL and Tree-RL are shown in Table 1 and Table 2, respectively. It is found that the single optimal search path RL achieves an acceptable recall with a small number of search steps. This verifies the effectiveness of the proposed MDP model (including reward, state and actions setting) in discovering multiple objects. It does not rely on running multiple episodes starting from the whole image like [19] to find multiple objects. It is also observed that Tree-RL outperforms the single optimal search path RL in almost all the evaluation scenarios, especially for large objects1. The only case where Tree-RL is worse than the single optimal search path RL is the recall of small objects within 31 steps at IoU threshold 0.6 and 0.7. This may be because the agent performs a breadth-first-search from the whole image, and successively narrows down to a small region. Therefore, the search tree is still too shallow (i.e. 5 levels) to accurately cover all the small objects using 31 windows. Moreover, we also find that recalls of the single optimal search path RL become stable with a few steps and hardly increase with the increasing of steps. In contrast, the recalls of Tree-RL keep increasing as the levels of the search tree increase. Thanks to the multiple diverse near-optimal search paths, a better coverage of the whole image in both locations and scales is achieved by Tree-RL.\n1Throughout the paper, large objects are defined as those containing more than 2,000 pixels. The rest are small objects.\nRecall Comparison to Other Object Proposal Algorithms: We then compare the recall rates of the proposed Tree-RL and the following object proposal algorithms: BING [3], Edge Boxes [4], Geodesic Object Proposal [26], Selective Search [9] and Region Proposal Network (RPN) [5] (VGG16 network trained on VOC 07+12 trainval) on VOC 2007 testing set. All the proposals of other methods are provided by [27]. Fig. 5 (a)-(c) show the recall when varying the IoU threshold within the range [0.5,1] for different numbers of proposals. We set the number of levels in Tree-RL to 5, 8 and 10 respectively to obtain the desired numbers of proposals. Fig. 5 (e)-(g) demonstrate the recall when changing the number of proposals for different IoU thresholds. It can be seen that Tree-RL outperforms other methods including RPN significantly with a small number of proposals (e.g. 31). When increasing the number of proposals, the advantage of Tree-RL over other methods becomes smaller, especially at a low IoU threshold (e.g. 0.5). For high IoU thresholds (e.g. 0.8), Tree-RL stills performs the best among all the methods. Tree-RL also behaves well on the average recall between IoU 0.5 to 1 which is shown to correlate extremely well with detector performance [27].\nDetection mAP Comparison to Faster R-CNN: We conduct experiments to evaluate the effects on object detection of the proposals generated by the proposed Tree-RL. The two baseline methods are RPN (VGG-16) + Fast R-CNN (ResNet-101) and Faster R-CNN (ResNet-101). The former one trains a Fast R-CNN detector (ResNet-101 network) on the proposals generated by a VGG-16 based RPN to make fair comparisons with the proposed Tree-RL which is also based on VGG-16 network. The latter one, i.e. Faster-RCNN (ResNet-101), is a state-of-the-art detection framework integrating both proposal generation and object detector in an end-to-end trainable system which is based on ResNet-101 network. Our method, Tree-RL (VGG-16) + Fast R-CNN (ResNet-101) trains a Fast R-CNN detector (ResNet-101 network) on the proposals generated by the VGG-16 based Tree-RL. All the Fast R-CNN detectors are fine-tuned from the publicly released ResNet-101 model pre-trained on ImageNet. The final average pooling layer and the 1000-d fc layer of ResNet-101 are replaced by a new fc layer directly connecting the last convolution layer to the output (classification and bounding box regression) during fine-tuning. For Faster-RCNN (ResNet-101), we directly use the reported results in [28]. For the other two methods, we train and test the Fast R-CNN using the top 255 proposals. Table 3 and Table 4 show the average precision of 20 categories and mAP on PASCAL VOC 2007 and 2012 testing set, respectively. It can be seen that the proposed Tree-RL combined with Fast R-CNN outperforms two baselines, especially the recent reported Faster R-CNN (ResNet-101) on the detection mAP. Considering the fact that the proposed Tree-RL relies on only VGG-16 network which is much shallower than ResNet-101 utilized by Faster R-CNN in proposal generation, the proposed Tree-RL is able to generate high-quality object proposals which are effective when used in object detection.\nVisualizations: We show the visualization examples of the proposals generated by Tree-RL in Fig. 6. As can be seen, within only 15 proposals (the sum of level 1 to level 4), Tree-RL is able to localize the majority of objects with large or middle sizes. This validates the effectiveness of Tree-RL again in its ability to find multiple objects with a small number of windows."
+    }, {
+      "heading" : "5 Conclusions",
+      "text" : "In this paper, we proposed a novel Tree-structured Reinforcement Learning (Tree-RL) approach to sequentially search for objects with the consideration of global interdependency between objects. It follows a top-down tree search scheme to allow the agent to travel along multiple near-optimal paths to discovery multiple objects. The experiments on PASCAL VOC 2007 and 2012 validate the effectiveness of the proposed Tree-RL. Briefly, Tree-RL is able to achieve a comparable recall to RPN with fewer proposals and has higher localization accuracy. Combined with Fast R-CNN detector, Tree-RL achieves comparable detection mAP to the state-of-the-art detection system Faster R-CNN (ResNet-101)."
+    }, {
+      "heading" : "Acknowledgment",
+      "text" : "The work of Jiashi Feng was partially supported by National University of Singapore startup grant R263-000-C08-133 and Ministry of Education of Singapore AcRF Tier One grant R-263-000-C21-112."
+    } ],
+    "references" : [ {
+      "title" : "Rich feature hierarchies for accurate object detection and semantic segmentation",
+      "author" : [ "Ross Girshick", "Jeff Donahue", "Trevor Darrell", "Jitendra Malik" ],
+      "venue" : "In CVPR,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : "1",
+      "year" : 2014
+    }, {
+      "title" : "Fast r-cnn",
+      "author" : [ "Ross Girshick" ],
+      "venue" : "In ICCV,",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 2015
+    }, {
+      "title" : "Bing: Binarized normed gradients for objectness estimation at 300fps",
+      "author" : [ "Ming-Ming Cheng", "Ziming Zhang", "Wen-Yan Lin", "Philip Torr" ],
+      "venue" : "In CVPR,",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 2014
+    }, {
+      "title" : "Edge boxes: Locating object proposals from edges",
+      "author" : [ "C Lawrence Zitnick", "Piotr Dollár" ],
+      "venue" : "In ECCV",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : "4",
+      "year" : 2014
+    }, {
+      "title" : "Faster r-cnn: Towards real-time object detection with region proposal networks",
+      "author" : [ "Shaoqing Ren", "Kaiming He", "Ross Girshick", "Jian Sun" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : "5",
+      "year" : 2015
+    }, {
+      "title" : "Optimal eye movement strategies in visual",
+      "author" : [ "Jiri Najemnik", "Wilson S Geisler" ],
+      "venue" : "search. Nature,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : "6",
+      "year" : 2005
+    }, {
+      "title" : "The pascal visual object classes (voc) challenge",
+      "author" : [ "Mark Everingham", "Luc Van Gool", "Christopher KI Williams", "John Winn", "Andrew Zisserman" ],
+      "venue" : null,
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : "7",
+      "year" : 2010
+    }, {
+      "title" : "What is an object",
+      "author" : [ "Bogdan Alexe", "Thomas Deselaers", "Vittorio Ferrari" ],
+      "venue" : "In CVPR,",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : "8",
+      "year" : 2010
+    }, {
+      "title" : "Selective search for object recognition",
+      "author" : [ "Jasper RR Uijlings", "Koen EA van de Sande", "Theo Gevers", "Arnold WM Smeulders" ],
+      "venue" : null,
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 2013
+    }, {
+      "title" : "Fully convolutional networks for semantic segmentation",
+      "author" : [ "Jonathan Long", "Evan Shelhamer", "Trevor Darrell" ],
+      "venue" : "In CVPR,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : "10",
+      "year" : 2015
+    }, {
+      "title" : "Searching for objects driven by context",
+      "author" : [ "Bogdan Alexe", "Nicolas Heess", "Yee W Teh", "Vittorio Ferrari" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 2012
+    }, {
+      "title" : "An active search strategy for efficient object class detection",
+      "author" : [ "Abel Gonzalez-Garcia", "Alexander Vezhnevets", "Vittorio Ferrari" ],
+      "venue" : "In CVPR,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 2015
+    }, {
+      "title" : "Multiple instance reinforcement learning for efficient weaklysupervised detection in images",
+      "author" : [ "Stefan Mathe", "Cristian Sminchisescu" ],
+      "venue" : "arXiv preprint arXiv:1412.0100,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 2014
+    }, {
+      "title" : "Reinforcement learning for visual object detection",
+      "author" : [ "Stefan Mathe", "Aleksis Pirinen", "Cristian Sminchisescu" ],
+      "venue" : null,
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 2016
+    }, {
+      "title" : "Efficient subwindow search: A branch and bound framework for object localization",
+      "author" : [ "Christoph H Lampert", "Matthew B Blaschko", "Thomas Hofmann" ],
+      "venue" : null,
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : "15",
+      "year" : 2009
+    }, {
+      "title" : "Show, attend and tell: Neural image caption generation with visual attention",
+      "author" : [ "Kelvin Xu", "Jimmy Ba", "Ryan Kiros", "Aaron Courville", "Ruslan Salakhutdinov", "Richard Zemel", "Yoshua Bengio" ],
+      "venue" : "arXiv preprint arXiv:1502.03044,",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : "16",
+      "year" : 2015
+    }, {
+      "title" : "Recurrent models of visual attention",
+      "author" : [ "Volodymyr Mnih", "Nicolas Heess", "Alex Graves" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : "17",
+      "year" : 2014
+    }, {
+      "title" : "Multiple object recognition with visual attention",
+      "author" : [ "Jimmy Ba", "Volodymyr Mnih", "Koray Kavukcuoglu" ],
+      "venue" : "arXiv preprint arXiv:1412.7755,",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : "18",
+      "year" : 2014
+    }, {
+      "title" : "Active object localization with deep reinforcement learning",
+      "author" : [ "Juan C Caicedo", "Svetlana Lazebnik" ],
+      "venue" : "In ICCV,",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : "19",
+      "year" : 2015
+    }, {
+      "title" : "Adaptive object detection using adjacency and zoom prediction",
+      "author" : [ "Yongxi Lu", "Tara Javidi", "Svetlana Lazebnik" ],
+      "venue" : "arXiv preprint arXiv:1512.07711,",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : "20",
+      "year" : 2015
+    }, {
+      "title" : "Very deep convolutional networks for large-scale image recognition",
+      "author" : [ "Karen Simonyan", "Andrew Zisserman" ],
+      "venue" : "arXiv preprint arXiv:1409.1556,",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : "21",
+      "year" : 2014
+    }, {
+      "title" : "Playing atari with deep reinforcement learning",
+      "author" : [ "Volodymyr Mnih", "Koray Kavukcuoglu", "David Silver", "Alex Graves", "Ioannis Antonoglou", "Daan Wierstra", "Martin Riedmiller" ],
+      "venue" : "arXiv preprint arXiv:1312.5602,",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : "22",
+      "year" : 2013
+    }, {
+      "title" : "Human-level control through deep reinforcement learning",
+      "author" : [ "Volodymyr Mnih", "Koray Kavukcuoglu", "David Silver", "Andrei A Rusu", "Joel Veness", "Marc G Bellemare", "Alex Graves", "Martin Riedmiller", "Andreas K Fidjeland", "Georg Ostrovski" ],
+      "venue" : "Nature, 518(7540):529–533,",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : "23",
+      "year" : 2015
+    }, {
+      "title" : "Imagenet: A large-scale hierarchical image database",
+      "author" : [ "Jia Deng", "Wei Dong", "Richard Socher", "Li-Jia Li", "Kai Li", "Li Fei-Fei" ],
+      "venue" : "In CVPR,",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : "24",
+      "year" : 2009
+    }, {
+      "title" : "Torch7: A matlab-like environment for machine learning",
+      "author" : [ "Ronan Collobert", "Koray Kavukcuoglu", "Clément Farabet" ],
+      "venue" : "In NIPS Workshop,",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : "25",
+      "year" : 2011
+    }, {
+      "title" : "Geodesic object proposals",
+      "author" : [ "Philipp Krähenbühl", "Vladlen Koltun" ],
+      "venue" : "In ECCV",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : "26",
+      "year" : 2014
+    }, {
+      "title" : "What makes for effective detection",
+      "author" : [ "J. Hosang", "R. Benenson", "P. Dollár", "B. Schiele" ],
+      "venue" : "proposals? TPAMI,",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : "27",
+      "year" : 2016
+    }, {
+      "title" : "Deep residual learning for image recognition",
+      "author" : [ "Kaiming He", "Xiangyu Zhang", "Shaoqing Ren", "Jian Sun" ],
+      "venue" : "arXiv preprint arXiv:1512.03385,",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : "28",
+      "year" : 2015
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 0,
+      "context" : "Modern state-of-the-art object detection systems [1, 2] usually adopt a two-step pipeline: extract a set of class-independent object proposals at first and then classify these object proposals with a pre-trained classifier.",
+      "startOffset" : 49,
+      "endOffset" : 55
+    }, {
+      "referenceID" : 1,
+      "context" : "Modern state-of-the-art object detection systems [1, 2] usually adopt a two-step pipeline: extract a set of class-independent object proposals at first and then classify these object proposals with a pre-trained classifier.",
+      "startOffset" : 49,
+      "endOffset" : 55
+    }, {
+      "referenceID" : 2,
+      "context" : "Existing object proposal algorithms usually search for possible object regions over dense locations and scales separately [3, 4, 5].",
+      "startOffset" : 122,
+      "endOffset" : 131
+    }, {
+      "referenceID" : 3,
+      "context" : "Existing object proposal algorithms usually search for possible object regions over dense locations and scales separately [3, 4, 5].",
+      "startOffset" : 122,
+      "endOffset" : 131
+    }, {
+      "referenceID" : 4,
+      "context" : "Existing object proposal algorithms usually search for possible object regions over dense locations and scales separately [3, 4, 5].",
+      "startOffset" : 122,
+      "endOffset" : 131
+    }, {
+      "referenceID" : 5,
+      "context" : "This in fact deviates from the human perception process — as claimed in [6], humans do not search for objects within each local image patch separately, but start with perceiving the whole scene and successively explore a small number of regions of interest via sequential attention patterns.",
+      "startOffset" : 72,
+      "endOffset" : 75
+    }, {
+      "referenceID" : 6,
+      "context" : "Extensive experiments on PASCAL VOC 2007 and 2012 [7] demonstrate that the proposed model can achieve a similar recall rate as the state-of-the-art object proposal algorithm RPN [5] yet using a significantly smaller number of candidate windows.",
+      "startOffset" : 50,
+      "endOffset" : 53
+    }, {
+      "referenceID" : 4,
+      "context" : "Extensive experiments on PASCAL VOC 2007 and 2012 [7] demonstrate that the proposed model can achieve a similar recall rate as the state-of-the-art object proposal algorithm RPN [5] yet using a significantly smaller number of candidate windows.",
+      "startOffset" : 178,
+      "endOffset" : 181
+    }, {
+      "referenceID" : 1,
+      "context" : "Combined with the Fast R-CNN detector [2], the proposed approach also achieves higher detection mAP than RPN.",
+      "startOffset" : 38,
+      "endOffset" : 41
+    }, {
+      "referenceID" : 8,
+      "context" : "For example, Selective Search [9] hierarchically merges the most similar segments to form proposals based on several low-level cues including color and texture; Edge Boxes [4] scores a set of densely distributed windows based on edge strengths fully inside the window and outputs the high scored ones as proposals.",
+      "startOffset" : 30,
+      "endOffset" : 33
+    }, {
+      "referenceID" : 3,
+      "context" : "For example, Selective Search [9] hierarchically merges the most similar segments to form proposals based on several low-level cues including color and texture; Edge Boxes [4] scores a set of densely distributed windows based on edge strengths fully inside the window and outputs the high scored ones as proposals.",
+      "startOffset" : 172,
+      "endOffset" : 175
+    }, {
+      "referenceID" : 4,
+      "context" : "Recently, RPN [5] utilizes a Fully Convolutional Network (FCN) [10] to densely generate the proposals in each local patch based on several pre-defined “anchors” in the patch, and achieves state-of-the-art performance in object recall rate.",
+      "startOffset" : 14,
+      "endOffset" : 17
+    }, {
+      "referenceID" : 9,
+      "context" : "Recently, RPN [5] utilizes a Fully Convolutional Network (FCN) [10] to densely generate the proposals in each local patch based on several pre-defined “anchors” in the patch, and achieves state-of-the-art performance in object recall rate.",
+      "startOffset" : 63,
+      "endOffset" : 67
+    }, {
+      "referenceID" : 10,
+      "context" : "Another type of works attempts [11, 12, 13, 14] to reduce the number of windows with an active object detection strategy.",
+      "startOffset" : 31,
+      "endOffset" : 47
+    }, {
+      "referenceID" : 11,
+      "context" : "Another type of works attempts [11, 12, 13, 14] to reduce the number of windows with an active object detection strategy.",
+      "startOffset" : 31,
+      "endOffset" : 47
+    }, {
+      "referenceID" : 12,
+      "context" : "Another type of works attempts [11, 12, 13, 14] to reduce the number of windows with an active object detection strategy.",
+      "startOffset" : 31,
+      "endOffset" : 47
+    }, {
+      "referenceID" : 13,
+      "context" : "Another type of works attempts [11, 12, 13, 14] to reduce the number of windows with an active object detection strategy.",
+      "startOffset" : 31,
+      "endOffset" : 47
+    }, {
+      "referenceID" : 14,
+      "context" : "[15] proposed a branch-and-bound approach to find the highest scored windows while only evaluating a few locations.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 10,
+      "context" : "[11] proposed a context driven active object searching method, which involves a nearest-neighbor search over all the training",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 11,
+      "context" : "[12] proposed an active search scheme to sequentially evaluate selective search object proposals based on spatial context information.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 15,
+      "context" : "[16] proposed an attention model embedded in recurrent neural networks (RNN) to generate captions for images by focusing on different regions in the sequential word prediction process.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 17,
+      "context" : "[18] also relied on RNN to gradually refine the focus regions to better recognize characters.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 18,
+      "context" : "Perhaps [19] and [20] are the closest works to ours.",
+      "startOffset" : 8,
+      "endOffset" : 12
+    }, {
+      "referenceID" : 19,
+      "context" : "Perhaps [19] and [20] are the closest works to ours.",
+      "startOffset" : 17,
+      "endOffset" : 21
+    }, {
+      "referenceID" : 18,
+      "context" : "[19] learned an optimal policy to localize a single object through deep Q-learning.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 19,
+      "context" : "[20] proposed a top-down search strategy to recursively divide a window into sub-windows.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 20,
+      "context" : "The features of both the current window and the whole image are extracted using a VGG-16 [21] layer CNN model pre-trained on ImageNet.",
+      "startOffset" : 89,
+      "endOffset" : 93
+    }, {
+      "referenceID" : 21,
+      "context" : "Specifically, we use the deep Q-network proposed by [22, 23] to estimate the value for each state-action pair using a deep neural network.",
+      "startOffset" : 52,
+      "endOffset" : 60
+    }, {
+      "referenceID" : 22,
+      "context" : "Specifically, we use the deep Q-network proposed by [22, 23] to estimate the value for each state-action pair using a deep neural network.",
+      "startOffset" : 52,
+      "endOffset" : 60
+    }, {
+      "referenceID" : 22,
+      "context" : "Please note that similar to [23], we also use the pre-trained CNN as the regional feature extractor instead of training the whole hierarchy of CNN, considering the good generalization of the CNN trained on ImageNet [24].",
+      "startOffset" : 28,
+      "endOffset" : 32
+    }, {
+      "referenceID" : 23,
+      "context" : "Please note that similar to [23], we also use the pre-trained CNN as the regional feature extractor instead of training the whole hierarchy of CNN, considering the good generalization of the CNN trained on ImageNet [24].",
+      "startOffset" : 215,
+      "endOffset" : 219
+    }, {
+      "referenceID" : 22,
+      "context" : "We also incorporate a replay memory following [23] to store the experiences of the past episodes, which allows one transition to be used in multiple model updates and breaks the short-time strong correlations between training samples.",
+      "startOffset" : 46,
+      "endOffset" : 50
+    }, {
+      "referenceID" : 6,
+      "context" : "We train a deep Q-network on VOC 2007+2012 trainval set [7] for 25 epochs.",
+      "startOffset" : 56,
+      "endOffset" : 59
+    }, {
+      "referenceID" : 24,
+      "context" : "The implementations are based on the publicly available Torch7 [25] platform on a single NVIDIA GeForce Titan X GPU with 12GB memory.",
+      "startOffset" : 63,
+      "endOffset" : 67
+    }, {
+      "referenceID" : 18,
+      "context" : "It does not rely on running multiple episodes starting from the whole image like [19] to find multiple objects.",
+      "startOffset" : 81,
+      "endOffset" : 85
+    }, {
+      "referenceID" : 2,
+      "context" : "Recall Comparison to Other Object Proposal Algorithms: We then compare the recall rates of the proposed Tree-RL and the following object proposal algorithms: BING [3], Edge Boxes [4], Geodesic Object Proposal [26], Selective Search [9] and Region Proposal Network (RPN) [5] (VGG16 network trained on VOC 07+12 trainval) on VOC 2007 testing set.",
+      "startOffset" : 163,
+      "endOffset" : 166
+    }, {
+      "referenceID" : 3,
+      "context" : "Recall Comparison to Other Object Proposal Algorithms: We then compare the recall rates of the proposed Tree-RL and the following object proposal algorithms: BING [3], Edge Boxes [4], Geodesic Object Proposal [26], Selective Search [9] and Region Proposal Network (RPN) [5] (VGG16 network trained on VOC 07+12 trainval) on VOC 2007 testing set.",
+      "startOffset" : 179,
+      "endOffset" : 182
+    }, {
+      "referenceID" : 25,
+      "context" : "Recall Comparison to Other Object Proposal Algorithms: We then compare the recall rates of the proposed Tree-RL and the following object proposal algorithms: BING [3], Edge Boxes [4], Geodesic Object Proposal [26], Selective Search [9] and Region Proposal Network (RPN) [5] (VGG16 network trained on VOC 07+12 trainval) on VOC 2007 testing set.",
+      "startOffset" : 209,
+      "endOffset" : 213
+    }, {
+      "referenceID" : 8,
+      "context" : "Recall Comparison to Other Object Proposal Algorithms: We then compare the recall rates of the proposed Tree-RL and the following object proposal algorithms: BING [3], Edge Boxes [4], Geodesic Object Proposal [26], Selective Search [9] and Region Proposal Network (RPN) [5] (VGG16 network trained on VOC 07+12 trainval) on VOC 2007 testing set.",
+      "startOffset" : 232,
+      "endOffset" : 235
+    }, {
+      "referenceID" : 4,
+      "context" : "Recall Comparison to Other Object Proposal Algorithms: We then compare the recall rates of the proposed Tree-RL and the following object proposal algorithms: BING [3], Edge Boxes [4], Geodesic Object Proposal [26], Selective Search [9] and Region Proposal Network (RPN) [5] (VGG16 network trained on VOC 07+12 trainval) on VOC 2007 testing set.",
+      "startOffset" : 270,
+      "endOffset" : 273
+    }, {
+      "referenceID" : 26,
+      "context" : "All the proposals of other methods are provided by [27].",
+      "startOffset" : 51,
+      "endOffset" : 55
+    }, {
+      "referenceID" : 26,
+      "context" : "5 to 1 which is shown to correlate extremely well with detector performance [27].",
+      "startOffset" : 76,
+      "endOffset" : 80
+    }, {
+      "referenceID" : 27,
+      "context" : "For Faster-RCNN (ResNet-101), we directly use the reported results in [28].",
+      "startOffset" : 70,
+      "endOffset" : 74
+    } ],
+    "year" : 2016,
+    "abstractText" : "Existing object proposal algorithms usually search for possible object regions over multiple locations and scales separately, which ignore the interdependency among different objects and deviate from the human perception procedure. To incorporate global interdependency between objects into object localization, we propose an effective Tree-structured Reinforcement Learning (Tree-RL) approach to sequentially search for objects by fully exploiting both the current observation and historical search paths. The Tree-RL approach learns multiple searching policies through maximizing the long-term reward that reflects localization accuracies over all the objects. Starting with taking the entire image as a proposal, the Tree-RL approach allows the agent to sequentially discover multiple objects via a tree-structured traversing scheme. Allowing multiple near-optimal policies, Tree-RL offers more diversity in search paths and is able to find multiple objects with a single feedforward pass. Therefore, Tree-RL can better cover different objects with various scales which is quite appealing in the context of object proposal. Experiments on PASCAL VOC 2007 and 2012 validate the effectiveness of the Tree-RL, which can achieve comparable recalls with current object proposal algorithms via much fewer candidate windows.",
+    "creator" : null
+  }
+}

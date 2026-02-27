@@ -1,0 +1,49 @@
+1) Summary and contributions
+The paper tackles single-image super-resolution by reframing it as amortised MAP inference. The key idea is to enforce exact data consistency via an affine projection layer that maps any network output onto the affine subspace {y : Ay = x} induced by the known downsampling operator A. With this constraint, learning reduces to minimizing the cross-entropy H[qθ, pY] between the model’s output distribution and the HR data distribution, removing the need for paired LR-HR supervision. Three training strategies are proposed:
+- AffGAN: a GAN variant whose generator is the affine-projected SR network; a modified generator loss is argued to minimize KL[qθ‖pY]; “instance noise” is introduced to improve stability.
+- AffDG: denoiser-guided training that uses a DAE to estimate ∇y log pY(y) and backpropagates this through the SR network.
+- AffLL: density-guided training that uses a differentiable density model (PixelCNN + MCGSM) to provide the log-likelihood gradients.
+
+The paper provides theoretical motivation for the KL/cross-entropy objectives, a clear architectural mechanism for exact data fidelity via the projection gθ(x) = (I − A+ A)fθ(x) + A+ x, and a conceptual connection between AffGAN and amortised variational inference. Empirically, AffGAN yields sharper, more plausible images than MSE/MAE on textures, faces, and ImageNet; the affine projection does not harm and can even help MSE training; and strict consistency Afθ(x)=x is satisfied to numerical precision.
+
+2) Decision: Reject
+Primary reasons:
+- Empirical validation is too limited for ICLR standards: nonstandard datasets/protocols, few baselines, no perceptual studies, and the two non-GAN variants underperform. The case for “amortised MAP for SR” is not convincingly demonstrated beyond qualitative examples.
+- Key assumptions and claims (known A, KL minimization, unpaired training benefit) are not thoroughly tested or ablated.
+
+3) Supporting arguments
+- Evaluation scope and benchmarks: Experiments use 4× upsampling on small crops (CelebA 16→64, ImageNet 32→128) and a custom Gaussian-stride downsampler. There is no evaluation on standard SR benchmarks (Set5/14, BSD100, Urban100, DIV2K) or bicubic degradation, no comparison to strong content/perception-oriented SR baselines (e.g., SRCNN/VDSR/EDSR, SRGAN), and only limited quantitative metrics (PSNR/SSIM). Claims of superior perceptual quality rest on qualitative figures without human studies or perceptual metrics (e.g., LPIPS, FID/MUSIQ).
+- “Unpaired” training claim: While the objective does not need paired LR-HR, experiments still generate LR from HR via known A. The purported advantage (no paired data) is not demonstrated (e.g., training on HR from dataset A, LR from dataset B, and generalizing; or training with unknown/mismatched A).
+- Assumption of known A and noiseless observation: The method hinges on exact knowledge of A and enforces Afθ(x)=x via A+. Real SR often includes unknown blur/noise and non-ideal downsampling. There is no robustness study under A-mismatch or additive noise; SoftGAN/soft constraints are mentioned but not developed as a realistic alternative.
+- Theoretical claims and practical alignment: 
+  - The argument that minimizing Ey log pY(ΠAx fθ(x)) realizes per-input MAP along the affine fiber is intuitive, but no conditions are given to guarantee the solution is the per-x argmax rather than a compromise across x due to finite capacity or optimization. A formal statement/proof would strengthen the claim.
+  - The KL-minimization derivation for the modified GAN loss depends on optimal/unique discriminators; in practice, these assumptions are fragile. “Instance noise” is plausible and helpful, but lacks systematic ablation (e.g., with/without noise, annealing schedules, comparison to gradient penalty/WGAN).
+- Alternative routes underperform: AffDG and AffLL produce blurry results and unstable training on textures; their limitations and failure modes are acknowledged but the negative outcomes reduce the weight of the “amortised MAP” toolkit beyond GANs.
+- Artifact and hallucination risk: AffGAN sometimes hallucinates plausible but incorrect content (e.g., snake→water). While perceptually acceptable, this undermines faithfulness in SR applications and highlights the need for controlled perceptual/semantic metrics and user studies.
+
+4) Additional feedback and questions for the authors (to help improve the paper)
+These points are intended to be constructive; not all are part of my decision.
+
+- Empirical enhancements:
+  - Evaluate on standard SR benchmarks with the bicubic protocol and include strong baselines (SRCNN, VDSR/EDSR, SRGAN, RCAN, etc.). Report PSNR/SSIM and a perceptual metric (LPIPS, DISTS, FID/KID) and, if feasible, a small-scale MOS study.
+  - Provide ablations: with/without affine projection; with/without instance noise; different noise schedules; comparison to WGAN-GP/gradient penalty; effect of capacity and A+ accuracy; sensitivity to A-mismatch and observation noise.
+  - Demonstrate the “unpaired” advantage: train with HR and LR sets from different datasets or distributions; consider unknown A and joint estimation, or show robustness to kernel mismatch.
+
+- Theory/clarifications:
+  - Formalize the equivalence between minimizing Ey log pY(ΠAx fθ(x)) and per-input MAP along {y: Ay=x}. Under what regularity/capacity assumptions does the global minimizer pick the mode for almost every x?
+  - KL vs cross-entropy: You note AffGAN minimizes KL[qθ‖pY], while the amortised MAP objective is H[qθ,pY]. Discuss implications of the extra entropy term H[qθ] for SR (diversity vs sharpness), and when KL minimization may deviate from MAP.
+  - Instance noise: Provide a more principled selection/annealing rule and a quantitative stability study. Compare against alternative stabilizers (label smoothing, spectral norm, gradient penalty).
+  - Affine projection details: Quantify the approximation quality of numerically learned A+, its spatial support, and how deviations affect Afθ(x)=x and reconstruction quality. Discuss feasibility when A has large/infinite support or is unknown.
+
+- Practical considerations:
+  - Faithfulness vs plausibility: For applications requiring fidelity, consider adding uncertainty-aware constraints (e.g., learned degradation models, noise-aware likelihood) or posterior sampling variants (as hinted in Appendix F). An empirical comparison of MAP vs posterior sampling would be valuable.
+  - Reproducibility: Release code/models and specify all hyperparameters (including instance noise schedules), training times, and compute.
+
+Questions for the authors:
+- Can you provide a theoretical or empirical demonstration that, given the affine constraint, minimizing Ey log pY(ŷ(x)) yields ŷ(x) ≈ argmax{y: Ay=x} log pY(y) for almost all x?
+- How sensitive is performance to mis-specification of A (kernel width, stride, non-Gaussian blur) and to observation noise? Can SoftGAN close the gap in such cases?
+- What is the quantitative effect of instance noise on training stability and final quality compared to WGAN-GP or spectral normalization?
+- Have you tried training with genuinely unpaired HR and LR datasets (different sources) to validate the “no paired supervision” claim?
+- Could you report perceptual metrics (e.g., LPIPS) or a small-scale user study to substantiate the qualitative improvements?
+
+Overall, the paper presents an appealing, principled perspective (affine projection + amortised MAP) and interesting theory, but it needs substantially stronger empirical validation and analysis to meet the bar.

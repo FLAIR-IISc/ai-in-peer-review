@@ -1,0 +1,470 @@
+{
+  "name" : "df0aab058ce179e4f7ab135ed4e641a9.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Rectified Factor Networks",
+    "authors" : [ "Djork-Arné Clevert", "Andreas Mayr", "Thomas Unterthiner" ],
+    "emails" : [ "okko@bioinf.jku.at", "mayr@bioinf.jku.at", "unterthiner@bioinf.jku.at", "hochreit@bioinf.jku.at" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "The success of deep learning is to a large part based on advanced and efficient input representations [1, 2, 3, 4]. These representations are sparse and hierarchical. Sparse representations of the input are in general obtained by rectified linear units (ReLU) [5, 6] and dropout [7]. The key advantage of sparse representations is that dependencies between coding units are easy to model and to interpret. Most importantly, distinct concepts are much less likely to interfere in sparse representations. Using sparse representations, similarities of samples often break down to co-occurrences of features in these samples. In bioinformatics sparse codes excelled in biclustering of gene expression data [8] and in finding DNA sharing patterns between humans and Neanderthals [9].\nRepresentations learned by ReLUs are not only sparse but also non-negative. Non-negative representations do not code the degree of absence of events or objects in the input. As the vast majority of events is supposed to be absent, to code for their degree of absence would introduce a high level of random fluctuations. We also aim for non-linear input representations to stack models for constructing hierarchical representations. Finally, the representations are supposed to have a large number of coding units to allow coding of rare and small events in the input. Rare events are only observed in few samples like seldom side effects in drug design, rare genotypes in genetics, or small customer groups in e-commerce. Small events affect only few input components like pathways with few genes in biology, few relevant mutations in oncology, or a pattern of few products in e-commerce. In summary, our goal is to construct input representations that (1) are sparse, (2) are non-negative, (3) are non-linear, (4) use many code units, and (5) model structures in the input data (see next paragraph).\nCurrent unsupervised deep learning approaches like autoencoders or restricted Boltzmann machines (RBMs) do encode all peculiarities in the data (including noise). Generative models can be design\nto model specific structures in the data, but their codes cannot be enforced to be sparse and nonnegative. The input representation of a generative model is its posterior’s mean, median, or mode, which depends on the data. Therefore, sparseness and non-negativity cannot be guaranteed independent of the data. For example, generative models with rectified priors, like rectified factor analysis, have zero posterior probability for negative values, therefore their means are positive and not sparse [10, 11]. Sparse priors like Laplacian and Jeffrey’s do not guarantee sparse posteriors (see experiments in Tab. 1). To address the data dependence of the code, we employ the posterior regularization method [12]. This method separates model characteristics from data dependent characteristics that are enforced by constraints on the model’s posterior.\nWe aim at representations that are feasible for many code units and massive datasets, therefore the computational complexity of generating a code is essential in our approach. For non-Gaussian priors, the computation of the posterior mean of a new input requires either to numerically solve an integral or to iteratively update variational parameters [13]. In contrast, for Gaussian priors the posterior mean is the product between the input and a matrix that is independent of the input. Still the posterior regularization method leads to a quadratic (in the number of coding units) constrained optimization problem in each E-step (see Eq. (3) below). To speed up computation, we do not solve the quadratic problem but perform a gradient step. To allow for stochastic gradients and fast GPU implementations, also the M-step is a gradient step. These E-step and M-step modifications of the posterior regularization method result in a generalized alternating minimization (GAM) algorithm [12]. We will show that the GAM algorithm used for RFN learning (i) converges and (ii) is correct. Correctness means that the RFN codes are non-negative, sparse, have a low reconstruction error, and explain the covariance structure of the data."
+    }, {
+      "heading" : "2 Rectified Factor Network",
+      "text" : "Our goal is to construct representations of the input that (1) are sparse, (2) are non-negative, (3) are non-linear, (4) use many code units, and (5) model structures in the input. Structures in the input are identified by a generative model, where the model assumptions determine which input structures to explain by the model. We want to model the covariance structure of the input, therefore we choose maximum likelihood factor analysis as model. The constraints on the input representation are enforced by the posterior regularization method [12]. Non-negative constraints lead to sparse and non-linear codes, while normalization constraints scale the signal part of each hidden (code) unit. Normalizing constraints avoid that generative models explain away rare and small signals by noise. Explaining away becomes a serious problem for models with many coding units since their capacities are not utilized. Normalizing ensures that all hidden units are used but at the cost of coding also random and spurious signals. Spurious and true signals must be separated in a subsequent step either by supervised techniques, by evaluating coding units via additional data, or by domain experts.\nA generative model with hidden units h and data v is defined by its prior p(h) and its likelihood p(v | h). The full model distribution p(h,v) = p(v | h)p(h) can be expressed by the model’s posterior p(h | v) and its evidence (marginal likelihood) p(v): p(h,v) = p(h | v)p(v). The representation of input v is the posterior’s mean, median, or mode. The posterior regularization method introduces a variational distribution Q(h | v) ∈ Q from a family Q, which approximates the posterior p(h | v). We choose Q to constrain the posterior means to be non-negative and normalized. The full model distribution p(h,v) contains all model assumptions and, thereby, defines which structures of the data are modeled. Q(h | v) contains data dependent constraints on the posterior, therefore on the code.\nFor data {v} = {v1, . . . ,vn}, the posterior regularization method maximizes the objective F [12]:\nF = 1 n n∑ i=1 log p(vi) − 1 n n∑ i=1 DKL(Q(hi | vi) ‖ p(hi | vi)) (1)\n= 1\nn n∑ i=1 ∫ Q(hi | vi) log p(vi | hi) dhi − 1 n n∑ i=1 DKL(Q(hi | vi) ‖ p(hi)) ,\nwhereDKL is the Kullback-Leibler distance. Maximizing F achieves two goals simultaneously: (1) extracting desired structures and information from the data as imposed by the generative model and (2) ensuring desired code properties via Q ∈ Q.\nThe factor analysis model v = Wh + extracts the covariance structure of the data. The prior h ∼ N (0, I) of the hidden units (factors) h ∈ Rl and the noise ∼ N (0,Ψ) of visible units (observations) v ∈ Rm are independent. The model parameters are the weight (loading) matrixW ∈ Rm×l and the noise covariance matrix Ψ ∈ Rm×m. We assume diagonal Ψ to explain correlations between input components by the hidden units and not by correlated noise. The factor analysis model is depicted in Fig. 1. Given the mean-centered data {v} = {v1, . . . ,vn}, the posterior p(hi | vi) is Gaussian with mean vector (µp)i and covariance matrix Σp:\n(µp)i = ( I + W TΨ−1W )−1 W TΨ−1 vi ,\nΣp = ( I + W TΨ−1W )−1 . (2)\nA rectified factor network (RFN) consists of a single or stacked factor analysis model(s) with constraints on the posterior. To incorporate the posterior constraints into the factor analysis model, we use the posterior regularization method that maximizes the objective F given in Eq. (1) [12]. Like the expectation-maximization (EM) algorithm, the posterior regularization method alternates between an E-step and an M-step. Minimizing the first DKL of Eq. (1) with respect to Q leads to a constrained optimization problem. For Gaussian distributions, the solution with (µp)i and Σp from Eq. (2) is Q(hi | vi) ∼ N (µi,Σ) with Σ = Σp and the quadratic problem:\nmin µi\n1\nn n∑ i=1 (µi − (µp)i)T Σ−1p (µi − (µp)i) , s.t. ∀i : µi ≥ 0 , ∀j : 1 n n∑ i=1 µ2ij = 1 , (3)\nwhere “≥” is component-wise. This is a constraint non-convex quadratic optimization problem in the number of hidden units which is too complex to be solved in each EM iteration. Therefore, we perform a step of the gradient projection algorithm [14, 15], which performs first a gradient step and then projects the result to the feasible set. We start by a step of the projected Newton method, then we try the gradient projection algorithm, thereafter the scaled gradient projection algorithm with reduced matrix [16] (see also [15]). If these methods fail to decrease the objective in Eq. (3), we use the generalized reduced method [17]. It solves each equality constraint for one variable and inserts it into the objective while ensuring convex constraints. Alternatively, we use Rosen’s gradient projection method [18] or its improvement [19]. These methods guarantee a decrease of the E-step objective.\nSince the projection P by Eq. (6) is very fast, the projected Newton and projected gradient update is very fast, too. A projected Newton step requires O(nl) steps (see Eq. (7) and P defined in Theorem 1), a projected gradient step requires O(min{nlm, nl2}) steps, and a scaled gradient projection step requires O(nl3) steps. The RFN complexity per iteration is O(n(m2 + l2)) (see Alg. 1). In contrast, a quadratic program solver typically requires for the (nl) variables (the means of the hidden units for all samples) O(n4l4) steps to find the minimum [20]. We exemplify these values on our benchmark datasets MNIST (n = 50k, l = 1024,m = 784) and CIFAR (n = 50k, l = 2048,m = 1024). The speedup with projected Newton or projected gradient in contrast to a quadratic solver is O(n3l2) = O(n4l4)/O(nl2), which gives speedup ratios of 1.3 · 1020 for MNIST and 5.2 · 1020 for CIFAR. These speedup ratios show that efficient E-step updates are essential for RFN learning. Furthermore, on our computers, RAM restrictions limited quadratic program solvers to problems with nl ≤ 20k. Running times of RFNs with the Newton step and a quadratic program solver are given in the supplementary Section 15.\nThe M-step decreases the expected reconstruction error\nE = − 1 n n∑ i=1 ∫ Rl Q(hi | vi) log (p(vi | hi)) dhi (4)\n= 1\n2\n( m log (2π) + log |Ψ| + Tr ( Ψ−1C ) − 2 Tr ( Ψ−1WUT ) + Tr ( W TΨ−1WS ) ) .\nfrom Eq. (1) with respect to the model parameters W and Ψ. Definitions of C, U and S are given in Alg. 1. The M-step performs a gradient step in the Newton direction, since we want to\nAlgorithm 1 Rectified Factor Network.\n1: C = 1 n ∑n i=1 viv T i 2: while STOP=false do 3: ——E-step1—— 4: for all 1 ≤ i ≤ n do 5: (µp)i = ( I +W TΨ−1W )−1 W TΨ−1vi 6: end for 7: Σ = Σp = ( I + W TΨ−1W\n)−1 8: ——Constraint Posterior—— 9: (1) projected Newton, (2) projected gradient,\n(3) scaled gradient projection, (4) generalized reduced method, (5) Rosen’s gradient project.\n10: ——E-step2—— 11: U = 1\nn ∑n i=1 vi µ T i\n12: S = 1 n ∑n i=1 µi µ T i + Σ 13: ——M-step—— 14: E = C − U W T − W U + W SW T 15: W = W + η ( U S−1 − W\n) 16: for all 1 ≤ k ≤ m do 17: Ψkk = Ψkk + η (Ekk − Ψkk) 18: end for 19: if stopping criterion is met: STOP=true 20: end while\nComplexity: objective F : O(min{nlm, nl2} + l3); E-step1: O(min{m2(m + l), l2(m + l)} + nlm); projected Newton: O(nl); projected gradient: O(min{nlm, nl2}); scaled gradient projection: O(nl3); Estep2: O(nl(m+l)); M-step: O(ml(m+l)); overall complexity with projected Newton / gradient for (l+m) < n: O(n(m2 + l2)).\nallow stochastic gradients, fast GPU implementation, and dropout regularization. The Newton step is derived in the supplementary which gives further details, too. Also in the E-step, RFN learning performs a gradient step using projected Newton or gradient projection methods. These projection methods require the Euclidean projection P of the posterior means {(µp)i} onto the non-convex feasible set:\nmin µi\n1\nn n∑ i=1 (µi − (µp)i)T (µi − (µp)i) , s.t. µi ≥ 0 , 1 n n∑ i=1 µ2ij = 1 . (5)\nThe following Theorem 1 gives the Euclidean projection P as solution to Eq. (5).\nTheorem 1 (Euclidean Projection). If at least one (µp)ij is positive for 1 ≤ j ≤ l, then the solution to optimization problem Eq. (5) is\nµij = [P((µp)i)]j = µ̂ij√\n1 n ∑n i=1 µ̂ 2 ij , µ̂ij =\n{ 0 for (µp)ij ≤ 0 (µp)ij for (µp)ij > 0 . (6)\nIf all (µp)ij are non-positive for 1 ≤ j ≤ l, then the optimization problem Eq. (5) has the solution µij = √ n for j = arg maxĵ{(µp)iĵ} and µij = 0 otherwise.\nProof. See supplementary material.\nUsing the projection P defined in Eq. (6), the E-step updates for the posterior means µi are: µnewi = P ( µoldi + γ ( d − µoldi )) , d = P ( µoldi + λH −1 Σ−1p ((µp)i − µoldi ) ) (7)\nwhere we set for the projected Newton method H−1 = Σp (thus H−1Σ−1p = I), and for the projected gradient method H−1 = I . For the scaled gradient projection algorithm with reduced matrix, the -active set for i consists of all j with µij ≤ . The reduced matrix H is the Hessian Σ−1p with -active columns and rows j fixed to unit vectors ej . The resulting algorithm is a posterior regularization method with a gradient based E- and M-step, leading to a generalized alternating minimization (GAM) algorithm [21]. The RFN learning algorithm is given in Alg. 1. Dropout regularization can be included before E-step2 by randomly setting code units µij to zero with a predefined dropout rate (note that convergence results will no longer hold)."
+    }, {
+      "heading" : "3 Convergence and Correctness of RFN Learning",
+      "text" : "Convergence of RFN Learning. Theorem 2 states that Alg. 1 converges to a maximum of F . Theorem 2 (RFN Convergence). The rectified factor network (RFN) learning algorithm given in Alg. 1 is a “generalized alternating minimization” (GAM) algorithm and converges to a solution that maximizes the objective F .\nProof. We present a sketch of the proof which is given in detail in the supplement. For convergence, we show that Alg. 1 is a GAM algorithm which convergences according to Proposition 5 in [21].\nAlg. 1 ensures to decrease the M-step objective which is convex in W and Ψ−1. The update with η = 1 leads to the minimum of the objective. Convexity of the objective guarantees a decrease in the M-step for 0 < η ≤ 1 if not in a minimum. Alg. 1 ensures to decrease the E-step objective by using gradient projection methods. All other requirements for GAM convergence are also fulfilled.\nProposition 5 in [21] is based on Zangwill’s generalized convergence theorem, thus updates of the RFN algorithm are viewed as point-to-set mappings [22]. Therefore, the numerical precision, the choice of the methods in the E-step, and GPU implementations are covered by the proof.\nCorrectness of RFN Learning. The goal of the RFN algorithm is to explain the data and its covariance structure. The expected approximation errorE is defined in line 14 of Alg. 1. Theorem 3 states that the RFN algorithm is correct, that is, it explains the data (low reconstruction error) and captures the covariance structure as good as possible. Theorem 3 (RFN Correctness). The fixed point W of Alg. 1 minimizes Tr (Ψ) given µi and Σ by ridge regression with\nTr (Ψ) = 1\nn n∑ i=1 ‖ i‖22 + ∥∥∥W Σ1/2∥∥∥2 F , (8)\nwhere i = vi −Wµi. The model explains the data covariance matrix by C = Ψ + W S W T (9)\nup to an error, which is quadratic in Ψ for Ψ WW T . The reconstruction error 1n ∑n i=1 ‖ i‖ 2 2 is quadratic in Ψ for Ψ WW T .\nProof. The fixed point equation for theW update is ∆W = US−1 −W = 0 ⇒ W = US−1. Using the definition of U and S, we haveW = ( 1 n ∑n i=1 vi µ T i ) ( 1 n ∑n i=1 µi µ T i + Σ )−1 . W is the ridge regression solution of\n1\nn n∑ i=1 ‖vi − W µi‖22 + ∥∥∥W Σ1/2∥∥∥2 F = Tr ( 1 n n∑ i=1 i T i + W ΣW T ) , (10)\nwhere Tr is the trace. After multiplying out all i Ti in 1/n ∑n i=1 i T i , we obtain:\nE = 1\nn n∑ i=1 i T i + W ΣW T . (11)\nFor the fixed point of Ψ, the update rule gives: diag (Ψ) = diag ( 1 n ∑n i=1 i T i +WΣW T ) .\nThus, W minimizes Tr (Ψ) given µi and Σ. Multiplying the Woodbury identity for( WW T + Ψ )−1 from left and right by Ψ gives\nWΣW T = Ψ−Ψ ( W W T + Ψ )−1 Ψ. (12)\nInserting this into the expression for diag (Ψ) and taking the trace gives\nTr\n( 1\nn n∑ i=1 i T i\n) = Tr ( Ψ ( WW T + Ψ )−1 Ψ ) ≤ Tr (( WW T + Ψ )−1) Tr (Ψ) 2 . (13)\nTherefore, for Ψ WW T the error is quadratic in Ψ. WUT = WSW T = UW T follows from fixed point equation U = WS. Using this and Eq. (12), Eq. (11) is\n1\nn n∑ i=1 i T i − Ψ ( W W T + Ψ )−1 Ψ = C − Ψ − W S W T . (14)\nUsing the trace norm (nuclear norm or Ky-Fan n-norm) on matrices, Eq. (13) states that the left hand side of Eq. (14) is quadratic in Ψ for Ψ WW T . The trace norm of a positive semi-definite matrix is its trace and bounds the Frobenius norm [23]. Thus, for Ψ WW T , the covariance is approximated up to a quadratic error in Ψ according to Eq. (9). The diagonal is exactly modeled.\nSince the minimization of the expected reconstruction error Tr (Ψ) is based on µi, the quality of reconstruction depends on the correlation between µi and vi. We ensure maximal information in µi on vi by the I-projection (the minimal Kullback-Leibler distance) of the posterior onto the family of rectified and normalized Gaussian distributions."
+    }, {
+      "heading" : "4 Experiments",
+      "text" : "RFNs vs. Other Unsupervised Methods. We assess the performance of rectified factor networks (RFNs) as unsupervised methods for data representation. We compare (1) RFN: rectified factor networks, (2) RFNn: RFNs without normalization, (3) DAE: denoising autoencoders with ReLUs, (4) RBM: restricted Boltzmann machines with Gaussian visible units, (5) FAsp: factor analysis with Jeffrey’s prior (p(z) ∝ 1/z) on the hidden units which is sparser than a Laplace prior, (6) FAlap: factor analysis with Laplace prior on the hidden units, (7) ICA: independent component analysis by FastICA [24], (8) SFA: sparse factor analysis with a Laplace prior on the parameters, (9) FA: standard factor analysis, (10) PCA: principal component analysis. The number of components are fixed to 50, 100 and 150 for each method. We generated nine different benchmark datasets (D1 to D9), where each dataset consists of 100 instances. Each instance has 100 samples and 100 features resulting in a 100×100 matrix. Into these matrices, biclusters are implanted [8]. A bicluster is a pattern of particular features which is found in particular samples like a pathway activated in some samples. An optimal representation will only code the biclusters that are present in a sample. The datasets have different noise levels and different bicluster sizes. Large biclusters have 20–30 samples and 20–30 features, while small biclusters 3–8 samples and 3–8 features. The pattern’s signal strength in a particular sample was randomly chosen according to the Gaussian N (1, 1). Finally, to each matrix, zero-mean Gaussian background noise was added with standard deviation 1, 5, or 10. The datasets are characterized by Dx=(σ, n1, n2) with background noise σ, number of large biclusters n1, and the number of small biclusters n2: D1=(1,10,10), D2=(5,10,10), D3=(10,10,10), D4=(1,15,5), D5=(5,15,5), D6=(10,15,5), D7=(1,5,15), D8=(5,5,15), D9=(10,5,15). We evaluated the methods according to the (1) sparseness of the components, the (2) input reconstruction error from the code, and the (3) covariance reconstruction error for generative models. For RFNs sparseness is the percentage of the components that are exactly 0, while for others methods it is the percentage of components with an absolute value smaller than 0.01. The reconstruction error is the sum of the squared errors across samples. The covariance reconstruction error is the Frobenius norm of the difference between model and data covariance. See supplement for more details on the data and for information on hyperparameter selection for the different methods. Tab. 1 gives averaged results for models with 50 (undercomplete), 100 (complete) and 150 (overcomplete) coding units. Results are the mean of 900 instances consisting of 100 instances for each dataset D1 to D9. In the supplement, we separately tabulate the results for D1 to D9 and confirm them with different noise levels. FAlap did not yield sparse codes since the variational parameter did not\npush the absolute representations below the threshold of 0.01. The variational approximation to the Laplacian is a Gaussian [13]. RFNs had the sparsest code, the lowest reconstruction error, and the lowest covariance approximation error of all methods yielding sparse representations (SP>10%).\nRFN Pretraining for Deep Nets. We assess the performance of rectified factor networks (RFNs) if used for pretraining of deep networks. Stacked RFNs are obtained by first training a single layer RFN and then passing on the resulting representation as input for training the next RFN. The deep network architectures use a RFN pretrained first layer (RFN-1) or stacks of 3 RFNs giving a 3- hidden layer network. The classification performance of deep networks with RFN pretrained layers was compared to (i) support vector machines, (ii) deep networks pretrained by stacking denoising autoencoders (SDAE), (iii) stacking regular autoencoders (SAE), (iv) restricted Boltzmann machines (RBM), and (v) stacking restricted Boltzmann machines (DBN). The benchmark datasets and results are taken from previous publications [25, 26, 27, 28] and contain: (i) MNIST (original MNIST), (ii) basic (a smaller subset of MNIST for training), (iii) bg-rand (MNIST with random noise background), (iv) bg-img (MNIST with random image background), (v) rect (tall or wide rectangles), (vi) rect-img (tall or wide rectangular images with random background images), (vii) convex (convex or concave shapes), (viii) CIFAR-10 (60k color images in 10 classes), and (ix) NORB (29,160 stereo image pairs of 5 categories). For each dataset its size of training, validation and test set is given in the second column of Tab. 2. As preprocessing we only performed median centering. Model selection is based on the validation set [26]. The RFNs hyperparameters are (i) the number of units per layer from {1024, 2048, 4096} and (ii) the dropout rate from {0.0, 0.25, 0.5, 0.75}. The learning rate was fixed to η = 0.01 (default value). For supervised fine-tuning with stochastic gradient descent, we selected the learning rate from {0.1, 0.01, 0.001}, the masking noise from {0.0, 0.25}, and the number of layers from {1, 3}. Fine-tuning was stopped based on the validation set, see [26]. Fig. 2 shows learned filters. Test error rates and the 95%\nconfidence interval (computed according to [26]) for deep network pretraining by RFNs and other methods are given in Tab. 2. Best results and those with overlapping confidence intervals are given in bold. RFNs were only once significantly worse than the best method but still the second best. In six out of the nine experiments RFNs performed best, where in four cases it was significantly the best. Supplementary Section 14 shows results of RFN pretraining for convolutional networks, where RFN pretraining decreased the test error rates to 7.63% for CIFAR-10 and to 29.75% for CIFAR-100.\nRFNs in Drug Discovery. Using RFNs we analyzed gene expression datasets of two projects in the lead optimization phase of a big pharmaceutical company [29]. The first project aimed at finding novel antipsychotics that target PDE10A. The second project was an oncology study that focused on compounds inhibiting the FGF receptor. In both projects, the expression data was summarized by FARMS [30] and standardized. RFNs were trained with 500 hidden units, no masking noise, and a learning rate of η = 0.01. The identified transcriptional modules are shown in Fig. 3. Panels A and B illustrate that RFNs found rare and small events in the input. In panel A only a few drugs are genotoxic (rare event) by downregulating the expression of a small number of tubulin genes (small event). The genotoxic effect stems from the formation of micronuclei (panel C and D) since the mitotic spindle apparatus is impaired. Also in panel B, RFN identified a rare and small event which is a transcriptional module that has a negative feedback to the MAPK signaling pathway. Rare events are unexpectedly inactive drugs (black dots), which do not inhibit the FGF receptor. Both findings were not detected by other unsupervised methods, while they were highly relevant and supported decision-making in both projects [29]."
+    }, {
+      "heading" : "5 Conclusion",
+      "text" : "We have introduced rectified factor networks (RFNs) for constructing very sparse and non-linear input representations with many coding units in a generative framework. Like factor analysis, RFN learning explains the data variance by its model parameters. The RFN learning algorithm is a posterior regularization method which enforces non-negative and normalized posterior means. We have shown that RFN learning is a generalized alternating minimization method which can be proved to converge and to be correct. RFNs had the sparsest code, the lowest reconstruction error, and the lowest covariance approximation error of all methods that yielded sparse representations (SP>10%). RFNs have shown that they improve performance if used for pretraining of deep networks. In two pharmaceutical drug discovery studies, RFNs detected small and rare gene modules that were so far missed by other unsupervised methods. These gene modules were highly relevant and supported the decision-making in both studies. RFNs are geared to large datasets, sparse coding, and many representational units, therefore they have high potential as unsupervised deep learning techniques.\nAcknowledgment. The Tesla K40 used for this research was donated by the NVIDIA Corporation."
+    } ],
+    "references" : [ {
+      "title" : "Reducing the dimensionality of data with neural networks",
+      "author" : [ "G.E. Hinton", "R. Salakhutdinov" ],
+      "venue" : "Science, 313(5786):504–507",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : null,
+      "year" : 2006
+    }, {
+      "title" : "Greedy layer-wise training of deep networks",
+      "author" : [ "Y. Bengio", "P. Lamblin", "D. Popovici", "H. Larochelle" ],
+      "venue" : "B. Schölkopf, J. C. Platt, and T. Hoffman, editors, NIPS, pages 153–160. MIT Press",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : null,
+      "year" : 2007
+    }, {
+      "title" : "Deep learning in neural networks: An overview",
+      "author" : [ "J. Schmidhuber" ],
+      "venue" : "Neural Networks, 61:85–117",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Deep learning",
+      "author" : [ "Y. LeCun", "Y. Bengio", "G. Hinton" ],
+      "venue" : "Nature, 521(7553):436–444",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Rectified linear units improve restricted Boltzmann machines",
+      "author" : [ "V. Nair", "G.E. Hinton" ],
+      "venue" : "ICML, pages 807–814. Omnipress 2010, ISBN 978-1-60558-907-7",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : null,
+      "year" : 2010
+    }, {
+      "title" : "Deep sparse rectifier neural networks",
+      "author" : [ "X. Glorot", "A. Bordes", "Y. Bengio" ],
+      "venue" : "AISTATS, volume 15, pages 315–323",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Dropout: A simple way to prevent neural networks from overfitting",
+      "author" : [ "N. Srivastava", "G. Hinton", "A. Krizhevsky", "I. Sutskever", "R. Salakhutdinov" ],
+      "venue" : "Journal of Machine Learning Research, 15:1929–1958",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "et al",
+      "author" : [ "S. Hochreiter", "U. Bodenhofer" ],
+      "venue" : "FABIA: factor analysis for bicluster acquisition. Bioinformatics, 26(12):1520–1527",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : null,
+      "year" : 2010
+    }, {
+      "title" : "HapFABIA: Identification of very short segments of identity by descent characterized by rare variants in large sequencing data",
+      "author" : [ "S. Hochreiter" ],
+      "venue" : "Nucleic Acids Res., 41(22):e202",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Variational learning in nonlinear Gaussian belief networks",
+      "author" : [ "B.J. Frey", "G.E. Hinton" ],
+      "venue" : "Neural Computation, 11(1):193–214",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : null,
+      "year" : 1999
+    }, {
+      "title" : "Variational learning for rectified factor analysis",
+      "author" : [ "M. Harva", "A. Kaban" ],
+      "venue" : "Signal Processing, 87(3):509– 527",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : null,
+      "year" : 2007
+    }, {
+      "title" : "Posterior regularization for structured latent variable models",
+      "author" : [ "K. Ganchev", "J. Graca", "J. Gillenwater", "B. Taskar" ],
+      "venue" : "Journal of Machine Learning Research, 11:2001–2049",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : null,
+      "year" : 2010
+    }, {
+      "title" : "Variational EM algorithms for non-Gaussian latent variable models",
+      "author" : [ "J. Palmer", "D. Wipf", "K. Kreutz-Delgado", "B. Rao" ],
+      "venue" : "NIPS, volume 18, pages 1059–1066",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : null,
+      "year" : 2006
+    }, {
+      "title" : "On the Goldstein-Levitin-Polyak gradient projection method",
+      "author" : [ "D.P. Bertsekas" ],
+      "venue" : "IEEE Trans. Automat. Control, 21:174–184",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : null,
+      "year" : 1976
+    }, {
+      "title" : "Iterative Methods for Optimization",
+      "author" : [ "C.T. Kelley" ],
+      "venue" : "Society for Industrial and Applied Mathematics (SIAM), Philadelphia",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : null,
+      "year" : 1999
+    }, {
+      "title" : "Projected Newton methods for optimization problems with simple constraints",
+      "author" : [ "D.P. Bertsekas" ],
+      "venue" : "SIAM J. Control Optim., 20:221–246",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : null,
+      "year" : 1982
+    }, {
+      "title" : "Optimization",
+      "author" : [ "J. Abadie", "J. Carpentier" ],
+      "venue" : "chapter Generalization of the Wolfe Reduced Gradient Method to the Case of Nonlinear Constraints. Academic Press",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : null,
+      "year" : 1969
+    }, {
+      "title" : "The gradient projection method for nonlinear programming",
+      "author" : [ "J.B. Rosen" ],
+      "venue" : "part ii. nonlinear constraints. Journal of the Society for Industrial and Applied Mathematics, 9(4):514–532",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : null,
+      "year" : 1961
+    }, {
+      "title" : "Applied optimal design",
+      "author" : [ "E.J. Haug", "J.S. Arora" ],
+      "venue" : "J. Wiley & Sons, New York",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : null,
+      "year" : 1979
+    }, {
+      "title" : "Interior Point Polynomial Time Methods for Linear Programming",
+      "author" : [ "A. Ben-Tal", "A. Nemirovski" ],
+      "venue" : "Conic Quadratic Programming, and Semidefinite Programming, chapter 6, pages 377–442. Society for Industrial and Applied Mathematics",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : null,
+      "year" : 2001
+    }, {
+      "title" : "Convergence theorems for generalized alternating minimization procedures",
+      "author" : [ "A. Gunawardana", "W. Byrne" ],
+      "venue" : "Journal of Machine Learning Research, 6:2049–2073",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : null,
+      "year" : 2005
+    }, {
+      "title" : "Nonlinear Programming: A Unified Approach",
+      "author" : [ "W.I. Zangwill" ],
+      "venue" : "Prentice Hall, Englewood Cliffs, N.J.",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : null,
+      "year" : 1969
+    }, {
+      "title" : "Learning with Matrix Factorizations",
+      "author" : [ "N. Srebro" ],
+      "venue" : "PhD thesis, Department of Electrical Engineering and Computer Science, Massachusetts Institute of Technology",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : null,
+      "year" : 2004
+    }, {
+      "title" : "A fast fixed-point algorithm for independent component analysis",
+      "author" : [ "A. Hyvärinen", "E. Oja" ],
+      "venue" : "Neural Comput., 9(7):1483–1492",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : null,
+      "year" : 1999
+    }, {
+      "title" : "Learning methods for generic object recognition with invariance to pose and lighting",
+      "author" : [ "Y. LeCun", "F.-J. Huang", "L. Bottou" ],
+      "venue" : "Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR). IEEE Press",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : null,
+      "year" : 2004
+    }, {
+      "title" : "et al",
+      "author" : [ "P. Vincent", "H. Larochelle" ],
+      "venue" : "Stacked denoising autoencoders: Learning useful representations in a deep network with a local denoising criterion. JMLR, 11:3371–3408",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : null,
+      "year" : 2010
+    }, {
+      "title" : "et al",
+      "author" : [ "H. Larochelle", "D. Erhan" ],
+      "venue" : "An empirical evaluation of deep architectures on problems with many factors of variation. In ICML, pages 473–480",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : null,
+      "year" : 2007
+    }, {
+      "title" : "Learning multiple layers of features from tiny images",
+      "author" : [ "A. Krizhevsky" ],
+      "venue" : "Master’s thesis, Deptartment of Computer Science, University of Toronto",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : null,
+      "year" : 2009
+    }, {
+      "title" : "et al",
+      "author" : [ "B. Verbist", "G. Klambauer" ],
+      "venue" : "Using transcriptomics to guide lead optimization in drug discovery projects: Lessons learned from the {QSTAR} project. Drug Discovery Today, 20(5):505 – 513",
+      "citeRegEx" : "29",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "A new summarization method for Affymetrix probe level data",
+      "author" : [ "S. Hochreiter", "D.-A. Clevert", "K. Obermayer" ],
+      "venue" : "Bioinformatics, 22(8):943–949",
+      "citeRegEx" : "30",
+      "shortCiteRegEx" : null,
+      "year" : 2006
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 0,
+      "context" : "The success of deep learning is to a large part based on advanced and efficient input representations [1, 2, 3, 4].",
+      "startOffset" : 102,
+      "endOffset" : 114
+    }, {
+      "referenceID" : 1,
+      "context" : "The success of deep learning is to a large part based on advanced and efficient input representations [1, 2, 3, 4].",
+      "startOffset" : 102,
+      "endOffset" : 114
+    }, {
+      "referenceID" : 2,
+      "context" : "The success of deep learning is to a large part based on advanced and efficient input representations [1, 2, 3, 4].",
+      "startOffset" : 102,
+      "endOffset" : 114
+    }, {
+      "referenceID" : 3,
+      "context" : "The success of deep learning is to a large part based on advanced and efficient input representations [1, 2, 3, 4].",
+      "startOffset" : 102,
+      "endOffset" : 114
+    }, {
+      "referenceID" : 4,
+      "context" : "Sparse representations of the input are in general obtained by rectified linear units (ReLU) [5, 6] and dropout [7].",
+      "startOffset" : 93,
+      "endOffset" : 99
+    }, {
+      "referenceID" : 5,
+      "context" : "Sparse representations of the input are in general obtained by rectified linear units (ReLU) [5, 6] and dropout [7].",
+      "startOffset" : 93,
+      "endOffset" : 99
+    }, {
+      "referenceID" : 6,
+      "context" : "Sparse representations of the input are in general obtained by rectified linear units (ReLU) [5, 6] and dropout [7].",
+      "startOffset" : 112,
+      "endOffset" : 115
+    }, {
+      "referenceID" : 7,
+      "context" : "In bioinformatics sparse codes excelled in biclustering of gene expression data [8] and in finding DNA sharing patterns between humans and Neanderthals [9].",
+      "startOffset" : 80,
+      "endOffset" : 83
+    }, {
+      "referenceID" : 8,
+      "context" : "In bioinformatics sparse codes excelled in biclustering of gene expression data [8] and in finding DNA sharing patterns between humans and Neanderthals [9].",
+      "startOffset" : 152,
+      "endOffset" : 155
+    }, {
+      "referenceID" : 9,
+      "context" : "For example, generative models with rectified priors, like rectified factor analysis, have zero posterior probability for negative values, therefore their means are positive and not sparse [10, 11].",
+      "startOffset" : 189,
+      "endOffset" : 197
+    }, {
+      "referenceID" : 10,
+      "context" : "For example, generative models with rectified priors, like rectified factor analysis, have zero posterior probability for negative values, therefore their means are positive and not sparse [10, 11].",
+      "startOffset" : 189,
+      "endOffset" : 197
+    }, {
+      "referenceID" : 11,
+      "context" : "To address the data dependence of the code, we employ the posterior regularization method [12].",
+      "startOffset" : 90,
+      "endOffset" : 94
+    }, {
+      "referenceID" : 12,
+      "context" : "For non-Gaussian priors, the computation of the posterior mean of a new input requires either to numerically solve an integral or to iteratively update variational parameters [13].",
+      "startOffset" : 175,
+      "endOffset" : 179
+    }, {
+      "referenceID" : 11,
+      "context" : "These E-step and M-step modifications of the posterior regularization method result in a generalized alternating minimization (GAM) algorithm [12].",
+      "startOffset" : 142,
+      "endOffset" : 146
+    }, {
+      "referenceID" : 11,
+      "context" : "The constraints on the input representation are enforced by the posterior regularization method [12].",
+      "startOffset" : 96,
+      "endOffset" : 100
+    }, {
+      "referenceID" : 11,
+      "context" : ",vn}, the posterior regularization method maximizes the objective F [12]:",
+      "startOffset" : 68,
+      "endOffset" : 72
+    }, {
+      "referenceID" : 13,
+      "context" : "Therefore, we perform a step of the gradient projection algorithm [14, 15], which performs first a gradient step and then projects the result to the feasible set.",
+      "startOffset" : 66,
+      "endOffset" : 74
+    }, {
+      "referenceID" : 14,
+      "context" : "Therefore, we perform a step of the gradient projection algorithm [14, 15], which performs first a gradient step and then projects the result to the feasible set.",
+      "startOffset" : 66,
+      "endOffset" : 74
+    }, {
+      "referenceID" : 15,
+      "context" : "We start by a step of the projected Newton method, then we try the gradient projection algorithm, thereafter the scaled gradient projection algorithm with reduced matrix [16] (see also [15]).",
+      "startOffset" : 170,
+      "endOffset" : 174
+    }, {
+      "referenceID" : 14,
+      "context" : "We start by a step of the projected Newton method, then we try the gradient projection algorithm, thereafter the scaled gradient projection algorithm with reduced matrix [16] (see also [15]).",
+      "startOffset" : 185,
+      "endOffset" : 189
+    }, {
+      "referenceID" : 16,
+      "context" : "(3), we use the generalized reduced method [17].",
+      "startOffset" : 43,
+      "endOffset" : 47
+    }, {
+      "referenceID" : 17,
+      "context" : "Alternatively, we use Rosen’s gradient projection method [18] or its improvement [19].",
+      "startOffset" : 57,
+      "endOffset" : 61
+    }, {
+      "referenceID" : 18,
+      "context" : "Alternatively, we use Rosen’s gradient projection method [18] or its improvement [19].",
+      "startOffset" : 81,
+      "endOffset" : 85
+    }, {
+      "referenceID" : 19,
+      "context" : "In contrast, a quadratic program solver typically requires for the (nl) variables (the means of the hidden units for all samples) O(n(4)l(4)) steps to find the minimum [20].",
+      "startOffset" : 168,
+      "endOffset" : 172
+    }, {
+      "referenceID" : 20,
+      "context" : "The resulting algorithm is a posterior regularization method with a gradient based E- and M-step, leading to a generalized alternating minimization (GAM) algorithm [21].",
+      "startOffset" : 164,
+      "endOffset" : 168
+    }, {
+      "referenceID" : 20,
+      "context" : "1 is a GAM algorithm which convergences according to Proposition 5 in [21].",
+      "startOffset" : 70,
+      "endOffset" : 74
+    }, {
+      "referenceID" : 20,
+      "context" : "Proposition 5 in [21] is based on Zangwill’s generalized convergence theorem, thus updates of the RFN algorithm are viewed as point-to-set mappings [22].",
+      "startOffset" : 17,
+      "endOffset" : 21
+    }, {
+      "referenceID" : 21,
+      "context" : "Proposition 5 in [21] is based on Zangwill’s generalized convergence theorem, thus updates of the RFN algorithm are viewed as point-to-set mappings [22].",
+      "startOffset" : 148,
+      "endOffset" : 152
+    }, {
+      "referenceID" : 22,
+      "context" : "The trace norm of a positive semi-definite matrix is its trace and bounds the Frobenius norm [23].",
+      "startOffset" : 93,
+      "endOffset" : 97
+    }, {
+      "referenceID" : 23,
+      "context" : "We compare (1) RFN: rectified factor networks, (2) RFNn: RFNs without normalization, (3) DAE: denoising autoencoders with ReLUs, (4) RBM: restricted Boltzmann machines with Gaussian visible units, (5) FAsp: factor analysis with Jeffrey’s prior (p(z) ∝ 1/z) on the hidden units which is sparser than a Laplace prior, (6) FAlap: factor analysis with Laplace prior on the hidden units, (7) ICA: independent component analysis by FastICA [24], (8) SFA: sparse factor analysis with a Laplace prior on the parameters, (9) FA: standard factor analysis, (10) PCA: principal component analysis.",
+      "startOffset" : 434,
+      "endOffset" : 438
+    }, {
+      "referenceID" : 7,
+      "context" : "Into these matrices, biclusters are implanted [8].",
+      "startOffset" : 46,
+      "endOffset" : 49
+    }, {
+      "referenceID" : 12,
+      "context" : "The variational approximation to the Laplacian is a Gaussian [13].",
+      "startOffset" : 61,
+      "endOffset" : 65
+    }, {
+      "referenceID" : 24,
+      "context" : "The benchmark datasets and results are taken from previous publications [25, 26, 27, 28] and contain: (i) MNIST (original MNIST), (ii) basic (a smaller subset of MNIST for training), (iii) bg-rand (MNIST with random noise background), (iv) bg-img (MNIST with random image background), (v) rect (tall or wide rectangles), (vi) rect-img (tall or wide rectangular images with random background images), (vii) convex (convex or concave shapes), (viii) CIFAR-10 (60k color images in 10 classes), and (ix) NORB (29,160 stereo image pairs of 5 categories).",
+      "startOffset" : 72,
+      "endOffset" : 88
+    }, {
+      "referenceID" : 25,
+      "context" : "The benchmark datasets and results are taken from previous publications [25, 26, 27, 28] and contain: (i) MNIST (original MNIST), (ii) basic (a smaller subset of MNIST for training), (iii) bg-rand (MNIST with random noise background), (iv) bg-img (MNIST with random image background), (v) rect (tall or wide rectangles), (vi) rect-img (tall or wide rectangular images with random background images), (vii) convex (convex or concave shapes), (viii) CIFAR-10 (60k color images in 10 classes), and (ix) NORB (29,160 stereo image pairs of 5 categories).",
+      "startOffset" : 72,
+      "endOffset" : 88
+    }, {
+      "referenceID" : 26,
+      "context" : "The benchmark datasets and results are taken from previous publications [25, 26, 27, 28] and contain: (i) MNIST (original MNIST), (ii) basic (a smaller subset of MNIST for training), (iii) bg-rand (MNIST with random noise background), (iv) bg-img (MNIST with random image background), (v) rect (tall or wide rectangles), (vi) rect-img (tall or wide rectangular images with random background images), (vii) convex (convex or concave shapes), (viii) CIFAR-10 (60k color images in 10 classes), and (ix) NORB (29,160 stereo image pairs of 5 categories).",
+      "startOffset" : 72,
+      "endOffset" : 88
+    }, {
+      "referenceID" : 27,
+      "context" : "The benchmark datasets and results are taken from previous publications [25, 26, 27, 28] and contain: (i) MNIST (original MNIST), (ii) basic (a smaller subset of MNIST for training), (iii) bg-rand (MNIST with random noise background), (iv) bg-img (MNIST with random image background), (v) rect (tall or wide rectangles), (vi) rect-img (tall or wide rectangular images with random background images), (vii) convex (convex or concave shapes), (viii) CIFAR-10 (60k color images in 10 classes), and (ix) NORB (29,160 stereo image pairs of 5 categories).",
+      "startOffset" : 72,
+      "endOffset" : 88
+    }, {
+      "referenceID" : 25,
+      "context" : "Model selection is based on the validation set [26].",
+      "startOffset" : 47,
+      "endOffset" : 51
+    }, {
+      "referenceID" : 25,
+      "context" : "Fine-tuning was stopped based on the validation set, see [26].",
+      "startOffset" : 57,
+      "endOffset" : 61
+    }, {
+      "referenceID" : 24,
+      "context" : "Table 2: Results of deep networks pretrained by RFNs and other models (taken from [25, 26, 27, 28]).",
+      "startOffset" : 82,
+      "endOffset" : 98
+    }, {
+      "referenceID" : 25,
+      "context" : "Table 2: Results of deep networks pretrained by RFNs and other models (taken from [25, 26, 27, 28]).",
+      "startOffset" : 82,
+      "endOffset" : 98
+    }, {
+      "referenceID" : 26,
+      "context" : "Table 2: Results of deep networks pretrained by RFNs and other models (taken from [25, 26, 27, 28]).",
+      "startOffset" : 82,
+      "endOffset" : 98
+    }, {
+      "referenceID" : 27,
+      "context" : "Table 2: Results of deep networks pretrained by RFNs and other models (taken from [25, 26, 27, 28]).",
+      "startOffset" : 82,
+      "endOffset" : 98
+    }, {
+      "referenceID" : 25,
+      "context" : "confidence interval (computed according to [26]) for deep network pretraining by RFNs and other methods are given in Tab.",
+      "startOffset" : 43,
+      "endOffset" : 47
+    }, {
+      "referenceID" : 28,
+      "context" : "Using RFNs we analyzed gene expression datasets of two projects in the lead optimization phase of a big pharmaceutical company [29].",
+      "startOffset" : 127,
+      "endOffset" : 131
+    }, {
+      "referenceID" : 29,
+      "context" : "In both projects, the expression data was summarized by FARMS [30] and standardized.",
+      "startOffset" : 62,
+      "endOffset" : 66
+    }, {
+      "referenceID" : 28,
+      "context" : "Both findings were not detected by other unsupervised methods, while they were highly relevant and supported decision-making in both projects [29].",
+      "startOffset" : 142,
+      "endOffset" : 146
+    } ],
+    "year" : 2015,
+    "abstractText" : "We propose rectified factor networks (RFNs) to efficiently construct very sparse, non-linear, high-dimensional representations of the input. RFN models identify rare and small events in the input, have a low interference between code units, have a small reconstruction error, and explain the data covariance structure. RFN learning is a generalized alternating minimization algorithm derived from the posterior regularization method which enforces non-negative and normalized posterior means. We proof convergence and correctness of the RFN learning algorithm. On benchmarks, RFNs are compared to other unsupervised methods like autoencoders, RBMs, factor analysis, ICA, and PCA. In contrast to previous sparse coding methods, RFNs yield sparser codes, capture the data’s covariance structure more precisely, and have a significantly smaller reconstruction error. We test RFNs as pretraining technique for deep networks on different vision datasets, where RFNs were superior to RBMs and autoencoders. On gene expression data from two pharmaceutical drug discovery studies, RFNs detected small and rare gene modules that revealed highly relevant new biological insights which were so far missed by other unsupervised methods. RFN package for GPU/CPU is available at http://www.bioinf.jku.at/software/rfn.",
+    "creator" : null
+  }
+}

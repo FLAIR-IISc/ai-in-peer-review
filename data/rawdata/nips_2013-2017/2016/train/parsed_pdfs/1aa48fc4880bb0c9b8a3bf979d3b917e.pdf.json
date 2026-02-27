@@ -1,0 +1,498 @@
+{
+  "name" : "1aa48fc4880bb0c9b8a3bf979d3b917e.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Stochastic Variance Reduction Methods for Saddle-Point Problems",
+    "authors" : [ "P. Balamurugan", "Francis Bach" ],
+    "emails" : [ "balamurugan.palaniappan@inria.fr", "francis.bach@ens.fr" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "When using optimization in machine learning, leveraging the natural separability of the objective functions has led to many algorithmic advances; the most common example is the separability as a sum of individual loss terms corresponding to individual observations, which leads to stochastic gradient descent techniques. Several lines of work have shown that the plain Robbins-Monro algorithm could be accelerated for strongly-convex finite sums, e.g., SAG [1], SVRG [2], SAGA [3]. However, these only apply to separable objective functions.\nIn order to tackle non-separable losses or regularizers, we consider the saddle-point problem:\nmin x∈Rd max y∈Rn K(x, y) +M(x, y), (1)\nwhere the functions K and M are “convex-concave”, that is, convex with respect to the first variable, and concave with respect to the second variable, with M potentially non-smooth but “simple” (e.g., for which the proximal operator is easy to compute), and K smooth. These problems occur naturally within convex optimization through Lagrange or Fenchel duality [4]; for example the bilinear saddlepoint problem minx∈Rd maxy∈Rn f(x)+y>Kx−g(y) corresponds to a supervised learning problem with design matrix K, a loss function g∗ (the Fenchel conjugate of g) and a regularizer f .\nWe assume that the function K may be split into a potentially large number of components. Many problems in machine learning exhibit that structure in the saddle-point formulation, but not in the associated convex minimization and concave maximization problems (see examples in Section 2.1).\nLike for convex minimization, gradient-based techniques that are blind to this separable structure need to access all the components at every iteration. We show that algorithms such as SVRG [2] and SAGA [3] may be readily extended to the saddle-point problem. While the algorithmic extension is straightforward, it comes with challenges and opportunities. We make the following contributions:\n30th Conference on Neural Information Processing Systems (NIPS 2016), Barcelona, Spain.\n– We provide the first convergence analysis for these algorithms for saddle-point problems, which differs significantly from the associated convex minimization set-up. In particular, we use in Section 6 the interpretation of saddle-point problems as finding the zeros of a monotone operator, and only use the monotonicity properties to show linear convergence of our algorithms, thus showing that they extend beyond saddle-point problems, e.g., to variational inequalities [5, 6].\n– We show that the saddle-point formulation (a) allows two different notions of splits, in terms of functions, or in terms of partial derivatives, (b) does need splits into convex-concave terms (as opposed to convex minimization), and (c) that non-uniform sampling is key to an efficient algorithm, both in theory and practice (see experiments in Section 7).\n– We show in Section 5 that these incremental algorithms can be easily accelerated using a simple extension of the “catalyst” framework of [7], thus leading to an algorithm which is always superior to accelerated batch algorithms."
+    }, {
+      "heading" : "2 Composite Decomposable Saddle-Point Problems",
+      "text" : "We now present our new algorithms on saddle-point problems and show a natural extension to monotone operators later in Section 6. We thus consider the saddle-point problem defined in Eq. (1), with the following assumptions:\n(A) M is strongly (λ, γ)-convex-concave, that is, the function (x, y) 7→M(x, y)− λ2 ‖x‖ 2 + γ2 ‖y‖ 2 is convex-concave. Moreover, we assume that we may compute the proximal operator of M , i.e., for any (x′, y′) ∈ Rn+d (σ is the step-length parameter associated with the prox operator):\nproxσM (x ′, y′) = arg min\nx∈Rd max y∈Rn\nσM(x, y) + λ2 ‖x− x ′‖2 − γ2 ‖y − y ′‖2. (2)\nThe values of λ and γ lead to the definition of a weighted Euclidean norm on Rn+d defined as Ω(x, y)2 = λ‖x‖2 + γ‖y‖2, with dual norm defined through Ω∗(x, y)2 = λ−1‖x‖2 + γ−1‖y‖2. Dealing with the two different scaling factors λ and γ is crucial for good performance, as these may be very different, depending on the many arbitrary ways to set-up a saddle-point problem.\n(B) K is convex-concave and has Lipschitz-continuous gradients; it is natural to consider the gradient operator B : Rn+d → Rn+d defined as B(x, y) = (∂xK(x, y),−∂yK(x, y)) ∈ Rn+d and to consider L = supΩ(x−x′,y−y′)=1 Ω\n∗(B(x, y)−B(x′, y′)). The quantity L represents the condition number of the problem.\n(C) The vector-valued function B(x, y) = (∂xK(x, y),−∂yK(x, y)) ∈ Rn+d may be split into a family of vector-valued functions as B = ∑ i∈IBi, where the only constraint is that each Bi is\nLipschitz-continuous (with constant Li). There is no need to assume the existence of a function Ki : Rn+d → R such that Bi = (∂xKi,−∂yKi). We will also consider splits which are adapted to the saddle-point nature of the problem, that is, of the form B(x, y) = (∑ k∈KB x k (x, y), ∑ j∈JB y j (x, y) ) , which is a subcase of the above with I = J×K, Bjk(x, y) = (pjBxk (x, y), qkB y j (x, y)), for p and q sequences that sum to one. This substructure, which we refer to as “factored”, will only make a difference when storing the values of these operators in Section 4 for our SAGA algorithm.\nGiven assumptions (A)-(B), the saddle-point problem in Eq. (1) has a unique solution (x∗, y∗) such that K(x∗, y)+M(x∗, y) 6 K(x∗, y∗)+M(x∗, y∗) 6 K(x, y∗)+M(x, y∗), for all (x, y); moreover minx∈Rd maxy∈Rn K(x, y) +M(x, y) = maxy∈Rn minx∈Rd K(x, y) +M(x, y) (see, e.g., [8, 4]).\nThe main generic examples for the functions K(x, y) and M(x, y) are: – Bilinear saddle-point problems: K(x, y) = y>Kx for a matrix K ∈ Rn×d (we identify here a\nmatrix with the associated bilinear function), for which the vector-valued function B(x, y) is linear, i.e., B(x, y) = (K>y,−Kx). Then L = ‖K‖op/ √ γλ, where ‖K‖op is the largest singular value of K. There are two natural potential splits with I = {1, . . . , n} × {1, . . . , d}, with B =∑n\nj=1 ∑d k=1Bjk: (a) the split into individual elements Bjk(x, y) = Kjk(yj ,−xk), where every element is the gradient operator of a bi-linear function, and (b) the “factored” split into rows/columns Bjk(x, y) = (qkyjK>j· ,−pjxkK·k), where Kj· and K·k are the j-th row and k-th column of K, p and q are any set of vectors summing to one, and every element is not the gradient operator of any function. These splits correspond to several “sketches” of the matrixK [9], adapted to subsampling of K, but other sketches could be considered.\n– Separable functions: M(x, y) = f(x) − g(y) where f is any λ-strongly-convex and g is γstrongly convex, for which the proximal operators proxσf (x ′) = arg minx∈Rd σf(x)+ λ 2 ‖x−x\n′‖2 and proxσg (y ′) = arg maxy∈Rd −σg(y) − γ2 ‖y − y ′‖2 are easy to compute. In this situation, proxσM (x ′, y′) = (proxσf (x ′),proxσg (y ′)). Following the usual set-up of composite optimization [10], no smoothness assumption is made on M and hence on f or g."
+    }, {
+      "heading" : "2.1 Examples in machine learning",
+      "text" : "Many learning problems are formulated as convex optimization problems, and hence by duality as saddle-point problems. We now give examples where our new algorithms are particularly adapted.\nSupervised learning with non-separable losses or regularizers. For regularized linear supervised learning, with n d-dimensional observations put in a design matrix K ∈ Rn×d, the predictions are parameterized by a vector x ∈ Rd and lead to a vector of predictions Kx ∈ Rn. Given a loss function defined through its Fenchel conjugate g∗ from Rn to R, and a regularizer f(x), we obtain exactly a bi-linear saddle-point problem. When the loss g∗ or the regularizer f is separable, i.e., a sum of functions of individual variables, we may apply existing fast gradient-techniques [1, 2, 3] to the primal problem minx∈Rd g∗(Kx) + f(x) or the dual problem maxy∈Rn −g(y)− f∗(K>y), as well as methods dedicated to separable saddle-point problems [11, 12]. When the loss g∗ and the regularizer f are not separable (but have a simple proximal operator), our new fast algorithms are the only ones that can be applied from the class of large-scale linearly convergent algorithms.\nNon-separable losses may occur when (a) predicting by affine functions of the inputs and not penalizing the constant terms (in this case defining the loss functions as the minimum over the constant term, which becomes non-separable) or (b) using structured output prediction methods that lead to convex surrogates to the area under the ROC curve (AUC) or other precision/recall quantities [13, 14]. These come often with efficient proximal operators (see Section 7 for an example).\nNon-separable regularizers with available efficient proximal operators are numerous, such as groupednorms with potentially overlapping groups, norms based on submodular functions, or total variation (see [15] and references therein, and an example in Section 7).\nRobust optimization. The framework of robust optimization [16] aims at optimizing an objective function with uncertain data. Given that the aim is then to minimize the maximal value of the objective function given the uncertainty, this leads naturally to saddle-point problems.\nConvex relaxation of unsupervised learning. Unsupervised learning leads to convex relaxations which often exhibit structures naturally amenable to saddle-point problems, e.g, for discriminative clustering [17] or matrix factorization [18]."
+    }, {
+      "heading" : "2.2 Existing batch algorithms",
+      "text" : "In this section, we review existing algorithms aimed at solving the composite saddle-point problem in Eq. (1), without using the sum-structure. Note that it is often possible to apply batch algorithms for the associated primal or dual problems (which are not separable in general).\nForward-backward (FB) algorithm. The main iteration is (xt, yt) = prox σ M [ (xt−1, yt−1)− σ (1/λ 0 0 1/γ ) B(xt−1, yt−1) ] = proxσM ( xt−1 − σλ−1∂xK(xt−1, yt−1) + σγ−1∂yK(xt−1, yt−1)).\nThe algorithm aims at simultaneously minimizing with respect to x while maximizing with respect to y (when M(x, y) is the sum of isotropic quadratic terms and indicator functions, we get simultaneous projected gradient descents). This algorithm is known not to converge in general [8], but is linearly convergent for strongly-convex-concave problems, when σ = 1/L2, with the rate (1− 1/(1 + L2))t [19] (see simple proof in Appendix B.1). This is the one we are going to adapt to stochastic variance reduction.\nWhen M(x, y) = f(x) − g(y), we obtain the two parallel updates xt = proxσf ( xt−1 −\nλ−1σ∂xK(xt−1, yt−1 )) and yt = proxσg ( yt−1 + γ −1σ∂yK(xt−1, yt−1 ))\n, which can de done serially by replacing the second one by yt = proxσg ( yt−1 + γ −1σ∂yK(xt, yt−1 ))\n. This is often referred to as the Arrow-Hurwicz method (see [20] and references therein).\nAccelerated forward-backward algorithm. The forward-backward algorithm may be accelerated by a simple extrapolation step, similar to Nesterov’s acceleration for convex minimization [21]. The algorithm from [20], which only applies to bilinear functions K, and which we extend from separable M to our more general set-up in Appendix B.2, has the following iteration:\n(xt, yt) = prox σ M [ (xt−1, yt−1)− σ (1/λ 0 0 1/γ ) B(xt−1 + θ(xt−1 − xt−2), yt−1 + θ(yt−1 − yt−2)) ] .\nWith σ = 1/(2L) and θ = L/(L+ 1), we get an improved convergence rate, where (1 − 1/(1 + L2))t is replaced by (1 − 1/(1 + 2L))t. This is always a strong improvement when L is large (ill-conditioned problems), as illustrated in Section 7. Note that our acceleration technique in Section 5 may be extended to get a similar rate for the batch set-up for non-linear K."
+    }, {
+      "heading" : "2.3 Existing stochastic algorithms",
+      "text" : "Forward-backward algorithms have been studied with added noise [22], leading to a convergence rate in O(1/t) after t iterations for strongly-convex-concave problems. In our setting, we replace B(x, y) in our algorithm with 1πiBi(x, y), where i ∈ I is sampled from the probability vector (πi)i (good probability vectors will depend on the application, see below for bilinear problems). We have EBi(x, y) = B(x, y); the main iteration is then\n(xt, yt) = prox σt M [ (xt−1, yt−1)− σt (1/λ 0 0 1/γ ) 1 πit Bit(xt−1, yt−1) ] ,\nwith it selected independently at random in I with probability vector π. In Appendix C, we show that using σt = 2/(t+ 1 + 8L̄(π)2) leads to a convergence rate in O(1/t), where L̄(π) is a smoothness constant explicited below. For saddle-point problems, it leads to the complexities shown in Table 1. Like for convex minimization, it is fast early on but the performance levels off. Such schemes are typically used in sublinear algorithms [23]."
+    }, {
+      "heading" : "2.4 Sampling probabilities, convergence rates and running-time complexities",
+      "text" : "In order to characterize running-times, we denote by T (A) the complexity of computing A(x, y) for any operator A and (x, y) ∈ Rn+d, while we denote by Tprox(M) the complexity of computing proxσM (x, y). In our motivating example of bilinear functions K(x, y), we assume that Tprox(M) takes times proportional to n+ d and getting a single element of K is O(1).\nIn order to characterize the convergence rate, we need the Lipschitz-constant L (which happens to be the condition number with our normalization) defined earlier as well as a smoothness constant adapted to our sampling schemes: L̄(π)2 = sup(x,y,x′,y′) ∑ i∈I 1 πi Ω∗(Bi(x, y)−Bi(x′, y′))2 such that Ω(x− x′, y − y′)2 6 1.\nWe always have the bounds L2 6 L̄(π)2 6 maxi∈I L2i × ∑ i∈I 1 πi\n. However, in structured situations (like in bilinear saddle-point problems), we get much improved bounds, as described below. Bi-linear saddle-point. The constant L is equal to ‖K‖op/ √ λγ, and we will consider as well\nthe Frobenius norm ‖K‖F defined through ‖K‖2F = ∑ j,kK 2 jk, and the norm ‖K‖max defined as ‖K‖max = max{supj(KK>) 1/2 jj , supk(K >K) 1/2 kk }. Among the norms above, we always have:\n‖K‖max 6 ‖K‖op 6 ‖K‖F 6 √ max{n, d}‖K‖max 6 √\nmax{n, d}‖K‖op, (3) which allows to show below that some algorithms have better bounds than others.\nThere are several schemes to choose the probabilities πjk (individual splits) and πjk = pjqk (factored splits). For the factored formulation where we select random rows and columns, we consider the non-uniform schemes pj = (KK>)jj/‖K‖2F and qk = (K>K)kk/‖K‖2F , leading to L̄(π) 6 ‖K‖F / √ λγ, or uniform, leading to L̄(π) 6 √ max{n, d}‖K‖max/ √ λγ. For the individual formulation where we select random elements, we consider πjk = K2jk/‖K‖2F , leading to L̄(π) 6 √ max{n, d}‖K‖F / √ λγ, or uniform, leading to L̄(π) 6 √ nd‖K‖max/ √ λγ (in these situations, it is important to select several elements simultaneously, which our analysis supports).\nWe characterize convergence with the quantity ε = Ω(x−x∗, y− y∗)2/Ω(x0−x∗, y0− y∗)2, where (x0, y0) is the initialization of our algorithms (typically (0, 0) for bilinear saddle-points). In Table 1 we give a summary of the complexity of all algorithms discussed in this paper: we recover the same type of speed-ups as for convex minimization. A few points are worth mentioning:\n– Given the bounds between the various norms on K in Eq. (3), SAGA/SVRG with non-uniform sampling always has convergence bounds superior to SAGA/SVRG with uniform sampling, which is always superior to batch forward-backward. Note however, that in practice, SAGA/SVRG with uniform sampling may be inferior to accelerated batch method (see Section 7).\n– Accelerated SVRG with non-uniform sampling is the most efficient method, which is confirmed in our experiments. Note that if n = d, our bound is better than or equal to accelerated forwardbackward, in exactly the same way than for regular convex minimization. There is thus a formal advantage for variance reduction."
+    }, {
+      "heading" : "3 SVRG: Stochastic Variance Reduction for Saddle Points",
+      "text" : "Following [2, 24], we consider a stochastic-variance reduced estimation of the finite sum B(x, y) =∑ i∈IBi(x, y). This is achieved by assuming that we have an iterate (x̃, ỹ) with a known value of B(x̃, ỹ), and we consider the estimate of B(x, y):\nB(x̃, ỹ) + 1πiBi(x, y)− 1 πi Bi(x̃, ỹ),\nwhich has the correct expectation when i is sampled from I with probability π, but with a reduced variance. Since we need to refresh (x̃, ỹ) regularly, the algorithm works in epochs (we allow to sample m elements per updates, i.e., a mini-batch of size m), with an algorithm that shares the same structure than SVRG for convex minimization; see Algorithm 1. Note that we provide an explicit number of iterations per epoch, proportional to (L2 + 3L̄2/m). We have the following theorem, shown in Appendix D.1 (see also a discussion of the proof in Section 6).\nTheorem 1 Assume (A)-(B)-(C). After v epochs of Algorithm 1, we have: E [ Ω(xv − x∗, yv − y∗)2 ] 6 (3/4)vΩ(x0 − x∗, y0 − y∗)2. The computational complexity to reach precision ε is proportional to [ T (B) + (mL2 +\nL̄2) maxi∈I T (Bi) + (1 + L 2 + L̄2/m)Tprox(M) ] log 1ε . Note that by taking the mini-batch size m large, we can alleviate the complexity of the proximal operator proxM if too large. Moreover, if L 2 is too expensive to compute, we may replace it by L̄2 but with a worse complexity bound.\nBilinear saddle-point problems. When using a mini-batch size m = 1 with the factored updates, or m = n + d for the individual updates, we get the same complexities proportional to [nd + max{n, d}‖K‖2F /(λγ)] log(1/ε) for non-uniform sampling, which improve significantly over (nonaccelerated) batch methods (see Table 1)."
+    }, {
+      "heading" : "4 SAGA: Online Stochastic Variance Reduction for Saddle Points",
+      "text" : "Following [3], we consider a stochastic-variance reduced estimation of B(x, y) = ∑ i∈IBi(x, y). This is achieved by assuming that we store values gi = Bi(xold(i), yold(i)) for an old iterate\nAlgorithm 1 SVRG: Stochastic Variance Reduction for Saddle Points Input: Functions (Ki)i, M , probabilities (πi)i, smoothness L̄(π) and L, iterate (x, y)\nnumber of epochs v, number of updates per iteration (mini-batch size) m Set σ = [ L2 + 3L̄2/m ]−1 for u = 1 to v do\nInitialize (x̃, ỹ) = (x, y) and compute B(x̃, ỹ) for k = 1 to log 4× (L2 + 3L̄2/m) do\nSample i1, . . . , im ∈ I from the probability vector (πi)i with replacement (x, y)← proxσM [ (x, y)−σ (1/λ 0 0 1/γ )( B(x̃, ỹ)+ 1m ∑m k=1 { 1 πik Bik(x, y)− 1πik Bik(x̃, ỹ) })]\nend for end for\nOutput: Approximate solution (x, y)\n(xold(i), yold(i)), and we consider the estimate of B(x, y):∑ j∈I g j + 1πiBi(x, y)− 1 πi gi,\nwhich has the correct expectation when i is sampled from I with probability π. At every iteration, we also refresh the operator values gi ∈ Rn+d, for the same index i or with a new index i sampled uniformly at random. This leads to Algorithm 2, and we have the following theorem showing linear convergence, proved in Appendix D.2. Note that for bi-linear saddle-points, the initialization at (0, 0) has zero cost (which is not possible for convex minimization).\nTheorem 2 Assume (A)-(B)-(C). After t iterations of Algorithm 2 (with the option of resampling when using non-uniform sampling), we have:\nE [ Ω(xt − x∗, yt − y∗)2 ] 6 2 ( 1− (max{ 3|I|2m , 1 + L2 µ2 + 3 L̄2 mµ2 }) −1)t Ω(x0 − x∗, y0 − y∗)2.\nResampling or re-using the same gradients. For the bound above to be valid for non-uniform sampling, like for convex minimization [25], we need to resample m operators after we make the iterate update. In our experiments, following [25], we considered a mixture of uniform and non-uniform sampling, without the resampling step.\nSAGA vs. SVRG. The difference between the two algorithms is the same as for convex minimization (see, e.g., [26] and references therein), that is SVRG has no storage, but works in epochs and requires slightly more accesses to the oracles, while SAGA is a pure online method with fewer parameters but requires some storage (for bi-linear saddle-point problems, we only need to store O(n+d) elements for the factored splits, while we need O(dn) for the individual splits). Overall they have the same running-time complexity for individual splits; for factored splits, see Appendix D.4.\nFactored splits. When using factored splits, we need to store the two parts of the operator values separately and update them independently, leading in Theorem 2 to replacing |I| by max{|J|, |K|}."
+    }, {
+      "heading" : "5 Acceleration",
+      "text" : "Following the “catalyst” framework of [7], we consider a sequence of saddle-point problems with added regularization; namely, given (x̄, ȳ), we use SVRG to solve approximately\nmin x∈Rd max y∈Rn\nK(x, y) +M(x, y) + λτ2 ‖x− x̄‖ 2 − γτ2 ‖y − ȳ‖ 2, (4)\nfor well-chosen τ and (x̄, ȳ). The main iteration of the algorithm differs from the original SVRG by the presence of the iterate (x̄, ȳ), which is updated regularly (after a precise number of epochs), and different step-sizes (see details in Appendix D.3). The complexity to get an approximate solution of Eq. (4) (forgetting the complexity of the proximal operator and for a single update), up to logarithmic terms, is proportional, to T (B) + L̄2(1 + τ)−2 maxi∈I T (Bi).\nThe key difference with the convex optimization set-up is that the analysis is simpler, without the need for Nesterov acceleration machinery [21] to define a good value of (x̄, ȳ); indeed, the solution of Eq. (4) is one iteration of the proximal-point algorithm, which is known to converge\nAlgorithm 2 SAGA: Online Stochastic Variance Reduction for Saddle Points Input: Functions (Ki)i, M , probabilities (πi)i, smoothness L̄(π) and L, iterate (x, y)\nnumber of iterations t, number of updates per iteration (mini-batch size) m Set σ = [ max{ 3|I|2m − 1, L 2 + 3 L̄ 2 m } ]−1\nInitialize gi = Bi(x, y) for all i ∈ I and G = ∑ i∈I g i for u = 1 to t do Sample i1, . . . , im ∈ I from the probability vector (πi)i with replacement Compute hk = Bik(x, y) for k ∈ {1, . . . ,m} (x, y)← proxσM [ (x, y)− σ (1/λ 0 0 1/γ )( G+ 1m ∑m k=1 { 1 πik hk − 1πik g ik })]\n(optional) Sample i1, . . . , im ∈ I uniformly with replacement (optional) Compute hk = Bik(x, y) for k ∈ {1, . . . ,m} Replace G← G− ∑m k=1{gik − hk} and gik ← hk for k ∈ {1, . . . ,m}\nend for Output: Approximate solution (x, y)\nlinearly [27] with rate (1 + τ−1)−1 = (1 − 11+τ ). Thus the overall complexity is up to logarithmic terms equal to T (B)(1 + τ) + L̄2(1 + τ)−1 maxi∈I T (Bi). The trade-off in τ is optimal for 1 + τ = L̄ √ maxi∈I T (Bi)/T (B), showing that there is a potential acceleration when\nL̄ √ maxi∈I T (Bi)/T (B) > 1, leading to a complexity L̄ √ T (B) maxi∈I T (Bi).\nSince the SVRG algorithm already works in epochs, this leads to a simple modification where every log(1 + τ) epochs, we change the values of (x̄, ȳ). See Algorithm 3 in Appendix D.3. Moreover, we can adaptively update (x̄, ȳ) more aggressively to speed-up the algorithm.\nThe following theorem gives the convergence rate of the method (see proof in Appendix D.3). With the value of τ defined above (corresponding to τ = max { 0, ‖K‖F√\nλγ\n√ max{n−1, d−1} − 1 } for bilinear problems), we get the complexity L̄ √ T (B) maxi∈I T (Bi), up to the logarithmic term log(1 + τ). For bilinear problems, this provides a significant acceleration, as shown in Table 1.\nTheorem 3 Assume (A)-(B)-(C). After v epochs of Algorithm 3, we have, for any positive v: E [ Ω(xv − x∗, yv − y∗)2 ] 6 ( 1− 1τ+1 )v Ω(x0 − x∗, y0 − y∗)2.\nWhile we provide a proof only for SVRG, the same scheme should work for SAGA. Moreover, the same idea also applies to the batch setting (by simply considering |I| = 1, i.e., a single function), leading to an acceleration, but now valid for all functions K (not only bilinear)."
+    }, {
+      "heading" : "6 Extension to Monotone Operators",
+      "text" : "In this paper, we have chosen to focus on saddle-point problems because of their ubiquity in machine learning. However, it turns out that our algorithm and, more importantly, our analysis extend to all set-valued monotone operators [8, 28]. We thus consider a maximal strongly-monotone operator A on a Euclidean space E, as well as a finite family of Lipschitz-continuous (not necessarily monotone) operators Bi, i ∈ I, with B = ∑ i∈IBi monotone. Our algorithm then finds the zeros of\nA + ∑ i∈IBi = A + B, from the knowledge of the resolvent (“backward”) operator (I + σA) −1 (for a well chosen σ > 0) and the forward operators Bi, i ∈ I. Note the difference with [29], which requires each Bi to be monotone with a known resolvent and A to be monotone and single-valued. There several interesting examples (on which our algorithms apply):\n– Saddle-point problems: We assume for simplicity that λ = γ = µ (this can be achieved by a simple change of variable). If we denote B(x, y) = (∂xK(x, y),−∂yK(x, y)) and the multivalued operator A(x, y) = (∂xM(x, y),−∂yM(x, y)), then the proximal operator proxσM may be written as (µI + σA)−1(µx, µy), and we recover exactly our framework from Section 2.\n– Convex minimization: A = ∂g and Bi = ∂fi for a strongly-convex function g and smooth functions fi: we recover proximal-SVRG [24] and SAGA [3], to minimize minz∈E g(z) + ∑ i∈I fi(z).\nHowever, this is a situation where the operators Bi have an extra property called co-coercivity [6],\nwhich we are not using because it is not satisfied for saddle-point problems. The extension of SAGA and SVRG to monotone operators was proposed earlier by [30], but only co-coercive operators are considered, and thus only convex minimization is considered (with important extensions beyond plain SAGA and SVRG), while our analysis covers a much broader set of problems. In particular, the step-sizes obtained with co-coercivity lead to divergence in the general setting. Because we do not use co-coercivity, applying our results directly to convex minimization, we would get slower rates, while, as shown in Section 2.1, they can be easily cast as a saddle-point problem if the proximal operators of the functions fi are known, and we then get the same rates than existing fast techniques which are dedicated to this problem [1, 2, 3].\n– Variational inequality problems, which are notably common in game theory (see, e.g., [5])."
+    }, {
+      "heading" : "7 Experiments",
+      "text" : "We consider binary classification problems with design matrix K and label vector in {−1, 1}n, a non-separable strongly-convex regularizer with an efficient proximal operator (the sum of the squared norm λ‖x‖2/2 and the clustering-inducing term ∑ i 6=j |xi − xj |, for which the proximal operator may be computed in O(n log n) by isotonic regression [31]) and a non-separable smooth loss (a surrogate to the area under the ROC curve, defined as proportional to ∑ i+∈I+ ∑ i−∈I−(1−yi+yj)\n2, where I+/I− are sets with positive/negative labels, for a vector of prediction y, for which an efficient proximal operator may be computed as well, see Appendix E).\nOur upper-bounds depend on the ratio ‖K‖2F /(λγ) where λ is the regularization strength and γ ≈ n in our setting where we minimize an average risk. Setting λ = λ0 = ‖K‖2F /n2 corresponds to a regularization proportional to the average squared radius of the data divided by 1/n which is standard in this setting [1]. We also experiment with smaller regularization (i.e., λ/λ0 = 10−1), to make the problem more ill-conditioned (it turns out that the corresponding testing losses are sometimes slightly better). We consider two datasets, sido (n = 10142, d = 4932, non-separable losses and regularizers presented above) and rcv1 (n = 20242, d = 47236, separable losses and regularizer described in Appendix F, so that we can compare with SAGA run in the primal). We report below the squared distance to optimizers which appears in our bounds, as a function of the number of passes on the data (for more details and experiments with primal-dual gaps and testing losses, see Appendix F). Unless otherwise specified, we always use non-uniform sampling.\n0 100 200 300 400 500\n10 −5\n10 0\nsido − distance to optimizers − λ/λ 0 =1.00\nfb−acc fb−sto saga saga (unif) svrg svrg−acc fba−primal\n0 100 200 300 400 500 10\n−5\n10 0\nsido − distance to optimizers − λ/λ 0 =0.10\nfb−acc fb−sto saga saga (unif) svrg svrg−acc fba−primal\n0 100 200 300 400 500 10\n−15\n10 −10\n10 −5\n10 0\nrcv1 − distance to optimizers − λ/λ 0 =1.00\nfb−acc fb−sto saga saga (unif) svrg svrg−acc fba−primal saga−primal\nWe see that uniform sampling for SAGA does not improve on batch methods, SAGA and accelerated SVRG (with non-uniform sampling) improve significantly over the existing methods, with a stronger gain for the accelerated version for ill-conditioned problems (middle vs. left plot). On the right plot, we compare to primal methods on a separable loss, showing that primal methods (here “fba-primal”, which is Nesterov acceleration) that do not use separability (and can thus be applied in all cases) are inferior, while SAGA run on the primal remains faster (but cannot be applied for non-separable losses)."
+    }, {
+      "heading" : "8 Conclusion",
+      "text" : "We proposed the first linearly convergent incremental gradient algorithms for saddle-point problems, which improve both in theory and practice over existing batch or stochastic algorithms. While we currently need to know the strong convexity-concavity constants, we plan to explore in future work adaptivity to these constants like already obtained for convex minimization [3], paving the way to an analysis without strong convexity-concavity."
+    } ],
+    "references" : [ {
+      "title" : "A stochastic gradient method with an exponential convergence rate for finite training sets",
+      "author" : [ "N. Le Roux", "M. Schmidt", "F. Bach" ],
+      "venue" : "Adv. NIPS,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Accelerating stochastic gradient descent using predictive variance reduction",
+      "author" : [ "R. Johnson", "T. Zhang" ],
+      "venue" : "Adv. NIPS,",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "SAGA: A fast incremental gradient method with support for non-strongly convex composite objectives",
+      "author" : [ "A. Defazio", "F. Bach", "S. Lacoste-Julien" ],
+      "venue" : "Adv. NIPS,",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Monotone operators associated with saddle-functions and minimax problems",
+      "author" : [ "R.T. Rockafellar" ],
+      "venue" : "Nonlinear Functional Analysis, 18(part 1):397–407,",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : null,
+      "year" : 1970
+    }, {
+      "title" : "Finite-dimensional variational inequality and nonlinear complementarity problems: a survey of theory, algorithms and applications",
+      "author" : [ "P.T. Harker", "J.-S. Pang" ],
+      "venue" : "Math. Prog., 48(1-3):161–220,",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : null,
+      "year" : 1990
+    }, {
+      "title" : "Co-coercivity and its role in the convergence of iterative schemes for solving variational inequalities",
+      "author" : [ "D.L. Zhu", "P. Marcotte" ],
+      "venue" : "SIAM Journal on Optimization, 6(3):714–726,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : null,
+      "year" : 1996
+    }, {
+      "title" : "A universal catalyst for first-order optimization",
+      "author" : [ "H. Lin", "J. Mairal", "Z. Harchaoui" ],
+      "venue" : "Adv. NIPS,",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Convex Analysis and Monotone Operator Theory in Hilbert Spaces",
+      "author" : [ "H.H. Bauschke", "P.L. Combettes" ],
+      "venue" : "Springer Science & Business Media,",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Sketching as a tool for numerical linear algebra",
+      "author" : [ "D. Woodruff" ],
+      "venue" : "Technical Report 1411.4357, arXiv,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "A fast iterative shrinkage-thresholding algorithm for linear inverse problems",
+      "author" : [ "A. Beck", "M. Teboulle" ],
+      "venue" : "SIAM Journal on Imaging Sciences, 2(1):183–202,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : null,
+      "year" : 2009
+    }, {
+      "title" : "Adaptive stochastic primal-dual coordinate descent for separable saddle point problems",
+      "author" : [ "X. Zhu", "A.J. Storkey" ],
+      "venue" : "Machine Learning and Knowledge Discovery in Databases, pages 645–658. Springer,",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Stochastic primal-dual coordinate method for regularized empirical risk minimization",
+      "author" : [ "Y. Zhang", "L. Xiao" ],
+      "venue" : "Proc. ICML,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "A support vector method for multivariate performance measures",
+      "author" : [ "T. Joachims" ],
+      "venue" : "Proc. ICML,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : null,
+      "year" : 2005
+    }, {
+      "title" : "Large margin rank boundaries for ordinal regression",
+      "author" : [ "R. Herbrich", "T. Graepel", "K. Obermayer" ],
+      "venue" : "Adv. NIPS,",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : null,
+      "year" : 1999
+    }, {
+      "title" : "Optimization with sparsity-inducing penalties",
+      "author" : [ "F. Bach", "R. Jenatton", "J. Mairal", "G. Obozinski" ],
+      "venue" : "Foundations and Trends in Machine Learning, 4(1):1–106,",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Robust Optimization",
+      "author" : [ "A. Ben-Tal", "L. El Ghaoui", "A. Nemirovski" ],
+      "venue" : "Princeton University Press,",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : null,
+      "year" : 2009
+    }, {
+      "title" : "Maximum margin clustering",
+      "author" : [ "L. Xu", "J. Neufeld", "B. Larson", "D. Schuurmans" ],
+      "venue" : "Adv. NIPS,",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : null,
+      "year" : 2004
+    }, {
+      "title" : "Convex sparse matrix factorizations",
+      "author" : [ "F. Bach", "J. Mairal", "J. Ponce" ],
+      "venue" : "Technical Report 0812.1869, arXiv,",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : null,
+      "year" : 2008
+    }, {
+      "title" : "Convergence rates in forward-backward splitting",
+      "author" : [ "G.H.G. Chen", "R.T. Rockafellar" ],
+      "venue" : "SIAM Journal on Optimization, 7(2):421–444,",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : null,
+      "year" : 1997
+    }, {
+      "title" : "A first-order primal-dual algorithm for convex problems with applications to imaging",
+      "author" : [ "A. Chambolle", "T. Pock" ],
+      "venue" : "Journal of Mathematical Imaging and Vision, 40(1):120–145,",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Introductory Lectures on Convex Optimization",
+      "author" : [ "Y. Nesterov" ],
+      "venue" : "Kluwer,",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : null,
+      "year" : 2004
+    }, {
+      "title" : "A stochastic forward-backward splitting method for solving monotone inclusions in hilbert spaces",
+      "author" : [ "L. Rosasco", "S. Villa", "B.C. Vũ" ],
+      "venue" : "Technical Report 1403.7999, arXiv,",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Sublinear optimization for machine learning",
+      "author" : [ "K.L. Clarkson", "E. Hazan", "D.P. Woodruff" ],
+      "venue" : "Journal of the ACM (JACM), 59(5):23,",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "A proximal stochastic gradient method with progressive variance reduction",
+      "author" : [ "L. Xiao", "T. Zhang" ],
+      "venue" : "SIAM Journal on Optimization, 24(4):2057–2075,",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Non-uniform stochastic average gradient method for training conditional random fields",
+      "author" : [ "M. Schmidt", "R. Babanezhad", "M.O. Ahmed", "A. Defazio", "A. Clifton", "A. Sarkar" ],
+      "venue" : "Proc. AISTATS,",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Stop wasting my gradients: Practical SVRG",
+      "author" : [ "R. Harikandeh", "M.O. Ahmed", "A. Virani", "M. Schmidt", "J. Konečnỳ", "S. Sallinen" ],
+      "venue" : "Adv. NIPS,",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Monotone operators and the proximal point algorithm",
+      "author" : [ "R.T. Rockafellar" ],
+      "venue" : "SIAM Journal on Control and Optimization, 14(5):877–898,",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : null,
+      "year" : 1976
+    }, {
+      "title" : "A primer on monotone operator methods",
+      "author" : [ "E. Ryu", "S. Boyd" ],
+      "venue" : "Appl. Comput. Math., 15(1):3–43,",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "A generalized forward-backward splitting",
+      "author" : [ "H. Raguet", "J. Fadili", "G. Peyré" ],
+      "venue" : "SIAM Journal on Imaging Sciences, 6(3):1199–1226,",
+      "citeRegEx" : "29",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Smart: The stochastic monotone aggregated root-finding algorithm",
+      "author" : [ "D. Davis" ],
+      "venue" : "Technical Report 1601.00698, arXiv,",
+      "citeRegEx" : "30",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Solving OSCAR regularization problems by fast approximate proximal splitting algorithms",
+      "author" : [ "X. Zeng", "M. Figueiredo" ],
+      "venue" : "Digital Signal Processing, 31:124–135,",
+      "citeRegEx" : "31",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 3,
+      "context" : "These problems occur naturally within convex optimization through Lagrange or Fenchel duality [4]; for example the bilinear saddlepoint problem minx∈Rd maxy∈Rn f(x)+y>Kx−g(y) corresponds to a supervised learning problem with design matrix K, a loss function g∗ (the Fenchel conjugate of g) and a regularizer f .",
+      "startOffset" : 94,
+      "endOffset" : 97
+    }, {
+      "referenceID" : 1,
+      "context" : "We show that algorithms such as SVRG [2] and SAGA [3] may be readily extended to the saddle-point problem.",
+      "startOffset" : 37,
+      "endOffset" : 40
+    }, {
+      "referenceID" : 2,
+      "context" : "We show that algorithms such as SVRG [2] and SAGA [3] may be readily extended to the saddle-point problem.",
+      "startOffset" : 50,
+      "endOffset" : 53
+    }, {
+      "referenceID" : 6,
+      "context" : "– We show in Section 5 that these incremental algorithms can be easily accelerated using a simple extension of the “catalyst” framework of [7], thus leading to an algorithm which is always superior to accelerated batch algorithms.",
+      "startOffset" : 139,
+      "endOffset" : 142
+    }, {
+      "referenceID" : 8,
+      "context" : "These splits correspond to several “sketches” of the matrixK [9], adapted to subsampling of K, but other sketches could be considered.",
+      "startOffset" : 61,
+      "endOffset" : 64
+    }, {
+      "referenceID" : 9,
+      "context" : "Following the usual set-up of composite optimization [10], no smoothness assumption is made on M and hence on f or g.",
+      "startOffset" : 53,
+      "endOffset" : 57
+    }, {
+      "referenceID" : 0,
+      "context" : ", a sum of functions of individual variables, we may apply existing fast gradient-techniques [1, 2, 3] to the primal problem minx∈Rd g∗(Kx) + f(x) or the dual problem maxy∈Rn −g(y)− f∗(K>y), as well as methods dedicated to separable saddle-point problems [11, 12].",
+      "startOffset" : 93,
+      "endOffset" : 102
+    }, {
+      "referenceID" : 1,
+      "context" : ", a sum of functions of individual variables, we may apply existing fast gradient-techniques [1, 2, 3] to the primal problem minx∈Rd g∗(Kx) + f(x) or the dual problem maxy∈Rn −g(y)− f∗(K>y), as well as methods dedicated to separable saddle-point problems [11, 12].",
+      "startOffset" : 93,
+      "endOffset" : 102
+    }, {
+      "referenceID" : 2,
+      "context" : ", a sum of functions of individual variables, we may apply existing fast gradient-techniques [1, 2, 3] to the primal problem minx∈Rd g∗(Kx) + f(x) or the dual problem maxy∈Rn −g(y)− f∗(K>y), as well as methods dedicated to separable saddle-point problems [11, 12].",
+      "startOffset" : 93,
+      "endOffset" : 102
+    }, {
+      "referenceID" : 10,
+      "context" : ", a sum of functions of individual variables, we may apply existing fast gradient-techniques [1, 2, 3] to the primal problem minx∈Rd g∗(Kx) + f(x) or the dual problem maxy∈Rn −g(y)− f∗(K>y), as well as methods dedicated to separable saddle-point problems [11, 12].",
+      "startOffset" : 255,
+      "endOffset" : 263
+    }, {
+      "referenceID" : 11,
+      "context" : ", a sum of functions of individual variables, we may apply existing fast gradient-techniques [1, 2, 3] to the primal problem minx∈Rd g∗(Kx) + f(x) or the dual problem maxy∈Rn −g(y)− f∗(K>y), as well as methods dedicated to separable saddle-point problems [11, 12].",
+      "startOffset" : 255,
+      "endOffset" : 263
+    }, {
+      "referenceID" : 12,
+      "context" : "Non-separable losses may occur when (a) predicting by affine functions of the inputs and not penalizing the constant terms (in this case defining the loss functions as the minimum over the constant term, which becomes non-separable) or (b) using structured output prediction methods that lead to convex surrogates to the area under the ROC curve (AUC) or other precision/recall quantities [13, 14].",
+      "startOffset" : 389,
+      "endOffset" : 397
+    }, {
+      "referenceID" : 13,
+      "context" : "Non-separable losses may occur when (a) predicting by affine functions of the inputs and not penalizing the constant terms (in this case defining the loss functions as the minimum over the constant term, which becomes non-separable) or (b) using structured output prediction methods that lead to convex surrogates to the area under the ROC curve (AUC) or other precision/recall quantities [13, 14].",
+      "startOffset" : 389,
+      "endOffset" : 397
+    }, {
+      "referenceID" : 14,
+      "context" : "Non-separable regularizers with available efficient proximal operators are numerous, such as groupednorms with potentially overlapping groups, norms based on submodular functions, or total variation (see [15] and references therein, and an example in Section 7).",
+      "startOffset" : 204,
+      "endOffset" : 208
+    }, {
+      "referenceID" : 15,
+      "context" : "The framework of robust optimization [16] aims at optimizing an objective function with uncertain data.",
+      "startOffset" : 37,
+      "endOffset" : 41
+    }, {
+      "referenceID" : 16,
+      "context" : "g, for discriminative clustering [17] or matrix factorization [18].",
+      "startOffset" : 33,
+      "endOffset" : 37
+    }, {
+      "referenceID" : 17,
+      "context" : "g, for discriminative clustering [17] or matrix factorization [18].",
+      "startOffset" : 62,
+      "endOffset" : 66
+    }, {
+      "referenceID" : 7,
+      "context" : "This algorithm is known not to converge in general [8], but is linearly convergent for strongly-convex-concave problems, when σ = 1/L(2), with the rate (1− 1/(1 + L(2))) [19] (see simple proof in Appendix B.",
+      "startOffset" : 51,
+      "endOffset" : 54
+    }, {
+      "referenceID" : 18,
+      "context" : "This algorithm is known not to converge in general [8], but is linearly convergent for strongly-convex-concave problems, when σ = 1/L(2), with the rate (1− 1/(1 + L(2))) [19] (see simple proof in Appendix B.",
+      "startOffset" : 170,
+      "endOffset" : 174
+    }, {
+      "referenceID" : 19,
+      "context" : "This is often referred to as the Arrow-Hurwicz method (see [20] and references therein).",
+      "startOffset" : 59,
+      "endOffset" : 63
+    }, {
+      "referenceID" : 20,
+      "context" : "The forward-backward algorithm may be accelerated by a simple extrapolation step, similar to Nesterov’s acceleration for convex minimization [21].",
+      "startOffset" : 141,
+      "endOffset" : 145
+    }, {
+      "referenceID" : 19,
+      "context" : "The algorithm from [20], which only applies to bilinear functions K, and which we extend from separable M to our more general set-up in Appendix B.",
+      "startOffset" : 19,
+      "endOffset" : 23
+    }, {
+      "referenceID" : 21,
+      "context" : "Forward-backward algorithms have been studied with added noise [22], leading to a convergence rate in O(1/t) after t iterations for strongly-convex-concave problems.",
+      "startOffset" : 63,
+      "endOffset" : 67
+    }, {
+      "referenceID" : 22,
+      "context" : "Such schemes are typically used in sublinear algorithms [23].",
+      "startOffset" : 56,
+      "endOffset" : 60
+    }, {
+      "referenceID" : 1,
+      "context" : "Following [2, 24], we consider a stochastic-variance reduced estimation of the finite sum B(x, y) = ∑ i∈IBi(x, y).",
+      "startOffset" : 10,
+      "endOffset" : 17
+    }, {
+      "referenceID" : 23,
+      "context" : "Following [2, 24], we consider a stochastic-variance reduced estimation of the finite sum B(x, y) = ∑ i∈IBi(x, y).",
+      "startOffset" : 10,
+      "endOffset" : 17
+    }, {
+      "referenceID" : 2,
+      "context" : "Following [3], we consider a stochastic-variance reduced estimation of B(x, y) = ∑ i∈IBi(x, y).",
+      "startOffset" : 10,
+      "endOffset" : 13
+    }, {
+      "referenceID" : 24,
+      "context" : "For the bound above to be valid for non-uniform sampling, like for convex minimization [25], we need to resample m operators after we make the iterate update.",
+      "startOffset" : 87,
+      "endOffset" : 91
+    }, {
+      "referenceID" : 24,
+      "context" : "In our experiments, following [25], we considered a mixture of uniform and non-uniform sampling, without the resampling step.",
+      "startOffset" : 30,
+      "endOffset" : 34
+    }, {
+      "referenceID" : 25,
+      "context" : ", [26] and references therein), that is SVRG has no storage, but works in epochs and requires slightly more accesses to the oracles, while SAGA is a pure online method with fewer parameters but requires some storage (for bi-linear saddle-point problems, we only need to store O(n+d) elements for the factored splits, while we need O(dn) for the individual splits).",
+      "startOffset" : 2,
+      "endOffset" : 6
+    }, {
+      "referenceID" : 6,
+      "context" : "Following the “catalyst” framework of [7], we consider a sequence of saddle-point problems with added regularization; namely, given (x̄, ȳ), we use SVRG to solve approximately",
+      "startOffset" : 38,
+      "endOffset" : 41
+    }, {
+      "referenceID" : 20,
+      "context" : "The key difference with the convex optimization set-up is that the analysis is simpler, without the need for Nesterov acceleration machinery [21] to define a good value of (x̄, ȳ); indeed, the solution of Eq.",
+      "startOffset" : 141,
+      "endOffset" : 145
+    }, {
+      "referenceID" : 26,
+      "context" : "linearly [27] with rate (1 + τ−1)−1 = (1 − 1 1+τ ).",
+      "startOffset" : 9,
+      "endOffset" : 13
+    }, {
+      "referenceID" : 7,
+      "context" : "However, it turns out that our algorithm and, more importantly, our analysis extend to all set-valued monotone operators [8, 28].",
+      "startOffset" : 121,
+      "endOffset" : 128
+    }, {
+      "referenceID" : 27,
+      "context" : "However, it turns out that our algorithm and, more importantly, our analysis extend to all set-valued monotone operators [8, 28].",
+      "startOffset" : 121,
+      "endOffset" : 128
+    }, {
+      "referenceID" : 28,
+      "context" : "Note the difference with [29], which requires each Bi to be monotone with a known resolvent and A to be monotone and single-valued.",
+      "startOffset" : 25,
+      "endOffset" : 29
+    }, {
+      "referenceID" : 23,
+      "context" : "– Convex minimization: A = ∂g and Bi = ∂fi for a strongly-convex function g and smooth functions fi: we recover proximal-SVRG [24] and SAGA [3], to minimize minz∈E g(z) + ∑ i∈I fi(z).",
+      "startOffset" : 126,
+      "endOffset" : 130
+    }, {
+      "referenceID" : 2,
+      "context" : "– Convex minimization: A = ∂g and Bi = ∂fi for a strongly-convex function g and smooth functions fi: we recover proximal-SVRG [24] and SAGA [3], to minimize minz∈E g(z) + ∑ i∈I fi(z).",
+      "startOffset" : 140,
+      "endOffset" : 143
+    }, {
+      "referenceID" : 5,
+      "context" : "However, this is a situation where the operators Bi have an extra property called co-coercivity [6],",
+      "startOffset" : 96,
+      "endOffset" : 99
+    }, {
+      "referenceID" : 29,
+      "context" : "The extension of SAGA and SVRG to monotone operators was proposed earlier by [30], but only co-coercive operators are considered, and thus only convex minimization is considered (with important extensions beyond plain SAGA and SVRG), while our analysis covers a much broader set of problems.",
+      "startOffset" : 77,
+      "endOffset" : 81
+    }, {
+      "referenceID" : 0,
+      "context" : "1, they can be easily cast as a saddle-point problem if the proximal operators of the functions fi are known, and we then get the same rates than existing fast techniques which are dedicated to this problem [1, 2, 3].",
+      "startOffset" : 207,
+      "endOffset" : 216
+    }, {
+      "referenceID" : 1,
+      "context" : "1, they can be easily cast as a saddle-point problem if the proximal operators of the functions fi are known, and we then get the same rates than existing fast techniques which are dedicated to this problem [1, 2, 3].",
+      "startOffset" : 207,
+      "endOffset" : 216
+    }, {
+      "referenceID" : 2,
+      "context" : "1, they can be easily cast as a saddle-point problem if the proximal operators of the functions fi are known, and we then get the same rates than existing fast techniques which are dedicated to this problem [1, 2, 3].",
+      "startOffset" : 207,
+      "endOffset" : 216
+    }, {
+      "referenceID" : 30,
+      "context" : "We consider binary classification problems with design matrix K and label vector in {−1, 1}, a non-separable strongly-convex regularizer with an efficient proximal operator (the sum of the squared norm λ‖x‖(2)/2 and the clustering-inducing term ∑ i 6=j |xi − xj |, for which the proximal operator may be computed in O(n log n) by isotonic regression [31]) and a non-separable smooth loss (a surrogate to the area under the ROC curve, defined as proportional to ∑ i+∈I+ ∑ i−∈I−(1−yi+yj) (2), where I+/I− are sets with positive/negative labels, for a vector of prediction y, for which an efficient proximal operator may be computed as well, see Appendix E).",
+      "startOffset" : 350,
+      "endOffset" : 354
+    }, {
+      "referenceID" : 0,
+      "context" : "Setting λ = λ0 = ‖K‖(2)F /n(2) corresponds to a regularization proportional to the average squared radius of the data divided by 1/n which is standard in this setting [1].",
+      "startOffset" : 167,
+      "endOffset" : 170
+    }, {
+      "referenceID" : 2,
+      "context" : "While we currently need to know the strong convexity-concavity constants, we plan to explore in future work adaptivity to these constants like already obtained for convex minimization [3], paving the way to an analysis without strong convexity-concavity.",
+      "startOffset" : 184,
+      "endOffset" : 187
+    } ],
+    "year" : 2016,
+    "abstractText" : "We consider convex-concave saddle-point problems where the objective functions may be split in many components, and extend recent stochastic variance reduction methods (such as SVRG or SAGA) to provide the first large-scale linearly convergent algorithms for this class of problems which are common in machine learning. While the algorithmic extension is straightforward, it comes with challenges and opportunities: (a) the convex minimization analysis does not apply and we use the notion of monotone operators to prove convergence, showing in particular that the same algorithm applies to a larger class of problems, such as variational inequalities, (b) there are two notions of splits, in terms of functions, or in terms of partial derivatives, (c) the split does need to be done with convex-concave terms, (d) non-uniform sampling is key to an efficient algorithm, both in theory and practice, and (e) these incremental algorithms can be easily accelerated using a simple extension of the “catalyst” framework, leading to an algorithm which is always superior to accelerated batch algorithms.",
+    "creator" : null
+  }
+}

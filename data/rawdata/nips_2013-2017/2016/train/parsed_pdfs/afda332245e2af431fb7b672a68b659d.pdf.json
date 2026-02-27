@@ -1,0 +1,340 @@
+{
+  "name" : "afda332245e2af431fb7b672a68b659d.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Unifying Count-Based Exploration and Intrinsic Motivation",
+    "authors" : [ "Marc G. Bellemare", "Sriram Srinivasan", "Georg Ostrovski" ],
+    "emails" : [ "bellemare@google.com", "srsrinivasan@google.com", "ostrovski@google.com", "schaul@google.com", "saxton@google.com", "munos@google.com" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Exploration algorithms for Markov Decision Processes (MDPs) are typically concerned with reducing the agent’s uncertainty over the environment’s reward and transition functions. In a tabular setting, this uncertainty can be quantified using confidence intervals derived from Chernoff bounds, or inferred from a posterior over the environment parameters. In fact, both confidence intervals and posterior shrink as the inverse square root of the state-action visit count N(x, a), making this quantity fundamental to most theoretical results on exploration.\nCount-based exploration methods directly use visit counts to guide an agent’s behaviour towards reducing uncertainty. For example, Model-based Interval Estimation with Exploration Bonuses (MBIE-EB; Strehl and Littman, 2008) solves the augmented Bellman equation\nV (x) = max a∈A\n[ R̂(x, a) + γ EP̂ [V (x ′)] + βN(x, a)−1/2 ] ,\ninvolving the empirical reward R̂, the empirical transition function P̂ , and an exploration bonus proportional to N(x, a)−1/2. This bonus accounts for uncertainties in both transition and reward functions and enables a finite-time bound on the agent’s suboptimality.\nIn spite of their pleasant theoretical guarantees, count-based methods have not played a role in the contemporary successes of reinforcement learning (e.g. Mnih et al., 2015). Instead, most practical methods still rely on simple rules such as -greedy. The issue is that visit counts are not directly useful in large domains, where states are rarely visited more than once.\nAnswering a different scientific question, intrinsic motivation aims to provide qualitative guidance for exploration (Schmidhuber, 1991; Oudeyer et al., 2007; Barto, 2013). This guidance can be summarized as “explore what surprises you”. A typical approach guides the agent based on change\n30th Conference on Neural Information Processing Systems (NIPS 2016), Barcelona, Spain.\nin prediction error, or learning progress. If en(A) is the error made by the agent at time n over some event A, and en+1(A) the same error after observing a new piece of information, then learning progress is\nen(A)− en+1(A).\nIntrinsic motivation methods are attractive as they remain applicable in the absence of the Markov property or the lack of a tabular representation, both of which are required by count-based algorithms. Yet the theoretical foundations of intrinsic motivation remain largely absent from the literature, which may explain its slow rate of adoption as a standard approach to exploration.\nIn this paper we provide formal evidence that intrinsic motivation and count-based exploration are but two sides of the same coin. Specifically, we consider a frequently used measure of learning progress, information gain (Cover and Thomas, 1991). Defined as the Kullback-Leibler divergence of a prior distribution from its posterior, information gain can be related to the confidence intervals used in count-based exploration. Our contribution is to propose a new quantity, the pseudo-count, which connects information-gain-as-learning-progress and count-based exploration.\nWe derive our pseudo-count from a density model over the state space. This is in departure from more traditional approaches to intrinsic motivation that consider learning progress with respect to a transition model. We expose the relationship between pseudo-counts, a variant of Schmidhuber’s compression progress we call prediction gain, and information gain. Combined to Kolter and Ng’s negative result on the frequentist suboptimality of Bayesian bonuses, our result highlights the theoretical advantages of pseudo-counts compared to many existing intrinsic motivation methods.\nThe pseudo-counts we introduce here are best thought of as “function approximation for exploration”. We bring them to bear on Atari 2600 games from the Arcade Learning Environment (Bellemare et al., 2013), focusing on games where myopic exploration fails. We extract our pseudo-counts from a simple density model and use them within a variant of MBIE-EB. We apply them to an experience replay setting and to an actor-critic setting, and find improved performance in both cases. Our approach produces dramatic progress on the reputedly most difficult Atari 2600 game, MONTEZUMA’S REVENGE: within a fraction of the training time, our agent explores a significant portion of the first level and obtains significantly higher scores than previously published agents."
+    }, {
+      "heading" : "2 Notation",
+      "text" : "We consider a countable state space X . We denote a sequence of length n from X by x1:n ∈ Xn, the set of finite sequences from X by X ∗, write x1:nx to mean the concatenation of x1:n and a state x ∈ X , and denote the empty sequence by . A model over X is a mapping from X ∗ to probability distributions over X . That is, for each x1:n ∈ Xn the model provides a probability distribution\nρn(x) := ρ(x ; x1:n).\nNote that we do not require ρn(x) to be strictly positive for all x and x1:n. When it is, however, we may understand ρn(x) to be the usual conditional probability ofXn+1 = x givenX1 . . . Xn = x1:n.\nWe will take particular interest in the empirical distribution µn derived from the sequence x1:n. If Nn(x) := N(x, x1:n) is the number of occurrences of a state x in the sequence x1:n, then\nµn(x) := µ(x ; x1:n) := Nn(x)\nn .\nWe call the Nn the empirical count function, or simply empirical count. The above notation extends to state-action spaces, and we write Nn(x, a) to explicitly refer to the number of occurrences of a state-action pair when the argument requires it. When x1:n is generated by an ergodic Markov chain, for example if we follow a fixed policy in a finite-state MDP, then the limit point of µn is the chain’s stationary distribution.\nIn our setting, a density model is any model that assumes states are independently (but not necessarily identically) distributed; a density model is thus a particular kind of generative model. We emphasize that a density model differs from a forward model, which takes into account the temporal relationship between successive states. Note that µn is itself a density model."
+    }, {
+      "heading" : "3 From Densities to Counts",
+      "text" : "In the introduction we argued that the visit countNn(x) (and consequently, Nn(x, a)) is not directly useful in practical settings, since states are rarely revisited. Specifically, Nn(x) is almost always zero and cannot help answer the question “How novel is this state?” Nor is the problem solved by a Bayesian approach: even variable-alphabet models (e.g. Hutter, 2013) must assign a small, diminishing probability to yet-unseen states. To estimate the uncertainty of an agent’s knowledge, we must instead look for a quantity which generalizes across states. Guided by ideas from the intrinsic motivation literature, we now derive such a quantity. We call it a pseudo-count as it extends the familiar notion from Bayesian estimation."
+    }, {
+      "heading" : "3.1 Pseudo-Counts and the Recoding Probability",
+      "text" : "We are given a density model ρ over X . This density model may be approximate, biased, or even inconsistent. We begin by introducing the recoding probability of a state x:\nρ′n(x) := ρ(x ; x1:nx).\nThis is the probability assigned to x by our density model after observing a new occurrence of x. The term “recoding” is inspired from the statistical compression literature, where coding costs are inversely related to probabilities (Cover and Thomas, 1991). When ρ admits a conditional probability distribution, ρ′n(x) = Prρ(Xn+2 = x |X1 . . . Xn = x1:n, Xn+1 = x). We now postulate two unknowns: a pseudo-count function N̂n(x), and a pseudo-count total n̂. We relate these two unknowns through two constraints:\nρn(x) = N̂n(x)\nn̂ ρ′n(x) =\nN̂n(x) + 1\nn̂+ 1 . (1)\nIn words: we require that, after observing one instance of x, the density model’s increase in prediction of that same x should correspond to a unit increase in pseudo-count. The pseudo-count itself is derived from solving the linear system (1):\nN̂n(x) = ρn(x)(1− ρ′n(x)) ρ′n(x)− ρn(x) = n̂ρn(x). (2)\nNote that the equations (1) yield N̂n(x) = 0 (with n̂ = ∞) when ρn(x) = ρ′n(x) = 0, and are inconsistent when ρn(x) < ρ′n(x) = 1. These cases may arise from poorly behaved density models, but are easily accounted for. From here onwards we will assume a consistent system of equations. Definition 1 (Learning-positive density model). A density model ρ is learning-positive if for all x1:n ∈ Xn and all x ∈ X , ρ′n(x) ≥ ρn(x).\nBy inspecting (2), we see that\n1. N̂n(x) ≥ 0 if and only if ρ is learning-positive; 2. N̂n(x) = 0 if and only if ρn(x) = 0; and\n3. N̂n(x) =∞ if and only if ρn(x) = ρ′n(x).\nIn many cases of interest, the pseudo-count N̂n(x) matches our intuition. If ρn = µn then N̂n = Nn. Similarly, if ρn is a Dirichlet estimator then N̂n recovers the usual notion of pseudo-count. More importantly, if the model generalizes across states then so do pseudo-counts."
+    }, {
+      "heading" : "3.2 Estimating the Frequency of a Salient Event in FREEWAY",
+      "text" : "As an illustrative example, we employ our method to estimate the number of occurrences of an infrequent event in the Atari 2600 video game FREEWAY (Figure 1, screenshot). We use the Arcade Learning Environment (Bellemare et al., 2013). We will demonstrate the following:\n1. Pseudo-counts are roughly zero for novel events,\n2. they exhibit credible magnitudes,\n3. they respect the ordering of state frequency,\n4. they grow linearly (on average) with real counts,\n5. they are robust in the presence of nonstationary data.\nThese properties suggest that pseudo-counts provide an appropriate generalized notion of visit counts in non-tabular settings.\nIn FREEWAY, the agent must navigate a chicken across a busy road. As our example, we consider estimating the number of times the chicken has reached the very top of the screen. As is the case for many Atari 2600 games, this naturally salient event is associated with an increase in score, which ALE translates into a positive reward. We may reasonably imagine that knowing how certain we are about this part of the environment is useful. After crossing, the chicken is teleported back to the bottom of the screen.\nTo highlight the robustness of our pseudo-count, we consider a nonstationary policy which waits for 250,000 frames, then applies the UP action for 250,000 frames, then waits, then goes UP again. The salient event only occurs during UP periods. It also occurs with the cars in different positions, thus requiring generalization. As a point of reference, we record the pseudo-counts for both the salient event and visits to the chicken’s start position.\nWe use a simplified, pixel-level version of the CTS model for Atari 2600 frames proposed by Bellemare et al. (2014), ignoring temporal dependencies. While the CTS model is rather impoverished in comparison to state-of-the-art density models for images (e.g. Van den Oord et al., 2016), its countbased nature results in extremely fast learning, making it an appealing candidate for exploration. Further details on the model may be found in the appendix.\nExamining the pseudo-counts depicted in Figure 1 confirms that they exhibit the desirable properties listed above. In particular, the pseudo-count is almost zero on the first occurrence of the salient event; it increases slightly during the 3rd period, since the salient and reference events share some common structure; throughout, it remains smaller than the reference pseudo-count. The linearity on average and robustness to nonstationarity are immediate from the graph. Note, however, that the pseudocounts are a fraction of the real visit counts (inasmuch as we can define “real”): by the end of the trial, the start position has been visited about 140,000 times, and the topmost part of the screen, 1285 times. Furthermore, the ratio of recorded pseudo-counts differs from the ratio of real counts. Both effects are quantifiable, as we shall show in Section 5."
+    }, {
+      "heading" : "4 The Connection to Intrinsic Motivation",
+      "text" : "Having argued that pseudo-counts appropriately generalize visit counts, we will now show that they are closely related to information gain, which is commonly used to quantify novelty or curiosity and consequently as an intrinsic reward. Information gain is defined in relation to a mixture model ξ over\na class of density modelsM. This model predicts according to a weighted combination fromM:\nξn(x) := ξ(x ; x1:n) := ∫ ρ∈M wn(ρ)ρ(x ; x1:n)dρ,\nwith wn(ρ) the posterior weight of ρ. This posterior is defined recursively, starting from a prior distribution w0 overM:\nwn+1(ρ) := wn(ρ, xn+1) wn(ρ, x) := wn(ρ)ρ(x ; x1:n)\nξn(x) . (3)\nInformation gain is then the Kullback-Leibler divergence from prior to posterior that results from observing x: IGn(x) := IG(x ; x1:n) := KL ( wn(·, x) ‖wn ) .\nComputing the information gain of a complex density model is often impractical, if not downright intractable. However, a quantity which we call the prediction gain provides us with a good approximation of the information gain. We define the prediction gain of a density model ρ (and in particular, ξ) as the difference between the recoding log-probability and log-probability of x:\nPGn(x) := log ρ′n(x)− log ρn(x). Prediction gain is nonnegative if and only if ρ is learning-positive. It is related to the pseudo-count:\nN̂n(x) ≈ ( ePGn(x) − 1 )−1 ,\nwith equality when ρ′n(x)→ 0. As the following theorem shows, prediction gain allows us to relate pseudo-count and information gain. Theorem 1. Consider a sequence x1:n ∈ Xn. Let ξ be a mixture model over a class of learningpositive modelsM. Let N̂n be the pseudo-count derived from ξ (Equation 2). For this model,\nIGn(x) ≤ PGn(x) ≤ N̂n(x)−1 and PGn(x) ≤ N̂n(x)−1/2.\nTheorem 1 suggests that using an exploration bonus proportional to N̂n(x)−1/2, similar to the MBIE-EB bonus, leads to a behaviour at least as exploratory as one derived from an information gain bonus. Since pseudo-counts correspond to empirical counts in the tabular setting, this approach also preserves known theoretical guarantees. In fact, we are confident pseudo-counts may be used to prove similar results in non-tabular settings.\nOn the other hand, it may be difficult to provide theoretical guarantees about existing bonus-based intrinsic motivation approaches. Kolter and Ng (2009) showed that no algorithm based on a bonus upper bounded by βNn(x)−1 for any β > 0 can guarantee PAC-MDP optimality. Again considering the tabular setting and combining their result to Theorem 1, we conclude that bonuses proportional to immediate information (or prediction) gain are insufficient for theoretically near-optimal exploration: to paraphrase Kolter and Ng, these methods produce explore too little in comparison to pseudo-count bonuses. By inspecting (2) we come to a similar negative conclusion for bonuses proportional to the L1 or L2 distance between ξ′n and ξn.\nUnlike many intrinsic motivation algorithms, pseudo-counts also do not rely on learning a forward (transition and/or reward) model. This point is especially important because a number of powerful density models for images exist (Van den Oord et al., 2016), and because optimality guarantees cannot in general exist for intrinsic motivation algorithms based on forward models."
+    }, {
+      "heading" : "5 Asymptotic Analysis",
+      "text" : "In this section we analyze the limiting behaviour of the ratio N̂n/Nn. We use this analysis to assert the consistency of pseudo-counts derived from tabular density models, i.e. models which maintain per-state visit counts. In the appendix we use the same result to bound the approximation error of pseudo-counts derived from directed graphical models, of which our CTS model is a special case. Consider a fixed, infinite sequence x1, x2, . . . fromX . We define the limit of a sequence of functions( f(x ; x1:n) : n ∈ N ) with respect to the length n of the subsequence x1:n. We additionally assume that the empirical distribution µn converges pointwise to a distribution µ, and write µ′n(x) for the recoding probability of x under µn. We begin with two assumptions on our density model.\nAssumption 1. The limits\n(a) r(x) := lim n→∞\nρn(x) µn(x) (b) ṙ(x) := lim n→∞ ρ′n(x)− ρn(x) µ′n(x)− µn(x)\nexist for all x; furthermore, ṙ(x) > 0.\nAssumption (a) states that ρ should eventually assign a probability to x proportional to the limiting empirical distribution µ(x). In particular there must be a state x for which r(x) < 1, unless ρn → µ. Assumption (b), on the other hand, imposes a restriction on the learning rate of ρ relative to µ’s. As both r(x) and µ(x) exist, Assumption 1 also implies that ρn(x) and ρ′n(x) have a common limit.\nTheorem 2. Under Assumption 1, the limit of the ratio of pseudo-counts N̂n(x) to empirical counts Nn(x) exists for all x. This limit is\nlim n→∞\nN̂n(x) Nn(x) = r(x) ṙ(x)\n( 1− µ(x)r(x)\n1− µ(x)\n) .\nThe model’s relative rate of change, whose convergence to ṙ(x) we require, plays an essential role in the ratio of pseudo- to empirical counts. To see this, consider a sequence (xn : n ∈ N) generated i.i.d. from a distribution µ over a finite state space, and a density model defined from a sequence of nonincreasing step-sizes (αn : n ∈ N):\nρn(x) = (1− αn)ρn−1(x) + αnI {xn = x} , with initial condition ρ0(x) = |X |−1. For αn = n−1, this density model is the empirical distribution. For αn = n−2/3, we may appeal to well-known results from stochastic approximation (e.g. Bertsekas and Tsitsiklis, 1996) and find that almost surely\nlim n→∞ ρn(x) = µ(x) but lim n→∞ ρ′n(x)− ρn(x) µ′n(x)− µn(x) =∞.\nSince µ′n(x) − µn(x) = n−1(1 − µ′n(x)), we may think of Assumption 1(b) as also requiring ρ to converge at a rate of Θ(1/n) for a comparison with the empirical count Nn to be meaningful. Note, however, that a density model that does not satisfy Assumption 1(b) may still yield useful (but incommensurable) pseudo-counts. Corollary 1. Let φ(x) > 0 with ∑ x∈X φ(x) <∞ and consider the count-based estimator\nρn(x) = Nn(x) + φ(x) n+ ∑ x′∈X φ(x ′) ."
+    }, {
+      "heading" : "If N̂n is the pseudo-count corresponding to ρn then N̂n(x)/Nn(x)→ 1 for all x with µ(x) > 0.",
+      "text" : ""
+    }, {
+      "heading" : "6 Empirical Evaluation",
+      "text" : "In this section we demonstrate the use of pseudo-counts to guide exploration. We return to the Arcade Learning Environment, now using the CTS model to generate an exploration bonus."
+    }, {
+      "heading" : "6.1 Exploration in Hard Atari 2600 Games",
+      "text" : "From 60 games available through the Arcade Learning Environment we selected five “hard” games, in the sense that an -greedy policy is inefficient at exploring them. We used a bonus of the form\nR+n (x, a) := β(N̂n(x) + 0.01) −1/2, (4)\nwhere β = 0.05 was selected from a coarse parameter sweep. We also compared our method to the optimistic initialization trick proposed by Machado et al. (2015). We trained our agents’ Q-functions with Double DQN (van Hasselt et al., 2016), with one important modification: we mixed the Double Q-Learning target with the Monte Carlo return. This modification led to improved results both with and without exploration bonuses (details in the appendix).\nFigure 2 depicts the result of our experiment, averaged across 5 trials. Although optimistic initialization helps in FREEWAY, it otherwise yields performance similar to DQN. By contrast, the\ncount-based exploration bonus enables us to make quick progress on a number of games, most dramatically in MONTEZUMA’S REVENGE and VENTURE.\nMONTEZUMA’S REVENGE is perhaps the hardest Atari 2600 game available through the ALE. The game is infamous for its hostile, unforgiving environment: the agent must navigate a number of different rooms, each filled with traps. Due to its sparse reward function, most published agents achieve an average score close to zero and completely fail to explore most of the 24 rooms that constitute the first level (Figure 3, top). By contrast, within 50 million frames our agent learns a policy which consistently navigates through 15 rooms (Figure 3, bottom). Our agent also achieves a score higher than anything previously reported, with one run consistently achieving 6600 points by 100 million frames (half the training samples used by Mnih et al. (2015)). We believe the success of our method in this game is a strong indicator of the usefulness of pseudo-counts for exploration.1"
+    }, {
+      "heading" : "6.2 Exploration for Actor-Critic Methods",
+      "text" : "We next used our exploration bonuses in conjunction with the A3C (Asynchronous Advantage Actor-Critic) algorithm of Mnih et al. (2016). One appeal of actor-critic methods is their explicit separation of policy and Q-function parameters, which leads to a richer behaviour space. This very separation, however, often leads to deficient exploration: to produce any sensible results, the A3C policy must be regularized with an entropy cost. We trained A3C on 60 Atari 2600 games, with and without the exploration bonus (4). We refer to our augmented algorithm as A3C+. Full details and additional results may be found in the appendix.\nWe found that A3C fails to learn in 15 games, in the sense that the agent does not achieve a score 50% better than random. In comparison, there are only 10 games for which A3C+ fails to improve on the random agent; of these, 8 are games where DQN fails in the same sense. We normalized the two algorithms’ scores so that 0 and 1 are respectively the minimum and maximum of the random agent’s and A3C’s end-of-training score on a particular game. Figure 4 depicts the in-training median score for A3C and A3C+, along with 1st and 3rd quartile intervals. Not only does A3C+ achieve slightly superior median performance, but it also significantly outperforms A3C on at least a quarter of the games. This is particularly important given the large proportion of Atari 2600 games for which an -greedy policy is sufficient for exploration."
+    }, {
+      "heading" : "7 Related Work",
+      "text" : "Information-theoretic quantities have been repeatedly used to describe intrinsically motivated behaviour. Closely related to prediction gain is Schmidhuber (1991)’s notion of compression progress,\n1A video of our agent playing is available at https://youtu.be/0yI2wJ6F8r0.\nwhich equates novelty with an agent’s improvement in its ability to compress its past. More recently, Lopes et al. (2012) showed the relationship between time-averaged prediction gain and visit counts in a tabular setting; their result is a special case of Theorem 2. Orseau et al. (2013) demonstrated that maximizing the sum of future information gains does lead to optimal behaviour, even though maximizing immediate information gain does not (Section 4). Finally, there may be a connection between sequential normalized maximum likelihood estimators and our pseudo-count derivation (see e.g. Ollivier, 2015).\nIntrinsic motivation has also been studied in reinforcement learning proper, in particular in the context of discovering skills (Singh et al., 2004; Barto, 2013). Recently, Stadie et al. (2015) used a squared prediction error bonus for exploring in Atari 2600 games. Closest to our work is Houthooft et al. (2016)’s variational approach to intrinsic motivation, which is equivalent to a second order Taylor approximation to prediction gain. Mohamed and Rezende (2015) also considered a variational approach to the different problem of maximizing an agent’s ability to influence its environment.\nAside for Orseau et al.’s above-cited work, it is only recently that theoretical guarantees for exploration have emerged for non-tabular, stateful settings. We note Pazis and Parr (2016)’s PAC-MDP result for metric spaces and Leike et al. (2016)’s asymptotic analysis of Thompson sampling in general environments."
+    }, {
+      "heading" : "8 Future Directions",
+      "text" : "The last few years have seen tremendous advances in learning representations for reinforcement learning. Surprisingly, these advances have yet to carry over to the problem of exploration. In this paper, we reconciled counts, the fundamental unit of uncertainty, with prediction-based heuristics and intrinsic motivation. Combining our work with more ideas from deep learning and better density models seems a plausible avenue for quick progress in practical, efficient exploration. We now conclude by outlining a few research directions we believe are promising.\nInduced metric. We did not address the question of where the generalization comes from. Clearly, the choice of density model induces a particular metric over the state space. A better understanding of this metric should allow us to tailor the density model to the problem of exploration.\nCompatible value function. There may be a mismatch in the learning rates of the density model and the value function: DQN learns much more slowly than our CTS model. As such, it should be beneficial to design value functions compatible with density models (or vice-versa).\nThe continuous case. Although we focused here on countable state spaces, we can as easily define a pseudo-count in terms of probability density functions. At present it is unclear whether this provides us with the right notion of counts for continuous spaces."
+    }, {
+      "heading" : "Acknowledgments",
+      "text" : "The authors would like to thank Laurent Orseau, Alex Graves, Joel Veness, Charles Blundell, Shakir Mohamed, Ivo Danihelka, Ian Osband, Matt Hoffman, Greg Wayne, Will Dabney, and Aäron van den Oord for their excellent feedback early and late in the writing, and Pierre-Yves Oudeyer and Yann Ollivier for pointing out additional connections to the literature."
+    } ],
+    "references" : [ {
+      "title" : "Intrinsic motivation and reinforcement learning",
+      "author" : [ "A.G. Barto" ],
+      "venue" : "Intrinsically Motivated Learning in Natural and Artificial Systems, pages 17–47. Springer.",
+      "citeRegEx" : "Barto,? 2013",
+      "shortCiteRegEx" : "Barto",
+      "year" : 2013
+    }, {
+      "title" : "Skip context tree switching",
+      "author" : [ "M. Bellemare", "J. Veness", "E. Talvitie" ],
+      "venue" : "Proceedings of the 31st International Conference on Machine Learning, pages 1458–1466.",
+      "citeRegEx" : "Bellemare et al\\.,? 2014",
+      "shortCiteRegEx" : "Bellemare et al\\.",
+      "year" : 2014
+    }, {
+      "title" : "The Arcade Learning Environment: An evaluation platform for general agents",
+      "author" : [ "M.G. Bellemare", "Y. Naddaf", "J. Veness", "M. Bowling" ],
+      "venue" : "Journal of Artificial Intelligence Research, 47:253–279.",
+      "citeRegEx" : "Bellemare et al\\.,? 2013",
+      "shortCiteRegEx" : "Bellemare et al\\.",
+      "year" : 2013
+    }, {
+      "title" : "Neuro-Dynamic Programming",
+      "author" : [ "D.P. Bertsekas", "J.N. Tsitsiklis" ],
+      "venue" : "Athena Scientific.",
+      "citeRegEx" : "Bertsekas and Tsitsiklis,? 1996",
+      "shortCiteRegEx" : "Bertsekas and Tsitsiklis",
+      "year" : 1996
+    }, {
+      "title" : "Elements of information theory",
+      "author" : [ "T.M. Cover", "J.A. Thomas" ],
+      "venue" : "John Wiley & Sons.",
+      "citeRegEx" : "Cover and Thomas,? 1991",
+      "shortCiteRegEx" : "Cover and Thomas",
+      "year" : 1991
+    }, {
+      "title" : "Variational information maximizing exploration",
+      "author" : [ "R. Houthooft", "X. Chen", "Y. Duan", "J. Schulman", "F. De Turck", "P. Abbeel" ],
+      "venue" : null,
+      "citeRegEx" : "Houthooft et al\\.,? \\Q2016\\E",
+      "shortCiteRegEx" : "Houthooft et al\\.",
+      "year" : 2016
+    }, {
+      "title" : "Sparse adaptive dirichlet-multinomial-like processes",
+      "author" : [ "M. Hutter" ],
+      "venue" : "Proceedings of the Conference on Online Learning Theory.",
+      "citeRegEx" : "Hutter,? 2013",
+      "shortCiteRegEx" : "Hutter",
+      "year" : 2013
+    }, {
+      "title" : "Near-bayesian exploration in polynomial time",
+      "author" : [ "Z.J. Kolter", "A.Y. Ng" ],
+      "venue" : "Proceedings of the 26th International Conference on Machine Learning.",
+      "citeRegEx" : "Kolter and Ng,? 2009",
+      "shortCiteRegEx" : "Kolter and Ng",
+      "year" : 2009
+    }, {
+      "title" : "Thompson sampling is asymptotically optimal in general environments",
+      "author" : [ "J. Leike", "T. Lattimore", "L. Orseau", "M. Hutter" ],
+      "venue" : "Proceedings of the Conference on Uncertainty in Artificial Intelligence.",
+      "citeRegEx" : "Leike et al\\.,? 2016",
+      "shortCiteRegEx" : "Leike et al\\.",
+      "year" : 2016
+    }, {
+      "title" : "Exploration in model-based reinforcement learning by empirically estimating learning progress",
+      "author" : [ "M. Lopes", "T. Lang", "M. Toussaint", "Oudeyer", "P.-Y." ],
+      "venue" : "Advances in Neural Information Processing Systems",
+      "citeRegEx" : "Lopes et al\\.,? 2012",
+      "shortCiteRegEx" : "Lopes et al\\.",
+      "year" : 2012
+    }, {
+      "title" : "Domain-independent optimistic initialization for reinforcement learning",
+      "author" : [ "M.C. Machado", "S. Srinivasan", "M. Bowling" ],
+      "venue" : "AAAI Workshop on Learning for General Competency in Video Games.",
+      "citeRegEx" : "Machado et al\\.,? 2015",
+      "shortCiteRegEx" : "Machado et al\\.",
+      "year" : 2015
+    }, {
+      "title" : "Asynchronous methods for deep reinforcement learning",
+      "author" : [ "V. Mnih", "A.P. Badia", "M. Mirza", "A. Graves", "T.P. Lillicrap", "T. Harley", "D. Silver", "K. Kavukcuoglu" ],
+      "venue" : "Proceedings of the International Conference on Machine Learning.",
+      "citeRegEx" : "Mnih et al\\.,? 2016",
+      "shortCiteRegEx" : "Mnih et al\\.",
+      "year" : 2016
+    }, {
+      "title" : "Human-level control through deep reinforcement learning",
+      "author" : [ "V. Mnih", "K. Kavukcuoglu", "D. Silver", "A.A. Rusu", "J. Veness", "M.G. Bellemare", "A. Graves", "M. Riedmiller", "A.K. Fidjeland", "G Ostrovski" ],
+      "venue" : null,
+      "citeRegEx" : "Mnih et al\\.,? \\Q2015\\E",
+      "shortCiteRegEx" : "Mnih et al\\.",
+      "year" : 2015
+    }, {
+      "title" : "Variational information maximisation for intrinsically motivated reinforcement learning",
+      "author" : [ "S. Mohamed", "D.J. Rezende" ],
+      "venue" : "Advances in Neural Information Processing Systems 28.",
+      "citeRegEx" : "Mohamed and Rezende,? 2015",
+      "shortCiteRegEx" : "Mohamed and Rezende",
+      "year" : 2015
+    }, {
+      "title" : "Laplace’s rule of succession in information geometry",
+      "author" : [ "Y. Ollivier" ],
+      "venue" : "arXiv preprint arXiv:1503.04304.",
+      "citeRegEx" : "Ollivier,? 2015",
+      "shortCiteRegEx" : "Ollivier",
+      "year" : 2015
+    }, {
+      "title" : "Universal knowledge-seeking agents for stochastic environments",
+      "author" : [ "L. Orseau", "T. Lattimore", "M. Hutter" ],
+      "venue" : "Proceedings of the Conference on Algorithmic Learning Theory.",
+      "citeRegEx" : "Orseau et al\\.,? 2013",
+      "shortCiteRegEx" : "Orseau et al\\.",
+      "year" : 2013
+    }, {
+      "title" : "Intrinsic motivation systems for autonomous mental development",
+      "author" : [ "P. Oudeyer", "F. Kaplan", "V. Hafner" ],
+      "venue" : "IEEE Transactions on Evolutionary Computation, 11(2):265–286.",
+      "citeRegEx" : "Oudeyer et al\\.,? 2007",
+      "shortCiteRegEx" : "Oudeyer et al\\.",
+      "year" : 2007
+    }, {
+      "title" : "Efficient PAC-optimal exploration in concurrent, continuous state MDPs with delayed updates",
+      "author" : [ "J. Pazis", "R. Parr" ],
+      "venue" : "Proceedings of the 30th AAAI Conference on Artificial Intelligence.",
+      "citeRegEx" : "Pazis and Parr,? 2016",
+      "shortCiteRegEx" : "Pazis and Parr",
+      "year" : 2016
+    }, {
+      "title" : "A possibility for implementing curiosity and boredom in model-building neural controllers",
+      "author" : [ "J. Schmidhuber" ],
+      "venue" : "From animals to animats: proceedings of the first international conference on simulation of adaptive behavior.",
+      "citeRegEx" : "Schmidhuber,? 1991",
+      "shortCiteRegEx" : "Schmidhuber",
+      "year" : 1991
+    }, {
+      "title" : "Intrinsically motivated reinforcement learning",
+      "author" : [ "S. Singh", "A.G. Barto", "N. Chentanez" ],
+      "venue" : "Advances in Neural Information Processing Systems 16.",
+      "citeRegEx" : "Singh et al\\.,? 2004",
+      "shortCiteRegEx" : "Singh et al\\.",
+      "year" : 2004
+    }, {
+      "title" : "Incentivizing exploration in reinforcement learning with deep predictive models",
+      "author" : [ "B.C. Stadie", "S. Levine", "P. Abbeel" ],
+      "venue" : "arXiv preprint arXiv:1507.00814.",
+      "citeRegEx" : "Stadie et al\\.,? 2015",
+      "shortCiteRegEx" : "Stadie et al\\.",
+      "year" : 2015
+    }, {
+      "title" : "An analysis of model-based interval estimation for Markov decision processes",
+      "author" : [ "A.L. Strehl", "M.L. Littman" ],
+      "venue" : "Journal of Computer and System Sciences, 74(8):1309 – 1331.",
+      "citeRegEx" : "Strehl and Littman,? 2008",
+      "shortCiteRegEx" : "Strehl and Littman",
+      "year" : 2008
+    }, {
+      "title" : "Pixel recurrent neural networks",
+      "author" : [ "A. Van den Oord", "N. Kalchbrenner", "K. Kavukcuoglu" ],
+      "venue" : "Proceedigns of the 33rd International Conference on Machine Learning.",
+      "citeRegEx" : "Oord et al\\.,? 2016",
+      "shortCiteRegEx" : "Oord et al\\.",
+      "year" : 2016
+    }, {
+      "title" : "Deep reinforcement learning with double Q-learning",
+      "author" : [ "H. van Hasselt", "A. Guez", "D. Silver" ],
+      "venue" : "In Proceedings of the 30th AAAI Conference on Artificial Intelligence",
+      "citeRegEx" : "Hasselt et al\\.,? \\Q2016\\E",
+      "shortCiteRegEx" : "Hasselt et al\\.",
+      "year" : 2016
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 21,
+      "context" : "For example, Model-based Interval Estimation with Exploration Bonuses (MBIE-EB; Strehl and Littman, 2008) solves the augmented Bellman equation",
+      "startOffset" : 70,
+      "endOffset" : 105
+    }, {
+      "referenceID" : 18,
+      "context" : "Answering a different scientific question, intrinsic motivation aims to provide qualitative guidance for exploration (Schmidhuber, 1991; Oudeyer et al., 2007; Barto, 2013).",
+      "startOffset" : 117,
+      "endOffset" : 171
+    }, {
+      "referenceID" : 16,
+      "context" : "Answering a different scientific question, intrinsic motivation aims to provide qualitative guidance for exploration (Schmidhuber, 1991; Oudeyer et al., 2007; Barto, 2013).",
+      "startOffset" : 117,
+      "endOffset" : 171
+    }, {
+      "referenceID" : 0,
+      "context" : "Answering a different scientific question, intrinsic motivation aims to provide qualitative guidance for exploration (Schmidhuber, 1991; Oudeyer et al., 2007; Barto, 2013).",
+      "startOffset" : 117,
+      "endOffset" : 171
+    }, {
+      "referenceID" : 4,
+      "context" : "Specifically, we consider a frequently used measure of learning progress, information gain (Cover and Thomas, 1991).",
+      "startOffset" : 91,
+      "endOffset" : 115
+    }, {
+      "referenceID" : 2,
+      "context" : "We bring them to bear on Atari 2600 games from the Arcade Learning Environment (Bellemare et al., 2013), focusing on games where myopic exploration fails.",
+      "startOffset" : 79,
+      "endOffset" : 103
+    }, {
+      "referenceID" : 4,
+      "context" : "The term “recoding” is inspired from the statistical compression literature, where coding costs are inversely related to probabilities (Cover and Thomas, 1991).",
+      "startOffset" : 135,
+      "endOffset" : 159
+    }, {
+      "referenceID" : 2,
+      "context" : "We use the Arcade Learning Environment (Bellemare et al., 2013).",
+      "startOffset" : 39,
+      "endOffset" : 63
+    }, {
+      "referenceID" : 1,
+      "context" : "We use a simplified, pixel-level version of the CTS model for Atari 2600 frames proposed by Bellemare et al. (2014), ignoring temporal dependencies.",
+      "startOffset" : 92,
+      "endOffset" : 116
+    }, {
+      "referenceID" : 7,
+      "context" : "Kolter and Ng (2009) showed that no algorithm based on a bonus upper bounded by βNn(x) for any β > 0 can guarantee PAC-MDP optimality.",
+      "startOffset" : 0,
+      "endOffset" : 21
+    }, {
+      "referenceID" : 10,
+      "context" : "We also compared our method to the optimistic initialization trick proposed by Machado et al. (2015). We trained our agents’ Q-functions with Double DQN (van Hasselt et al.",
+      "startOffset" : 79,
+      "endOffset" : 101
+    }, {
+      "referenceID" : 11,
+      "context" : "Our agent also achieves a score higher than anything previously reported, with one run consistently achieving 6600 points by 100 million frames (half the training samples used by Mnih et al. (2015)).",
+      "startOffset" : 179,
+      "endOffset" : 198
+    }, {
+      "referenceID" : 11,
+      "context" : "We next used our exploration bonuses in conjunction with the A3C (Asynchronous Advantage Actor-Critic) algorithm of Mnih et al. (2016). One appeal of actor-critic methods is their explicit separation of policy and Q-function parameters, which leads to a richer behaviour space.",
+      "startOffset" : 116,
+      "endOffset" : 135
+    }, {
+      "referenceID" : 18,
+      "context" : "Closely related to prediction gain is Schmidhuber (1991)’s notion of compression progress,",
+      "startOffset" : 38,
+      "endOffset" : 57
+    }, {
+      "referenceID" : 19,
+      "context" : "Intrinsic motivation has also been studied in reinforcement learning proper, in particular in the context of discovering skills (Singh et al., 2004; Barto, 2013).",
+      "startOffset" : 128,
+      "endOffset" : 161
+    }, {
+      "referenceID" : 0,
+      "context" : "Intrinsic motivation has also been studied in reinforcement learning proper, in particular in the context of discovering skills (Singh et al., 2004; Barto, 2013).",
+      "startOffset" : 128,
+      "endOffset" : 161
+    }, {
+      "referenceID" : 6,
+      "context" : "More recently, Lopes et al. (2012) showed the relationship between time-averaged prediction gain and visit counts in a tabular setting; their result is a special case of Theorem 2.",
+      "startOffset" : 15,
+      "endOffset" : 35
+    }, {
+      "referenceID" : 6,
+      "context" : "More recently, Lopes et al. (2012) showed the relationship between time-averaged prediction gain and visit counts in a tabular setting; their result is a special case of Theorem 2. Orseau et al. (2013) demonstrated that maximizing the sum of future information gains does lead to optimal behaviour, even though maximizing immediate information gain does not (Section 4).",
+      "startOffset" : 15,
+      "endOffset" : 202
+    }, {
+      "referenceID" : 0,
+      "context" : ", 2004; Barto, 2013). Recently, Stadie et al. (2015) used a squared prediction error bonus for exploring in Atari 2600 games.",
+      "startOffset" : 8,
+      "endOffset" : 53
+    }, {
+      "referenceID" : 0,
+      "context" : ", 2004; Barto, 2013). Recently, Stadie et al. (2015) used a squared prediction error bonus for exploring in Atari 2600 games. Closest to our work is Houthooft et al. (2016)’s variational approach to intrinsic motivation, which is equivalent to a second order Taylor approximation to prediction gain.",
+      "startOffset" : 8,
+      "endOffset" : 173
+    }, {
+      "referenceID" : 0,
+      "context" : ", 2004; Barto, 2013). Recently, Stadie et al. (2015) used a squared prediction error bonus for exploring in Atari 2600 games. Closest to our work is Houthooft et al. (2016)’s variational approach to intrinsic motivation, which is equivalent to a second order Taylor approximation to prediction gain. Mohamed and Rezende (2015) also considered a variational approach to the different problem of maximizing an agent’s ability to influence its environment.",
+      "startOffset" : 8,
+      "endOffset" : 327
+    }, {
+      "referenceID" : 0,
+      "context" : ", 2004; Barto, 2013). Recently, Stadie et al. (2015) used a squared prediction error bonus for exploring in Atari 2600 games. Closest to our work is Houthooft et al. (2016)’s variational approach to intrinsic motivation, which is equivalent to a second order Taylor approximation to prediction gain. Mohamed and Rezende (2015) also considered a variational approach to the different problem of maximizing an agent’s ability to influence its environment. Aside for Orseau et al.’s above-cited work, it is only recently that theoretical guarantees for exploration have emerged for non-tabular, stateful settings. We note Pazis and Parr (2016)’s PAC-MDP result for metric spaces and Leike et al.",
+      "startOffset" : 8,
+      "endOffset" : 641
+    }, {
+      "referenceID" : 0,
+      "context" : ", 2004; Barto, 2013). Recently, Stadie et al. (2015) used a squared prediction error bonus for exploring in Atari 2600 games. Closest to our work is Houthooft et al. (2016)’s variational approach to intrinsic motivation, which is equivalent to a second order Taylor approximation to prediction gain. Mohamed and Rezende (2015) also considered a variational approach to the different problem of maximizing an agent’s ability to influence its environment. Aside for Orseau et al.’s above-cited work, it is only recently that theoretical guarantees for exploration have emerged for non-tabular, stateful settings. We note Pazis and Parr (2016)’s PAC-MDP result for metric spaces and Leike et al. (2016)’s asymptotic analysis of Thompson sampling in general environments.",
+      "startOffset" : 8,
+      "endOffset" : 700
+    } ],
+    "year" : 2016,
+    "abstractText" : "We consider an agent’s uncertainty about its environment and the problem of generalizing this uncertainty across states. Specifically, we focus on the problem of exploration in non-tabular reinforcement learning. Drawing inspiration from the intrinsic motivation literature, we use density models to measure uncertainty, and propose a novel algorithm for deriving a pseudo-count from an arbitrary density model. This technique enables us to generalize count-based exploration algorithms to the non-tabular case. We apply our ideas to Atari 2600 games, providing sensible pseudo-counts from raw pixels. We transform these pseudo-counts into exploration bonuses and obtain significantly improved exploration in a number of hard games, including the infamously difficult MONTEZUMA’S REVENGE.",
+    "creator" : null
+  }
+}

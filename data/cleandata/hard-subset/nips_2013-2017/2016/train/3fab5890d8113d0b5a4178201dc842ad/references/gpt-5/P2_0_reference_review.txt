@@ -1,0 +1,45 @@
+Review of “Scaling Memory-Augmented Neural Networks with Sparse Reads and Writes”
+
+Summary and relation to prior work:
+The paper introduces Sparse Access Memory (SAM), a memory-augmented neural network (MANN) that scales reads and writes sparsely: at each time step only K memory slots are read/written, with K constant and independent of memory size N. Reads use content-based addressing implemented via an approximate nearest-neighbor (ANN) index (randomized kd-trees or LSH) to select the top-K matches in O(log N) time, and writes target either previously read locations or the least recently accessed slot via a lightweight usage tracker. The authors also propose an efficient backprop-through-time scheme that “rolls back” sparse writes, yielding O(1) space per time step (and O(T) total) instead of O(NT). They report large wall-clock and memory savings (100–1600× faster, three orders-of-magnitude less memory than NTMs at large N), and demonstrate learning performance on synthetic NTM tasks, curriculum-scaled long sequences (up to millions of slots and 4k–10k+ steps), bAbI without supervision (and a sparse DNC variant achieving near-SOTA), and Omniglot one-shot episodes.
+
+This work builds squarely on NTMs and Memory Networks by decoupling memory capacity from parameters, and is closely related to DNCs. It also connects to discrete addressing via RL (e.g., Zaremba & Sutskever), but takes a differentiable, sparse, approximate-attention route by embedding ANN search inside the network. To my knowledge, the integration of ANN data structures into end-to-end training with rollback BPTT for MANNs is novel and timely.
+
+Quality:
+- Technical soundness: The algorithmic design is coherent. Sparse reads/writes with K constant and index maintenance plausibly yield the claimed asymptotics if the ANN behaves as intended. The rollback scheme for BPTT (storing only sparse deltas per step and undoing them) is a neat and convincing engineering contribution. However, some core claims (e.g., sublinear query time in practice and asymptotic optimality) hinge on assumptions about dimensionality and data distributions that are not fully articulated in the main text (left to Supplementary A). kd-trees can degrade to near-linear in high dimensions; LSH has large constants and requires careful tuning. The paper acknowledges this and switches between kd-trees and LSH, but more rigorous characterization (or at least empirical scaling as a function of word dimension M) would strengthen the theoretical support.
+- Empirical support: The runtime/memory benchmarks are persuasive (orders-of-magnitude differences) and measured across implementations. On learning performance, SAM matches or exceeds NTMs/LSTMs on several synthetic tasks and scales to much longer sequences via curriculum, including generalization to >200k steps on associative recall after training to 10k, which is impressive. bAbI and Omniglot results are competitive; the sparse DNC result is notable. That said, several important ablations are missing or buried in supplements: sensitivity to K; the effect of ANN approximation error vs exact top-K; impact of the usage heuristic (LRU-like) vs alternatives; index rebuild frequency; and the controller’s stability under neighbor set discontinuities (ANN changes are non-differentiable). The authors empirically argue sparsity does not harm learning and may help early learning, but a more systematic study would add confidence.
+- Reproducibility: High-level descriptions are clear, but key implementation details (rollback data structures, ANN parameters, rebuild policies) are in the supplement. For expert readers, pseudo-code or a minimal algorithmic description in the main text would help. Hyperparameter settings are reported in Supplementary C/G.
+
+Clarity:
+The paper is generally well-written and organized. The motivation is clear, the architectural changes are explained, and the empirical sections are easy to follow. To improve clarity: (1) move essential parts of the complexity argument and the rollback/write policies into the main paper; (2) provide a concise pseudo-code for forward/backward with memory rollback and index updates; (3) clarify fairness settings in comparisons (e.g., equal physical memory budgets vs equal N or parameter counts) and report both where possible; (4) explicitly discuss the non-differentiability of the ANN neighbor selection and why optimization remains stable.
+
+Originality:
+- The combination of sparse content-based read/write with constant-K updates, an LRU-like allocator, integrated ANN indices inside the training loop, and an O(1) per-step BPTT rollback is, as a whole, novel relative to prior NTMs/Memory Networks. The notion of leveraging approximate search to scale differentiable attention is an original and practically important idea in this context. The extension to a sparse DNC further supports generality.
+
+Significance:
+- Scaling MANNs is an important problem with clear impact on long-context learning and algorithmic tasks. Demonstrating millions of memory slots, long untruncated BPTT, and large runtime and memory savings substantially advances the practicality of MANNs. The approach is likely to be adopted and extended by others; the memory allocator and rollback techniques are broadly useful. The results on bAbI and Omniglot show relevance beyond toy tasks, though more challenging real-world domains would further underscore impact.
+
+Pros:
+- Addresses a key bottleneck (time/space) with a principled, general approach.
+- Strong engineering: O(1) per-step memory via rollback; integrated ANN with maintenance.
+- Large empirical speed/memory gains; ability to train with millions of slots and very long sequences.
+- Competitive or better performance on multiple benchmarks; generalization to much longer sequences.
+- Method generalizes to other MANNs (sparse DNC).
+
+Cons:
+- Sublinear time claims depend on ANN behavior; limited theoretical guarantees in high dimensions.
+- Non-differentiable neighbor selection introduces discontinuities; analysis is limited.
+- Missing ablations: K sensitivity, ANN vs exact, allocator variants, rebuild frequency, ANN hyperparameters.
+- Some comparisons are not fully controlled (e.g., memory sizes vs parameter counts vs physical memory budgets).
+- Reproducibility relies on supplementary details; main text could include more algorithmic specifics.
+
+Questions/suggestions for authors:
+- Provide empirical scaling as a function of word dimension M and compare kd-tree vs LSH in that regime.
+- Report ablations on K and ANN approximation error (e.g., recall of true top-K vs performance/efficiency).
+- Compare allocator policies (pure LRU vs discounted usage vs learned allocation) and their impact.
+- Quantify effect of index rebuild frequency on speed/accuracy; discuss amortized costs.
+- Clarify fairness: include results where dense models are given larger N (within feasible limits) and/or where all models are matched by parameter count in addition to memory budget.
+- Discuss stability under changing neighbor sets and whether you observed training instabilities; any smoothing or hysteresis used?
+
+Overall evaluation:
+A strong paper that makes a compelling, well-justified step toward scalable MANNs with convincing efficiency gains and solid empirical performance. Despite some theoretical caveats and missing ablations, the contributions are original, clearly beneficial, and likely to influence future work. I recommend acceptance.

@@ -1,0 +1,66 @@
+Summary and relation to prior work
+The paper proposes LSDA, an approach to transform image classifiers into object detectors when bounding box annotations are available only for a subset of categories. The method treats the problem as domain adaptation from classification (image-level labels) to detection (region-level labels). Concretely: (1) pre-train a CNN on ImageNet classification, (2) replace the final layer with K category classifiers and fine-tune on classification data, (3) fine-tune layers 1–7 and add a background class using detection data for a subset B of classes, thereby learning a category-invariant “classification-to-detection” feature transformation, and (4) perform category-specific adaptation for held-out classes A by adding to each classification weight vector an average delta computed from its k nearest neighbors (in fc8 weight space) among classes in B. At test time, region proposal scores are taken as score_i − score_bg without SVMs or bbox regression.
+
+This builds on R-CNN (Girshick et al.), which pretrains on classification and fine-tunes on detection but requires boxes for all categories. Related MIL methods for weakly supervised detection are cited but not compared experimentally. The paper also references domain adaptation literature but focuses on a task/domain shift (classification→detection) rather than the classic cross-dataset shift.
+
+Strengths
+- Addresses an important scalability bottleneck: lack of boxes for many categories; proposes a simple, practical pipeline.
+- Clear decomposition into category-invariant and category-specific adaptations; ablation suggests most gains come from feature-level adaptation plus learning a background class.
+- Quantitative gains on held-out categories (mAP 10.31%→15.85% with invariant adaptation; 16.15% with k-NN delta), with a paired t-test provided.
+- Sensible error analysis shows reductions in background and localization errors after adaptation.
+- Demonstrates feasibility at larger scale (7.6K categories), and discusses inference-time speedups via SPP/fast proposals.
+
+Weaknesses and detailed comments
+
+Quality
+- Limited baselines. The main comparison is “classification-only on proposals.” Missing:
+  - R-CNN-style SVM and bbox regression (you explicitly omit them; a reference “upper bound” is mentioned but not fully evaluated on held-out categories with your setup).
+  - Weakly supervised detection (MIL) baselines on the same 200-class protocol (you cite [6,7] but provide no experiments).
+  - Alternative category-specific mappings: rather than averaging neighbor deltas, learn a regression from Wc to Wd (e.g., ridge regression, Procrustes, or a small MLP) using classes in B; this is a natural baseline for the proposed nearest-neighbor delta transfer.
+  - Other similarity metrics for neighbor selection (semantic/WordNet distance, visual confusion, feature-space similarity) and ablation across them.
+- Evaluation protocol may introduce biases:
+  - Held-out split is “first 100 classes alphabetically” rather than a stratified or random split; please justify and report results over multiple random splits.
+  - You use val1 for detection training (subset B) and val2 for evaluation, but you also augment detection training with 1000 training-set images per category. Classification training also uses ≈1000 images/class from the training set. Clarify potential overlap/leakage between classification images and detection eval categories (even if labels are image-level only, there may be correlated content).
+- Statistical analysis is minimal. You report p=0.017 for one configuration; provide confidence intervals per class, multiple k values with proper multiple-comparison control, and per-class gains (means/medians and variance).
+- Missing hyperparameters and training schedule details needed for reproducibility: learning rates, decay, batch sizes, sampling of positive/negative RoIs, number of proposals per image, proposal method/parameters (Selective Search variants?), fine-tuning epochs/iterations, normalization and data augmentation.
+- The decision to compute final scores as score_i − score_bg is plausible, but a stronger justification/ablation is needed (softmax vs. logistic; calibration across categories; alternative background combination).
+- The “large-scale” 7.6K detector is only qualitatively evaluated; without any quantitative proxy (e.g., user studies, limited annotation on a subset, or transfer to related datasets), the claim is illustrative rather than validated.
+
+Clarity
+- Notation inconsistencies and ambiguities:
+  - Set definitions: A is written as {m, …, K}; presumably {m+1, …, K}. Use disjoint sets and consistent symbols.
+  - Layers “1–7” vs. conv/fc naming (AlexNet has conv1–5, fc6–7). Please standardize terminology.
+  - The description of fcA, fcB, δB, and fc−BG is hard to follow; a precise equation with shapes would help.
+  - Equation (1) and surrounding text: spacing and indices are inconsistent; define L2 normalization; clarify k and whether k is tuned.
+- Writing and formatting issues hinder readability:
+  - Many hyphenation artifacts (fea- ture), stray symbols (e.g., “1−r=−3.00”), footnote markers, repeated phrases (“In In Proc.”), and inconsistent capitalization in references.
+  - Several references are incomplete (missing years, venues, pages) and sometimes duplicated (Aytar & Zisserman “Tabula rasa” appears twice).
+- Figures/tables: Important numbers (Table 1, Figure 3 breakdowns) are referenced but not fully described in the text here; ensure each ablation detail and setting is clearly explained.
+
+Originality
+- The category-invariant adaptation via fine-tuning with a background class is close in spirit to R-CNN; novelty resides mainly in transferring category-specific deltas from nearest neighbors in classifier weight space. This is an intuitive, lightweight heuristic but relatively modest conceptually. A more principled learned mapping would strengthen novelty.
+- Positioning relative to domain adaptation literature is not fully convincing; most cited methods assume target labels for all categories, but there exist zero-shot/attribute or semantic-transfer approaches that could be discussed as alternatives for held-out categories.
+
+Significance
+- The 50% relative mAP gain (≈+5.8 absolute) on held-out classes is meaningful but still leaves a large gap to fully supervised detection. Practical significance depends on whether the 7.6K detector yields usable precision/recall at scale; current evidence is qualitative.
+- Without stronger baselines (MIL, learned mapping), it’s hard to assess the competitive advantage of the proposed specific category-specific adaptation.
+
+Questions for the authors
+- How sensitive are results to k? Did you try learned linear/nonlinear mappings from Wc to Wd?
+- Why alphabetical split? Can you report averages over multiple random splits?
+- What IoU threshold and evaluation protocol were used for mAP (ILSVRC default at 0.5)? How many proposals per image and which proposal method?
+- Provide full training hyperparameters and sampling details.
+- Did you consider semantic neighbor selection (WordNet) or feature-space neighbors instead of fc8-weight nearest neighbors?
+- Can you quantify the effect of subtracting background (score_i − score_bg) vs. softmax probabilities?
+
+Minor comments and typos (non-exhaustive)
+- Set A definition likely {m+1, …, K}; fix throughout.
+- Multiple “In In Proc.” in references; many entries missing years/venues/pages; capitalization inconsistent.
+- Hyphenation artifacts (“fea- ture”, etc.) and stray symbols (“1−r=−...”) should be removed.
+- Notation: define Wc, Wd shapes; ensure Equation (1) typesets correctly with spacing; define L2 normalization.
+- Clarify “Layers 1–7” vs. AlexNet naming; define background weight vector notation consistently (fc−BG?).
+
+Recommendation
+- Overall: Reject (marginal). The idea is practical and promising, and the empirical gains are encouraging, but the paper in its current form lacks strong baselines, has methodological and evaluation quirks, and suffers from numerous clarity/formatting issues. With a more principled category-specific adaptation, robust evaluation (including MIL baselines and multiple splits), complete experimental details, and improved presentation, this could be a solid contribution.
+
+Confidence: High.

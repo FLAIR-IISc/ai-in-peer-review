@@ -1,0 +1,40 @@
+Summary of claims and contributions
+- The paper proposes Gated Graph Transformer Neural Networks (GGT-NNs), an extension of GG-NNs/GGS-NNs that maintains and transforms a fully differentiable graph-structured state. The graph uses soft node types, node “existence” strengths, and a connectivity tensor with continuous edge strengths.
+- It defines a library of differentiable graph transformations: node addition (Tadd), node state updates (Th, with a “direct reference” variant), edge updates (TC), message passing/propagation (Tprop), and graph-level aggregation (Trepr). These are composed to parse sequences (text) into graphs, transform them over time, and answer queries.
+- The paper reports experiments on bAbI: when provided with strong supervision of the ground-truth graph at each step (and often “direct reference” of entity mentions), GGT-NNs achieve high accuracies, notably on pathfinding (task 19) and induction (task 16). It also demonstrates learning structured transition rules by simulating a 1D cellular automaton (Rule 30) and 4-state 2-symbol Turing machines, with some generalization to longer horizons. Code is available.
+
+Decision: Reject
+Key reasons: (1) The core empirical claims rely heavily on strong supervision (teacher forcing with ground-truth graphs and direct entity references), making it unclear whether the model can actually induce and maintain meaningful graph state from text end-to-end. (2) The methodological novelty over GG-NN/GGS-NN is incremental (soft edges/nodes and a set of straightforward transformations), and the evaluation does not convincingly establish advantages under comparable supervision or on realistic settings without access to ground-truth intermediate graphs.
+
+Supporting arguments
+- Problem/Question: The paper aims to learn state transitions on latent graphs from sequential inputs (text) and to use the graph for reasoning. This is a relevant problem.
+- Motivation and placement: Building explicit, manipulable graph states is well motivated, and the discussion contrasts to Memory Networks/DNCs. However, many ingredients are direct extensions of GG-NN/GGS-NN: (i) propagation with GRU-style updates, (ii) graph-level pooling via attention, and (iii) sequential composition of propagation and update. The main additions are differentiable edge/node strengths, a node-addition generator, and an explicit edge updater; these are natural and not deeply analyzed theoretically.
+- Technical soundness:
+  - The transformations are defined clearly enough to implement, and the propagation equations handle soft edges/nodes.
+  - The training scheme replaces predicted nodes/edges with gold ones at each step and supervises with cross-entropy, including a “max over permutations” objective for new nodes. However, the paper does not specify how the permutation maximization is solved (Hungarian/assignment or heuristic), nor its computational cost. The loss sign/notation has minor inconsistencies. Teacher forcing of the graph introduces a train-test mismatch and makes it difficult to assess whether the model learns stable transition dynamics.
+  - Direct reference uses summed word encodings for entity types identified by string match in bAbI’s generator; this injects strong task-specific knowledge and limits generality beyond the synthetic setting.
+  - Complexity: Tprop scales quadratically in nodes; no practical sparsification is implemented; this limits scalability.
+- Empirical rigor:
+  - bAbI results are reported with strong supervision and direct reference. Comparisons include MemNN (also strongly supervised), but many listed baselines are end-to-end. The comparison is therefore not apples-to-apples, and it is unclear how GGT-NN performs without graph supervision. The paper notes a large accuracy drop without direct reference in many tasks.
+  - For pathfinding and induction, the graphical bias plausibly helps, but ablations isolating the contribution of each transformation (Tadd vs TC vs Tprop vs direct reference vs teacher forcing) are missing.
+  - The rule-learning tasks (CA/TMs) are helpful sanity checks, but are trained and evaluated wholly in graph space (no text), and the transition rules are local; it is unclear whether the same approach scales to harder relational reasoning or to noisier/real-world IE.
+  - Important experimental details (hyperparameters, sizes, number of node/edge types per task, optimization settings, runtime/memory) are sparse in the main text. Tables are referenced but not visible here; clarity and reproducibility would benefit from fuller reporting.
+- Clarity: The high-level narrative and transformation definitions are generally clear. Some notation and reference formatting are inconsistent; the permutation-based loss and supervision protocol need more precise specification.
+
+Additional feedback to help improve the paper (not necessarily part of the decision)
+- Evaluate end-to-end variants without graph-level supervision and without direct reference, and/or semi-supervised settings (few supervised graphs plus many QA-only examples). Show whether the model can induce usable latent graphs purely from QA supervision.
+- Provide ablations quantifying the effect of each transformation (Tadd, TC, Tprop), intermediate propagation, and direct reference. Include training with/without teacher forcing of the graph to measure exposure bias.
+- Clarify the “max over permutations” loss: how is the assignment solved, what is the computational complexity, and how many new nodes per step are considered? Consider stating it as a bipartite matching problem with Hungarian algorithm.
+- Report full experimental details: model sizes, numbers of node/edge types per task, T and K, optimizer, learning rates, batch sizes, training time and memory. Provide statistical variance over multiple seeds.
+- Discuss and, if possible, implement scalable variants (sparse adjacency, local neighborhoods, or learned sparse attention) to mitigate O(|V|^2) scaling.
+- Improve reference formatting and ensure all claimed tables/figures are included and legible.
+- Consider evaluations on real IE or knowledge base completion from text where ground-truth graphs are not provided, to demonstrate broader applicability.
+
+Questions for the authors
+- How is the permutation maximization in Lnode computed in practice? What is the time complexity and how many nodes are typically added per step?
+- At test time, do you still use any teacher forcing of the graph, or does the model fully rely on its own predicted nodes/edges? If fully predictive, how robust is it to compounding errors across steps?
+- Can you quantify the contribution of Tadd vs TC vs Tprop via ablations? Does the model ever learn to add zero nodes when unnecessary?
+- How are node and edge type vocabularies defined per task? Are they fixed a priori from the generator, and how would this extend to open-world settings with unseen entities/relations?
+- For bAbI, what is the exact procedure for “direct reference” disambiguation, especially for multi-word entities? How sensitive are results to string-matching errors or paraphrases?
+- What are typical graph sizes during training/inference on bAbI and the rule-learning tasks, and what are the runtime and memory footprints?
+- In the CA/TM tasks, do you observe systematic generalization failures for much longer horizons or larger tapes, and can you characterize them?

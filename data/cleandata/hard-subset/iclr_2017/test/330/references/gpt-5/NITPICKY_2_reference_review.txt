@@ -1,0 +1,56 @@
+Summary and contributions
+- The paper proposes Doc2VecC, a document representation model that averages word embeddings to form a global document vector and introduces an input corruption (masking) mechanism during training. The global vector is injected into a CBOW-style predictor (alongside local context). The corruption is claimed to serve two purposes: (i) computational efficiency (fewer parameters updated per instance), and (ii) an implicit data-dependent regularization that downweights frequent/non-informative words and preserves informative/rare words. 
+- A second-order Taylor expansion is used to derive the regularization term, arguing that dropout-style corruption induces frequency-sensitive penalties on embeddings, thus encouraging document representations that are well-formed by simple averaging at test time.
+- Empirically, Doc2VecC is evaluated on IMDB sentiment analysis, a Wikipedia 100-class document classification task, a word analogy benchmark, and the SICK semantic relatedness dataset. The paper reports competitive or better results than Bag-of-Words, Word2Vec(+IDF), Paragraph Vectors, Denoising Autoencoders, and Skip-thought in some regimes, with favorable training/inference efficiency.
+
+Decision: Reject
+Key reasons: 
+1) Clarity and rigor issues in the methodology and derivation (notation inconsistencies, ambiguous definitions of variables, unclear link between negative sampling and the Hessian-based regularizer, lack of critical ablations) undermine confidence in the claims. 
+2) Numerous formatting/citation problems and repeated/inconsistent table references impede readability and reproducibility.
+
+Supporting arguments
+- Notation and definition inconsistencies:
+  • The symbol V is used both for the vocabulary and for the output projection matrix, and “V>” appears to denote V^T; this is confusing. 
+  • Eq. (2) alternates between “1/T Ux̃” and “1T Ux̃”; the latter looks like 1^T Ux̃ rather than 1/T. The text says “Here T is the length of the document,” so this matters materially.
+  • x is defined as a binary BoW, but the document vector is defined as 1/T ∑_{w∈D} u_w over tokens. If x is binary (not counts), then Ux and 1/T ∑ over tokens are not equivalent for repeated words. This mismatch appears in the derivation (Ux) and in the final representation (token-average).
+  • The local context ct is defined as BoW, but the window size k and weighting (e.g., position, sub-sampling) are not specified; it is unclear whether ct aggregates counts or binaries and how this matches CBOW.
+- Theoretical derivation and assumptions:
+  • The expected objective is approximated using a Taylor expansion for the corruption noise. However, the model is optimized with negative sampling, not softmax. The derivation seems to mix a softmax-style probability definition with a negative-sampling loss (Eq. (3)), but the Hessian expression and the final “regularizer” (Eq. (7)) are presented without a clear, rigorous derivation under negative sampling. This raises questions about the correctness and generality of the regularization interpretation.
+  • The negative sampling distribution Pv is stated as uniform; standard practice and Word2Vec’s gains rely on unigram^0.75. If uniform is used for theory only, the empirical consequences are unclear; if it’s used in training, it disadvantages baselines. This needs to be specified and justified.
+  • The variance term Σx for unbiased dropout is presented as “q1−qx 2 j” (presumably q/(1−q) x_j^2), but the exact form and its dependence on binary vs count x is not clarified.
+- Missing or weak ablations:
+  • There is no direct ablation contrasting Doc2VecC with and without corruption (q=0), or varying q to support the claim that corruption is both crucial and not sensitive. The text says “we used q=0.9” and that the model is “not sensitive to q,” but no quantitative evidence is shown.
+  • There is no ablation removing the local context (reducing to a pure denoising/averaging model) to quantify the incremental value of combining global and local contexts. Some discussion is present but not empirical.
+  • The claim that Doc2VecC “outperforms Word2Vec on analogies by ~20%” is not substantiated with a complete table; moreover, the “Table 5” label conflicts with a later “Table 5” for document classification, creating confusion.
+- Experimental protocol and fairness:
+  • For IMDB, one setting trains representations on all data including test, which is not a standard (and can inflate results). The paper also reports a train+unlabeled-only setting, but results and hyperparameters per setting are not consistently detailed.
+  • Skip-thought comparisons mix training-time (2 weeks on GPU from the original paper) with encoding-time on CPU, and only pre-trained models are used. Doc2VecC is fine-tuned on SICK (even if unsupervised), while Skip-thought is not fine-tuned—this is not apples-to-apples.
+  • The uniform negative sampling vs standard unigram^0.75 is not consistently documented across baselines; results could be sensitive to this choice.
+  • Hyperparameters are under-specified: window size k, number of negative samples, learning rates, optimizer, epochs, batch sizes, vocabulary pruning thresholds per task (beyond a few mentions), and exact sub-sampling thresholds are missing or scattered.
+- Presentation and formatting:
+  • Numerous citation glitches (e.g., “Blei et al.,? \Q2003\E”), incomplete reference metadata, duplicated table numbering, footnotes injected mid-text, and figure/table references without the corresponding figures in place. 
+  • Title appears truncated (“MENTS THROUGH CORRUPTION”). 
+  • Equations contain typographical errors (e.g., “1T Ux̃”), missing parentheses, and overloaded symbols.
+
+Additional feedback (to help improve the paper)
+- Clarify the probabilistic objective used for learning (negative sampling vs softmax), and derive the regularization effect under the exact objective. If the regularizer is heuristic, present it as such and provide strong empirical ablations to support it.
+- Unify and correct notation. Use distinct symbols for vocabulary and matrices; fix 1/T vs 1^T; clarify whether x is binary or count and ensure consistency between derivations and implementation.
+- Provide full ablations:
+  • q ∈ {0, 0.3, 0.5, 0.7, 0.9}; show accuracy vs training time and show the effect on word norm vs frequency.
+  • With/without local context (only global), with/without corruption, with/without sub-sampling of frequent words.
+  • Negative sampling distribution choices and number of negatives.
+- Ensure fair baselines:
+  • Use standard negative sampling (unigram^0.75) for Word2Vec/Doc2VecC unless theoretically justified otherwise—and report both if needed.
+  • Fine-tune or not fine-tune all pretrained baselines consistently on SICK (or report both).
+- Expand evaluation with stronger, modern baselines if possible (fastText, SIF/weighted averages) and include statistical significance over multiple runs/seeds.
+- Fix references, tables, and figures; ensure all reported tables actually appear and are numbered uniquely.
+
+Questions for the authors
+1) Is the derivation of the data-dependent regularizer exact under the negative sampling objective in Eq. (3)? If so, please provide the full derivation and clarify all assumptions; if not, what is the approximation error?
+2) Is x binary or count-based in practice? If x is binary, how do you reconcile Ux with averaging over tokens for repeated words? If counts are used, please state so and adjust definitions accordingly.
+3) What negative sampling distribution and number of negatives are used for Doc2VecC and baselines across all experiments? Are the results sensitive to these choices?
+4) Please provide ablations over corruption rate q and a q=0 baseline. How much of the gain is due to corruption vs simply averaging well-trained embeddings?
+5) For SICK, you fine-tune Doc2VecC on the target corpus. Did you also fine-tune Skip-thought or other baselines? If not, can you report those results for a fair comparison?
+6) Can you provide the missing word analogy tables and per-category scores, and resolve the table numbering conflict?
+7) What is the context window k and are context words weighted by position? How sensitive are results to k?
+8) Please report variability over random seeds (mean ± std) for key results (IMDB, Wikipedia).

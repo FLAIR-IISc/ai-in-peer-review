@@ -1,0 +1,51 @@
+### Review of "Neural Architecture Search"
+
+**1. Summary**
+
+This paper introduces "Neural Architecture Search," a method for automatically discovering neural network architectures using a recurrent neural network (RNN) controller. The controller is trained with reinforcement learning to generate strings that specify the architecture of a "child" network. The validation accuracy of the trained child network serves as the reward signal to update the controller's policy via the REINFORCE algorithm, encouraging the generation of better-performing architectures over time. The authors demonstrate the method's efficacy on two distinct tasks: discovering a convolutional neural network (CNN) for CIFAR-10 image classification and a recurrent cell for Penn Treebank (PTB) language modeling. The paper claims to achieve state-of-the-art or near state-of-the-art results on both benchmarks, discovering novel architectures that outperform many human-designed models.
+
+**2. Decision and Key Reasons**
+
+**Decision:** Reject
+
+**Key Reasons:**
+1.  The experimental methodology suffers from a lack of rigor, particularly the use of a post-hoc hyperparameter grid search for the single best-discovered architecture. This practice conflates the performance of the architecture search with a separate, manual hyperparameter tuning step, undermining the primary claim of automatic architecture discovery.
+2.  The paper is replete with minor but consequential methodological ambiguities and unjustified design choices. The lack of clarity on crucial details—such as the precise formulation of the reward signal, the specifics of the baseline function, and the handling of architectural "compilation failures"—makes the work difficult to reproduce and its results hard to interpret reliably.
+
+**3. Supporting Arguments**
+
+My decision for rejection, despite the novelty of the core idea, is based on a significant accumulation of methodological and reporting flaws that question the scientific soundness of the presented results.
+
+*   **Conflation of Architecture Search and Hyperparameter Optimization:** In Section 4.1, the authors state: "After the controller trains 12,800 architectures, we find the architecture that achieves the best validation accuracy. We then run a small grid search over learning rate, weight decay, batchnorm epsilon and what epoch to decay the learning rate." This is a critical flaw. The final reported performance is not of the architecture *as found by the search*, but of an architecture that has undergone a subsequent, manual tuning process. For the comparison to be fair, baseline models like ResNet or DenseNet should also be subjected to an equally extensive grid search within the authors' specific training framework. The paper presents a method for architecture search but evaluates it based on a combination of architecture search and hyperparameter search, without properly disentangling the two contributions.
+
+*   **Arbitrary and Inconsistent Reward Shaping:** The reward function is a pivotal component of the RL setup, yet its formulation seems ad-hoc and is inconsistent across experiments. For CIFAR-10, the reward is "the maximum validation accuracy of the last 5 epochs cubed." For PTB, it is "c/(validation perplexity)^2". There is no justification provided for these specific non-linear transformations. Why cube the accuracy? Why use the inverse square of perplexity? How sensitive is the search process to these specific formulations? Without ablation studies, these choices appear arbitrary and may have been tuned to achieve the desired results, which adds another layer of manual intervention.
+
+*   **Vagueness in Methodological Details:**
+    *   **Baseline Function:** The variance reduction baseline is described as "an exponential moving average of the previous architecture accuracies." This description is insufficient. What is the decay rate? Is this average computed globally across all 100 controller replicas, or on a per-replica basis? This detail is crucial for reproducibility.
+    *   **Handling Skip Connections:** The three techniques to circumvent "compilation failures" (Section 3.3) are crude heuristics. Padding smaller layers with zeros can introduce significant artifacts. Concatenating all unconnected layer outputs at the final layer could lead to a feature map of enormous and uncontrolled depth. A more principled approach is needed.
+    *   **RNN Cell Generation:** The paper explains the generation process with a base-2 tree but states that a base-8 tree is used in experiments. The mechanism for constructing and parametrizing a base-8 cell is not explained, leaving a critical component of the PTB experiments unclear.
+
+*   **Inconsistencies in Reporting and Experimental Setup:**
+    *   The final CIFAR-10 result of 3.65% error is achieved by manually "adding 40 more filters to each layer" of the best-found architecture. This is another post-search manual tweak that invalidates the claim of automated discovery.
+    *   The claim of being "1.05x as fast as the DenseNet model" is unsubstantiated. Speed comparisons require precise details of the hardware, software framework (e.g., cuDNN versions), and batch sizes used for both models, none of which are provided.
+    *   The parallel training scheme is described as having *m* child replicas per controller replica, meaning "there are 800 networks being trained on 800 GPUs concurrently". However, the gradient update rule is given for a minibatch of *m* architectures. Is the gradient for the controller replica computed over the *m*=8 architectures it sampled, or is there a different mechanism? This is ambiguous.
+
+*   **Formatting and Presentation Issues:** The manuscript exhibits a lack of meticulous preparation.
+    *   The footnote on the first page appears mid-sentence: "...connectivity of a ∗Work done as a member of...".
+    *   The references section is poorly formatted, with numerous BibTeX errors (e.g., `Andreas et al\.,? \Q2016\E, Andreas et al\.,`).
+    *   `Huang et al. (2016a)` and `Huang et al. (2016b)` are listed as two separate entries but point to the same arXiv preprint with a minor difference in the author list, suggesting a citation error.
+
+While the overarching concept is promising, the execution and reporting do not meet the standards required for publication at ICLR. The accumulation of these minor flaws creates a significant barrier to trusting the validity and generality of the claims.
+
+**4. Additional Feedback**
+
+*   **Computational Cost:** The experiments utilize a massive amount of computation (e.g., 800 GPUs for CIFAR-10). A discussion of the total computational cost (e.g., in GPU-days) is essential for the community to assess the practicality of this method. This is a significant omission.
+*   **Ablation Studies:** The paper would be much stronger with ablation studies. For instance, what is the impact of the skip-connection mechanism versus a search space without it? How does the performance change with a simpler reward function (e.g., raw validation accuracy)?
+*   **Code Release:** The promise to release code is commendable. However, the paper must be self-contained and convincing on its own merits. The cell being added to TensorFlow is a positive outcome, but its utility does not excuse the methodological shortcomings in the paper that discovered it.
+
+**5. Questions for the Authors**
+
+1.  Could you justify the decision to apply a grid search for hyperparameters *after* identifying the best architecture, rather than incorporating these hyperparameters into the search space or applying the same grid search to all baseline models to ensure a fair comparison?
+2.  What was the rationale behind the specific reward transformations (`accuracy^3` and `1/perplexity^2`)? Can you provide data showing the sensitivity of the search to these formulations compared to using the direct, untransformed metrics?
+3.  Regarding the comparison with random search in Figure 6, was the same post-hoc grid search and manual filter-adding procedure applied to the best architecture found by random search?
+4.  Could you please provide an estimate of the total computational budget (e.g., in P100-hours) required to run the CIFAR-10 and PTB experiments to completion?

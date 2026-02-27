@@ -1,0 +1,53 @@
+Summary and relation to prior work
+The paper tackles sparse precision matrix estimation in the high-dimensional, low-sample regime via the CLIME estimator. The key contributions are: (i) an inexact ADMM algorithm tailored to CLIME that replaces the columnwise LP solves with simple elementwise updates and matrix multiplications; (ii) a column-block formulation that exploits matrix–matrix multiplies for better cache behavior and parallelism; (iii) a distributed framework with block-cyclic data/parameter distribution for load balance across hundreds of cores; and (iv) convergence rates O(1/T) for both the objective gap and feasibility residuals. The paper further leverages low-rank structure of the sample covariance (C = AA′ with p ≫ n) to reduce multiplies from O(p2k) to O(npk), and discusses exploiting sparsity (both in iterates and via safe truncation of small entries in C). Experiments show superior scalability over CLIME solvers and DC-QUIC, including a 1-million-dimensional run on 400 cores (11 hours).
+
+This work builds on CLIME’s statistical guarantees (Cai et al., JASA 2011) and follows a stream of NIPS work on scalable precision estimation (e.g., QUIC and DC-QUIC by Hsieh et al., NIPS 2011/2013) and distributed optimization via ADMM (Boyd et al.). Unlike DC-QUIC (penalized log-det), this paper targets CLIME’s LP, providing an alternative that sidesteps enforcing positive definiteness and is amenable to highly parallel matrix operations. The block-cyclic distribution echoes best practices from ScaLAPACK and high-performance BLAS (Goto & Van de Geijn), and is related to distributed optimization frameworks (GraphLab, parameter servers) but specialized to constrained problems where projections are global.
+
+Quality
+- Technical soundness: The inexact (linearized) ADMM for the equality-constrained reformulation of CLIME is standard and well-motivated. The update Xt+1 = soft(Xt − Vt, 1/η) and the Z box projection are correct; the linearization condition η ≥ ρ λmax(C)^2 is reasonable. The O(1/T) rates for objective and residuals align with known ADMM analyses (e.g., He & Yuan). However, some details need clarification:
+  - The augmented Lagrangian scaling and the definition of Y (scaled vs. unscaled dual) should be made consistent across text and Algorithm 1.
+  - Theorem 2 contains a notational issue in the term ‖XT − XT−1‖2η/ρ I − C^2; please clarify the metric and positivity of the weighting operator (likely ηI − ρC′C).
+  - Algorithm 1 mixes V̂t = CYt (text) with a Ŷt symbol; unify notation.
+  - CLIME does not enforce positive definiteness; in practice, symmetrization/PD projection is often applied post hoc. The paper should state whether/how this is done at scale.
+- Experiments: The synthetic experiments cover runtime scaling and precision/recall; real data results report time to match target sparsities. The scalability studies are thorough across shared and distributed settings, including core-per-node vs. multiple-cores-per-node. Missing pieces:
+  - More details on stopping criteria, tolerance, and their effect on runtime/accuracy.
+  - Explicit reporting of communication overhead vs. computation in the distributed runs.
+  - For the 1M-dimension experiment, report n, memory footprint per node, and how full solutions are stored/streamed (since p^2 is 10^12 elements).
+  - Comparisons: DC-QUIC solves a different objective (GLasso). Matching sparsity is reasonable, but consider also time-to-reach a given recovery accuracy (e.g., AUC or F1) on synthetic data; or compare against CLIME solvers only when focusing on CLIME.
+- Theorem 3 on perturbation/truncation: The statement is plausible—if ‖Δ‖∞ is within the deviation tolerance, CLIME guarantees persist. It would strengthen the claim to explicitly tie thresholds to the deviation bound constants and discuss the impact on λ selection, and to clarify the deterministic truncation case (zeroing entries ≤ c√(log p/n)) without random perturbations.
+
+Clarity
+The paper is generally clear and well-organized, with a good separation between algorithmic design, structural exploitation, and systems considerations. Notational consistency and a few typos should be fixed (Ŷ vs. V̂; box(U + Y, λ) vs. box(U + Y, E, λ); dimensions/weights in Theorem 2). It would help to explicitly list the per-iteration costs with and without low-rank multiplies, and to summarize the memory/distribution layout in a small schematic.
+
+Originality
+The algorithmic components (linearized ADMM, O(1/T) rates) are not novel per se, but the combination of:
+- a column-block CLIME-ADMM tailored to exploit matrix–matrix multiplies,
+- systematic exploitation of low rank and potential sparsity within the ADMM flow,
+- a practical, high-performance block-cyclic distributed design with demonstrated million-dimensional scale,
+constitutes a useful and nontrivial contribution. The truncation/perturbation observation is incremental theoretically but practically relevant.
+
+Significance
+High. Efficiently estimating sparse precision matrices at million-scale dimensions is impactful for large-scale graphical model learning. The framework is likely to be adopted or extended by practitioners working with CLIME and related constrained estimators; the distributed systems design and lessons (e.g., block sizes, core placement) are broadly useful.
+
+Pros for acceptance
+- Strong systems contribution with convincing scalability to 1M variables, near-linear speedups.
+- Simple, efficient algorithmic core (elementwise ops + GEMM), well-suited to modern HPC stacks.
+- Clear convergence guarantees adapted to the specific linearized ADMM variant.
+- Practical insights on low-rank exploitation and block-cyclic distribution; thorough distributed experiments.
+
+Cons for acceptance
+- Limited theoretical novelty; convergence rates align with known ADMM results.
+- Comparisons include a method solving a different objective (DC-QUIC); statistical accuracy beyond PR curves is limited.
+- Some notational inconsistencies and unclear details (dual scaling, Theorem 2 metric).
+- Lack of discussion on ensuring PD/symmetry of the final estimator and on λ selection at scale.
+
+Suggestions to improve the manuscript
+- Clean up notation and fix Theorem 2’s weighting term; clearly define the dual scaling and ρ placement.
+- Specify stopping criteria, tolerance choices, and sensitivity; report communication-computation breakdown.
+- Detail memory layout and I/O for the 1M-dimension run, including n, total memory, and how outputs are stored.
+- Add a brief post-processing step (symmetrization/PD projection) and its cost, or justify omission.
+- For Theorem 3, add a deterministic truncation corollary with explicit constants and guidance for practitioners.
+- When comparing to DC-QUIC, add an accuracy-vs-time plot on synthetic data to separate speed from estimator differences.
+
+Recommendation
+Weak accept (poster). The paper offers a solid, well-engineered approach to scaling CLIME with appropriate convergence guarantees and impressive empirical scalability. Addressing the clarity and comparison issues would strengthen it further.

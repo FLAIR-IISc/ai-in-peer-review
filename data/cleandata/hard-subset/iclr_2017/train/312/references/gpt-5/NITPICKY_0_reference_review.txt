@@ -1,0 +1,54 @@
+Summary and contributions
+The paper proposes Neural Architecture Search (NAS), a controller RNN trained with policy gradient (REINFORCE) to generate variable-length model descriptions (CNNs for CIFAR-10 and recurrent cells for PTB). The controller samples architectural decisions (including filter sizes, widths, number of filters, strides, and skip connections via a set-selection attention), child models are trained, validation accuracy/perplexity is used as a reward, and the controller is updated asynchronously across many replicas via a parameter-server scheme. For RNNs, the method generates tree-structured cells with choices of combination and activation functions and optional cell-state injection. Empirically, the method discovers competitive-to-SOTA architectures: CIFAR-10 test error down to 3.65% and PTB test perplexity of 62.4, plus transfer improvements on character-level PTB and a modest BLEU gain on GNMT with minimal tuning. The work is ambitious and, conceptually, demonstrates that an autoregressive controller can learn effective architecture distributions.
+
+Decision: Reject
+Key reasons:
+1) Clarity, rigor, and reproducibility issues: numerous mathematical/notation errors, underspecified training details (reward shaping, data preprocessing, controller regularization, convergence criteria), incomplete search space definitions, and heavy reliance on massive compute without adequate ablation make it hard to verify and reproduce results.
+2) Evaluation concerns and fairness: comparisons are not apples-to-apples (post-hoc widening, differing training budgets), limited baselines (especially on CIFAR-10), ad-hoc reward shaping, and insufficient analysis of sample efficiency and overfitting to the validation set.
+
+Supporting arguments
+- Methodology and notation:
+  - The REINFORCE gradient is presented with apparent typographical corruption (e.g., “5θc” rather than ∇θc; missing conditioning details). Equation formatting issues impede correctness checks.
+  - The PTB reward is described as c(validation perplexity)^2 with c≈80, yet the controller maximizes reward; it is unclear whether reward is negative squared error to a target or something else. This must be explicit.
+  - Reward shaping on CIFAR-10 uses “maximum validation accuracy of the last 5 epochs cubed” (ad hoc). No justification or sensitivity is provided.
+  - No entropy regularization/temperature/exploration schedule is described; with pure REINFORCE and a moving-average baseline, variance can be severe. There is no analysis of stability across seeds.
+  - Skip-connection prediction via independent sigmoids is prone to degenerate connectivity; there is no penalty or control on fan-in/fan-out. “Compilation failure” fixes (auto-inject image input; zero-padding to match sizes; concatenating leftover outputs at the end) change the effective architecture semantics and may bias the search; no ablation shows their impact.
+
+- Search space and training protocol:
+  - Search space descriptions are incomplete/inconsistent: for number of filters, “[24, 36, 48, ]” appears truncated; stride choices vary across experiments; pooling is sometimes fixed at particular layers without rationale.
+  - The controller’s allowed depth is increased on a schedule, introducing a non-stationary objective; no ablation shows how this affects search.
+  - “Convergence” of children is defined as a fixed number of epochs (e.g., 50 for CIFAR-10), yet the text uses “convergence” loosely.
+
+- Data and training details:
+  - CIFAR-10 preprocessing is nonstandard and under-specified: “upsample each image then choose a random 32×32 crop.” Upsample factor? Is this equivalent to pad-and-crop? Whitening procedure details are not given.
+  - Validation set is a 5,000-sample split from training, and the controller observes it 12,800 times; risk of validation overfitting is high. There is no use of a second holdout or cross-validation.
+  - The final reported CIFAR-10 3.65% is obtained after post-hoc changes (“adding 40 more filters to each layer”), beyond the searched configuration, and with additional grid search over training hyperparameters. This compromises fairness and the “automatic” claim.
+
+- Empirical evaluation:
+  - Compute budget is extreme (up to 800 GPUs for CNN search; 400 CPUs for RNN search). There is no assessment of sample efficiency vs simpler baselines on CIFAR-10; the random-search comparison is only shown for PTB (Figure 6) and lacks details and statistical confidence.
+  - Baseline comparisons are not apples-to-apples: DenseNet comparisons admit they are not exact; parameter/FLOP counts, training schedules, and augmentations are not matched. The claim of being “1.05x faster than DenseNet” is unexplained given the added filters.
+  - For PTB, while results are strong, reporting omits standard deviations across seeds; grid-search scope and fairness vs baselines are unclear. The search space also mixes structural choices without gating constraints; no analysis of discovered motifs beyond anecdotal visualization.
+
+- Presentation/formatting:
+  - Numerous typos and grammar errors (“one a time,” “hiddenstate,” “on the on the current action,” “An WMT14,” etc.). References are malformed (duplicated entries; missing years/venues; artifacts like “?\Q2016\E,” inconsistent author lists).
+  - Figures and appendices are referenced but not provided; several claims depend on them (Figures 1, 3–8; Table 1–3).
+  - Some statements are contradictory or vague (e.g., “trained to convergence” vs fixed epochs; “the result can be improved to 3.65% by adding 40 more filters” without retraining cost details).
+
+Additional feedback (to improve the paper)
+- Precisely specify rewards (sign, scaling, baselines), controller regularization (entropy), optimization hyperparameters (grad clipping, learning-rate schedules), and stopping criteria. Report sensitivity analyses.
+- Clarify data preprocessing and augmentation; use standard CIFAR-10 protocol or justify deviations. Match baselines in parameters/FLOPs and training budget; report wall-clock time and search cost (GPU-days).
+- Provide ablations: skip-connection handling, compile-failure fixes, depth scheduling, reward shaping, controller size, number of samples vs performance, and random search for CIFAR-10.
+- Report results over multiple seeds; include mean±std and top-k averages. Use a proper second validation or nested validation to mitigate overfitting.
+- Clean up math and references; include all figures/appendices; fix typos; standardize notation. Fully define the search spaces used in each experiment.
+
+Questions for the authors
+1) What is the exact reward for PTB? If the controller maximizes reward, how is c(perplexity)^2 used (is it −(perplexity−c)^2)? Why choose 80?
+2) Why cube the CIFAR-10 validation accuracy? How sensitive are results to this shaping?
+3) Is entropy regularization used in the controller? If not, how do you prevent premature collapse?
+4) How is “upsample and random 32×32 crop” implemented? Is it equivalent to 4-pixel pad-and-crop? Please detail whitening and all augmentations.
+5) How do you mitigate validation overfitting given 12,800 evaluations on the same 5,000 examples? Any checks with a fresh validation set?
+6) For CIFAR-10, can you provide a random-search baseline under identical budgets? Also, report performance vs number of sampled architectures.
+7) The 3.65% result involves adding 40 filters post-search. If the controller were allowed to predict width, would it find this itself? Please provide apples-to-apples comparisons without post-hoc widening.
+8) For skip connections, do you enforce constraints on the number of inputs/outputs per layer? What is the distribution of sampled connectivity? Any penalty on excessive concatenations/padding?
+9) Please report compute cost (GPU/CPU days) for both searches, and training time per child model.
+10) Are results stable across seeds for both search and final training? Please provide variance statistics.

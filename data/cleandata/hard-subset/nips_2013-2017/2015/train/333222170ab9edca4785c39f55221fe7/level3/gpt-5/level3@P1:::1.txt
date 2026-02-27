@@ -1,0 +1,64 @@
+Summary and relation to prior work
+The paper proposes an on-the-job learning framework that delivers high accuracy from the start by interleaving real-time crowdsourcing with model prediction and learning. Each instance triggers a stochastic game between the system and the crowd, with actions to issue queries, wait, or return a prediction. A Bayesian decision-theoretic utility trades off accuracy, cost, and latency. Because computing the optimal policy is intractable, the paper uses Monte Carlo Tree Search (MCTS) with UCT and progressive widening to handle continuous time. Experiments on NER, sentiment, and face classification show lower cost than crowd-only baselines and higher accuracy than pure ML (online learning) baselines, with reliance on the crowd decreasing over time.
+
+This work formalizes and extends ideas implemented in real-time crowdsourcing systems such as Legion:AR [6], and relates to decision-theoretic control of crowd workflows (e.g., TurKontrol [26]) and cost-sensitive active classification [11, 22–24]. Unlike standard online learning [7] and online active learning [8–10], the system can query before committing to a prediction, and unlike prior active classification, the policy adapts during test time and targets structured outputs.
+
+Strengths
+- Principled formulation: Casting query scheduling as a stochastic game with a utility that explicitly balances accuracy, time, and monetary cost is elegant and unifies design choices (parallel vs sequential queries, redundancy).
+- Handles asynchronous, noisy crowds: The environment model separates a structured predictor pθ(y|x), a response model pR, and a response-time model pT, letting the policy reason about redundancy and latency.
+- Approximate planning: Using MCTS with progressive widening is a reasonable approach to continuous-time decision-making under uncertainty.
+- Empirical promise: On NER, the method substantially reduces cost vs. multi-vote human baselines and outperforms single-vote and online-learning baselines on F1. The open-source implementation is a plus.
+
+Weaknesses
+- Missing technical details limit reproducibility and interpretation (noted below under Clarity and Specific questions).
+- Baselines and analysis feel underpowered: the threshold heuristic is weak, and “online learning” may not reflect the best ML-only alternatives (e.g., budgeted active learning without pre-prediction queries, or supervised systems trained to the same label budget). The gains may primarily reflect access to human labels at prediction time rather than a superior policy; more diagnostic error analysis is needed.
+- Modeling assumptions are simplistic: a fixed worker accuracy (pR with 0.7 on-diagonal) and independence across queries/workers can bias conclusions. The training story (how noisy labels are integrated into pθ) is underspecified.
+- Limited ablations: the contribution of MCTS/UCT, progressive widening, utility weights (wM, wT), and response-time modeling is not isolated.
+
+Quality
+The formulation and algorithm are technically sound at a high level, but several choices require justification or correction:
+- The threshold baseline formula appears inconsistent ((1 − pθ(yi|x)) × 0.3^m ≥ 0.98 shrinks with m and cannot exceed 0.98); the intended inequality/constant should be clarified and justified.
+- The fixed confusion model pR with 0.7 accuracy is strong; sensitivity analyses to worker accuracy distributions, class- and instance-dependent noise, and redundancy strategies would strengthen claims.
+- Hyperparameters for UCT (c), progressive widening schedule, and utility weights are not reported or tuned comparisons not discussed.
+- Computational cost and latency overhead of MCTS at test time are not presented.
+
+Clarity
+The paper is generally well written, but key definitions and equations need tightening:
+- Eq. (2): ExpAcc(p) = Ep(y)[Accuracy(argmaxy′ p(y′))]. Since the decision at return depends on the current belief p(y|x,q,s,r,t), the LHS should clearly be ExpAcc(p(y|x,q,s,r,t)). As written, Eq. (2) looks like a functional; please condition explicitly on (x,q,s,r,t) for consistency with Eq. (1).
+- Transition from pR(ri|yqi) in Eq. (3) to p(r′|x,r,q): the text says y and t are marginalized out; please state this explicitly in the main text and clarify why pR is no longer conditioned on y (it is integrated over the posterior p(y|x,q,s,r,t)).
+- Algorithm 1: define all symbols on first use. In particular N(σ), V(σ), C(σ) are used; define N(σ) (visit count), V(σ) (cumulative utility), C(σ) (set of explored children). State the UCT exploration constant c and the progressive widening schedule (e.g., threshold max(1, √N(σ))).
+- Environment model pT: specify the parametric family and how it is estimated; are response times conditionally independent and stationary?
+- Learning procedure: clarify how pθ is updated during on-the-job operation when ground truth is unavailable—are expected labels under p(y|x,q,s,r,t) used, or are noisy crowd labels treated as gold?
+
+Originality
+The decision-theoretic formulation and integration of MCTS/progressive widening into a structured prediction-with-crowd setting appear novel and more principled than prior heuristics. The work builds appropriately on Legion:AR [6] and POMDP-style crowd control [26], extending them to structured outputs and continuous-time reasoning.
+
+Significance
+If validated, the framework could materially impact rapid-deployment ML systems that must meet accuracy SLAs before any training data exists. The potential to reduce cost while guaranteeing accuracy is important. However, stronger baselines, ablations, and analysis are needed to convincingly establish state-of-the-art performance and generality beyond NER.
+
+Specific questions and requests for clarification
+- Eq. (2): Please condition ExpAcc on (x,q,s,r,t); otherwise the notation is ambiguous.
+- Response model: Please make explicit that p(r′|x,r,q) integrates out y via Eq. (3). Also justify the fixed 0.7 figure and report sensitivity to this assumption.
+- Algorithm 1: Define N(σ), V(σ), C(σ), c, and the progressive widening schedule; report computational overhead and wall-clock latency.
+- Threshold baseline: Derive the 0.3 factor (worker error rate?) and the 0.98 target; fix the inequality/sign if it is a typo, and justify these constants empirically or theoretically. The key point also mentions 0.88; if used anywhere, please clarify its origin.
+- Baselines: Are your “online learning” systems representative of the best ML-only methods for these tasks under equal label budgets? Please compare to (i) offline supervised training with the same total number of labels the system consumed, (ii) budgeted pool-based active learning, and (iii) a POMDP-style policy like TurKontrol [26].
+- Error analysis: Provide qualitative examples where LENSE helps (e.g., ambiguity resolved by redundancy) and cases where it fails. Quantify how many gains come from pre-prediction human input versus better modeling/policy.
+
+Pros for acceptance
+- Principled decision-theoretic framing with a concrete, implementable algorithm.
+- Clear motivation and relevance to real-time, high-accuracy deployment.
+- Promising NER results and open-source release.
+
+Cons for acceptance
+- Important technical details are missing or under-specified.
+- Baseline comparisons are not fully convincing; gains may largely reflect access to human answers at prediction time.
+- Limited ablations and sensitivity analyses; simplistic noise model.
+
+Suggestions
+- Tighten the math and algorithmic specification; add a thorough ablation and sensitivity study (pR accuracy, wM/wT, UCT c, progressive widening).
+- Strengthen baselines and provide budget-controlled comparisons.
+- Include cost–accuracy–latency Pareto curves and per-task error analyses.
+- Explore worker modeling (per-worker reliability, redundancy allocation) and its impact.
+
+Overall assessment
+A reasonable and timely contribution with a useful theoretical framing of the crowd-to-model transition. The empirical and explanatory gaps limit the strength of the conclusions, but with clarifications and stronger experiments, this line of work merits further investigation.

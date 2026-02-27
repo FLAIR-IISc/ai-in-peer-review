@@ -1,0 +1,602 @@
+{
+  "name" : "10c66082c124f8afe3df4886f5e516e0.pdf",
+  "metadata" : {
+    "source" : "CRF",
+    "title" : "Supervised Word Mover’s Distance",
+    "authors" : [ "Gao Huang", "Chuan Guo", "Matt J. Kusner", "Yu Sun", "Kilian Q. Weinberger" ],
+    "emails" : [ "gh349@cornell.edu", "cg563@cornell.edu", "mkusner@turing.ac.uk", "ys646@cornell.edu", "kqw4@cornell.edu", "feisha@cs.ucla.edu" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Document distances are a key component of many text retrieval tasks such as web-search ranking [24], book recommendation [16], and news categorization [25]. Because of the variety of potential applications, there has been a wealth of work towards developing accurate document distances [2, 4, 11, 27]. In large part, prior work focused on extracting meaningful document representations, starting with the classical bag of words (BOW) and term frequency-inverse document frequency (TF-IDF) representations [30]. These sparse, high-dimensional representations are frequently nearly orthogonal [17] and a pair of similar documents may therefore have nearly the same distance as a pair that are very different. It is possible to design more meaningful representations through eigendecomposing the BOW space with Latent Semantic Indexing (LSI) [11], or learning a probabilistic clustering of BOW vectors with Latent Dirichlet Allocation (LDA) [2]. Other work generalizes LDA [27] or uses denoising autoencoders [4] to learn a suitable document representation.\nRecently, Kusner et al. [19] proposed the Word Mover’s Distance (WMD), a new distance for text documents that leverages word embeddings [22]. Given these high-quality embeddings, the WMD defines the distances between two documents as the optimal transport cost of moving all words from one document to another within the word embedding space. This approach was shown to lead to state-of-the-art error rates in k-nearest neighbor (kNN) document classification.\n∗Authors contributing equally †This work was done while the author was a student at Washington University in St. Louis\n30th Conference on Neural Information Processing Systems (NIPS 2016), Barcelona, Spain.\nImportantly, these prior works are entirely unsupervised and not learned explicitly for any particular task. For example, text documents could be classified by topic or by author, which would lead to very different measures of dissimilarity. Lately, there has been a vast amount of work on metric learning [10, 15, 36, 37], most of which focuses on learning a generalized linear Euclidean metric. These methods often scale quadratically with the input dimensionality, and can only be applied to high-dimensional text documents after dimensionality reduction techniques such as PCA [36].\nIn this paper we propose an algorithm for learning a metric to improve the Word Mover’s Distance. WMD stands out from prior work in that it computes distances between documents without ever learning a new document representation. Instead, it leverages low-dimensional word representations, for example word2vec, to compute distances. This allows us to transform the word embedding instead of the documents, and remain in a low-dimensional space throughout. At the same time we propose to learn word-specific ‘importance’ weights, to emphasize the usefulness of certain words for distinguishing the document class.\nAt first glance, incorporating supervision into the WMD appears computationally prohibitive, as each individual WMD computation scales cubically with respect to the (sparse) dimensionality of the documents. However, we devise an efficient technique that exploits a relaxed version of the underlying optimal transport problem, called the Sinkhorn distance [6]. This, combined with a probabilistic filtering of the training set, reduces the computation time significantly.\nOur metric learning algorithm, Supervised Word Mover’s Distance (S-WMD), directly minimizes a stochastic version of the leave-one-out classification error under the WMD metric. Different from classic metric learning, we learn a linear transformation of the word representations while also learning re-weighted word frequencies. These transformations are learned to make the WMD distances match the semantic meaning of similarity encoded in the labels. We show across 8 datasets and 26 baseline methods the superiority of our method."
+    }, {
+      "heading" : "2 Background",
+      "text" : "Here we describe the word embedding technique we use (word2vec) and the recently introduced Word Mover’s Distance. We then detail the setting of linear metric learning and the solution proposed by Neighborhood Components Analysis (NCA) [15], which inspires our method.\nword2vec may be the most popular technique for learning a word embedding over billions of words and was introduced by Mikolov et al. [22]. Each word in the training corpus is associated with an initial word vector, which is then optimized so that if two words w1 and w2 frequently occur together, they have high conditional probability p(w2|w1). This probability is the hierarchical softmax of the word vectors vw1 and vw2 [22], an easily-computed quantity which allows a simplified neural language model (the word2vec model) to be trained efficiently on desktop computers. Training an embedding over billions of words allows word2vec to capture surprisingly accurate word relationships [23]. Word embeddings can learn hundreds of millions of parameters and are typically by design unsupervised, allowing them to be trained on large unlabeled text corpora ahead of time. Throughout this paper we use word2vec, although many word embeddings could be used [5, 21? ].\nWord Mover’s Distance. Leveraging the compelling word vector relationships of word embeddings, Kusner et al. [19] introduced the Word Mover’s Distance (WMD) as a distance between text documents. At a high level, the WMD is the minimum distance required to transport the words from one document to another. We assume that we are given a word embedding matrix X∈Rd×n for a vocabulary of n words. Let xi ∈Rd be the representation of the ith word, as defined by this embedding. Additionally, let da,db be the n-dimensional normalized bag-of-words (BOW) vectors for two documents, where dai is the number of times word i occurs in d\na (normalized over all words in da). The WMD introduces an auxiliary ‘transport’ matrix T ∈ Rn×n, such that Tij describes how much of dai should be transported to d b j . Formally, the WMD learns T to minimize\nD(xi,xj) = min T≥0 n∑ i,j=1 Tij‖xi − xj‖p2, subject to, n∑ j=1 Tij = d a i , n∑ i=1 Tij = d b j ∀i, j, (1)\nwhere p is usually set to 1 or 2. In this way, documents that share many words (or even related ones) should have smaller distances than documents with very dissimilar words. It was noted in Kusner et al. [19] that the WMD is a special case of the Earth Mover’s Distance (EMD) [29], also known more generally as the Wasserstein distance [20]. The authors also introduce the word centroid distance (WCD), which uses a fast approximation first described by Rubner et al. [29]: ‖Xd−Xd′‖2.\nIt can be shown that the WCD always lower bounds the WMD. Intuitively the WCD represents each document by the weighted average word vector, where the weights are the normalized BOW counts. The time complexity of solving the WMD optimization problem is O(q3 log q) [26], where q is the maximum number of unique words in either d or d′. The WCD scales asymptotically by O(dq).\nRegularized Transport Problem. To alleviate the cubic time complexity of the Wasserstein distance computation, Cuturi [6] formulated a smoothed version of the underlying transport problem by adding an entropy regularizer to the transport objective. This makes the objective function strictly convex, and efficient algorithms can be adopted to solve it. In particular, given a transport matrix T, let h(T) = − ∑n i,j=1 Tij log(Tij) be the entropy of T. For any λ>0, the regularized (primal) transport problem is defined as\nmin T≥0 n∑ i,j=1 Tij‖xi − xj‖p2 − 1 λ h(T) subject to, n∑ j=1 Tij = d a i , n∑ i=1 Tij = d b j ∀i, j. (2)\nThe larger λ is, the closer this relaxation is to the original Wasserstein distance. Cuturi [6] propose an efficient algorithm to solve for the optimal transport T∗λ using a clever matrix-scaling algorithm. Specifically, we may define the matrix Kij = exp(−λ‖xi− xj‖2) and solve for the scaling vectors u,v to a fixed-point by computing u = da./(Kv), v = db./(K>u) in an alternating fashion. These yield the relaxed transport T∗λ = diag(u)K diag(v). This algorithm can be shown to have empirical time complexity O(q2) [6], which is significantly faster than solving the WMD problem exactly.\nLinear Metric Learning. Assume that we have access to a training set {x1, . . . ,xn} ⊂ Rd, arranged as columns in matrix X ∈ Rd×n, and corresponding labels {y1, . . . , yn} ⊆ Yn, where Y contains some finite number of classes C = |Y|. Linear metric learning learns a matrix A∈Rr×d, where r≤ d, and defines the generalized Euclidean distance between two documents xi and xj as dA(xi,xj) = ‖A(xi−xj)‖2. Popular linear metric learning algorithms are NCA [15], LMNN [36], and ITML [10] amongst others [37]. These methods learn a matrix A to minimize a loss function that is often an approximation of the leave-one-out (LOO) classification error of the kNN classifier.\nNeighborhood Components Analysis (NCA) was introduced by Goldberger et al. [15] to learn a generalized Euclidean metric. Here, the authors approximate the non-continuous leave-one-out kNN error by defining a stochastic neighborhood process. An input xi is assigned input xj as its nearest neighbor with probability\npij = exp(−d2A(xi,xj))∑ k 6=i exp (−d2A(xi,xk)) , (3)\nwhere we define pii = 0. Under this stochastic neighborhood assignment, an input xi with label yi is classified correctly if its nearest neighbor is any xj 6= xi from the same class (yj = yi). The probability of this event can be stated as pi = ∑ j:yj=yi\npij . NCA learns A by maximizing the expected LOO accuracy ∑ i pi, or equivalently by minimizing − ∑ i log(pi), the KL-divergence from a perfect classification distribution (pi = 1 for all xi)."
+    }, {
+      "heading" : "3 Learning a Word Embedding Metric",
+      "text" : "In this section we propose a method for learning a supervised document distance, by way of learning a generalized Euclidean metric within the word embedding space and a word importance vector. We will refer to the learned document distance as the Supervised Word Mover’s Distance (SWMD). To learn such a metric we assume we have a training dataset consisting of m documents {d1, . . . ,dm} ⊂ Σn, where Σn is the (n−1)-dimensional simplex (thus each document is represented as a normalized histogram over the words in the vocabulary, of size n). For each document we are given a label out of C possible classes, i.e. {y1, . . . , ym} ⊆ {1, . . . , C}m. Additionally, we are given a word embedding matrix X ∈ Rd×n (e.g., the word2vec embedding) which defines a d-dimensional word vector for each of the words in the vocabulary.\nSupervised WMD. As described in the previous section, it is possible to define a distance between any two documents da and db as the minimum cumulative word distance of moving da to db in word embedding space, as is done in the WMD. Given a labeled training set we would like to improve the distance so that documents that share the same labels are close, and those with different labels are far apart. We capture this notion of similarity in two ways: First we transform the word embedding, which captures a latent representation of words. We adapt this representation with a\nlinear transformation xi→Axi, where xi represents the embedding of the ith word. Second, as different classification tasks and data sets may value words differently, we also introduce a histogram importance vector w that re-weighs the word histogram values to reflect the importance of words for distinguishing the classes: d̃a = (w ◦ da)/(w>da), (4) where “◦” denotes the element-wise Hadamard product. After applying the vector w and the linear mapping A, the WMD distance between documents da and db becomes\nDA,w(d a,db) , min\nT≥0 n∑ i,j=1 Tij‖A(xi − xj)‖22 s.t. n∑ j=1 Tij= d̃ a i and n∑ i=1 Tij= d̃ b j ∀i, j. (5)\nLoss Function. Our goal is to learn the matrix A and vector w to make the distance DA,w reflect the semantic definition of similarity encoded in the labeled data. Similar to prior work on metric learning [10, 15, 36] we achieve this by minimizing the kNN-LOO error with the distance DA,w in the document space. As the LOO error is non-differentiable, we use the stochastic neighborhood relaxation proposed by Hinton & Roweis [18], which is also used for NCA. Similar to prior work we use the squared Euclidean word distance in Eq. (5). We use the KL-divergence loss proposed in NCA alongside the definition of neighborhood probability in (3) which yields,\n`(A,w) = − m∑ a=1 log  m∑ b:yb=ya exp(−DA,w(da,db))∑ c 6=a exp (−DA,w(da,dc))  . (6) Gradient. We can compute the gradient of the loss `(A,w) with respect to A and w as follows,\n∂\n∂(A,w) `(A,w) = m∑ a=1 ∑ b6=a pab pa (δab − pa) ∂ ∂(A,w) DA,w(d a,db), (7)\nwhere δab=1 if and only if ya=yb, and δab=0 otherwise."
+    }, {
+      "heading" : "3.1 Fast computation of ∂DA,w(da,db)/∂(A,w)",
+      "text" : "Notice that the remaining gradient term above ∂DA,w(da,db)/∂(A,w) contains the nested linear program defined in (5). In fact, computing this gradient just for a single pair of documents will require time complexity O(q3 log q), where q is the largest set of unique words in either document [8]. This quickly becomes prohibitively slow as the document size becomes large and the number of documents increase. Further, the gradient is not always guaranteed to exist [1, 7] (instead we must resort to subgradient descent). Motivated by the recent works on fast Wasserstein distance computation [6, 8, 12], we propose to relax the modified linear program in eq. (5) using the entropy as in eq. (2). As described in Section 2, this allows us to approximately solve eq. (5) in O(q2) time via T∗λ=diag(u)K diag(v). We will use this approximate solution in the following gradients.\nGradient w.r.t. A. It can be shown that,\n∂\n∂A DA,w(d\na,db) = 2A n∑ i,j=1 Tabij (xi − xj)(xi − xj)>, (8)\nwhere Tab is the optimizer of (5), so long as it is unique (otherwise it is a subgradient) [1]. We replace Tab by T∗λ which is always unique as the relaxed transport is strongly convex [9].\nGradient w.r.t. w. To obtain the gradient with respect to w, we need the optimal solution to the dual transport problem:\nD∗A,w(d a,db) , max (α,β) α>d̃a + β>d̃b; s.t. αi + βj ≤ ‖A(xi − xj)‖22 ∀i, j. (9)\nGiven that both d̃a and d̃b are functions of w, we have\n∂\n∂w DA,w(d\na,db)= ∂D∗A,w ∂d̃a ∂d̃a ∂w + ∂D∗A,w ∂d̃b ∂d̃b ∂w = α∗◦da−(α∗>d̃a)da w>da + β∗◦db−(β∗>d̃b)db w>db .\n(10)\nInstead of solving the dual directly, we obtain the relaxed optimal dual variables α∗λ,β ∗ λ via the vectors u,v that were used to derive our relaxed transport T∗λ. Specifically, we can solve for the dual variables as such: α∗λ = log(u) λ − log(u)>1 p 1 and β ∗ λ = log(v) λ − log(v)>1 p 1, where 1 is the p-dimensional all ones vector. In general, we can observe from eq. (2) that the above approximation process becomes more accurate as λ grows. However, setting λ too large can make the algorithm converges slower. In our experiments, we use λ = 10, which leads to a nice trade-off between speed and approximation accuracy.\n3.2 Optimization\nAlgorithm 1 S-WMD 1: Input: word embedding: X, 2: dataset: {(d1, y1), . . . , (dm, ym)} 3: ca = Xda, ∀a∈{1, . . . ,m} 4: A = NCA((c1, y1), . . . , (cm, ym)) 5: w = 1 6: while loop until convergence do 7: Randomly select B ⊆ {1, . . . ,m} 8: Compute gradients using eq. (11) 9: A← A− ηAgA 10: w← w − ηwgw 11: end while Alongside the fast gradient computation process introduced above, we can further speed up the training with a clever initialization and batch gradient descent.\nInitialization. The loss function in eq. (6) is nonconvex and is thus highly dependent on the initial setting of A and w. A good initialization also drastically reduces the number of gradient steps required. For w, we initialize all its entries to 1, i.e., all words are assigned with the same weights at the beginning. For A, we propose to learn an initial projection within the word centroid distance (WCD), defined as D′(da,db) = ‖Xda −Xdb‖2, described in Section 2. The WCD should be a reasonable approximation to the WMD. Kusner et al. [19] point out that the WCD is a lower bound on the WMD, which holds true after the transformation with A. We obtain our initialization by applying NCA in word embedding space using the WCD distance between documents. This is to say that we can construct the WCD dataset: {c1, . . . , cm} ⊂ Rd, representing each text document as its word centroid, and apply NCA in the usual way as described in Section 2. We call this learned word distance Supervised Word Centroid Distance (S-WCD).\nBatch Gradient Descent. Once the initial matrix A is obtained, we minimize the loss `(A,w) in (6) with batch gradient descent. At each iteration, instead of optimizing over the full training set, we randomly pick a batch of documents B from the training set, and compute the gradient for these documents. We can further speed up training by observing that the vast majority of NCA probabilities pab near zero. This is because most documents are far away from any given document. Thus, for a document da we can use the WCD to get a cheap neighbor ordering and only compute the NCA probabilities for the closest set of documents Na, based on the WCD. When we compute the gradient for each of the selected documents, we only use the document’s M nearest neighbor documents (defined by WCD distance) to compute the NCA neighborhood probabilities. In particular, the gradient is computed as follows,\ngA,w = ∑ a∈B ∑ b∈Na (pab/pa)(δab − pa) ∂ ∂(A,w) D(A,w)(d a,db), (11)\nwhere again Na is the set of nearest neighbors of document a. With the gradient, we update A and w with learning rates ηA and ηw, respectively. Algorithm 1 summarizes S-WMD in pseudo code.\nComplexity. The empirical time complexity of solving the dual transport problem scales quadratically with p [26]. Therefore, the complexity of our algorithm is O(TBN [p2 + d2(p + r)]), where T denotes the number of batch gradient descent iterations, B = |B| the batch size, N = |Na| the size of the nearest neighbor set, and p the maximum number of unique words in a document. This is because computing T∗ij , α\n∗ and β∗ using the alternating fixed point algorithm in Section 3.1 requires O(p2) time, while constructing the gradients from eqs. (8) and (10) takes O(d2(p + r)) time. The approximated gradient eq. (11) requires this computation to be repeated BN times. In our experiments, we set B = 32 and N = 200, and computing the gradient at each iteration can be done in seconds."
+    }, {
+      "heading" : "4 Results",
+      "text" : "We evaluate S-WMD on 8 different document corpora and compare the kNN error with unsupervised WCD, WMD, and 6 document representations. In addition, all 6 document representation baselines\nare used with and without 3 leading supervised metric learning algorithms—resulting in an overall total of 26 competitive baselines. Our code is implemented in Matlab and is freely available at https://github.com/gaohuang/S-WMD.\nDatasets and Baselines. We evaluate all approaches on 8 document datasets in the settings of news categorization, sentiment analysis, and product identification, among others. Table 1 describes the classification tasks as well as the size and number of classes C of each of the datasets. We evaluate against the following document representation/distance methods: 1. bag-of-words (BOW): a count of the number of word occurrences in a document, the length of the vector is the number of unique words in the corpus; 2. term frequency-inverse document frequency (TF-IDF): the BOW vector normalized by the document frequency of each word across the corpus; 3. Okapi BM25 [28]: a TF-IDF-like ranking function, first used in search engines; 4. Latent Semantic Indexing (LSI) [11]: projects the BOW vectors onto an orthogonal basis via singular value decomposition; 5. Latent Dirichlet Allocation (LDA) [2]: a generative probabilistic method that models documents as mixtures of word ‘topics’. We train LDA transductively (i.e., on the combined collection of training & testing words) and use the topic probabilities as the document representation ; 6. Marginalized Stacked Denoising Autoencoders (mSDA) [4]: a fast method for training stacked denoising autoencoders, which have state-of-the-art error rates on sentiment analysis tasks [14]. For datasets larger than RECIPE we use either a high-dimensional variant of mSDA or take 20% of the features that occur most often, whichever has better performance.; 7. Word Centroid Distance (WCD), described in Section 2; 8. Word Mover’s Distance (WMD), described in Section 2. For completeness, we also show results for the Supervised Word Centroid Distance (S-WCD) and the initialization of SWMD (S-WMD init.), described in Section 3. For methods that propose a document representation (as opposed to a distance), we use the Euclidean distance between these vector representations for visualization and kNN classification. For the supervised metric learning results we first reduce the dimensionality of each representation to 200 dimensions (if necessary) with PCA and then run either NCA, ITML, or LMNN on the projected data. We tune all free hyperparameters in all compared methods with Bayesian optimization (BO), using the implementation of Gardner et al. [13]3.\nkNN classification. We show the kNN test error of all document representation and distance methods in Table 2. For datasets that do not have a predefined train/test split: BBCSPORT, TWITTER, RECIPE, CLASSIC, and AMAZON we average results over five 70/30 train/test splits and report standard errors. For each dataset we highlight the best results in bold (and those whose standard error\n3http://tinyurl.com/bayesopt\noverlaps the mean of the best result). On the right we also show the average rank across datasets, relative to unsupervised BOW (bold indicates the best method). We highlight the unsupervised WMD in blue (WMD) and our new result in red (S-WMD). Despite the very large number of competitive baselines, S-WMD achieves the lowest kNN test error on 5/8 datasets, with the exception of BBCSPORT, CLASSIC and AMAZON. On these datasets it achieves the 4th lowest on BBCSPORT and CLASSIC, and tied at 2nd on 20NEWS. On average across all datasets it outperforms all other 26 methods. Another observation is that S-WMD right after initialization (S-WMD init.) performs quite well. However, as training S-WMD is efficient (shown in Table 3), it is often well worth the training time.\n1/1\n2016/10/27file:///C:/Users/Administrator/Desktop/wordcloud10.svg\nFor unsupervised baselines, on datasets BBCSPORT and OHSUMED, where the previous state-of-the-art WMD was beaten by LSI, S-WMD reduces the error of LSI relatively by 51% and 22%, respectively. In general, supervision seems to help all methods on average. One reason why NCA with a TF-IDF document representation may be performing better than S-WMD could be because of the long document lengths in BBCSPORT and OHSUMED. Having denser BOW vectors may improve the inverse document frequency weights, which in turn may be a good initialization for NCA to further fine-tune. On datasets with smaller documents such as TWITTER, CLASSIC, and REUTERS, S-WMD outperforms NCA with TF-IDF relatively by 10%, 42%, and 15%, respectively. On CLASSIC WMD outperforms S-WMD possibly because of a poor initialization and that S-WMD uses the squared Euclidean distance between word vectors, which may be suboptimal for this dataset. This however, does not occur for any other dataset.\nVisualization. Figure 1 shows a 2D embedding of the test split of each dataset by WMD and S-WMD using t-Stochastic Neighbor Embedding (t-SNE) [33]. The quality of a distance can be visualized by how clustered points in the same class are. Using this metric, S-WMD noticeably improves upon WMD on almost all the 8 datasets. Figure 2 visualizes the top 100 words with\n7\nlargest weights learned by S-WMD on the 20NEWS dataset. The size of each word is proportional its learned weight. We can observe that these upweighted words are indeed most representative for the true classes of this dataset. More detailed results and analysis can be found in the supplementary.\nTraining time. Table 3 shows the training times for S-WMD. Note that the time to learn the initial metric A is not included in time shown in the second column. Relative to the initialization, S-WMD is surprisingly fast. This is due to the fast gradient approximation and the batch gradient descent introduced in Section 3.1 and 3.2. We note that these times are comparable or even faster than the time it takes to train a linear metric on the baseline methods after PCA."
+    }, {
+      "heading" : "5 Related Work",
+      "text" : "Metric learning is a vast field that includes both supervised and unsupervised techniques (see Yang & Jin [37] for a large survey). Alongside NCA [15], described in Section 2, there are a number of popular methods for generalized Euclidean metric learning. Large Margin Nearest Neighbors (LMNN) [36] learns a metric that encourages inputs with similar labels to be close in a local region, while encouraging inputs with different labels to be farther by a large margin. Information-Theoretic Metric Learning (ITML) [10] learns a metric by minimizing a KL-divergence subject to generalized Euclidean distance constraints. Cuturi & Avis [7] was the first to consider learning the ground distance in the Earth Mover’s Distance (EMD). In a similar work, Wang & Guibas [34] learns a ground distance that is not a metric, with good performance in certain vision tasks. Most similar to our work Wang et al. [35] learn a metric within a generalized Euclidean EMD ground distance using the framework of ITML for image classification. They do not, however, consider re-weighting the histograms, which allows our method extra flexibility. Until recently, there has been relatively little work towards learning supervised word embeddings, as state-of-the-art results rely on making use of large unlabeled text corpora. Tang et al. [32] propose a neural language model that uses label information from emoticons to learn sentiment-specific word embeddings."
+    }, {
+      "heading" : "6 Conclusion",
+      "text" : "We proposed a powerful method to learn a supervised word mover’s distance, and demonstrated that it may well be the best performing distance metric for documents to date. Similar to WMD, our S-WMD benefits from the large unsupervised corpus, which was used to learn the word2vec embedding [22, 23]. The word embedding gives rise to a very good document distance, which is particularly forgiving when two documents use syntactically different but conceptually similar words. Two words may be similar in one sense but dissimilar in another, depending on the articles in which they are contained. It is these differences that S-WMD manages to capture through supervised training. By learning a linear metric and histogram re-weighting through the optimal transport of the word mover’s distance, we are able to produce state-of-the-art classification results efficiently."
+    }, {
+      "heading" : "Acknowledgments",
+      "text" : "The authors are supported in part by the, III-1618134, III-1526012, IIS-1149882 grants from the National Science Foundation and the Bill and Melinda Gates Foundation. We also thank Dor Kedem for many insightful discussions."
+    } ],
+    "references" : [ {
+      "title" : "Introduction to linear optimization",
+      "author" : [ "D. Bertsimas", "J.N. Tsitsiklis" ],
+      "venue" : "Athena Scientific,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : "1",
+      "year" : 1997
+    }, {
+      "title" : "Improving Methods for Single-label Text Categorization",
+      "author" : [ "A. Cardoso-Cachopo" ],
+      "venue" : "PdD Thesis, Instituto Superior Tecnico, Universidade Tecnica de Lisboa,",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 2007
+    }, {
+      "title" : "Marginalized denoising autoencoders for domain adaptation",
+      "author" : [ "M. Chen", "Z. Xu", "K.Q. Weinberger", "F. Sha" ],
+      "venue" : "In ICML,",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : "4",
+      "year" : 2012
+    }, {
+      "title" : "A unified architecture for natural language processing: Deep neural networks with multitask learning",
+      "author" : [ "R. Collobert", "J. Weston" ],
+      "venue" : "In ICML,",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : "5",
+      "year" : 2008
+    }, {
+      "title" : "Sinkhorn distances: Lightspeed computation of optimal transport",
+      "author" : [ "M. Cuturi" ],
+      "venue" : "In Advances in Neural Information Processing Systems,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : "6",
+      "year" : 2013
+    }, {
+      "title" : "Fast computation of wasserstein barycenters",
+      "author" : [ "M. Cuturi", "A. Doucet" ],
+      "venue" : "JMLR Workshop and Conference Proceedings,",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : "8",
+      "year" : 2014
+    }, {
+      "title" : "A smoothed dual approach for variational wasserstein problems",
+      "author" : [ "M. Cuturi", "G. Peyre" ],
+      "venue" : "SIAM Journal on Imaging Sciences,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 2016
+    }, {
+      "title" : "Information-theoretic metric learning",
+      "author" : [ "J.V. Davis", "B. Kulis", "P. Jain", "S. Sra", "I.S. Dhillon" ],
+      "venue" : "In ICML, pp",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : "10",
+      "year" : 2007
+    }, {
+      "title" : "Indexing by latent semantic analysis",
+      "author" : [ "S.C. Deerwester", "S.T. Dumais", "T.K. Landauer", "G.W. Furnas", "R.A. Harshman" ],
+      "venue" : "Journal of the American Society of Information Science,",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 1990
+    }, {
+      "title" : "Learning with a wasserstein loss",
+      "author" : [ "C. Frogner", "C. Zhang", "H. Mobahi", "M. Araya", "T.A. Poggio" ],
+      "venue" : "In Advances in Neural Information Processing Systems,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 2015
+    }, {
+      "title" : "Bayesian optimization with inequality constraints",
+      "author" : [ "J. Gardner", "M.J. Kusner", "E. Xu", "K.Q. Weinberger", "J. Cunningham" ],
+      "venue" : "In ICML, pp",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 2014
+    }, {
+      "title" : "Domain adaptation for large-scale sentiment classification: A deep learning approach",
+      "author" : [ "X. Glorot", "A. Bordes", "Y. Bengio" ],
+      "venue" : "In ICML, pp",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 2011
+    }, {
+      "title" : "Neighbourhood components analysis",
+      "author" : [ "J. Goldberger", "G.E. Hinton", "S.T. Roweis", "R. Salakhutdinov" ],
+      "venue" : "In NIPS, pp",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : "15",
+      "year" : 2005
+    }, {
+      "title" : "Content-based recommendations with poisson factorization",
+      "author" : [ "P.K. Gopalan", "L. Charlin", "D. Blei" ],
+      "venue" : "In NIPS, pp",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : "16",
+      "year" : 2014
+    }, {
+      "title" : "Practical solutions to the problem of diagonal dominance in kernel document clustering",
+      "author" : [ "D. Greene", "P. Cunningham" ],
+      "venue" : "In ICML,",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : "17",
+      "year" : 2006
+    }, {
+      "title" : "Stochastic neighbor embedding",
+      "author" : [ "G.E. Hinton", "S.T. Roweis" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : "18",
+      "year" : 2002
+    }, {
+      "title" : "From word embeddings to document distances",
+      "author" : [ "M.J. Kusner", "Y. Sun", "N.I. Kolkin", "K.Q. Weinberger" ],
+      "venue" : "In ICML,",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : "19",
+      "year" : 2015
+    }, {
+      "title" : "The earth mover’s distance is the mallows distance: Some insights from statistics",
+      "author" : [ "E. Levina", "P. Bickel" ],
+      "venue" : "In ICCV,",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : "20",
+      "year" : 2001
+    }, {
+      "title" : "Neural word embedding as implicit matrix factorization",
+      "author" : [ "O. Levy", "Y. Goldberg" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : "21",
+      "year" : 2014
+    }, {
+      "title" : "Efficient estimation of word representations in vector space",
+      "author" : [ "T. Mikolov", "K. Chen", "G. Corrado", "J. Dean" ],
+      "venue" : "In Workshop at ICLR,",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : "22",
+      "year" : 2013
+    }, {
+      "title" : "Distributed representations of words and phrases and their compositionality",
+      "author" : [ "T. Mikolov", "I. Sutskever", "K. Chen", "G.S. Corrado", "J. Dean" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : "23",
+      "year" : 2013
+    }, {
+      "title" : "Web-search ranking with initialized gradient boosted regression",
+      "author" : [ "A. Mohan", "Z. Chen", "K.Q. Weinberger" ],
+      "venue" : "trees. JMLR,",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : "24",
+      "year" : 2011
+    }, {
+      "title" : "Hyperbolic self-organizing maps for semantic navigation",
+      "author" : [ "J. Ontrup", "H. Ritter" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : "25",
+      "year" : 2001
+    }, {
+      "title" : "Fast and robust earth mover’s distances",
+      "author" : [ "O. Pele", "M. Werman" ],
+      "venue" : "In ICCV,",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : "26",
+      "year" : 2009
+    }, {
+      "title" : "Documents as multiple overlapping windows into grids of counts",
+      "author" : [ "A. Perina", "N. Jojic", "M. Bicego", "A. Truski" ],
+      "venue" : "In NIPS, pp",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : "27",
+      "year" : 2013
+    }, {
+      "title" : "Okapi at trec-3",
+      "author" : [ "S.E. Robertson", "S. Walker", "S. Jones", "M.M. Hancock-Beaulieu", "M Gatford" ],
+      "venue" : "NIST SPECIAL PUBLICATION SP,",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : "28",
+      "year" : 1995
+    }, {
+      "title" : "A metric for distributions with applications to image databases",
+      "author" : [ "Y. Rubner", "C. Tomasi", "L.J. Guibas" ],
+      "venue" : "In ICCV,",
+      "citeRegEx" : "29",
+      "shortCiteRegEx" : "29",
+      "year" : 1998
+    }, {
+      "title" : "Term-weighting approaches in automatic text retrieval",
+      "author" : [ "G. Salton", "C. Buckley" ],
+      "venue" : "Information processing & management,",
+      "citeRegEx" : "30",
+      "shortCiteRegEx" : "30",
+      "year" : 1988
+    }, {
+      "title" : "Learning sentiment-specific word embedding for twitter sentiment classification",
+      "author" : [ "D. Tang", "F. Wei", "N. Yang", "M. Zhou", "T. Liu", "B. Qin" ],
+      "venue" : "In ACL,",
+      "citeRegEx" : "32",
+      "shortCiteRegEx" : "32",
+      "year" : 2014
+    }, {
+      "title" : "Visualizing data using t-sne",
+      "author" : [ "L. Van der Maaten", "G. Hinton" ],
+      "venue" : "JMLR, 9(2579-2605):85,",
+      "citeRegEx" : "33",
+      "shortCiteRegEx" : "33",
+      "year" : 2008
+    }, {
+      "title" : "Supervised earth movers distance learning and its computer vision applications",
+      "author" : [ "F. Wang", "L.J. Guibas" ],
+      "venue" : "In ECCV",
+      "citeRegEx" : "34",
+      "shortCiteRegEx" : "34",
+      "year" : 2012
+    }, {
+      "title" : "Learning robust cross-bin similarities for the bag-of-features model",
+      "author" : [ "Wang", "X-L", "Y. Liu", "H. Zha" ],
+      "venue" : "Technical report, Peking University,",
+      "citeRegEx" : "35",
+      "shortCiteRegEx" : "35",
+      "year" : 2009
+    }, {
+      "title" : "Distance metric learning for large margin nearest neighbor classification",
+      "author" : [ "K.Q. Weinberger", "L.K. Saul" ],
+      "venue" : "JMLR, 10:207–244,",
+      "citeRegEx" : "36",
+      "shortCiteRegEx" : "36",
+      "year" : 2009
+    }, {
+      "title" : "Distance metric learning: A comprehensive survey",
+      "author" : [ "L. Yang", "R. Jin" ],
+      "venue" : null,
+      "citeRegEx" : "37",
+      "shortCiteRegEx" : "37",
+      "year" : 2006
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 21,
+      "context" : "Document distances are a key component of many text retrieval tasks such as web-search ranking [24], book recommendation [16], and news categorization [25].",
+      "startOffset" : 95,
+      "endOffset" : 99
+    }, {
+      "referenceID" : 13,
+      "context" : "Document distances are a key component of many text retrieval tasks such as web-search ranking [24], book recommendation [16], and news categorization [25].",
+      "startOffset" : 121,
+      "endOffset" : 125
+    }, {
+      "referenceID" : 22,
+      "context" : "Document distances are a key component of many text retrieval tasks such as web-search ranking [24], book recommendation [16], and news categorization [25].",
+      "startOffset" : 151,
+      "endOffset" : 155
+    }, {
+      "referenceID" : 2,
+      "context" : "Because of the variety of potential applications, there has been a wealth of work towards developing accurate document distances [2, 4, 11, 27].",
+      "startOffset" : 129,
+      "endOffset" : 143
+    }, {
+      "referenceID" : 8,
+      "context" : "Because of the variety of potential applications, there has been a wealth of work towards developing accurate document distances [2, 4, 11, 27].",
+      "startOffset" : 129,
+      "endOffset" : 143
+    }, {
+      "referenceID" : 24,
+      "context" : "Because of the variety of potential applications, there has been a wealth of work towards developing accurate document distances [2, 4, 11, 27].",
+      "startOffset" : 129,
+      "endOffset" : 143
+    }, {
+      "referenceID" : 27,
+      "context" : "In large part, prior work focused on extracting meaningful document representations, starting with the classical bag of words (BOW) and term frequency-inverse document frequency (TF-IDF) representations [30].",
+      "startOffset" : 203,
+      "endOffset" : 207
+    }, {
+      "referenceID" : 14,
+      "context" : "These sparse, high-dimensional representations are frequently nearly orthogonal [17] and a pair of similar documents may therefore have nearly the same distance as a pair that are very different.",
+      "startOffset" : 80,
+      "endOffset" : 84
+    }, {
+      "referenceID" : 8,
+      "context" : "It is possible to design more meaningful representations through eigendecomposing the BOW space with Latent Semantic Indexing (LSI) [11], or learning a probabilistic clustering of BOW vectors with Latent Dirichlet Allocation (LDA) [2].",
+      "startOffset" : 132,
+      "endOffset" : 136
+    }, {
+      "referenceID" : 24,
+      "context" : "Other work generalizes LDA [27] or uses denoising autoencoders [4] to learn a suitable document representation.",
+      "startOffset" : 27,
+      "endOffset" : 31
+    }, {
+      "referenceID" : 2,
+      "context" : "Other work generalizes LDA [27] or uses denoising autoencoders [4] to learn a suitable document representation.",
+      "startOffset" : 63,
+      "endOffset" : 66
+    }, {
+      "referenceID" : 16,
+      "context" : "[19] proposed the Word Mover’s Distance (WMD), a new distance for text documents that leverages word embeddings [22].",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 19,
+      "context" : "[19] proposed the Word Mover’s Distance (WMD), a new distance for text documents that leverages word embeddings [22].",
+      "startOffset" : 112,
+      "endOffset" : 116
+    }, {
+      "referenceID" : 7,
+      "context" : "Lately, there has been a vast amount of work on metric learning [10, 15, 36, 37], most of which focuses on learning a generalized linear Euclidean metric.",
+      "startOffset" : 64,
+      "endOffset" : 80
+    }, {
+      "referenceID" : 12,
+      "context" : "Lately, there has been a vast amount of work on metric learning [10, 15, 36, 37], most of which focuses on learning a generalized linear Euclidean metric.",
+      "startOffset" : 64,
+      "endOffset" : 80
+    }, {
+      "referenceID" : 32,
+      "context" : "Lately, there has been a vast amount of work on metric learning [10, 15, 36, 37], most of which focuses on learning a generalized linear Euclidean metric.",
+      "startOffset" : 64,
+      "endOffset" : 80
+    }, {
+      "referenceID" : 33,
+      "context" : "Lately, there has been a vast amount of work on metric learning [10, 15, 36, 37], most of which focuses on learning a generalized linear Euclidean metric.",
+      "startOffset" : 64,
+      "endOffset" : 80
+    }, {
+      "referenceID" : 32,
+      "context" : "These methods often scale quadratically with the input dimensionality, and can only be applied to high-dimensional text documents after dimensionality reduction techniques such as PCA [36].",
+      "startOffset" : 184,
+      "endOffset" : 188
+    }, {
+      "referenceID" : 4,
+      "context" : "However, we devise an efficient technique that exploits a relaxed version of the underlying optimal transport problem, called the Sinkhorn distance [6].",
+      "startOffset" : 148,
+      "endOffset" : 151
+    }, {
+      "referenceID" : 12,
+      "context" : "We then detail the setting of linear metric learning and the solution proposed by Neighborhood Components Analysis (NCA) [15], which inspires our method.",
+      "startOffset" : 121,
+      "endOffset" : 125
+    }, {
+      "referenceID" : 19,
+      "context" : "This probability is the hierarchical softmax of the word vectors vw1 and vw2 [22], an easily-computed quantity which allows a simplified neural language model (the word2vec model) to be trained efficiently on desktop computers.",
+      "startOffset" : 77,
+      "endOffset" : 81
+    }, {
+      "referenceID" : 20,
+      "context" : "Training an embedding over billions of words allows word2vec to capture surprisingly accurate word relationships [23].",
+      "startOffset" : 113,
+      "endOffset" : 117
+    }, {
+      "referenceID" : 16,
+      "context" : "[19] introduced the Word Mover’s Distance (WMD) as a distance between text documents.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 16,
+      "context" : "[19] that the WMD is a special case of the Earth Mover’s Distance (EMD) [29], also known more generally as the Wasserstein distance [20].",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 26,
+      "context" : "[19] that the WMD is a special case of the Earth Mover’s Distance (EMD) [29], also known more generally as the Wasserstein distance [20].",
+      "startOffset" : 72,
+      "endOffset" : 76
+    }, {
+      "referenceID" : 17,
+      "context" : "[19] that the WMD is a special case of the Earth Mover’s Distance (EMD) [29], also known more generally as the Wasserstein distance [20].",
+      "startOffset" : 132,
+      "endOffset" : 136
+    }, {
+      "referenceID" : 23,
+      "context" : "The time complexity of solving the WMD optimization problem is O(q(3) log q) [26], where q is the maximum number of unique words in either d or d′.",
+      "startOffset" : 77,
+      "endOffset" : 81
+    }, {
+      "referenceID" : 4,
+      "context" : "To alleviate the cubic time complexity of the Wasserstein distance computation, Cuturi [6] formulated a smoothed version of the underlying transport problem by adding an entropy regularizer to the transport objective.",
+      "startOffset" : 87,
+      "endOffset" : 90
+    }, {
+      "referenceID" : 4,
+      "context" : "Cuturi [6] propose an efficient algorithm to solve for the optimal transport Tλ using a clever matrix-scaling algorithm.",
+      "startOffset" : 7,
+      "endOffset" : 10
+    }, {
+      "referenceID" : 4,
+      "context" : "This algorithm can be shown to have empirical time complexity O(q(2)) [6], which is significantly faster than solving the WMD problem exactly.",
+      "startOffset" : 70,
+      "endOffset" : 73
+    }, {
+      "referenceID" : 12,
+      "context" : "Popular linear metric learning algorithms are NCA [15], LMNN [36], and ITML [10] amongst others [37].",
+      "startOffset" : 50,
+      "endOffset" : 54
+    }, {
+      "referenceID" : 32,
+      "context" : "Popular linear metric learning algorithms are NCA [15], LMNN [36], and ITML [10] amongst others [37].",
+      "startOffset" : 61,
+      "endOffset" : 65
+    }, {
+      "referenceID" : 7,
+      "context" : "Popular linear metric learning algorithms are NCA [15], LMNN [36], and ITML [10] amongst others [37].",
+      "startOffset" : 76,
+      "endOffset" : 80
+    }, {
+      "referenceID" : 33,
+      "context" : "Popular linear metric learning algorithms are NCA [15], LMNN [36], and ITML [10] amongst others [37].",
+      "startOffset" : 96,
+      "endOffset" : 100
+    }, {
+      "referenceID" : 12,
+      "context" : "[15] to learn a generalized Euclidean metric.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 7,
+      "context" : "Similar to prior work on metric learning [10, 15, 36] we achieve this by minimizing the kNN-LOO error with the distance DA,w in the document space.",
+      "startOffset" : 41,
+      "endOffset" : 53
+    }, {
+      "referenceID" : 12,
+      "context" : "Similar to prior work on metric learning [10, 15, 36] we achieve this by minimizing the kNN-LOO error with the distance DA,w in the document space.",
+      "startOffset" : 41,
+      "endOffset" : 53
+    }, {
+      "referenceID" : 32,
+      "context" : "Similar to prior work on metric learning [10, 15, 36] we achieve this by minimizing the kNN-LOO error with the distance DA,w in the document space.",
+      "startOffset" : 41,
+      "endOffset" : 53
+    }, {
+      "referenceID" : 15,
+      "context" : "As the LOO error is non-differentiable, we use the stochastic neighborhood relaxation proposed by Hinton & Roweis [18], which is also used for NCA.",
+      "startOffset" : 114,
+      "endOffset" : 118
+    }, {
+      "referenceID" : 5,
+      "context" : "In fact, computing this gradient just for a single pair of documents will require time complexity O(q(3) log q), where q is the largest set of unique words in either document [8].",
+      "startOffset" : 175,
+      "endOffset" : 178
+    }, {
+      "referenceID" : 0,
+      "context" : "Further, the gradient is not always guaranteed to exist [1, 7] (instead we must resort to subgradient descent).",
+      "startOffset" : 56,
+      "endOffset" : 62
+    }, {
+      "referenceID" : 4,
+      "context" : "Motivated by the recent works on fast Wasserstein distance computation [6, 8, 12], we propose to relax the modified linear program in eq.",
+      "startOffset" : 71,
+      "endOffset" : 81
+    }, {
+      "referenceID" : 5,
+      "context" : "Motivated by the recent works on fast Wasserstein distance computation [6, 8, 12], we propose to relax the modified linear program in eq.",
+      "startOffset" : 71,
+      "endOffset" : 81
+    }, {
+      "referenceID" : 9,
+      "context" : "Motivated by the recent works on fast Wasserstein distance computation [6, 8, 12], we propose to relax the modified linear program in eq.",
+      "startOffset" : 71,
+      "endOffset" : 81
+    }, {
+      "referenceID" : 0,
+      "context" : "where T is the optimizer of (5), so long as it is unique (otherwise it is a subgradient) [1].",
+      "startOffset" : 89,
+      "endOffset" : 92
+    }, {
+      "referenceID" : 6,
+      "context" : "We replace T by Tλ which is always unique as the relaxed transport is strongly convex [9].",
+      "startOffset" : 86,
+      "endOffset" : 89
+    }, {
+      "referenceID" : 16,
+      "context" : "[19] point out that the WCD is a lower bound on the WMD, which holds true after the transformation with A.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 23,
+      "context" : "The empirical time complexity of solving the dual transport problem scales quadratically with p [26].",
+      "startOffset" : 96,
+      "endOffset" : 100
+    }, {
+      "referenceID" : 1,
+      "context" : "6 REUTERS news dataset (train/test split [3]) 8 5485 2189 22425 37.",
+      "startOffset" : 41,
+      "endOffset" : 44
+    }, {
+      "referenceID" : 1,
+      "context" : "0 20NEWS canonical news article dataset [3] 20 11293 7528 29671 72",
+      "startOffset" : 40,
+      "endOffset" : 43
+    }, {
+      "referenceID" : 25,
+      "context" : "Okapi BM25 [28]: a TF-IDF-like ranking function, first used in search engines; 4.",
+      "startOffset" : 11,
+      "endOffset" : 15
+    }, {
+      "referenceID" : 8,
+      "context" : "Latent Semantic Indexing (LSI) [11]: projects the BOW vectors onto an orthogonal basis via singular value decomposition; 5.",
+      "startOffset" : 31,
+      "endOffset" : 35
+    }, {
+      "referenceID" : 2,
+      "context" : "Marginalized Stacked Denoising Autoencoders (mSDA) [4]: a fast method for training stacked denoising autoencoders, which have state-of-the-art error rates on sentiment analysis tasks [14].",
+      "startOffset" : 51,
+      "endOffset" : 54
+    }, {
+      "referenceID" : 11,
+      "context" : "Marginalized Stacked Denoising Autoencoders (mSDA) [4]: a fast method for training stacked denoising autoencoders, which have state-of-the-art error rates on sentiment analysis tasks [14].",
+      "startOffset" : 183,
+      "endOffset" : 187
+    }, {
+      "referenceID" : 16,
+      "context" : "1 DISTANCES IN THE WORD MOVER’S FAMILY WCD [19] 11.",
+      "startOffset" : 43,
+      "endOffset" : 47
+    }, {
+      "referenceID" : 29,
+      "context" : "Figure 1 shows a 2D embedding of the test split of each dataset by WMD and S-WMD using t-Stochastic Neighbor Embedding (t-SNE) [33].",
+      "startOffset" : 127,
+      "endOffset" : 131
+    }, {
+      "referenceID" : 33,
+      "context" : "5 Related Work Metric learning is a vast field that includes both supervised and unsupervised techniques (see Yang & Jin [37] for a large survey).",
+      "startOffset" : 121,
+      "endOffset" : 125
+    }, {
+      "referenceID" : 12,
+      "context" : "Alongside NCA [15], described in Section 2, there are a number of popular methods for generalized Euclidean metric learning.",
+      "startOffset" : 14,
+      "endOffset" : 18
+    }, {
+      "referenceID" : 32,
+      "context" : "Large Margin Nearest Neighbors (LMNN) [36] learns a metric that encourages inputs with similar labels to be close in a local region, while encouraging inputs with different labels to be farther by a large margin.",
+      "startOffset" : 38,
+      "endOffset" : 42
+    }, {
+      "referenceID" : 7,
+      "context" : "Information-Theoretic Metric Learning (ITML) [10] learns a metric by minimizing a KL-divergence subject to generalized Euclidean distance constraints.",
+      "startOffset" : 45,
+      "endOffset" : 49
+    }, {
+      "referenceID" : 30,
+      "context" : "In a similar work, Wang & Guibas [34] learns a ground distance that is not a metric, with good performance in certain vision tasks.",
+      "startOffset" : 33,
+      "endOffset" : 37
+    }, {
+      "referenceID" : 31,
+      "context" : "[35] learn a metric within a generalized Euclidean EMD ground distance using the framework of ITML for image classification.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 28,
+      "context" : "[32] propose a neural language model that uses label information from emoticons to learn sentiment-specific word embeddings.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 19,
+      "context" : "Similar to WMD, our S-WMD benefits from the large unsupervised corpus, which was used to learn the word2vec embedding [22, 23].",
+      "startOffset" : 118,
+      "endOffset" : 126
+    }, {
+      "referenceID" : 20,
+      "context" : "Similar to WMD, our S-WMD benefits from the large unsupervised corpus, which was used to learn the word2vec embedding [22, 23].",
+      "startOffset" : 118,
+      "endOffset" : 126
+    } ],
+    "year" : 2016,
+    "abstractText" : "Recently, a new document metric called the word mover’s distance (WMD) has been proposed with unprecedented results on kNN-based document classification. The WMD elevates high-quality word embeddings to a document metric by formulating the distance between two documents as an optimal transport problem between the embedded words. However, the document distances are entirely unsupervised and lack a mechanism to incorporate supervision when available. In this paper we propose an efficient technique to learn a supervised metric, which we call the Supervised-WMD (S-WMD) metric. The supervised training minimizes the stochastic leave-one-out nearest neighbor classification error on a perdocument level by updating an affine transformation of the underlying word embedding space and a word-imporance weight vector. As the gradient of the original WMD distance would result in an inefficient nested optimization problem, we provide an arbitrarily close approximation that results in a practical and efficient update rule. We evaluate S-WMD on eight real-world text classification tasks on which it consistently outperforms almost all of our 26 competitive baselines.",
+    "creator" : null
+  }
+}

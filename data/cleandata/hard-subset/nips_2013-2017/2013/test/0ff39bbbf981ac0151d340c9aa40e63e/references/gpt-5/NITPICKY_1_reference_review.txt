@@ -1,0 +1,55 @@
+Summary
+This paper proposes a two-step approach for cross-lingual text classification. Step 1 completes a partially observed concatenated document-term matrix (source and target vocabularies concatenated) using a convex surrogate for low-rank matrix completion with additional sparsity (l1), nonnegativity constraints, and squared losses on both observed and missing entries (the latter with weight ρ). It is optimized via a projected gradient descent scheme that alternates a gradient step on the smooth part, singular value shrinkage (nuclear norm proximal), and nonnegativity projection. Step 2 applies LSI (SVD) to the completed matrix and trains a monolingual classifier (linear SVM) in the low-dimensional space. Experiments on the multilingual Amazon reviews dataset show improvements over TBOW, CL-LSI, CL-OPCA, and CL-KCCA, with study of varying numbers of parallel documents.
+
+Relation to prior work
+The method is positioned relative to CL-LSI, CL-KCCA, CL-OPCA, bilingual lexicon/SCL methods, and multilingual topic models. The novelty claim is to fill missing entries via matrix completion before LSI, rather than applying LSI/CCA/OPCA directly to concatenated or paired data. However, the comparison set omits strong baselines like SCL (which is cited) and modern cross-lingual embedding approaches; the framing of CL-LSI/OPCA/KCCA usage could be clearer to ensure apples-to-apples.
+
+Strengths
+- Interesting and simple idea: leverage a small parallel set to “complete” cross-lingual co-occurrences, then do standard LSI.
+- Uses convex surrogates (nuclear norm + squared loss) with a scalable spirit (first-order, shrinkage).
+- Empirical results suggest consistent gains across many language/category pairs and robustness to small numbers of parallel documents.
+- Includes a convergence discussion and parameter sensitivity to the size of parallel data.
+
+Weaknesses and detailed concerns
+Technical correctness and optimization
+- Prox splitting: The algorithm alternates (i) a gradient step on g(M), (ii) nuclear-norm shrinkage, and (iii) nonnegativity projection. This is not, in general, the proximal operator for the sum (nuclear norm + indicator of nonnegativity). Composition of two prox operators does not equal the prox of their sum unless additional structure holds. The convergence proof appeals to non-expansiveness of each operator and cites [11, Theorem 4], which does not cover an additional projection constraint. As written, Theorem 1 does not convincingly establish convergence to a minimizer of the stated objective with nonnegativity.
+- The bound 0 < τ < min(2, 2/ρ) is derived elementwise using Y and ρŶ, but no Lipschitz constant for ∇g over the full matrix is provided, nor is the descent property established. This matters especially since the l1 term is treated as smooth via M ≥ 0; at the boundary Mij = 0 the gradient is not uniquely defined, and the analysis ignores that subtlety.
+- Biasing missing entries to zero: Adding a squared-loss penalty toward 0 on all missing entries (with ρ > 0) strongly biases completion toward zero—on top of nuclear-norm and l1 regularization. This can over-shrink infrequent or cross-lingual features. No ablation of ρ is provided beyond a coarse grid; no rationale for this design is given.
+- Scalability: Each iteration needs an SVD for shrinkage. There is no complexity analysis (matrix sizes t × d, rank behavior, use of partial SVD, number of iterations, wall-clock). Claims of scalability are unsubstantiated.
+
+Experimental protocol and fairness
+- Transductive use of test data: The paper states “we used all documents from the two languages … for representation learning,” which appears to include test documents in the unsupervised step. This is a different setting from inductive domain adaptation and must be clearly justified, with matching baselines. If transductive, it should be explicit and contrasted with inductive performance.
+- Hyperparameter selection: Parameters (γ, ρ, k) are selected on task EFB and then reused for all tasks. It is unclear whether test labels were used in that selection. A proper validation split (or nested CV) should be used; otherwise there is risk of tuning to test performance.
+- Baselines: SCL [16] is a natural and strong comparator on this very dataset but is missing. More recent cross-lingual representation learning baselines (e.g., bilingual embeddings/Projection via seed lexicons) are also absent. For CL-LSI/CL-OPCA, the paper implies using “all data from both languages” without clarifying whether machine translation or only parallel data was used; fairness depends on these specifics.
+- Classifier details: The text says “linear SVM” but “libsvm with default parameter setting.” libsvm’s default kernel is RBF; unless kernel=linear is explicitly set, this contradicts the stated “linear SVM.” This must be clarified, as it can materially affect results.
+- Reproducibility: Critical details are missing: vocabulary sizes, tokenization (especially for Japanese), normalization (document length, TF-IDF specifics across languages), stopping criterion and number of iterations, SVD implementation (full vs truncated), and runtime/memory. Table 1 and Figures 1–2 are not shown; numeric results cannot be verified.
+
+Conceptual and modeling issues
+- The claim that a fully observed document-term matrix is “naturally low-rank” is not accurate in general; empirical support for a low intrinsic rank assumption is needed (e.g., spectrum plots).
+- Nonnegativity plus l1: Treating l1 as smooth under nonnegativity sidesteps non-differentiability at zero; the practical effect (e.g., sparsity patterns, “sticking” at zero due to projection) is not analyzed.
+- No ablations: The paper lacks ablations isolating the contributions of (a) matrix completion vs direct LSI; (b) nonnegativity; (c) the l1 term; (d) the penalty on missing entries.
+
+Clarity and presentation
+- Numerous typographical/formatting issues impede readability, e.g., c(x,y)=12||x−y|| vs 1/2||x−y||^2; inconsistent spacing in min(2, 2/ρ); “documentterm”; inconsistent equation numbering and punctuation; Algorithm 1 has inconsistent numbering (“. gradient descent”, “2. shrink”).
+- References are incomplete (missing years/venues/pages) and contain venue typos (e.g., “ICCL-ACL”). Many entries lack sufficient bibliographic detail for readers to locate the works.
+
+Pros for acceptance
+- Simple, potentially useful idea of using matrix completion to densify cross-lingual co-occurrence before LSI.
+- Promising empirical gains and robustness w.r.t. number of parallel documents.
+
+Cons for acceptance
+- Convergence proof does not convincingly apply to the stated constrained objective; algorithmic correctness is questionable.
+- Potential transductive leakage and unclear hyperparameter selection protocol.
+- Missing strong baselines (e.g., SCL) and unclear fairness of implemented baselines.
+- Incomplete experimental and implementation details; no runtime analysis; absent ablations.
+- Numerous typos/formatting/reference issues.
+
+Questions for the authors
+1. Did you include unlabeled test documents in the representation learning step? If so, please report inductive (train-only) results for completeness.
+2. How was “linear SVM” configured in libsvm? Was kernel=linear set? What C value?
+3. Please provide complexity, iteration counts, and wall-clock times; which truncated SVD library was used?
+4. Can you provide ablations for ρ=0, µ=0, and without nonnegativity? What is the sensitivity to k?
+5. Why is the sequential application of shrinkage and nonnegativity projection guaranteed to minimize the sum of nuclear norm and indicator? Please provide a rigorous proof or use a splitting method with known convergence guarantees.
+
+Recommendation
+I recommend rejection in the current form. While the idea is appealing and results look promising, the optimization methodology lacks a rigorous justification for the stated objective, the evaluation protocol is unclear and potentially transductive, critical baselines are missing, and the paper has substantial clarity and formatting issues. With a corrected algorithmic treatment (or proof), a stricter and fully specified experimental protocol (including SCL and inductive results), ablations, and polished presentation, this work could become much stronger.

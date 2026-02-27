@@ -1,0 +1,61 @@
+### Review of "NONPARAMETRIC NEURAL NETWORKS"
+
+**1. Summary of Claims**
+
+This paper introduces a framework termed "nonparametric neural networks" to automatically determine the width of hidden layers during a single training run. The core idea is to start with a small network and dynamically add new units while simultaneously using a group-sparsity-inducing regularizer to prune unnecessary ones. The paper makes several key contributions:
+1.  It formalizes the problem of jointly optimizing over network architectures (layer widths) and weights.
+2.  It presents a theoretical result (Theorem 1) claiming that for fan-in or fan-out group regularizers (with p-norm, 1 ≤ p < ∞), the training objective achieves a global minimum at a finite network size.
+3.  It introduces a novel normalization layer, CapNorm, a variant of batch normalization designed to be compatible with the proposed regularizers.
+4.  It proposes a new optimization algorithm, AdaRad, which decouples the gradient update for each unit's fan-in into radial (magnitude) and angular (direction) components, applying adaptive normalization only to the angular component.
+5.  It provides empirical results on three datasets (MNIST, rectangles, convex) and a larger dataset (poker), suggesting the method can find reasonable architectures and, in some cases, outperform fixed-size networks found via random search.
+
+**2. Decision and Key Reasons**
+
+**Decision: Reject**
+
+My recommendation is to reject this paper. While the core concept of dynamically adjusting network width in a principled way is compelling and potentially impactful, the execution presented here is undermined by a substantial accumulation of methodological weaknesses, questionable design choices, a concerningly opaque theoretical proof, and numerous formatting and clarity issues. The experimental validation is not rigorous enough to overlook these flaws.
+
+**Key Reasons:**
+1.  **Methodological Flaws:** The proposed components (CapNorm, AdaRad, and the unit addition scheme) contain arbitrary design choices and are not sufficiently justified. The AdaRad optimizer, in particular, is complex and its claimed advantages over simpler alternatives are not convincingly demonstrated.
+2.  **Weak Experimental Protocol:** The experimental comparison is weakened by a subjective evaluation protocol (manually selecting a "typical representative") and potentially unfair baselines (e.g., omitting standard weight decay for parametric networks). The method's failure on the `convex` dataset is a significant, unexplained weakness.
+3.  **Insufficient Clarity and Rigor:** The paper suffers from a lack of clarity in several key explanations. Most critically, the theoretical proof in the appendix is excessively long, dense, and poorly formatted, making its verification nearly impossible. The presence of numerous typos and formatting errors throughout the manuscript further detracts from its scientific credibility.
+
+**3. Supporting Arguments**
+
+*   **On AdaRad:** The decomposition of the gradient into radial and angular components is an interesting idea, but its motivation and implementation are problematic.
+    *   The claim that standard optimizers like RMSprop cannot be used because they would scale the shrinkage term is unconvincing. One could simply apply the adaptive scaling to the loss gradient *before* adding the gradient of the regularizer.
+    *   The algorithm itself is complex. The rotation operation in line 16 is not precisely defined (e.g., is it a planar rotation in the 2D space spanned by the fan-in and the orthogonal component?). The caption notes this is the "most instructive (bot not fastest)" implementation, which is a red flag. The actual implementation used for experiments should be presented.
+    *   The computational cost comparison in Table 1 seems incomplete, as it omits the cost of vector decomposition and rotation, which may not be trivial compared to the element-wise operations of RMSprop.
+
+*   **On CapNorm:** The motivation to prevent the regularizer from being nullified is sound. However, the implementation is ad-hoc. Capping the standard deviation scaling at exactly 1 is an arbitrary choice without justification. The complete removal of the learnable affine transformation (gamma and beta) from standard batch normalization is a major modification that requires a more thorough ablation study. The explanation in Section 4.2 that CapNorm "filters the component of the gradient parallel to the fan-ins" is confusing and likely inaccurate; normalization layers operate on forward-pass activations, not directly on gradient components.
+
+*   **On the Unit Addition/Removal Scheme:** The "automatic" nature of the framework is undermined by the manually-tuned unit addition schedule (`ν` and `νfreq`). Adding one unit per layer per epoch is a rigid, dataset-dependent hyperparameter. A more compelling approach would adapt the addition rate based on training dynamics.
+
+*   **On the Theoretical Proof:** Theorem 1 provides an important sanity check, but its presentation is unacceptable. The proof in the appendix is a nearly impenetrable 7-page wall of text. It contains non-standard notation, typos, and leaps in logic that are difficult to follow. For instance, the transition from the differentiable case (Lemmas 2 & 3) to the directionally differentiable case (Lemma 4) is hand-waved as "a rather tedious extension... and not very instructive." This is insufficient for a core theoretical claim. The proof's correctness cannot be assumed, and its current state is a major liability for the paper.
+
+*   **On the Experiments:**
+    *   The selection of a single "typical representative" from 10 runs is not a rigorous scientific method. Standard practice is to report mean and standard deviation over all runs. This subjective choice casts doubt on the reported results.
+    *   The baselines for parametric networks are likely handicapped. The paper states that `λ=0` (no weight decay) was used because L2 regularization is "not compatible with regular (uncapped) batch normalization." This is false; weight decay is a standard and effective regularizer used alongside batch normalization. The observed overfitting of the parametric baseline in Figure 3(B) is likely a direct result of this omission, making the comparison favorable to the proposed, heavily regularized method.
+    *   The poor performance on the `convex` dataset is dismissed too quickly. A framework for automatic model selection should be robust; its failure on one of the three primary, relatively simple benchmarks is a significant concern that warrants deeper analysis, not just a passing mention.
+
+*   **On Formatting and Presentation:** The paper is riddled with minor errors that collectively indicate a lack of careful preparation.
+    *   The citation style is inconsistent and broken (e.g., `(e.g. Bergstra & Bengio (2012))` vs. `(Hutter et al., 2009)`). The reference list is malformed, with extraneous characters like `? \Q2016\E`.
+    *   Numerous typos are present, such as "bot not fastest" (Algorithm 1 caption) and `1|D|` instead of `1/|D|`.
+    *   The notation `[]i` is non-standard and hurts readability.
+
+**4. Additional Feedback for Improvement**
+
+*   **Simplify the Method:** The core idea is strong. Consider pairing the fan-in regularizer with a more standard optimizer (e.g., Adam) by correctly applying weight decay. This would isolate the contribution of the dynamic growth/pruning mechanism and make the method easier to adopt.
+*   **Strengthen Experimental Rigor:**
+    *   Report mean and standard deviation across multiple random seeds for all methods. Do not manually select "representatives."
+    *   Provide stronger, state-of-the-art baselines. For parametric networks, this means performing a hyperparameter search that includes the weight decay coefficient.
+    *   Test the framework on more modern and challenging benchmarks (e.g., CIFAR-10/100) where architectural choices have a more significant impact.
+    *   Conduct a thorough ablation study. What is the impact of CapNorm vs. standard BN? How does AdaRad compare to Adam with correctly applied weight decay? How sensitive is the final architecture to the unit addition schedule?
+*   **Rewrite the Appendix:** The proof of Theorem 1 needs to be completely rewritten for clarity, with standard notation and clear, well-motivated steps. If the proof is indeed correct and non-trivial, it should be presented as a significant contribution in its own right, which requires a commensurate level of clarity.
+
+**5. Questions for the Authors**
+
+1.  Could you provide a more precise mathematical justification for why the proposed AdaRad update rule is superior to a standard optimizer like Adam where the adaptive scaling is applied only to the loss gradient and not the (unscaled) gradient from the regularizer?
+2.  Can you justify the arbitrary threshold of `std dev > 1` in CapNorm? Have you experimented with other thresholds or a learnable threshold?
+3.  Why did you choose not to use weight decay for the parametric baselines trained with batch normalization? Given that this is standard practice, how can you be sure that the superior performance of your method isn't simply an artifact of the baseline models being under-regularized?
+4.  What is your hypothesis for why the method performed so poorly on the `convex` dataset compared to parametric networks of the same size? Does this suggest a fundamental limitation of the proposed optimization process?

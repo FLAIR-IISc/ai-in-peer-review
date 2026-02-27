@@ -1,0 +1,62 @@
+Summary
+This paper proposes an alternating optimization framework that couples direct trajectory optimization (Contact-Invariant Optimization, CIO) with supervised policy learning to produce interactive, real-time controllers for diverse 3D characters (swimmer, bird, biped, quadrupeds). The method injects noise into sensory inputs and trains the policy to match linearized, feedback-corrected actions derived from the optimizer. A key technical component is a perturbation-based method to extract local feedback gains from a direct trajectory optimization (reusing the Gauss-Newton inverse) without a separate LQG pass. Training is distributed: multiple nodes generate and refine trajectories asynchronously, while a GPU trains a feedforward NN with noise on hidden activations. At test time, the policy outputs desired velocities, memory derivatives, and contact forces; the next state is computed by solving a short-horizon (T=1) constrained optimization enforcing soft dynamics/contact constraints. The paper claims stable, realistic 3D locomotion across morphologies and improved performance over training on static trajectories or without noise.
+
+Relation to prior work
+The approach is closely related to Guided Policy Search / trajectory-optimization-supervised learning (e.g., Levine & Koltun 2014; Mordatch & Todorov 2014), which the paper cites. The main claimed differentiators are: (i) 3D, multicontact locomotion across diverse morphologies, (ii) training policies with noisy inputs and linearized feedback targets, and (iii) a new way to compute feedback gains from direct trajectory optimization. The framing is within a well-established line of work; stronger, more systematic comparisons to GPS variants, TRPO, or model-predictive control baselines would clarify novelty.
+
+Strengths
+- Ambitious and practically relevant goal: unified interactive control across heterogeneous 3D characters.
+- Sensible alternating optimization that leverages strong trajectory optimizers for data generation and NN for real-time execution.
+- Principled noise-injection in inputs and hidden activations to improve robustness; feedback-corrected targets are a good idea.
+- A potentially useful trick for extracting stabilizing gains directly from the Gauss-Newton structures of CIO.
+- Distributed, asynchronous training architecture demonstrates scalability, at least conceptually.
+
+Weaknesses and concerns (technical, empirical, and presentation)
+Quality
+- The derivation of the feedback gains (Sec. 3.2) is underspecified. Dimensions and assumptions are not stated; invertibility and conditioning of CXX and (sX C−1XX s>X + λ I) are not discussed. In practice, forming and inverting CXX for long-horizon trajectories is prohibitive; the paper implies access to C−1XX from Newton (Eq. 8), but most implementations avoid explicit inverses and rely on sparse/structured solvers or CG. How is this realized here? Numerical stability and regularization are not evaluated; the claim of “better-conditioned gains” is not substantiated experimentally.
+- The Newton update (Eq. 8) is presented as X* = X* − C−1XX CX with no step-size, line search, or trust-region discussion; Gauss-Newton on such problems typically requires damping. Also, φX is computed by finite differences—this can make CXX ill-conditioned; no details on differencing step sizes or sparsity are given.
+- The execution step (T=1 optimization, Sec. 7) relies on soft dynamics and may include root forces. This undermines the claim of “physical realism” and precludes robotics deployment. No quantitative measure of dynamics violation or residual forces is reported.
+- No quantitative results are included in the manuscript text (only references to figures/tables not shown and a video). Claims such as “two orders of magnitude” improvements (Sec. 8.1) are unverifiable without numbers and error bars. No roll-out robustness tests, perturbation experiments, or timing benchmarks are provided (policy inference vs. per-step optimization time).
+- Baselines are very weak: comparisons only to “no joint” and “no noise.” There is no comparison to: (i) MPC with the same costs and horizon; (ii) GPS/iLQG/LQR-FLM-style policy search; (iii) TRPO or other modern continuous-control RL; (iv) behavioral cloning with DAgger. The statement that MPC yields “non-cyclical” trajectories is qualitative and shown only for one character.
+- The claimed scalability (30 optimization nodes per GPU, 10k epochs) lacks convergence plots or wall-clock breakdowns; Sec. 8.1 says “we still observe convergence” but provides no evidence.
+
+Clarity
+- Notation is often ambiguous. The use of bars for iterates conflicts with using bar on both sides of optimization statements (Algorithm 1). “argmin∗X” is unexplained. The norm in Eq. (3) lacks component-wise weighting despite the action combining velocities, memory rates, and forces with different units.
+- The “recurrent memory state r” is not clearly described. The network itself appears purely feedforward, with r as an auxiliary state integrated via ṙ. References to “stabilize recurrent behaviour” and spectral radius initialization “just above 1” (a concept for recurrent matrices) are confusing for a feedforward NN.
+- Essential training details are missing: normalization/standardization of inputs/targets, learning rates, batch sizes, optimizer choices, stopping criteria, and horizon lengths (T) for trajectories/segments.
+- Figures and tables are referenced but not present in the text, making it hard to assess results.
+
+Originality
+- Combining direct trajectory optimization with policy regression is not new; the novelty hinges on the feedback-gain extraction from CIO and the particular stochastic alternating scheme. These contributions are interesting but under-validated.
+
+Significance
+- If substantiated, interactive controllers for diverse 3D morphologies would be impactful for graphics/animation. For ML/control, the lack of rigorous quantitative evaluation and strong baselines limits the broader significance.
+
+Formatting and minor issues
+- Numerous typos and grammatical errors: “unity”→“unify”; “changed changed”; “biped location”→“locomotion”; inconsistent section references (“sec 3” vs “section 3”).
+- Incomplete bibliographic entries (many references lack years, venues, page numbers).
+- In Sec. 6, claims of linear scaling lack experimental backing.
+- Sec. 8: hyperparameters reported without units or normalization context (σε=1e−2, σγ=1e−2, α=10, λ=10^2, η=1e−2).
+- Eq. (7)–(8): writing X* on both sides of the update is confusing.
+
+Questions for the authors
+1. How do you practically compute and apply C−1XX for long trajectories? Do you exploit sparsity or use iterative solves? Please report conditioning, damping, and runtime.
+2. Provide quantitative metrics: task error, energy, dynamics constraint violation, fall rate, and robustness under perturbations across seeds; include timing (per-step optimization and NN inference).
+3. Compare against strong baselines (MPC with identical costs, GPS/iLQG/LQR-FLM, TRPO). Include DAgger-style improvements for static datasets.
+4. Clarify the network architecture: is it strictly feedforward? Why is “spectral radius” meaningful here? How is r used and initialized at test time?
+5. Are root forces significant at execution? Can you enforce hard constraints and still run real time?
+6. Provide convergence plots for Algorithm 1 and ablations on λ for feedback gains.
+
+Pros
+- Ambitious problem; appealing integration of trajectory optimization and policy learning.
+- Potentially useful method to extract stabilizing gains from direct trajectory optimization.
+- Demonstrations across multiple morphologies suggest generality.
+
+Cons
+- Insufficient quantitative evaluation and weak baselines.
+- Key technical components (gain computation, Newton solve) under-specified and potentially impractical.
+- Reliance on soft dynamics and root forces undermines claims of realism/transfer.
+- Clarity and reproducibility issues; missing details and figures; many presentation errors.
+
+Recommendation: Reject
+Confidence: High. The ideas are promising, but the paper, as written, falls short on rigor, evaluation, and clarity. Strengthening the empirical comparisons, clarifying algorithmic details, and tightening the presentation would make this a much stronger submission.

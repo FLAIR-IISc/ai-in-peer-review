@@ -1,0 +1,53 @@
+Summary and relation to prior work:
+The paper introduces the Locally Adaptive Normal Distribution (LAND), which replaces the Euclidean metric in the multivariate normal with a smoothly varying Riemannian metric learned from data. The metric is defined via the inverse of a local diagonal covariance estimated with Gaussian kernel weights, thereby favoring regions of high density and inducing geodesics that track the data manifold. The density is the Riemannian normal (Pennec, 2006) with parameters (µ, Σ), while the metric is nonparametric. Because the normalization constant C(µ, Σ) is not closed form for learned manifolds, the authors propose a Monte Carlo estimate performed on the tangent space at µ using exponential maps, and derive gradients for maximum likelihood estimation of µ and Σ. They further extend to mixtures and provide an EM algorithm. Experiments on synthetic data and EEG sleep staging show improved fit and clustering over GMMs and least-squares (intrinsic) estimators.
+
+This connects statistics on known manifolds (e.g., Pennec; Zhang & Fletcher’s PPGA) with manifold learning: instead of embedding, the metric is learned directly in the ambient space (cf. Hauberg et al.; Tosi et al.). Related work on mixtures on known manifolds (Simo-Serra et al.; Straub et al.) does not learn the manifold or properly handle normalization across components.
+
+Strengths:
+- Conceptually elegant unification: parametric Riemannian normal with a learned, data-adaptive metric; inherits a maximum-entropy characterization conditional on the metric.
+- Practical algorithm: combining tangent-space Monte Carlo for C(µ, Σ) with gradient-based ML; IVP-based exponential maps scale better than BVP-based logarithms.
+- Empirical evidence that LAND avoids the “intrinsic mean in low-density regions” pathology and captures non-ellipsoidal structure, yielding improved clustering over GMMs on synthetic and EEG.
+- Clear articulation of limitations (e.g., metric not affine-invariant, diagonal local covariance) and promising applications (mixtures, generalization of generative models).
+
+Weaknesses and major concerns:
+- Change-of-variables/measure issue in the normalization constant: Eq. (9) rewrites the manifold integral as an integral over the tangent space with weight m(µ, v) = sqrt|M(Expµ(v))|. In general, when using x = Expµ(v), the Riemannian volume element transforms as dM(x) = sqrt|M(x)| |det dExpµ(v)| dv. The |det dExpµ(v)| (volume density/Jacobian of the exponential map) is not present in Eq. (9). Unless the authors can justify that in their setting this determinant equals one (which is generally not true except at v=0 in normal coordinates) or that their m(µ, v) implicitly includes it, the estimator of C(µ, Σ) and the ensuing gradients appear biased. This is central to the correctness of inference.
+- Gradient with respect to µ (Eq. 12): The expression involves sample averages of m(µ, v_s) v_s, which would follow if ∇µ log C(µ, Σ) = (Z/C) E[m(µ, V) V] under V ~ N(0, Σ). This identity is not derived and seems inconsistent with the missing Jacobian term and the actual µ-dependence entering through Expµ in m. A careful derivation (or correction) is needed; otherwise the optimization direction may be incorrect.
+- Injectivity/cut locus assumptions: The paper assumes D(µ) = RD and uses the exponential map over the full tangent space. For learned metrics on RD there is no guarantee of global injectivity of Expµ; ignoring cut loci can double-count volume and invalidate the change of variables. At least conditions, diagnostics, or practical safeguards should be discussed.
+- Evaluation methodology: On synthetic data, model quality is measured by sampling from the fitted model and evaluating the “mean negative log-likelihood of the true generative distribution” on these samples. This estimates E_model[−log q_true], not the more standard test NLL E_true[−log p_model]. The latter would require computing Logµ(x) and C(µ, Σ) for test points; while costly, it is the principled metric and essential to demonstrate a density model’s quality. The current protocol can be misleading.
+- Scalability and complexity: Each evaluation of m(µ, v) requires an IVP geodesic solve and repeated metric/derivative evaluations, where the metric itself is an N-sum over data with Gaussian kernels. For mixtures, C(µ_k, Σ_k) must be recomputed per component and iteration. There is no complexity analysis, acceleration (e.g., subsampling, kd-trees, Nystrom), or runtime reporting. The method may be prohibitive for large N and D.
+- Hyperparameter selection: σ is critical and selected by hand; in EEG the “best LAND over σ ∈ [0.5, 1.5]” is reported, apparently chosen to maximize F-measure (which uses labels), potentially overstating performance. A likelihood-based selection or unsupervised criterion (AIC/BIC) should be used, and the same tuning rigor applied to baselines.
+- Modeling limitations: The local covariance is diagonal and not invariant to linear transforms, limiting applicability when local anisotropy/correlations matter. This is acknowledged but weakens claims of generality.
+
+Clarity:
+- Generally well written and motivated, with helpful intuition about geodesics and the role of the metric. However, critical derivations (tangent-space integral, gradients) are terse and rely on supplements; given their centrality, more detail is needed in the main paper. Some references are incomplete/broken.
+
+Originality:
+- The combination of a learned Riemannian metric with Riemannian normal modeling and ML estimation of (µ, Σ) is novel and interesting. The mixture extension is straightforward but useful.
+
+Significance:
+- If the measure and gradient issues are resolved, LAND could be a useful primitive for manifold-aware generative modeling and clustering. Current empirical scope is limited (one real dataset, no comparison to other nonlinear density models such as mixtures of factor analyzers, KDE with geodesic distances, or probabilistic manifold models), and computational demands may limit impact.
+
+Suggestions for improvement:
+- Provide a correct and rigorous derivation of Eq. (9). If an approximation is used (e.g., ignoring |det dExp|), state it explicitly, quantify its error, and discuss when it is acceptable. Ideally include the volume density term (can be computed from Jacobi fields or approximated).
+- Re-derive ∇µ log C with the correct measure and show how the term involving v arises. If using common random numbers/reparameterization for Monte Carlo gradients, describe variance reduction strategies.
+- Discuss injectivity radius and cut-locus issues; restrict integration to a domain where Expµ is injective or include a correction, and explain practical checks.
+- Report computational complexity and wall-clock times; propose and evaluate accelerations (e.g., sparse neighborhoods for metric, caching along geodesics, mini-batch Monte Carlo).
+- Use standard evaluation: test NLL on held-out data (even if expensive), and unsupervised model selection for σ and K (likelihood, AIC/BIC) applied fairly across methods.
+- Add comparisons to stronger baselines: mixtures of PPCA/factor analyzers, kernel density estimators with adaptive bandwidth, or graph-based geodesic KDE.
+- Consider learning full local covariance (or a low-rank-plus-diagonal variant) and/or enforcing affine-invariance via preprocessing; at least study sensitivity to linear transforms.
+
+Minor comments:
+- Several references are incomplete/malformed.
+- Clarify initialization of µ and Σ and sensitivity to conditioning.
+- State the regularization ρ and its effect.
+
+Pros for acceptance:
+- Conceptually appealing, well-motivated extension of Gaussian modeling to learned manifolds.
+- Promising empirical results and a practical algorithmic framework.
+
+Cons for acceptance:
+- Potentially incorrect/brittle treatment of the normalization integral and gradients.
+- Nonstandard evaluation and limited empirical scope.
+- Scalability and hyperparameter selection unresolved.
+
+Overall: Interesting idea with potential, but I have serious concerns about the correctness of the tangent-space integral and gradient derivations and about the evaluation protocol. I encourage the authors to address these issues; doing so would significantly strengthen the paper.

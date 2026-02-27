@@ -1,0 +1,392 @@
+{
+  "name" : "90599c8fdd2f6e7a03ad173e2f535751.pdf",
+  "metadata" : {
+    "source" : "CRF",
+    "title" : "Regret Minimization in MDPs with Options without Prior Knowledge",
+    "authors" : [ "Matteo Pirotta" ],
+    "emails" : [ "ronan.fruit@inria.fr", "matteo.pirotta@inria.fr", "alessandro.lazaric@inria.fr", "ebrun@cs.stanford.edu" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Tractable learning of how to make good decisions in complex domains over many time steps almost definitely requires some form of hierarchical reasoning. One powerful and popular framework for incorporating temporally-extended actions in the context of reinforcement learning is the options framework [1]. Creating and leveraging options has been the subject of many papers over the last two decades (see e.g., [2, 3, 4, 5, 6, 7, 8]) and it has been of particular interest recently in combination with deep reinforcement learning, with a number of impressive empirical successes (see e.g., [9] for an application to Minecraft). Intuitively (and empirically) temporal abstraction can help speed up learning (reduce the amount of experience needed to learn a good policy) by shaping the actions selected towards more promising sequences of actions [10], and it can reduce planning computation through reducing the need to evaluate over all possible actions (see e.g., Mann and Mannor [11]). However, incorporating options does not always improve learning efficiency as shown by Jong et al. [12]. Intuitively, limiting action selection only to temporally-extended options might hamper the exploration of the environment by restricting the policy space. Therefore, we argue that in addition to the exciting work being done in heuristic and algorithmic approaches that leverage and/or dynamically discover options, it is important to build a formal understanding of how and when options may help or hurt reinforcement learning performance, and that such insights may also help inform empirically motivated options-RL research.\n31st Conference on Neural Information Processing Systems (NIPS 2017), Long Beach, CA, USA.\nThere has been fairly limited work on formal performance bounds of RL with options. Brunskill and Li [13] derived sample complexity bounds for an RMAX-like exploration-exploitation algorithm for semi-Markov decision processes (SMDPs). While MDPs with options can be mapped to SMDPs, their analysis cannot be immediately translated into the PAC-MDP sample complexity of learning with options, which makes it harder to evaluate their potential benefit. Fruit and Lazaric [14] analyzed an SMDP variant of UCRL [15] showing how its regret can be mapped to the regret of learning in the original MDP with options. The resulting analysis explicitly showed how options can be beneficial whenever the navigability among the states in the original MDP is not compromised (i.e., the MDP diameter is not significantly increased), the level of temporal abstraction is high (i.e., options have long durations, thus reducing the number of decision steps), and the optimal policy with options performs as well as the optimal policy using primitive actions. While this result makes explicit the impact of options on the learning performance, the proposed algorithm (UCRL-SMDP, or SUCRL in short) needs prior knowledge on the parameters of the distributions of cumulative rewards and durations of each option to construct confidence intervals and compute optimistic solutions. In practice this is often a strong requirement and any incorrect parametrization (e.g., loose upper-bounds on the true parameters) directly translates into a poorer regret performance. Furthermore, even if a hand-designed set of options may come with accurate estimates of their parameters, this would not be possible for automatically generated options, which are of increasing interest to the deep RL community. Finally, this prior work views each option as a distinct and atomic macro-action, thus losing the potential benefit of considering the inner structure and the interaction between of options, which could be used to significantly improve sample efficiency.\nIn this paper we remove the limitations of prior theoretical analyses. In particular, we combine the semi-Markov decision process view on options and the intrinsic MDP structure underlying their execution to achieve temporal abstraction without relying on parameters that are typically unknown. We introduce a transformation mapping each option to an associated irreducible Markov chain and we show that optimistic policies can be computed using only the stationary distributions of the irreducible chains and the SMDP dynamics (i.e., state to state transition probabilities through options). This approach does not need to explicitly estimate cumulative rewards and duration of options and their confidence intervals. We propose two alternative implementations of a general algorithm (FREE-SUCRL, or FSUCRL in short) that differs in whether the stationary distribution of the options’ irreducible Markov chains and its confidence intervals are computed explicitly or implicitly through an ad-hoc extended value iteration algorithm. We derive regret bounds for FSUCRL that match the regret of SUCRL up to an additional term accounting for the complexity of estimating the stationary distribution of an irreducible Markov chain starting from its transition matrix. This additional regret is the, possibly unavoidable, cost to pay for not having prior knowledge on options. We further the theoretical findings with a series of simple grid-world experiments where we compare FSUCRL to SUCRL and UCRL (i.e., learning without options)."
+    }, {
+      "heading" : "2 Preliminaries",
+      "text" : "Learning in MDPs with options. A finite MDP is a tuple M = { S,A, p, r } where S is the set of states, A is the set of actions, p(s′|s, a) is the probability of transition from state s to state s′ through action a, r(s, a) is the random reward associated to (s, a) with expectation r(s, a). A deterministic policy π : S → A maps states to actions. We define an option as a tuple o = { so, βo, πo } where so ∈ S is the state where the option can be initiated1, πo : S → A is the associated stationary Markov policy, and βo : S → [0, 1] is the probability of termination. As proved by Sutton et al. [1], when primitive actions are replaced by a set of options O, the resulting decision process is a semi-Markov decision processes (SMDP) MO = { SO,Os, pO, RO, τO } where SO ⊆ S is the set of states where options can start and end, Os is the set of options available at state s, pO(s′|s, o) is the probability of terminating in s′ when starting o from s, RO(s, o) is the (random) cumulative reward obtained by executing option o from state s until interruption at s′ with expectation RO(s, o), and τO(s, o) is the duration (i.e., number of actions executed to go from s to s′ by following πo) with expectation τ(s, o).2 Throughout the rest of the paper, we assume that options are well defined.\n1Restricting the standard initial set to one state so is without loss of generality (see App. A). 2Notice that RO(s, o) (similarly for τO) is well defined only when s = so, that is when o ∈ Os.\nAssumption 1. The set of options O is admissible, that is 1) all options terminate in finite time with probability 1, 2), in all possible terminal states there exists at least one option that can start, i.e., ∪o∈O{s : βo(s) > 0} ⊆ ∪o∈O{so}, 3) the resulting SMDP MO is communicating.\nLem. 3 in [14] shows that under Asm. 1 the family of SMDPs induced by using options in MDPs is such that for any option o, the distributions of the cumulative reward and the duration are subExponential with bounded parameters (σr(o), br(o)) and (στ (o), bτ (o)) respectively. The maximal expected duration is denoted by τmax = maxs,o {τO(s, o)}. Let t denote primitive action steps and let i index decision steps at option level. The number of decision steps up to (primitive) step t is N(t) = max { n : Tn ≤ t } , where Tn = ∑n i=1 τi is the number of primitive steps executed over n decision steps and τi is the (random) number of steps before the termination of the option chosen at step i. Under Asm. 1 there exists a policy π∗ : S → O over options that achieves the largest gain (per-step reward)\nρ∗O def = max π ρπO = max π lim t→+∞ Eπ [∑N(t) i=1 Ri t ] , (1)\nwhere Ri is the reward cumulated by the option executed at step i. The optimal gain also satisfies the optimality equation of an equivalent MDP obtained by data-transformation (Lem. 2 in [16]), i.e.,\n∀s ∈ S ρ∗O = max o∈Os\n{ RO(s, o)\nτO(s, o) +\n1\nτO(s, o) (∑ s′∈S pO(s ′|s, o)u∗O(s′)− u∗O(s) )} , (2)\nwhere u∗O is the optimal bias and Os is the set of options than can be started in s (i.e., o ∈ Os ⇔ so = s). In the following sections, we drop the dependency on the option set O from all previous terms whenever clear from the context. Given the optimal average reward ρ∗O, we evaluate the performance of a learning algorithm A by its cumulative (SMDP) regret over n decision steps as ∆(A, n) = (∑n i=1 τi ) ρ∗O − ∑n i=1Ri. In [14] it is shown that ∆(A, n) is equal to the MDP regret up to a linear “approximation” regret accounting for the difference between the optimal gains of M on primitive actions and the associated SMDP MO."
+    }, {
+      "heading" : "3 Parameter-free SUCRL for Learning with Options",
+      "text" : "Optimism in SUCRL. At each episode, SUCRL runs a variant of extended value iteration (EVI) [17] to solve the “optimistic” version of the data-transformation optimality equation in Eq. 2, i.e.,\nρ̃∗ = max o∈Os { max R̃,τ̃ { R̃(s, o) τ̃(s, o) + 1 τ̃(s, o) ( max p̃ {∑ s′∈S p̃(s′|s, o)ũ∗(s′) } − ũ∗(s) )}} , (3)\nwhere R̃ and τ̃ are the vectors of cumulative rewards and durations for all state-option pairs and they belong to confidence intervals constructed using parameters (σr(o), br(o)) and (στ (o), bτ (o)) (see Sect.3 in [14] for the exact expression). Similarly, confidence intervals need to be computed for p̃, but this does not require any prior knowledge on the SMDP since the transition probabilities naturally belong to the simplex over states. As a result, without any prior knowledge, such confidence intervals cannot be directly constructed and SUCRL cannot be run. In the following, we see how constructing an irreducible Markov chain (MC) associated to each option avoids this problem."
+    }, {
+      "heading" : "3.1 Irreducible Markov Chains Associated to Options",
+      "text" : "Options as absorbing Markov chains. A natural way to address SUCRL’s limitations is to avoid considering options as atomic operations (as in SMDPs) but take into consideration their inner (MDP) structure. Since options terminate in finite time (Asm. 1), they can be seen as an absorbing Markov reward process whose state space contains all states that are reachable by the option and where option terminal states are absorbing states of the MC (see Fig. 1). More formally, for any option o the set of inner states So includes the initial state so and all states s with βo(s) < 1 that are reachable by executing πo from so (e.g., So = {s0, s1} in Fig. 1), while the set of absorbing states Sabso includes all states with βo(s) > 0 (e.g., Sabso = {s0, s1, s2} in Fig. 1). The absorbing MC associated to o is\ncharacterized by a transition matrix Po of dimension (|So|+ |Sabso |)× (|So|+ |Sabso |) defined as3\nPo = [ Qo Vo 0 I ] with Qo(s, s ′) = (1− βo(s′))p(s′|s, πo(s)) for any s, s′ ∈ So\nVo(s, s ′) = βo(s ′)p(s′|s, πo(s)) for any s ∈ So, s′ ∈ Sabso ,\nwhere Qo is the transition matrix between inner states (dim. |So| × |So|), Vo is the transition matrix from inner states to absorbing states (dim. |So| × |Sabso |), and I is the identity matrix (dim. |Sabso | × |Sabso |). As proved in Lem. 3 in [14], the expected cumulative rewards R(s, o), the duration τ(s, o), and the sub-Exponential parameters (σr(o), br(o)) and (στ (o), bτ (o)) are directly related to the transition matrices Qo and Vo of the associated absorbing chain Po. This suggests that, given an estimate of Po, we could directly derive the corresponding estimates ofR(s, o) and τ(s, o). Following this idea, we could “propagate” confidence intervals on the entries of Po to obtain confidence intervals on rewards and duration estimates without any prior knowledge on their parameters and thus solve Eq. 3 without any prior knowledge. Nonetheless, intervals on Po do not necessarily translate into compact bounds for R and τ . For example, if the value Ṽo = 0 belongs to the confidence interval of P̃o (no state in Sabso can be reached), the corresponding optimistic estimates R̃(s, o) and τ̃(s, o) are unbounded and Eq. 3 is ill-defined.\nOptions as irreducible Markov chains. We first notice from Eq. 2 that computing the optimal policy only requires computing the ratio R(s, o)/τ(s, o) and the inverse 1/τ(s, o). Starting from Po, we can construct an irreducible MC whose stationary distribution is directly related to these terms. We proceed as illustrated in Fig. 1: all terminal states are “merged” together and their transitions are “redirected” to the initial state so. More formally, let 1 be the all-one vector of dimension |Sabso |, then vo = Vo1 ∈ R|So| contains the cumulative probability to transition from an inner state to any terminal state. Then the chain Po can be transformed into a MC with transition matrix P ′o = [vo Q ′ o] ∈ RSo×So , where Q′o contains all but the first column of Qo. P ′o is now an irreducible MC as any state can be reached starting from any other state and thus it admits a unique stationary distribution µo. In order to relate µo to the optimality equation in Eq. 2, we need an additional assumption on the options.\nAssumption 2. For any option o ∈ O, the starting state so is also a terminal state (i.e., βo (so) = 1) and any state s′ ∈ S with βo(s′) < 1 is an inner state (i.e., s′ ∈ So).\n3In the following we only focus on the dynamics of the process; similar definitions apply for the rewards.\nWhile the first part has a very minor impact on the definition of O, the second part of the assumption guarantees that options are “well designed” as it requires the termination condition to be coherent with the true inner states of the option, so that if βo(s′) < 1 then s′ should be indeed reachable by the option. Further discussion about Asm. 2 is reported in App. A. We then obtain the following property.\nLemma 1. Under Asm. 2, let µo ∈ [0, 1]So be the unique stationary distribution of the irreducible MC P ′o associated to option o, then 4\n∀s ∈ S, ∀o ∈ Os, 1\nτ(s, o) = µo(s) and\nR(s, o) τ(s, o) = ∑ s′∈So r(s′, πo(s ′))µo(s ′). (4)\nThis lemma illustrates the relationship between the stationary distribution of P ′o and the key terms in Eq. 2.5 As a result, we can apply Lem. 1 to Eq. 3 and obtain the optimistic optimality equation\n∀s ∈ S ρ̃∗ = max o∈Os { max µ̃o,r̃o { ∑ s′∈So r̃o (s ′) µ̃o(s ′) + µ̃o(s) ( max b̃o { b̃ᵀoũ ∗}− ũ∗(s))}}, (5)\nwhere r̃o (s′) = r̃ (s′, πo(s′)) and b̃o = (p̃(s′|s, o))s′∈S . Unlike in the absorbing MC case, where compact confidence sets for Po may lead to unbounded optimistic estimates for R̃ and τ̃ , in this formulation µo(s) can be equal to 0 (i.e., infinite duration and cumulative reward) without compromising the solution of Eq. 5. Furthermore, estimating µo implicitly leverages over the correlation between cumulative reward and duration, which is ignored when estimating R(s, o) and τ(s, o) separately. Finally, we prove the following result.\nLemma 2. Let r̃o ∈ R, b̃o ∈ P , and µ̃o ∈ M, with R, P ,M compact sets containing the true parameters ro, bo and µo, then the optimality equation in Eq. 5 always admits a unique solution ρ̃∗ and ρ̃∗ ≥ ρ∗ (i.e., the solution of Eq. 5 is an optimistic gain).\nNow, we need to provide an explicit algorithm to compute the optimistic optimal gain ρ̃∗ of Eq. 5 and its associated optimistic policy. In the next section, we introduce two alternative algorithms that are guaranteed to compute an -optimistic policy."
+    }, {
+      "heading" : "3.2 SUCRL with Irreducible Markov Chains",
+      "text" : "The structure of the UCRL-like algorithm for learning with options but with no prior knowledge on distribution parameters (called FREE-SUCRL, or FSUCRL) is reported in Fig. 2. Unlike SUCRL we do not directly estimate the expected cumulative reward and duration of options but we estimate the SMDP transition probabilities p(s′|s, o), the irreducible MC P ′o associated to each option, and the state-action reward r(s, a). For all these terms we can compute confidence intervals (Hoeffding and empirical Bernstein) without any prior knowledge as\n4Notice that since option o is defined in s, then s = so. Furthermore r is the MDP expected reward. 5Lem. 4 in App. D extends this result by giving an interpretation of µo(s′), ∀s′ ∈ So.\n∣∣r(s, a)− r̂k(s, a)∣∣ ≤ βrk(s, a) ∝ rmax √ log(SAtk/δ)\nNk(s, a) , (6a)\n∣∣p(s′|s, o)− p̂k(s′|s, o)∣∣ ≤ βpk(s, o, s′) ∝ √ 2p̂k(s′|s, o) ( 1− p̂k(s′|s, o))ctk,δ Nk(s, o) + 7ctk,δ 3Nk(s, o) , (6b)\n∣∣P ′o(s, s′)− P̂ ′o,k(s, s′)∣∣ ≤ βPk (s, o, s′) ∝ √ 2P̂ ′o,k(s, s ′) ( 1− P̂ ′o,k(s, s′))dtk,δ\nNk(s, πo(s)) + 7dtk,δ 3Nk(s, πo(s)) , (6c)\nwhere Nk(s, a) (resp. Nk(s, o)) is the number of samples collected at state-action s, a (resp. stateoption s, o) up to episode k, Eq. 6a coincides with the one used in UCRL, in Eq. 6b s = so and s′ ∈ S, and in Eq. 6c s, s′ ∈ So. Finally, we set ctk,δ = O (log (SOtk)/δ)) and dtk,δ = O (log (|So| log(tk)/δ)) [18, Eq. 31]. To obtain an actual implementation of the algorithm reported on Fig. 2 we need to define a procedure to compute an approximation of Eq. 5 (step 3). Similar to UCRL and SUCRL, we define an EVI algorithm starting from a function u0(s) = 0 and computing at each iteration j\nuj+1(s)= max o∈Os { max µ̃o {∑ s′∈So r̃o (s ′) µ̃o(s ′) + µ̃o(s) ( max b̃o { b̃ᵀouj } − uj(s) )}} +uj(s), (7)\nwhere r̃o(s′) is the optimistic reward (i.e., estimate plus the confidence bound of Eq. 6a) and the optimistic transition probability vector b̃o is computed using the algorithm introduced in [19, App. A] for Bernstein bound as in Eqs. 6b, 6c or in [15, Fig. 2] for Hoeffding bound (see App. B).\nDepending on whether confidence intervals for µo are computed explicitly or implicitly we can define two alternative implementations that we present below.\nExplicit confidence intervals. Given the estimate P̂ ′o, let µ̂o be the solution of µ̂ᵀo = µ̂ᵀoP̂ ′o under constraint µ̂ᵀoe = e. Such a µ̂o always exists and is unique since P̂ ′ o is computed after terminating the option at least once and is thus irreducible. The perturbation analysis in [20] can be applied to derive the confidence interval\n‖µo − µ̂o‖1 ≤ βµk (o) := κ̂o,min‖P ′ o − P̂ ′o‖∞,1, (8)\nwhere ‖·‖∞,1 is the maximum of the `1-norm of the rows of the transition matrix, κ̂o,min is the smallest condition number6 for the `1-norm of µo. Let ζo ∈ R|So| be such that ζo(so) = r̃o(so) + maxb̃o { b̃ᵀouj } − uj(so) and ζo(s) = r̃o(s), then the maximum over µ̃o in Eq. 7 has the same form as the innermost maximum over bo (with Hoeffding bound) and thus we can directly apply Alg. [15, Fig. 2] with parameters µ̂o, β µ k (o), and states So ordered descendingly according to ζo. The resulting value is then directly plugged into Eq. 7 and uj+1 is computed. We refer to this algorithm as FSUCRLV1.\nNested extended value iteration. An alternative approach builds on the observation that the maximum over µo in Eq. 7 can be seen as the optimization of the average reward (gain)\nρ̃∗o(uj) = max µ̃o {∑ s′∈So ζo(s ′)µ̃o(s ′) } , (9)\nwhere ζo is defined as above. Eq. 9 is indeed the optimal gain of a bounded-parameter MDP with state space So, an action space composed of the option action (i.e., πo(s)), and transitions P̃ ′o in the confidence intervals 7 of Eq. 6c, and thus we can write its optimality equation\nρ̃∗o(uj) = max P̃ ′o\n{ ζo(s) +\n∑ s′ P̃ ′o(s, s ′)w̃∗o(s ′) } − w̃∗o(s), (10)\n6The provably smallest condition number (refer to [21, Th. 2.3]) is the one provided by Seneta [22]: κ̂o,min = τ1(Ẑo) = maxi,j 1 2 ‖Ẑo(i, :)− Ẑo(j, :)‖1 where Ẑo(i, :) is the i-th row of Ẑo = (I− P̂ ′o+1ᵀµ̂o)−1.\n7The confidence intervals on P̃ ′o can never exclude a non-zero transition between any two states of So. Therefore, the corresponding bounded-parameter MDP is always communicating and ρ∗o(uj) is state-independent.\nwhere w̃∗o is an optimal bias. For any input function v we can compute ρ ∗ o(v) by using EVI on the bounded-parameter MDP, thus avoiding to explicitly construct the confidence intervals of µ̃o. As a result, we obtain two nested EVI algorithms where, starting from an initial bias function v0(s) = 0, 8 at any iteration j we set the bias function of the inner EVI to woj,0(s) = 0 and we compute (see App. C.3 for the general EVI for bounded-parameter MDPs and its guarantees)\nwoj,l+1(s ′) = max\nP̃o\n{ ζo(s) + P̃o(·|s′)ᵀwoj,l } , (11)\nuntil the stopping condition loj = inf{l ≥ 0 : sp{woj,l+1−woj,l} ≤ εj} is met, where (εj)j≥0 is a vanishing sequence. As woj,l+1 − woj,l converges to ρ∗o(vj) with l, the outer EVI becomes\nvj+1(s) = max o∈Os\n{ g ( woj,loj+1 −w o j,loj )} + vj(s), (12)\nwhere g : v 7→ 12 (max{v}+ min{v}). In App. C.4 we show that this nested scheme, that we call FSUCRLV2, converges to the solution of Eq. 5. Furthermore, if the algorithm is stopped when sp {vj+1 − vj}+ εj ≤ ε then |ρ̃∗ − g(vj+1 − vj)| ≤ ε/2. One of the interesting features of this algorithm is its hierarchical structure. Nested EVI is operating on two different time scales by iteratively considering every option as an independent optimistic planning sub-problem (EVI of Eq. 11) and gathering all the results into a higher level planning problem (EVI of Eq. 12). This idea is at the core of the hierarchical approach in RL, but it is not always present in the algorithmic structure, while nested EVI naturally arises from decomposing Eq. 7 in two value iteration algorithms. It is also worth to underline that the confidence intervals implicitly generated for µ̃o are never worse than those in Eq. 8 and they are often much tighter. In practice the bound of Eq. 8 may be actually worse because of the worst-case scenario considered in the computation of the condition numbers (see Sec. 5 and App. F)."
+    }, {
+      "heading" : "4 Theoretical Analysis",
+      "text" : "Before stating the guarantees for FSUCRL, we recall the definition of diameter of M and MO:\nD = max s,s′∈S min π:S→A\nE [ τπ(s, s ′) ] , DO = max\ns,s′∈SO min π:S→O\nE [ τπ(s, s ′) ] ,\nwhere τπ(s, s′) is the (random) number of primitive actions to move from s to s′ following policy π. We also define a pseudo-diameter characterizing the “complexity” of the inner dynamics of options:\nD̃O = r∗κ1∗ + τmaxκ ∞ ∗√\nµ∗\nwhere we define:\nr∗ = max o∈O {sp(ro)} , κ1∗ = max o∈O\n{ κ1o } , κ∞∗ = max\no∈O {κ∞o } , and µ∗ = min o∈O { min s∈So µo(s) } with κ1o and κ ∞ o the condition numbers of the irreducible MC associated to options o (for the `1 and `∞-norm respectively [20]) and sp(ro) the span of the reward of the option. In App. D we prove the following regret bound. Theorem 1. Let M be a communicating MDP with reward bounded between 0 and rmax = 1 and let O be a set of options satisfying Asm. 1 and 2 such that σr(s, o) ≤ σr, στ (s, o) ≤ στ , and τ(s, o) ≤ τmax. We also define BO = maxs,o supp(p(·|s, o)) (resp. B = maxs,a supp(p(·|s, a)) as the largest support of the SMDP (resp. MDP) dynamics. Let Tn be the number of primitive steps executed when running FSUCRLV2 over n decision steps, then its regret is bounded as\n∆(FSUCRL, n) = Õ ( DO √ SBOOn︸ ︷︷ ︸ ∆p + (σr + στ ) √ n︸ ︷︷ ︸\n∆R,τ\n+ √ SATn + D̃O √ SBOTn︸ ︷︷ ︸\n∆µ\n) (13)\n8We use vj instead of uj since the error in the inner EVI directly affects the value of the function at the outer EVI, which thus generates a sequence of functions different from (uj).\nComparison to SUCRL. Using the confidence intervals of Eq. 6b and a slightly tighter analysis than the one by Fruit and Lazaric [14] (Bernstein bounds and higher accuracy for EVI) leads to a regret bound for SUCRL as\n∆(SUCRL, n) = Õ ( ∆p + ∆R,τ + ( σ+r + σ + τ )√ SAn︸ ︷︷ ︸\n∆′R,τ\n) , (14)\nwhere σ+r and σ + τ are upper-bounds on σr and στ that are used in defining the confidence intervals for τ and R that are actually used in SUCRL. The term ∆p is the regret induced by errors in estimating the SMDP dynamics p(s′|s, o), while ∆R,τ summarizes the randomness in the cumulative reward and duration of options. Both these terms scale as √ n, thus taking advantage of the temporal abstraction (i.e., the ratio between the number of primitive steps Tn and the decision steps n). The main difference between the two bounds is then in the last term, which accounts for the regret due to the optimistic estimation of the behavior of the options. In SUCRL this regret is linked to the upper bounds on the parameters of R and τ . As shown in Thm.2 in [14], when σ+r = σr and σ + τ = στ , the bound of SUCRL is nearly-optimal as it almost matches the lower-bound, thus showing that ∆′R,τ is unavoidable. In FSUCRL however, the additional regret ∆µ comes from the estimation errors of the per-time-step rewards ro and the dynamic P ′o. Similar to ∆p, these errors are amplified by the pseudo-diameter D̃O. While ∆µ may actually be the unavoidable cost to pay for removing the prior knowledge about options, it is interesting to analyze how D̃O changes with the structure of the options (see App. E for a concrete example). The probability µo(s) decreases as the probability of visiting an inner state s ∈ So using the option policy. In this case, the probability of collecting samples on the inner transitions is low and this leads to large estimation errors for P ′o. These errors are then propagated to the stationary distribution µo through the condition numbers κ (e.g., κ1o directly follows from an non-empirical version of Eq. 8). Furthermore, we notice that 1/µo(s) ≥ τo(s) ≥ |So|, suggesting that “long” or “big” options are indeed more difficult to estimate. On the other hand, ∆µ becomes smaller whenever the transition probabilities under policy πo are supported over a few states (B small) and the rewards are similar within the option (sp(ro) small). While in the worst case ∆µ may actually be much bigger than ∆′R,τ when the parameters of R and τ are accurately known (i.e., σ+τ ≈ στ and σ+r ≈ σr), in Sect. 5 we show scenarios in which the actual performance of FSUCRL is close or better than SUCRL and the advantage of learning with options is preserved.\nTo explain why FSUCRL can perform better than SUCRL we point out that FSUCRL’s bound is somewhat worst-case w.r.t. the correlation between options. In fact, in Eq. 6c the error in estimating P ′o in a state s does not scale with the number of samples obtained while executing option o but those collected by taking the primitive action prescribed by πo. This means that even if o has a low probability of reaching s starting from so (i.e., µo(s) is very small), the true error may still be small as soon as another option o′ executes the same action (i.e., πo(s) = πo′(s)). In this case the regret bound is loose and the actual performance of FSUCRL is much better. Therefore, although it is not apparent in the regret analysis, not only is FSUCRL leveraging on the correlation between the cumulative reward and duration of a single option, but it is also leveraging on the correlation between different options that share inner state-action pairs. Comparison to UCRL. We recall that the regret of UCRL is bounded as O(D √ SBATn), where Tn is to the total number of steps. As discussed by [14], the major advantage of options is in terms of temporal abstraction (i.e., Tn n) and reduction of the state-action space (i.e., SO < S and O < A). Eq.(13) also reveals that options can also improve the learning speed by reducing the size of the support BO of the dynamics of the environment w.r.t. primitive actions. This can lead to a huge improvement e.g., when options are designed so as to reach a specific goal. This potential advantage is new compared to [14] and matches the intuition on “good” options often presented in the literature (see e.g., the concept of “funnel” actions introduced by Dietterich [23]).\nBound for FSUCRLV1. Bounding the regret of FSUCRLV1 requires bounding the empirical κ̂ in Eq. (8) with the true condition number κ. Since κ̂ tends to κ as the number of samples of the option increases, the overall regret would only be increased by a lower order term. In practice however, FSUCRLV2 is preferable to FSUCRLV1. The latter will suffer from the true condition numbers( κ1o ) o∈O since they are used to compute the confidence bounds on the stationary distributions (µo)o∈O, while for FSUCRLV2 they appear only in the analysis. As much as the dependency on the diameter in the analysis of UCRL, the condition numbers may also be loose in practice, although tight from a theoretical perspective. See App.D.6 and experiments for further insights."
+    }, {
+      "heading" : "5 Numerical Simulations",
+      "text" : "In this section we compare the regret of FSUCRL to SUCRL and UCRL to empirically verify the impact of removing prior knowledge about options and estimating their structure through the irreducible MC transformation. We consider the toy domain presented in [14] that was specifically designed to show the advantage of temporal abstraction and the classical 4-rooms maze [1]. To be able to reproduce the results of [14], we run our algorithm with Hoeffding confidence bounds for the `1-deviation of the empirical distribution (implying that BO has no impact). We consider settings where ∆R,τ is the dominating term of the regret (refer to App. F for details).\nWhen comparing the two versions of FSUCRL to UCRL on the grid domain (see Fig. 3 (left)), we empirically observe that the advantage of temporal abstraction is indeed preserved when removing the knowledge of the parameters of the option. This shows that the benefit of temporal abstraction is not just a mere artifact of prior knowledge on the options. Although the theoretical bound in Thm. 1 is always worse than its SMDP counterpart (14), we see that FSUCRL performs much better than SUCRL in our examples. This can be explained by the fact that the options we use greatly overlap. Even if our regret bound does not make explicit the fact that FSUCRL exploits the correlation between options, this can actually significantly impact the result in practice. The two versions of SUCRL differ in the amount of prior knowledge given to the algorithm to construct the parameters σ+r and σ+τ that are used in building the confidence intervals.In v3 we provide a tight upper-bound rmax on the rewards and distinct option-dependent parameters for the duration (τo and στ (o)), in v2 we only provide a global (option-independent) upper bound on τo and σo. Unlike FSUCRL which is “parameter-free”, SUCRL is highly sensitive to the prior knowledge about options and can perform even worse than UCRL. A similar behaviour is observed in Fig. 3 (right) where both the versions of SUCRL fail to beat UCRL but FSUCRLV2 has nearly half the regret of UCRL. On the contrary, FSUCRLV1 suffers a linear regret due to a loose dependency on the condition numbers (see App. F.2). This shows that the condition numbers appearing in the bound of FSUCRLV2 are actually loose. In both experiments, UCRL and FSUCRL had similar running times meaning that the improvement in cumulative regret is not at the expense of the computational complexity."
+    }, {
+      "heading" : "6 Conclusions",
+      "text" : "We introduced FSUCRL, a parameter-free algorithm to learn in MDPs with options by combining the SMDP view to estimate the transition probabilities at the level of options (p(s′|s, o)) and the MDP structure of options to estimate the stationary distribution of an associated irreducible MC which allows to compute the optimistic policy at each episode. The resulting regret matches SUCRL bound up to an additive term. While in general, this additional regret may be large, we show both theoretically and empirically that FSUCRL is actually competitive with SUCRL and it retains the advantage of temporal abstraction w.r.t. learning without options. Since FSUCRL does not require strong prior knowledge about options and its regret bound is partially computable, we believe the results of this paper could be used as a basis to construct more principled option discovery algorithms that explicitly optimize the exploration-exploitation performance of the learning algorithm."
+    }, {
+      "heading" : "Acknowledgments",
+      "text" : "This research was supported in part by French Ministry of Higher Education and Research, Nord-Pasde-Calais Regional Council and French National Research Agency (ANR) under project ExTra-Learn (n.ANR-14-CE24-0010-01)."
+    } ],
+    "references" : [ {
+      "title" : "Between mdps and semi-mdps: A framework for temporal abstraction in reinforcement learning",
+      "author" : [ "Richard S. Sutton", "Doina Precup", "Satinder Singh" ],
+      "venue" : "Artificial Intelligence,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : "1",
+      "year" : 1999
+    }, {
+      "title" : "Automatic discovery of subgoals in reinforcement learning using diverse density",
+      "author" : [ "Amy McGovern", "Andrew G. Barto" ],
+      "venue" : "In Proceedings of the Eighteenth International Conference on Machine Learning,",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 2001
+    }, {
+      "title" : "Q-cut—dynamic discovery of sub-goals in reinforcement learning",
+      "author" : [ "Ishai Menache", "Shie Mannor", "Nahum Shimkin" ],
+      "venue" : "In Proceedings of the 13th European Conference on Machine Learning, Helsinki, Finland, August",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 2002
+    }, {
+      "title" : "Using relative novelty to identify useful temporal abstractions in reinforcement learning",
+      "author" : [ "Özgür Şimşek", "Andrew G. Barto" ],
+      "venue" : "In Proceedings of the Twenty-first International Conference on Machine Learning,",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : "4",
+      "year" : 2004
+    }, {
+      "title" : "Automatic construction of temporally extended actions for mdps using bisimulation metrics",
+      "author" : [ "Pablo Samuel Castro", "Doina Precup" ],
+      "venue" : "In Proceedings of the 9th European Conference on Recent Advances in Reinforcement Learning,",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : "5",
+      "year" : 2012
+    }, {
+      "title" : "Unified inter and intra options learning using policy gradient methods",
+      "author" : [ "Kfir Y. Levy", "Nahum Shimkin" ],
+      "venue" : "In EWRL,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : "6",
+      "year" : 2011
+    }, {
+      "title" : "Options with exceptions",
+      "author" : [ "Munu Sairamesh", "Balaraman Ravindran" ],
+      "venue" : "In Proceedings of the 9th European Conference on Recent Advances in Reinforcement Learning,",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : "7",
+      "year" : 2012
+    }, {
+      "title" : "Time-regularized interrupting options (TRIO)",
+      "author" : [ "Timothy Arthur Mann", "Daniel J. Mankowitz", "Shie Mannor" ],
+      "venue" : "In Proceedings of the 31th International Conference on Machine Learning, ICML 2014,",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : "8",
+      "year" : 2014
+    }, {
+      "title" : "A deep hierarchical approach to lifelong learning in minecraft",
+      "author" : [ "Chen Tessler", "Shahar Givony", "Tom Zahavy", "Daniel J. Mankowitz", "Shie Mannor" ],
+      "venue" : "In Proceedings of the Thirty-First AAAI Conference on Artificial Intelligence,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 2017
+    }, {
+      "title" : "Learning options in reinforcement learning",
+      "author" : [ "Martin Stolle", "Doina Precup" ],
+      "venue" : "In SARA,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : "10",
+      "year" : 2002
+    }, {
+      "title" : "Scaling up approximate value iteration with options: Better policies with fewer iterations",
+      "author" : [ "Timothy A. Mann", "Shie Mannor" ],
+      "venue" : "In Proceedings of the 31th International Conference on Machine Learning, ICML 2014,",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 2014
+    }, {
+      "title" : "The utility of temporal abstraction in reinforcement learning",
+      "author" : [ "Nicholas K. Jong", "Todd Hester", "Peter Stone" ],
+      "venue" : "In The Seventh International Joint Conference on Autonomous Agents and Multiagent Systems,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 2008
+    }, {
+      "title" : "PAC-inspired Option Discovery in Lifelong Reinforcement Learning",
+      "author" : [ "Emma Brunskill", "Lihong Li" ],
+      "venue" : "In Proceedings of the 31st International Conference on Machine Learning, ICML 2014,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 2014
+    }, {
+      "title" : "Exploration–exploitation in mdps with options",
+      "author" : [ "Ronan Fruit", "Alessandro Lazaric" ],
+      "venue" : "In Proceedings of Machine Learning Research,",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 2017
+    }, {
+      "title" : "Near-optimal regret bounds for reinforcement learning",
+      "author" : [ "Thomas Jaksch", "Ronald Ortner", "Peter Auer" ],
+      "venue" : "Journal of Machine Learning Research,",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : "15",
+      "year" : 2010
+    }, {
+      "title" : "Tijms. Denumerable undiscounted semi-markov decision processes with unbounded rewards",
+      "author" : [ "A. Federgruen", "P.J. Schweitzer", "H.C" ],
+      "venue" : "Mathematics of Operations Research,",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : "16",
+      "year" : 1983
+    }, {
+      "title" : "An analysis of model-based interval estimation for markov decision processes",
+      "author" : [ "Alexander L. Strehl", "Michael L. Littman" ],
+      "venue" : "Journal of Computer and System Sciences,",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : "17",
+      "year" : 2008
+    }, {
+      "title" : "Mixing time estimation in reversible markov chains from a single sample path",
+      "author" : [ "Daniel J. Hsu", "Aryeh Kontorovich", "Csaba Szepesvári" ],
+      "venue" : "In Proceedings of the 28th International Conference on Neural Information Processing Systems,",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : "18",
+      "year" : 2015
+    }, {
+      "title" : "Sample complexity of episodic fixed-horizon reinforcement learning",
+      "author" : [ "Christoph Dann", "Emma Brunskill" ],
+      "venue" : "In Proceedings of the 28th International Conference on Neural Information Processing Systems,",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : "19",
+      "year" : 2015
+    }, {
+      "title" : "Comparison of perturbation bounds for the stationary distribution of a markov chain",
+      "author" : [ "Grace E. Cho", "Carl D. Meyer" ],
+      "venue" : "Linear Algebra and its Applications,",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : "20",
+      "year" : 2001
+    }, {
+      "title" : "On optimal condition numbers for markov chains",
+      "author" : [ "Stephen J. Kirkland", "Michael Neumann", "Nung-Sing Sze" ],
+      "venue" : "Numerische Mathematik,",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : "21",
+      "year" : 2008
+    }, {
+      "title" : "Sensitivity of finite markov chains under perturbation",
+      "author" : [ "E. Seneta" ],
+      "venue" : "Statistics & Probability Letters,",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : "22",
+      "year" : 1993
+    }, {
+      "title" : "Hierarchical reinforcement learning with the maxq value function decomposition",
+      "author" : [ "Thomas G. Dietterich" ],
+      "venue" : "Journal of Artificial Intelligence Research,",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : "23",
+      "year" : 2000
+    }, {
+      "title" : "Optimism in the face of uncertainty should be refutable",
+      "author" : [ "Ronald Ortner" ],
+      "venue" : "Minds and Machines,",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : "24",
+      "year" : 2008
+    }, {
+      "title" : "Applied Probability Models with Optimization Applications, chapter 3: Recurrence and Ergodicity",
+      "author" : [ "Pierre Bremaud" ],
+      "venue" : null,
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : "25",
+      "year" : 1999
+    }, {
+      "title" : "Applied Probability Models with Optimization Applications, chapter 2: Discrete-Time Markov Models",
+      "author" : [ "Pierre Bremaud" ],
+      "venue" : null,
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : "26",
+      "year" : 1999
+    }, {
+      "title" : "Markov Decision Processes: Discrete Stochastic Dynamic Programming",
+      "author" : [ "Martin L. Puterman" ],
+      "venue" : null,
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : "27",
+      "year" : 1994
+    }, {
+      "title" : "Regal: A regularization based algorithm for reinforcement learning in weakly communicating mdps",
+      "author" : [ "Peter L. Bartlett", "Ambuj Tewari" ],
+      "venue" : "In Proceedings of the Twenty-Fifth Conference on Uncertainty in Artificial Intelligence,",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : "28",
+      "year" : 2009
+    }, {
+      "title" : "Concentration inequalities for markov chains by marton couplings and spectral methods",
+      "author" : [ "Daniel Paulin" ],
+      "venue" : "Electronic Journal of Probability,",
+      "citeRegEx" : "29",
+      "shortCiteRegEx" : "29",
+      "year" : 2015
+    }, {
+      "title" : "Course on Mathematical Statistics, chapter 2: Basic tail and concentration bounds",
+      "author" : [ "Martin Wainwright" ],
+      "venue" : "University of California at Berkeley, Department of Statistics,",
+      "citeRegEx" : "30",
+      "shortCiteRegEx" : "30",
+      "year" : 2015
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 0,
+      "context" : "One powerful and popular framework for incorporating temporally-extended actions in the context of reinforcement learning is the options framework [1].",
+      "startOffset" : 147,
+      "endOffset" : 150
+    }, {
+      "referenceID" : 1,
+      "context" : ", [2, 3, 4, 5, 6, 7, 8]) and it has been of particular interest recently in combination with deep reinforcement learning, with a number of impressive empirical successes (see e.",
+      "startOffset" : 2,
+      "endOffset" : 23
+    }, {
+      "referenceID" : 2,
+      "context" : ", [2, 3, 4, 5, 6, 7, 8]) and it has been of particular interest recently in combination with deep reinforcement learning, with a number of impressive empirical successes (see e.",
+      "startOffset" : 2,
+      "endOffset" : 23
+    }, {
+      "referenceID" : 3,
+      "context" : ", [2, 3, 4, 5, 6, 7, 8]) and it has been of particular interest recently in combination with deep reinforcement learning, with a number of impressive empirical successes (see e.",
+      "startOffset" : 2,
+      "endOffset" : 23
+    }, {
+      "referenceID" : 4,
+      "context" : ", [2, 3, 4, 5, 6, 7, 8]) and it has been of particular interest recently in combination with deep reinforcement learning, with a number of impressive empirical successes (see e.",
+      "startOffset" : 2,
+      "endOffset" : 23
+    }, {
+      "referenceID" : 5,
+      "context" : ", [2, 3, 4, 5, 6, 7, 8]) and it has been of particular interest recently in combination with deep reinforcement learning, with a number of impressive empirical successes (see e.",
+      "startOffset" : 2,
+      "endOffset" : 23
+    }, {
+      "referenceID" : 6,
+      "context" : ", [2, 3, 4, 5, 6, 7, 8]) and it has been of particular interest recently in combination with deep reinforcement learning, with a number of impressive empirical successes (see e.",
+      "startOffset" : 2,
+      "endOffset" : 23
+    }, {
+      "referenceID" : 7,
+      "context" : ", [2, 3, 4, 5, 6, 7, 8]) and it has been of particular interest recently in combination with deep reinforcement learning, with a number of impressive empirical successes (see e.",
+      "startOffset" : 2,
+      "endOffset" : 23
+    }, {
+      "referenceID" : 8,
+      "context" : ", [9] for an application to Minecraft).",
+      "startOffset" : 2,
+      "endOffset" : 5
+    }, {
+      "referenceID" : 9,
+      "context" : "Intuitively (and empirically) temporal abstraction can help speed up learning (reduce the amount of experience needed to learn a good policy) by shaping the actions selected towards more promising sequences of actions [10], and it can reduce planning computation through reducing the need to evaluate over all possible actions (see e.",
+      "startOffset" : 218,
+      "endOffset" : 222
+    }, {
+      "referenceID" : 12,
+      "context" : "Brunskill and Li [13] derived sample complexity bounds for an RMAX-like exploration-exploitation algorithm for semi-Markov decision processes (SMDPs).",
+      "startOffset" : 17,
+      "endOffset" : 21
+    }, {
+      "referenceID" : 13,
+      "context" : "Fruit and Lazaric [14] analyzed an SMDP variant of UCRL [15] showing how its regret can be mapped to the regret of learning in the original MDP with options.",
+      "startOffset" : 18,
+      "endOffset" : 22
+    }, {
+      "referenceID" : 14,
+      "context" : "Fruit and Lazaric [14] analyzed an SMDP variant of UCRL [15] showing how its regret can be mapped to the regret of learning in the original MDP with options.",
+      "startOffset" : 56,
+      "endOffset" : 60
+    }, {
+      "referenceID" : 0,
+      "context" : "[1], when primitive actions are replaced by a set of options O, the resulting decision process is a semi-Markov decision processes (SMDP) MO = { SO,Os, pO, RO, τO } where SO ⊆ S is the set of states where options can start and end, Os is the set of options available at state s, pO(s|s, o) is the probability of terminating in s′ when starting o from s, RO(s, o) is the (random) cumulative reward obtained by executing option o from state s until interruption at s′ with expectation RO(s, o), and τO(s, o) is the duration (i.",
+      "startOffset" : 0,
+      "endOffset" : 3
+    }, {
+      "referenceID" : 13,
+      "context" : "In [14] it is shown that ∆(A, n) is equal to the MDP regret up to a linear “approximation” regret accounting for the difference between the optimal gains of M on primitive actions and the associated SMDP MO.",
+      "startOffset" : 3,
+      "endOffset" : 7
+    }, {
+      "referenceID" : 16,
+      "context" : "At each episode, SUCRL runs a variant of extended value iteration (EVI) [17] to solve the “optimistic” version of the data-transformation optimality equation in Eq.",
+      "startOffset" : 72,
+      "endOffset" : 76
+    }, {
+      "referenceID" : 13,
+      "context" : "3 in [14], the expected cumulative rewards R(s, o), the duration τ(s, o), and the sub-Exponential parameters (σr(o), br(o)) and (στ (o), bτ (o)) are directly related to the transition matrices Qo and Vo of the associated absorbing chain Po.",
+      "startOffset" : 5,
+      "endOffset" : 9
+    }, {
+      "referenceID" : 19,
+      "context" : "The perturbation analysis in [20] can be applied to derive the confidence interval ‖μo − μ̂o‖1 ≤ β k (o) := κ̂o,min‖P ′ o − P̂ ′ o‖∞,1, (8)",
+      "startOffset" : 29,
+      "endOffset" : 33
+    }, {
+      "referenceID" : 21,
+      "context" : "3]) is the one provided by Seneta [22]: κ̂o,min = τ1(Ẑo) = maxi,j 1 2 ‖Ẑo(i, :)− Ẑo(j, :)‖1 where Ẑo(i, :) is the i-th row of Ẑo = (I− P̂ ′ o+1μ̂o).",
+      "startOffset" : 34,
+      "endOffset" : 38
+    }, {
+      "referenceID" : 19,
+      "context" : "with κ(1)o and κ ∞ o the condition numbers of the irreducible MC associated to options o (for the `1 and `∞-norm respectively [20]) and sp(ro) the span of the reward of the option.",
+      "startOffset" : 126,
+      "endOffset" : 130
+    }, {
+      "referenceID" : 13,
+      "context" : "6b and a slightly tighter analysis than the one by Fruit and Lazaric [14] (Bernstein bounds and higher accuracy for EVI) leads to a regret bound for SUCRL as",
+      "startOffset" : 69,
+      "endOffset" : 73
+    }, {
+      "referenceID" : 13,
+      "context" : "2 in [14], when σ r = σr and σ + τ = στ , the bound of SUCRL is nearly-optimal as it almost matches the lower-bound, thus showing that ∆R,τ is unavoidable.",
+      "startOffset" : 5,
+      "endOffset" : 9
+    }, {
+      "referenceID" : 13,
+      "context" : "As discussed by [14], the major advantage of options is in terms of temporal abstraction (i.",
+      "startOffset" : 16,
+      "endOffset" : 20
+    }, {
+      "referenceID" : 13,
+      "context" : "This potential advantage is new compared to [14] and matches the intuition on “good” options often presented in the literature (see e.",
+      "startOffset" : 44,
+      "endOffset" : 48
+    }, {
+      "referenceID" : 22,
+      "context" : ", the concept of “funnel” actions introduced by Dietterich [23]).",
+      "startOffset" : 59,
+      "endOffset" : 63
+    }, {
+      "referenceID" : 13,
+      "context" : "We consider the toy domain presented in [14] that was specifically designed to show the advantage of temporal abstraction and the classical 4-rooms maze [1].",
+      "startOffset" : 40,
+      "endOffset" : 44
+    }, {
+      "referenceID" : 0,
+      "context" : "We consider the toy domain presented in [14] that was specifically designed to show the advantage of temporal abstraction and the classical 4-rooms maze [1].",
+      "startOffset" : 153,
+      "endOffset" : 156
+    }, {
+      "referenceID" : 13,
+      "context" : "To be able to reproduce the results of [14], we run our algorithm with Hoeffding confidence bounds for the `1-deviation of the empirical distribution (implying that BO has no impact).",
+      "startOffset" : 39,
+      "endOffset" : 43
+    } ],
+    "year" : 2018,
+    "abstractText" : "The option framework integrates temporal abstraction into the reinforcement learning model through the introduction of macro-actions (i.e., options). Recent works leveraged the mapping of Markov decision processes (MDPs) with options to semi-MDPs (SMDPs) and introduced SMDP-versions of exploration-exploitation algorithms (e.g., RMAX-SMDP and UCRL-SMDP) to analyze the impact of options on the learning performance. Nonetheless, the PAC-SMDP sample complexity of RMAX-SMDP can hardly be translated into equivalent PAC-MDP theoretical guarantees, while the regret analysis of UCRL-SMDP requires prior knowledge of the distributions of the cumulative reward and duration of each option, which are hardly available in practice. In this paper, we remove this limitation by combining the SMDP view together with the inner Markov structure of options into a novel algorithm whose regret performance matches UCRL-SMDP’s up to an additive regret term. We show scenarios where this term is negligible and the advantage of temporal abstraction is preserved. We also report preliminary empirical results supporting the theoretical findings.",
+    "creator" : "pdftk 2.02 - www.pdftk.com"
+  }
+}

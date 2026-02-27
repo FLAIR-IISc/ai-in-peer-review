@@ -1,0 +1,42 @@
+Summary
+The paper proposes Doc2VecC, a simple document representation method that learns word embeddings by predicting target words from both local context (CBOW) and a global document vector formed by averaging a randomly corrupted subset of word embeddings. The corruption is unbiased dropout on the bag-of-words, which the authors analyze via a second-order Taylor expansion to argue it induces a data-dependent regularizer that suppresses frequent, uninformative words and favors rare, informative ones. At test time, a document vector is simply the average of its word embeddings. The paper claims (i) decoupled model size from number of documents, (ii) fast training and inference, (iii) improved word embeddings (analogy task), and (iv) state-of-the-art or competitive results on IMDB sentiment, Wikipedia multi-class document classification, and SICK semantic relatedness. Code is provided.
+
+Decision: Reject
+Key reasons:
+1) Limited novelty relative to established baselines (average-of-embeddings + dropout/corruption); the core idea is incremental over CBOW/Word2Vec with global averaging (Huang et al., 2012), denoising autoencoders, and Paragraph Vector variants.
+2) Evaluation concerns and missing controls: important baselines and ablations are absent or potentially unfair (e.g., negative sampling distribution, use of test data for representation learning, application of Skip-Thought to long documents), making it hard to confidently attribute gains to the proposed mechanism.
+
+Supporting arguments
+- Positioning/novelty: Using the average of word embeddings as a document vector is well known, and adding noise/corruption to encourage robustness is closely related to denoising autoencoders and dropout-regularized CBOW. The novelty here is tying the corruption to the global document vector inside the prediction objective and the derivation of an implicit data-dependent regularizer. While interesting, this seems like a small, plausible extension rather than a fundamentally new modeling idea. The paper cites Huang et al. (2012), but does not fully disentangle contributions beyond the corruption mechanism.
+
+- Theoretical support: The second-order Taylor approximation under unbiased dropout is standard, and the qualitative conclusion (frequent words get penalized unless predictive) is reasonable and consistent with prior analyses (e.g., dropout for logistic regression). However, the link between this approximation and the actual negative sampling objective used in practice is not fully tightened: the derivation is done on the surrogate f with sigmoids and assumes independence/diagonalization; in training, only a single corruption sample is used per update. The argument is thus heuristic. Empirical validation of the regularizer’s effect is anecdotal (listing small-norm words) rather than systematic (e.g., controlled ablations quantifying the contribution of corruption vs. no corruption).
+
+- Experimental rigor:
+  • Use of test data: On IMDB, one evaluation protocol explicitly allows using the test set to learn representations. While the authors also report results without this, mixing the two protocols in the main narrative can be misleading; the decision should rest on the train+unlabeled-only setting.
+  • Baseline fairness: Important details are unclear. The negative sampling distribution is uniform in the proposed method (Pv uniform), whereas standard Word2Vec uses unigram^0.75. If the Word2Vec baseline uses different sampling, comparisons are not apples-to-apples. Similarly, the denoising autoencoder baseline is modified with negative sampling and reconstructs only non-zeros, which may not reflect best practices or strong baselines.
+  • Missing ablations: There is no ablation that removes corruption (q=0) to quantify its effect; no study that removes the local context (global-only) or vice versa; no sweep over q to show robustness–only a claim that timing improves with higher q. These are critical to validate the central claim that corruption is responsible for the gains.
+  • Baselines: Strong/simple baselines such as n-gram averaged embeddings (e.g., fastText-style) or SIF weighting are absent. The Word2Vec+IDF baseline is included, but more modern or tuned baselines are missing. For SICK, more recent sentence encoders (biLSTM/TreeLSTM are included), but the training regimes differ (pretraining corpora, fine-tuning choices).
+  • Skip-Thought application: The poor performance on IMDB is attributed to long documents; however, the pipeline uses an off-the-shelf model trained for sentences, not documents, which may unfairly disadvantage it. A fairer setup would segment documents and aggregate sentence embeddings.
+  • Word analogy: The claimed ~20% improvement over Word2Vec is striking; details on matching hyperparameters, sampling, window sizes, subsampling, and training schedules are insufficient. Also, PV is not designed for high-quality word embeddings; this comparison is of limited value.
+
+- Claims vs. evidence: Efficiency claims are plausible and supported by coarse timings, but should be compared against optimized baselines (e.g., C-optimized Word2Vec/fastText) and with GPU where applicable, and include variance over runs. Accuracy gains on Wikipedia classification are encouraging but would benefit from additional datasets and statistical significance tests.
+
+Additional feedback to improve the paper
+- Add thorough ablations: q=0 (no corruption), different q values, with/without local context, alternative corruption schemes, and removal of subsampling to isolate the proposed regularizer’s effect.
+- Ensure fairness and clarity: Use the same negative sampling distribution across methods; document all hyperparameters; report variance across multiple runs; avoid using test data in representation learning as a main result.
+- Strengthen baselines: Include fastText-like averaged n-gram embeddings, SIF-weighted averages, tuned PV variants, and modern sentence encoders with fair document aggregation when comparing on long documents.
+- Expand datasets: Add standard classification benchmarks (e.g., 20NG, R8/R52, Yahoo, Yelp, AG News) and more sentence-level tasks to substantiate generality.
+- Clarify the theoretical section: Explicitly derive under the negative sampling objective actually optimized; discuss the gap between expected objective and single-sample training; quantify the correlation between predicted regularizer strength and observed embedding norms.
+- Revisit the “reduces to DAE” claim; as written, the objectives differ (predicting a target word vs. reconstructing x), so the equivalence is not precise.
+
+Questions for the authors
+1) Did all methods (Doc2VecC, Word2Vec, PV) use the same negative sampling distribution (uniform vs unigram^0.75), number of negatives, window sizes, and subsampling thresholds? Please provide exact hyperparameters.
+2) What is the performance of Doc2VecC with q=0 (no corruption)? How does accuracy and training speed vary as a function of q?
+3) How much of the gain comes from including the local context vs. using only the global corrupted document vector? Please provide ablations.
+4) On IMDB, when restricting representation learning to training + unlabeled only, what are the exact numbers (with standard deviations over multiple runs)?
+5) For Skip-Thought on IMDB, did you segment documents into sentences and aggregate sentence embeddings? If not, can you provide results with such an aggregation?
+6) For the word analogy task, can you detail the training schedule, negatives, subsampling, and confirm that the Word2Vec baseline was matched exactly? Can you report results with standard Word2Vec settings (unigram^0.75)?
+7) Can you compare to an averaged n-gram embedding baseline (fastText-like) and SIF-weighted averages on the classification tasks?
+8) How sensitive are results to the embedding dimension and training data size beyond what’s reported? Please include learning curves and significance tests.
+9) Inference efficiency: how does Doc2VecC compare to optimized C implementations of Word2Vec/fastText, and to PV-DBOW, on the same hardware?
+10) Could you quantify the “data-dependent regularization” empirically (e.g., plot embedding norm vs. term frequency and predictive contribution) to strengthen the theoretical claim?

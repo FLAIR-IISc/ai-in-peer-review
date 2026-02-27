@@ -1,0 +1,44 @@
+Summary of contributions
+- Problem: Few-shot learning where a classifier must generalize from k labeled examples per class across many tasks (episodes).
+- Idea: Cast learning as meta-learning with an LSTM-based optimizer (meta-learner) that trains a base classifier (learner) in a small, fixed number of updates.
+- Method: Identify a correspondence between gradient descent updates and LSTM cell updates. The learner’s parameters are the LSTM cell state; the input gate serves as a learned, stateful learning rate; the forget gate acts like learned weight decay. The meta-learner also learns the initial parameters c0 of the classifier, capturing task-common knowledge.
+- Practicalities: Share meta-learner parameters across coordinates to keep the meta-optimizer compact; preprocess gradients/losses (log-scale and sign) for stability; handle batch normalization carefully to avoid leakage across episodes; train using the test loss after T learner updates to match evaluation conditions, with a simplifying “gradient independence” assumption to avoid second derivatives.
+- Experiments: On Mini-ImageNet 5-way 1-shot and 5-shot, the approach outperforms nearest-neighbor and fine-tuning baselines and is competitive with Matching Networks (better on 5-shot; overlapping CIs with Matching Nets on 1-shot). Gate visualizations suggest learned optimization strategies that differ by task.
+
+Decision: Accept
+Key reasons:
+1) Well-motivated and novel formulation that directly learns an optimizer and initialization tailored for few-shot learning, grounded in a clean LSTM–SGD correspondence.
+2) Empirical results are strong on a challenging benchmark and the paper is clear about design choices (parameter sharing, preprocessing, batch norm treatment) with code provided.
+
+Supporting arguments
+- What problem is tackled? The paper targets the core few-shot challenge: learning effective classifiers via very few updates from tiny per-task datasets. It addresses two known failure modes of standard training: generic optimizers not tuned for a strict update budget, and suboptimal random initializations for each new task.
+- Is the approach well motivated and placed? Yes. The work sits naturally at the intersection of meta-learning and learned optimizers (e.g., Andrychowicz et al., Santoro et al., Matching Networks). The central LSTM-as-optimizer view is elegant and leverages known successes of LSTMs while tailoring the objective to few-shot generalization. The discussion of batch norm in meta-learning is practical and valuable.
+- Do the results support the claims? Within the provided setup, yes. The method beats natural baselines and is competitive with a strong metric-learning baseline. The training-equals-testing philosophy (optimize test loss after T steps) matches the problem constraints, and visualizations provide qualitative insight. However, a few experimental choices slightly weaken the rigor: (i) use of a custom Mini-ImageNet split prevents direct comparison to prior numbers, (ii) Matching Networks are reimplemented with certain deviations (dropout, no fine-tuning), and (iii) capacity mismatches (32 filters for the meta-learner’s CNN vs 64 for Matching Nets/baselines) warrant clearer justification, even if they arguably disadvantage the proposed method.
+
+Additional feedback to improve the paper (helpful, not all decision-critical)
+- Ablations:
+  - Learned initialization: Show performance when c0 is random vs meta-learned to quantify its contribution.
+  - Gate roles: Fix ft=1 (no forgetting) or it constant to isolate the effect of each gate; compare to hand-tuned SGD/Adam with per-parameter learning rates.
+  - Update budget: Sensitivity to the number of inner updates T; generalization when trained for T but tested with T’≠T.
+  - Gradient independence assumption: Report results with/without second-order terms on a smaller model to validate the approximation.
+- Fairness and reproducibility:
+  - Clarify and justify architecture capacities: the learner is described as 32 filters while baselines use 64; reconcile and, if possible, equalize capacities.
+  - Provide full Table 1 with means and 95% CIs, and release your Mini-ImageNet split or evaluate on a commonly used split to facilitate comparison.
+  - For Matching Networks, report numbers both with and without the optional fine-tuning step (as in Vinyals et al.) to bound the baseline.
+- Scope and generalization:
+  - Evaluate across more N and k (e.g., 20-way, k∈{1,5,10}); show whether a single meta-learner can handle multiple settings.
+  - Cross-dataset generalization (e.g., train on Mini-ImageNet, test on a distinct but related domain) to probe the learned initialization’s robustness.
+  - Scalability: Discuss/measure memory and time overhead of per-parameter LSTM states for larger backbones; any parameter tying across layers/blocks?
+- Implementation details:
+  - Batch normalization: Provide quantitative evidence that the per-episode running-statistics strategy materially improves meta-test performance over alternatives.
+  - Training stability: Expand on initialization choices (gate biases) and gradient clipping’s role; give counts of meta-iterations, wall-clock, and compute budget.
+
+Questions for the authors
+1) How much of the performance gain comes from the learned initialization versus the learned per-parameter update rule? Can the learned c0 alone (with standard SGD/Adam) match much of the improvement?
+2) Can you reconcile the described filter counts: 32 filters for the learner vs 64 for baselines/Matching Nets? Did you run matched-capacity comparisons?
+3) How sensitive is the meta-learner to the number of inner-loop steps at test time? Does it degrade gracefully if you run fewer/more steps than trained for?
+4) Did you try including second-order terms (i.e., not using the gradient independence assumption) on a smaller setup? If so, does it help?
+5) How well does the learned initialization transfer across architectures (e.g., wider CNN) or to different but related datasets?
+6) For batch normalization, have you compared per-episode stats vs freezing BN entirely or group norm as a BN-free alternative?
+
+Overall, this is a clear, well-motivated contribution with a neat formulation and encouraging results on a challenging benchmark. With the suggested clarifications and ablations, the paper would be even stronger.

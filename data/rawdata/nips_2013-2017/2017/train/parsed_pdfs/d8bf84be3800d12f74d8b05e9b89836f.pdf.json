@@ -1,0 +1,563 @@
+{
+  "name" : "d8bf84be3800d12f74d8b05e9b89836f.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "PointNet++: Deep Hierarchical Feature Learning on Point Sets in a Metric Space",
+    "authors" : [ "Charles R. Qi Li", "Yi Hao Su", "Leonidas J. Guibas" ],
+    "emails" : [ ],
+    "sections" : [ {
+      "heading" : null,
+      "text" : "Few prior works study deep learning on point sets. PointNet [20] is a pioneer in this direction. However, by design PointNet does not capture local structures induced by the metric space points live in, limiting its ability to recognize fine-grained patterns and generalizability to complex scenes. In this work, we introduce a hierarchical neural network that applies PointNet recursively on a nested partitioning of the input point set. By exploiting metric space distances, our network is able to learn local features with increasing contextual scales. With further observation that point sets are usually sampled with varying densities, which results in greatly decreased performance for networks trained on uniform densities, we propose novel set learning layers to adaptively combine features from multiple scales. Experiments show that our network called PointNet++ is able to learn deep point set features efficiently and robustly. In particular, results significantly better than state-of-the-art have been obtained on challenging benchmarks of 3D point clouds."
+    }, {
+      "heading" : "1 Introduction",
+      "text" : "We are interested in analyzing geometric point sets which are collections of points in a Euclidean space. A particularly important type of geometric point set is point cloud captured by 3D scanners, e.g., from appropriately equipped autonomous vehicles. As a set, such data has to be invariant to permutations of its members. In addition, the distance metric defines local neighborhoods that may exhibit different properties. For example, the density and other attributes of points may not be uniform across different locations — in 3D scanning the density variability can come from perspective effects, radial density variations, motion, etc.\nFew prior works study deep learning on point sets. PointNet [20] is a pioneering effort that directly processes point sets. The basic idea of PointNet is to learn a spatial encoding of each point and then aggregate all individual point features to a global point cloud signature. By its design, PointNet does not capture local structure induced by the metric. However, exploiting local structure has proven to be important for the success of convolutional architectures. A CNN takes data defined on regular grids as the input and is able to progressively capture features at increasingly larger scales along a multi-resolution hierarchy. At lower levels neurons have smaller receptive fields whereas at higher levels they have larger receptive fields. The ability to abstract local patterns along the hierarchy allows better generalizability to unseen cases.\nWe introduce a hierarchical neural network, named as PointNet++, to process a set of points sampled in a metric space in a hierarchical fashion. The general idea of PointNet++ is simple. We first partition the set of points into overlapping local regions by the distance metric of the underlying space. Similar to CNNs, we extract local features capturing fine geometric structures from small neighborhoods; such local features are further grouped into larger units and processed to produce higher level features. This process is repeated until we obtain the features of the whole point set.\n31st Conference on Neural Information Processing Systems (NIPS 2017), Long Beach, CA, USA.\nThe design of PointNet++ has to address two issues: how to generate the partitioning of the point set, and how to abstract sets of points or local features through a local feature learner. The two issues are correlated because the partitioning of the point set has to produce common structures across partitions, so that weights of local feature learners can be shared, as in the convolutional setting. We choose our local feature learner to be PointNet. As demonstrated in that work, PointNet is an effective architecture to process an unordered set of points for semantic feature extraction. In addition, this architecture is robust to input data corruption. As a basic building block, PointNet abstracts sets of local points or features into higher level representations. In this view, PointNet++ applies PointNet recursively on a nested partitioning of the input set.\nOne issue that still remains is how to generate overlapping partitioning of a point set. Each partition is defined as a neighborhood ball in the underlying Euclidean space, whose parameters include centroid location and scale. To evenly cover the whole set, the centroids are selected among input point set by a farthest point sampling (FPS) algorithm. Compared with volumetric CNNs that scan the space with fixed strides, our local receptive fields are dependent\non both the input data and the metric, and thus more efficient and effective.\nDeciding the appropriate scale of local neighborhood balls, however, is a more challenging yet intriguing problem, due to the entanglement of feature scale and non-uniformity of input point set. We assume that the input point set may have variable density at different areas, which is quite common in real data such as Structure Sensor scanning [18] (see Fig. 1). Our input point set is thus very different from CNN inputs which can be viewed as data defined on regular grids with uniform constant density. In CNNs, the counterpart to local partition scale is the size of kernels. [25] shows that using smaller kernels helps to improve the ability of CNNs. Our experiments on point set data, however, give counter evidence to this rule. Small neighborhood may consist of too few points due to sampling deficiency, which might be insufficient to allow PointNets to capture patterns robustly.\nA significant contribution of our paper is that PointNet++ leverages neighborhoods at multiple scales to achieve both robustness and detail capture. Assisted with random input dropout during training, the network learns to adaptively weight patterns detected at different scales and combine multi-scale features according to the input data. Experiments show that our PointNet++ is able to process point sets efficiently and robustly. In particular, results that are significantly better than state-of-the-art have been obtained on challenging benchmarks of 3D point clouds."
+    }, {
+      "heading" : "2 Problem Statement",
+      "text" : "Suppose that X = (M,d) is a discrete metric space whose metric is inherited from a Euclidean space Rn, where M ✓ Rn is the set of points and d is the distance metric. In addition, the density of M in the ambient Euclidean space may not be uniform everywhere. We are interested in learning set functions f that take such X as the input (along with additional features for each point) and produce information of semantic interest regrading X . In practice, such f can be classification function that assigns a label to X or a segmentation function that assigns a per point label to each member of M ."
+    }, {
+      "heading" : "3 Method",
+      "text" : "Our work can be viewed as an extension of PointNet [20] with added hierarchical structure. We first review PointNet (Sec. 3.1) and then introduce a basic extension of PointNet with hierarchical structure (Sec. 3.2). Finally, we propose our PointNet++ that is able to robustly learn features even in non-uniformly sampled point sets (Sec. 3.3).\n38"
+    }, {
+      "heading" : "3.1 Review of PointNet [20]: A Universal Continuous Set Function Approximator",
+      "text" : "Given an unordered point set {x1, x2, ..., xn} with xi 2 Rd, one can define a set function f : X ! R that maps a set of points to a vector:\nf(x1, x2, ..., xn) = ✓ MAX i=1,...,n {h(xi)} ◆\n(1)\nwhere and h are usually multi-layer perceptron (MLP) networks.\nThe set function f in Eq. 1 is invariant to input point permutations and can arbitrarily approximate any continuous set function [20]. Note that the response of h can be interpreted as the spatial encoding of a point (see [20] for details).\nPointNet achieved impressive performance on a few benchmarks. However, it lacks the ability to capture local context at different scales. We will introduce a hierarchical feature learning framework in the next section to resolve the limitation."
+    }, {
+      "heading" : "3.2 Hierarchical Point Set Feature Learning",
+      "text" : "While PointNet uses a single max pooling operation to aggregate the whole point set, our new architecture builds a hierarchical grouping of points and progressively abstract larger and larger local regions along the hierarchy.\nOur hierarchical structure is composed by a number of set abstraction levels (Fig. 2). At each level, a set of points is processed and abstracted to produce a new set with fewer elements. The set abstraction level is made of three key layers: Sampling layer, Grouping layer and PointNet layer. The Sampling layer selects a set of points from input points, which defines the centroids of local regions. Grouping layer then constructs local region sets by finding “neighboring” points around the centroids. PointNet layer uses a mini-PointNet to encode local region patterns into feature vectors.\nA set abstraction level takes an N ⇥ (d + C) matrix as input that is from N points with d-dim coordinates and C-dim point feature. It outputs an N 0 ⇥ (d+ C 0) matrix of N 0 subsampled points with d-dim coordinates and new C 0-dim feature vectors summarizing local context. We introduce the layers of a set abstraction level in the following paragraphs.\nSampling layer. Given input points {x1, x2, ..., xn}, we use iterative farthest point sampling (FPS) to choose a subset of points {xi1 , xi2 , ..., xim}, such that xij is the most distant point (in metric distance) from the set {xi1 , xi2 , ..., xij 1} with regard to the rest points. Compared with random sampling, it has better coverage of the entire point set given the same number of centroids. In contrast to CNNs that scan the vector space agnostic of data distribution, our sampling strategy generates receptive fields in a data dependent manner.\nGrouping layer. The input to this layer is a point set of size N ⇥ (d+ C) and the coordinates of a set of centroids of size N 0 ⇥ d. The output are groups of point sets of size N 0 ⇥K ⇥ (d + C), where each group corresponds to a local region and K is the number of points in the neighborhood of centroid points. Note that K varies across groups but the succeeding PointNet layer is able to convert flexible number of points into a fixed length local region feature vector.\nIn convolutional neural networks, a local region of a pixel consists of pixels with array indices within certain Manhattan distance (kernel size) of the pixel. In a point set sampled from a metric space, the neighborhood of a point is defined by metric distance.\nBall query finds all points that are within a radius to the query point (an upper limit of K is set in implementation). An alternative range query is K nearest neighbor (kNN) search which finds a fixed number of neighboring points. Compared with kNN, ball query’s local neighborhood guarantees a fixed region scale thus making local region feature more generalizable across space, which is preferred for tasks requiring local pattern recognition (e.g. semantic point labeling).\nPointNet layer. In this layer, the input are N 0 local regions of points with data size N 0⇥K⇥(d+C). Each local region in the output is abstracted by its centroid and local feature that encodes the centroid’s neighborhood. Output data size is N 0 ⇥ (d+ C 0). The coordinates of points in a local region are firstly translated into a local frame relative to the centroid point: x(j)i = x (j) i x̂(j) for i = 1, 2, ...,K and j = 1, 2, ..., d where x̂ is the coordinate of the centroid. We use PointNet [20] as described in Sec. 3.1 as the basic building block for local pattern learning. By using relative coordinates together with point features we can capture point-to-point relations in the local region."
+    }, {
+      "heading" : "3.3 Robust Feature Learning under Non-Uniform Sampling Density",
+      "text" : "multi-scale aggregation\ncross-level multi-scale aggregation\ncross-level adaptive scale selection\nAs discussed earlier, it is common that a point set comes with nonuniform density in different areas. Such non-uniformity introduces a significant challenge for point set feature learning. Features learned in dense data may not generalize to sparsely sampled regions. Consequently, models trained for sparse point cloud may not recognize fine-grained local structures.\nIdeally, we want to inspect as closely as possible into a point set to capture finest details in densely sampled regions. However, such close inspect is prohibited at low density areas because local patterns may be corrupted by the sampling deficiency. In this case, we should look for larger scale patterns in greater vicinity. To achieve this goal we propose density adaptive PointNet layers (Fig. 3) that learn to combine features from regions of different scales when the input\nsampling density changes. We call our hierarchical network with density adaptive PointNet layers as PointNet++.\nPreviously in Sec. 3.2, each abstraction level contains grouping and feature extraction of a single scale. In PointNet++, each abstraction level extracts multiple scales of local patterns and combine them intelligently according to local point densities. In terms of grouping local regions and combining features from different scales, we propose two types of density adaptive layers as listed below.\nMulti-scale grouping (MSG). As shown in Fig. 3 (a), a simple but effective way to capture multiscale patterns is to apply grouping layers with different scales followed by according PointNets to extract features of each scale. Features at different scales are concatenated to form a multi-scale feature.\nWe train the network to learn an optimized strategy to combine the multi-scale features. This is done by randomly dropping out input points with a randomized probability for each instance, which we call random input dropout. Specifically, for each training point set, we choose a dropout ratio ✓ uniformly sampled from [0, p] where p  1. For each point, we randomly drop a point with probability ✓. In practice we set p = 0.95 to avoid generating empty point sets. In doing so we present the network with training sets of various sparsity (induced by ✓) and varying uniformity (induced by randomness in dropout). During test, we keep all available points.\nMulti-resolution grouping (MRG). The MSG approach above is computationally expensive since it runs local PointNet at large scale neighborhoods for every centroid point. In particular, since the number of centroid points is usually quite large at the lowest level, the time cost is significant.\nHere we propose an alternative approach that avoids such expensive computation but still preserves the ability to adaptively aggregate information according to the distributional properties of points. In Fig. 3 (b), features of a region at some level Li is a concatenation of two vectors. One vector (left in figure) is obtained by summarizing the features at each subregion from the lower level Li 1 using the set abstraction level. The other vector (right) is the feature that is obtained by directly processing all raw points in the local region using a single PointNet.\nWhen the density of a local region is low, the first vector may be less reliable than the second vector, since the subregion in computing the first vector contains even sparser points and suffers more from sampling deficiency. In such a case, the second vector should be weighted higher. On the other hand, when the density of a local region is high, the first vector provides information of finer details since it possesses the ability to inspect at higher resolutions recursively in lower levels.\nCompared with MSG, this method is computationally more efficient since we avoids the feature extraction in large scale neighborhoods at lowest levels."
+    }, {
+      "heading" : "3.4 Point Feature Propagation for Set Segmentation",
+      "text" : "In set abstraction layer, the original point set is subsampled. However in set segmentation task such as semantic point labeling, we want to obtain point features for all the original points. One solution is to always sample all points as centroids in all set abstraction levels, which however results in high computation cost. Another way is to propagate features from subsampled points to the original points.\nWe adopt a hierarchical propagation strategy with distance based interpolation and across level skip links (as shown in Fig. 2). In a feature propagation level, we propagate point features from Nl ⇥ (d+C) points to Nl 1 points where Nl 1 and Nl (with Nl  Nl 1) are point set size of input and output of set abstraction level l. We achieve feature propagation by interpolating feature values f of Nl points at coordinates of the Nl 1 points. Among the many choices for interpolation, we use inverse distance weighted average based on k nearest neighbors (as in Eq. 2, in default we use p = 2, k = 3). The interpolated features on Nl 1 points are then concatenated with skip linked point features from the set abstraction level. Then the concatenated features are passed through a “unit pointnet”, which is similar to one-by-one convolution in CNNs. A few shared fully connected and ReLU layers are applied to update each point’s feature vector. The process is repeated until we have propagated features to the original set of points.\nf (j)(x) =\nPk i=1 wi(x)f\n(j) iPk\ni=1 wi(x) where wi(x) =\n1\nd(x, xi)p , j = 1, ..., C (2)"
+    }, {
+      "heading" : "4 Experiments",
+      "text" : "Datasets We evaluate on four datasets ranging from 2D objects (MNIST [11]), 3D objects (ModelNet40 [31] rigid object, SHREC15 [12] non-rigid object) to real 3D scenes (ScanNet [5]). Object classification is evaluated by accuracy. Semantic scene labeling is evaluated by average voxel classification accuracy following [5]. We list below the experiment setting for each dataset:\n• MNIST: Images of handwritten digits with 60k training and 10k testing samples.\n• ModelNet40: CAD models of 40 categories (mostly man-made). We use the official split with 9,843 shapes for training and 2,468 for testing.\n• SHREC15: 1200 shapes from 50 categories. Each category contains 24 shapes which are mostly organic ones with various poses such as horses, cats, etc. We use five fold cross validation to acquire classification accuracy on this dataset.\n• ScanNet: 1513 scanned and reconstructed indoor scenes. We follow the experiment setting in [5] and use 1201 scenes for training, 312 scenes for test.\nMethod Error rate (%)\nMulti-layer perceptron [24] 1.60 LeNet5 [11] 0.80 Network in Network [13] 0.47 PointNet (vanilla) [20] 1.30 PointNet [20] 0.78\nOurs 0.51\nTable 1: MNIST digit classification.\nMethod Input Accuracy (%)\nSubvolume [21] vox 89.2 MVCNN [26] img 90.1 PointNet (vanilla) [20] pc 87.2 PointNet [20] pc 89.2\nOurs pc 90.7 Ours (with normal) pc 91.9\nTable 2: ModelNet40 shape classification.\n1024 points 512 points 256 points 128 points\nFigure 4: Left: Point cloud with random point dropout. Right: Curve showing advantage of our density adaptive strategy in dealing with non-uniform density. DP means random input dropout during training; otherwise training is on uniformly dense points. See Sec.3.3 for details."
+    }, {
+      "heading" : "4.1 Point Set Classification in Euclidean Metric Space",
+      "text" : "We evaluate our network on classifying point clouds sampled from both 2D (MNIST) and 3D (ModleNet40) Euclidean spaces. MNIST images are converted to 2D point clouds of digit pixel locations. 3D point clouds are sampled from mesh surfaces from ModelNet40 shapes. In default we use 512 points for MNIST and 1024 points for ModelNet40. In last row (ours normal) in Table 2, we use face normals as additional point features, where we also use more points (N = 5000) to further boost performance. All point sets are normalized to be zero mean and within a unit ball. We use a three-level hierarchical network with three fully connected layers 1\nResults. In Table 1 and Table 2, we compare our method with a representative set of previous state of the arts. Note that PointNet (vanilla) in Table 2 is the the version in [20] that does not use transformation networks, which is equivalent to our hierarchical net with only one level.\nFirstly, our hierarchical learning architecture achieves significantly better performance than the non-hierarchical PointNet [20]. In MNIST, we see a relative 60.8% and 34.6% error rate reduction from PointNet (vanilla) and PointNet to our method. In ModelNet40 classification, we also see that using same input data size (1024 points) and features (coordinates only), ours is remarkably stronger than PointNet. Secondly, we observe that point set based method can even achieve better or similar performance as mature image CNNs. In MNIST, our method (based on 2D point set) is achieving an accuracy close to the Network in Network CNN. In ModelNet40, ours with normal information significantly outperforms previous state-of-the-art method MVCNN [26].\nRobustness to Sampling Density Variation. Sensor data directly captured from real world usually suffers from severe irregular sampling issues (Fig. 1). Our approach selects point neighborhood of multiple scales and learns to balance the descriptiveness and robustness by properly weighting them.\nWe randomly drop points (see Fig. 4 left) during test time to validate our network’s robustness to non-uniform and sparse data. In Fig. 4 right, we see MSG+DP (multi-scale grouping with random input dropout during training) and MRG+DP (multi-resolution grouping with random input dropout during training) are very robust to sampling density variation. MSG+DP performance drops by less than 1% from 1024 to 256 test points. Moreover, it achieves the best performance on almost all sampling densities compared with alternatives. PointNet vanilla [20] is fairly robust under density variation due to its focus on global abstraction rather than fine details. However loss of details also makes it less powerful compared to our approach. SSG (ablated PointNet++ with single scale grouping in each level) fails to generalize to sparse sampling density while SSG+DP amends the problem by randomly dropping out points in training time.\n1See supplementary for more details on network architecture and experiment preparation.\n4.2 Point Set Segmentation for Semantic Scene Labeling\n3DCNN[3] PointNet[12] Ours 0.730 0.739 0.845 PointNet[12] Our1 Ours2 Ours3 0.680 0.727 0.790 0.804 3DCNN[3] PointNet[12] Ours(SSG) Ours(MSG+DP) Ours(MRG+DP) 0.730 0.739 0.833 0.845 0.834 - 0.680 0.727 0.804 0.762\n0.65\n0.7\n0.75\n0.8\n0.85\n3DCNN[3] PointNet[12] Ours\nЕ 4\nA cc\nur ac\ny\n0.65\n0.7\n0.75\n0.8\n0.85\nPointNet[12] Ours(SSG) Ours(SSG+DP) Ours(MSG+DP)\nЕ 5\nA cc\nur ac\ny\n0.65\n0.775\n0.9\n3DCNN[3] PointNet[19] Ours(SSG) Ours(MSG+DP)Ours(MRG+DP)\n0.762\n0.804\n0.727\n0.680\n0.8340.8450.833\n0.7390.730\nЕ 6\nA cc\nur ac\ny\nScanNet ScanNet non-uniform\nFigure 5: Scannet labeling accuracy.\nTo validate that our approach is suitable for large scale point cloud analysis, we also evaluate on semantic scene labeling task. The goal is to predict semantic object label for points in indoor scans. [5] provides a baseline using fully convolutional neural network on voxelized scans. They purely rely on scanning geometry instead of RGB information and report the accuracy on a per-voxel basis. To make a fair comparison,\nwe remove RGB information in all our experiments and convert point cloud label prediction into voxel labeling following [5]. We also compare with [20]. The accuracy is reported on a per-voxel basis in Fig. 5 (blue bar).\nOur approach outperforms all the baseline methods by a large margin. In comparison with [5], which learns on voxelized scans, we directly learn on point clouds to avoid additional quantization error, and conduct data dependent sampling to allow more effective learning. Compared with [20], our approach introduces hierarchical feature learning and captures geometry features at different scales. This is very important for understanding scenes at multiple levels and labeling objects with various sizes. We visualize example scene labeling results in Fig. 6.\nRobustness to Sampling Density Variation To test how our trained model performs on scans with non-uniform sampling density, we synthesize virtual scans of Scannet scenes similar to that in Fig. 1 and evaluate our network on this data. We refer readers to supplementary material for how we generate the virtual scans. We evaluate our framework in three settings (SSG, MSG+DP, MRG+DP) and compare with a baseline approach [20].\nPerformance comparison is shown in Fig. 5 (yellow bar). We see that SSG performance greatly falls due to the sampling density shift from uniform point cloud to virtually scanned scenes. MRG network, on the other hand, is more robust to the sampling density shift since it is able to automatically switch to features depicting coarser\ngranularity when the sampling is sparse. Even though there is a domain gap between training data (uniform points with random dropout) and scanned data with non-uniform density, our MSG network is only slightly affected and achieves the best accuracy among methods in comparison. These prove the effectiveness of our density adaptive layer design."
+    }, {
+      "heading" : "4.3 Point Set Classification in Non-Euclidean Metric Space",
+      "text" : "In this section, we show generalizability of our approach to non-Euclidean space. In non-rigid shape classification (Fig. 7), a good classifier should be able to classify (a) and (c) in Fig. 7 correctly as the same category even given their difference in pose, which requires knowledge of intrinsic structure. Shapes in SHREC15 are 2D surfaces embedded in 3D space. Geodesic distances along the surfaces naturally induce a metric space. We show through experiments that adopting PointNet++ in this metric space is an effective way to capture intrinsic structure of the underlying point set.\nFor each shape in [12], we firstly construct the metric space induced by pairwise geodesic distances. We follow [23] to obtain an embedding metric that mimics geodesic distance. Next we extract intrinsic point features in this metric space including WKS [1], HKS [27] and multi-scale Gaussian curvature [16]. We use these features as input and then sample and group points according to the underlying metric space. In this way, our network learns to capture multi-scale intrinsic structure that is not influenced by the specific pose of a shape. Alternative design choices include using XY Z coordinates as points feature or use Euclidean space R3 as the underlying metric space. We show below these are not optimal choices.\nResults. We compare our methods with previous state-of-theart method [14] in Table 3. [14] extracts geodesic moments as shape features and use a stacked sparse autoencoder to digest these features to predict shape category. Our approach using nonEuclidean metric space and intrinsic features achieves the best performance in all settings and outperforms [14] by a large margin.\nComparing the first and second setting of our approach, we see intrinsic features are very important for non-rigid shape classification. XY Z feature fails to reveal intrinsic structures and is greatly influenced by pose variation. Comparing the second and third\nsetting of our approach, we see using geodesic neighborhood is beneficial compared with Euclidean neighborhood. Euclidean neighborhood might include points far away on surfaces and this neighborhood could change dramatically when shape affords non-rigid deformation. This introduces difficulty for effective weight sharing since the local structure could become combinatorially complicated. Geodesic neighborhood on surfaces, on the other hand, gets rid of this issue and improves the learning effectiveness.\n4.4 Feature Visualization.\nIn Fig. 8 we visualize what has been learned by the first level kernels of our hierarchical network. We created a voxel grid in space and aggregate local point sets that activate certain neurons the most in grid cells (highest 100 examples are used). Grid cells with high votes are kept and converted back to 3D point clouds, which represents the pattern that neuron recognizes. Since the model is trained on ModelNet40 which is mostly consisted of furniture, we see structures of planes, double planes, lines, corners etc. in the visualization."
+    }, {
+      "heading" : "5 Related Work",
+      "text" : "The idea of hierarchical feature learning has been very successful. Among all the learning models, convolutional neural network [10; 25; 8] is one of the most prominent ones. However, convolution does not apply to unordered point sets with distance metrics, which is the focus of our work.\nA few very recent works [20; 28] have studied how to apply deep learning to unordered sets. They ignore the underlying distance metric even if the point set does possess one. As a result, they are unable to capture local context of points and are sensitive to global set translation and normalization. In this work, we target at points sampled from a metric space and tackle these issues by explicitly considering the underlying distance metric in our design.\nPoint sampled from a metric space are usually noisy and with non-uniform sampling density. This affects effective point feature extraction and causes difficulty for learning. One of the key issue is to select proper scale for point feature design. Previously several approaches have been developed regarding this [19; 17; 2; 6; 7; 30] either in geometry processing community or photogrammetry and remote sensing community. In contrast to all these works, our approach learns to extract point features and balance multiple feature scales in an end-to-end fashion.\nIn 3D metric space, other than point set, there are several popular representations for deep learning, including volumetric grids [21; 22; 29], and geometric graphs [3; 15; 33]. However, in none of these works, the problem of non-uniform sampling density has been explicitly considered."
+    }, {
+      "heading" : "6 Conclusion",
+      "text" : "In this work, we propose PointNet++, a powerful neural network architecture for processing point sets sampled in a metric space. PointNet++ recursively functions on a nested partitioning of the input point set, and is effective in learning hierarchical features with respect to the distance metric. To handle the non uniform point sampling issue, we propose two novel set abstraction layers that intelligently aggregate multi-scale information according to local point densities. These contributions enable us to achieve state-of-the-art performance on challenging benchmarks of 3D point clouds.\nIn the future, it’s worthwhile thinking how to accelerate inference speed of our proposed network especially for MSG and MRG layers by sharing more computation in each local regions. It’s also interesting to find applications in higher dimensional metric spaces where CNN based method would be computationally unfeasible while our method can scale well.\nAcknowledgement. The authors would like to acknowledge the support of a Samsung GRO grant, NSF grants IIS-1528025 and DMS-1546206, and ONR MURI grant N00014-13-1-0341."
+    } ],
+    "references" : [ {
+      "title" : "The wave kernel signature: A quantum mechanical approach to shape analysis",
+      "author" : [ "M. Aubry", "U. Schlickewei", "D. Cremers" ],
+      "venue" : "Computer Vision Workshops (ICCV Workshops), 2011 IEEE International Conference on, pages 1626–1633. IEEE",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Classification and segmentation of terrestrial laser scanner point clouds using local variance information",
+      "author" : [ "D. Belton", "D.D. Lichti" ],
+      "venue" : "Iaprs, Xxxvi, 5:44–49",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : null,
+      "year" : 2006
+    }, {
+      "title" : "Spectral networks and locally connected networks on graphs",
+      "author" : [ "J. Bruna", "W. Zaremba", "A. Szlam", "Y. LeCun" ],
+      "venue" : "arXiv preprint arXiv:1312.6203",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "ShapeNet: An Information-Rich 3D Model Repository",
+      "author" : [ "A.X. Chang", "T. Funkhouser", "L. Guibas", "P. Hanrahan", "Q. Huang", "Z. Li", "S. Savarese", "M. Savva", "S. Song", "H. Su", "J. Xiao", "L. Yi", "F. Yu" ],
+      "venue" : "Technical Report arXiv:1512.03012 [cs.GR]",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Scannet: Richly-annotated 3d reconstructions of indoor scenes",
+      "author" : [ "A. Dai", "A.X. Chang", "M. Savva", "M. Halber", "T. Funkhouser", "M. Nießner" ],
+      "venue" : "arXiv preprint arXiv:1702.04405",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : null,
+      "year" : 2017
+    }, {
+      "title" : "Dimensionality based scale selection in 3d lidar point clouds",
+      "author" : [ "J. Demantké", "C. Mallet", "N. David", "B. Vallet" ],
+      "venue" : "The International Archives of the Photogrammetry, Remote Sensing and Spatial Information Sciences, 38(Part 5):W12",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Towards 3d lidar point cloud registration improvement using optimal neighborhood knowledge",
+      "author" : [ "A. Gressin", "C. Mallet", "J. Demantké", "N. David" ],
+      "venue" : "ISPRS journal of photogrammetry and remote sensing, 79:240– 251",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Deep residual learning for image recognition",
+      "author" : [ "K. He", "X. Zhang", "S. Ren", "J. Sun" ],
+      "venue" : "Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, pages 770–778",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Imagenet classification with deep convolutional neural networks",
+      "author" : [ "A. Krizhevsky", "I. Sutskever", "G.E. Hinton" ],
+      "venue" : "Advances in neural information processing systems, pages 1097–1105",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Gradient-based learning applied to document recognition",
+      "author" : [ "Y. LeCun", "L. Bottou", "Y. Bengio", "P. Haffner" ],
+      "venue" : "Proceedings of the IEEE, 86(11):2278–2324",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : null,
+      "year" : 1998
+    }, {
+      "title" : "Non-rigid 3D Shape Retrieval",
+      "author" : [ "Z. Lian", "J. Zhang", "S. Choi", "H. ElNaghy", "J. El-Sana", "T. Furuya", "A. Giachetti", "R.A. Guler", "L. Lai", "C. Li", "H. Li", "F.A. Limberger", "R. Martin", "R.U. Nakanishi", "A.P. Neto", "L.G. Nonato", "R. Ohbuchi", "K. Pevzner", "D. Pickup", "P. Rosin", "A. Sharf", "L. Sun", "X. Sun", "S. Tari", "G. Unal", "R.C. Wilson" ],
+      "venue" : "I. Pratikakis, M. Spagnuolo, T. Theoharis, L. V. Gool, and R. Veltkamp, editors, Eurographics Workshop on 3D Object Retrieval. The Eurographics Association",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Network in network",
+      "author" : [ "M. Lin", "Q. Chen", "S. Yan" ],
+      "venue" : "arXiv preprint arXiv:1312.4400",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Deep learning with geodesic moments for 3d shape classification",
+      "author" : [ "L. Luciano", "A.B. Hamza" ],
+      "venue" : "Pattern Recognition Letters",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : null,
+      "year" : 2017
+    }, {
+      "title" : "Geodesic convolutional neural networks on riemannian manifolds",
+      "author" : [ "J. Masci", "D. Boscaini", "M. Bronstein", "P. Vandergheynst" ],
+      "venue" : "Proceedings of the IEEE International Conference on Computer Vision Workshops, pages 37–45",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "et al",
+      "author" : [ "M. Meyer", "M. Desbrun", "P. Schröder", "A.H. Barr" ],
+      "venue" : "Discrete differential-geometry operators for triangulated 2-manifolds. Visualization and mathematics, 3(2):52–58",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : null,
+      "year" : 2002
+    }, {
+      "title" : "Estimating surface normals in noisy point cloud data",
+      "author" : [ "N.J. MITRA", "A. NGUYEN", "L. GUIBAS" ],
+      "venue" : "International Journal of Computational Geometry & Applications, 14(04n05):261–276",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : null,
+      "year" : 2004
+    }, {
+      "title" : "Structure sensor-3d scanning",
+      "author" : [ "I. Occipital" ],
+      "venue" : "augmented reality, and more for mobile devices",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Point-based multiscale surface representation",
+      "author" : [ "M. Pauly", "L.P. Kobbelt", "M. Gross" ],
+      "venue" : "ACM Transactions on Graphics (TOG), 25(2):177–193",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : null,
+      "year" : 2006
+    }, {
+      "title" : "Pointnet: Deep learning on point sets for 3d classification and segmentation",
+      "author" : [ "C.R. Qi", "H. Su", "K. Mo", "L.J. Guibas" ],
+      "venue" : "arXiv preprint arXiv:1612.00593",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Volumetric and multi-view cnns for object classification on 3d data",
+      "author" : [ "C.R. Qi", "H. Su", "M. Nießner", "A. Dai", "M. Yan", "L. Guibas" ],
+      "venue" : "Proc. Computer Vision and Pattern Recognition (CVPR), IEEE",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Octnet: Learning deep 3d representations at high resolutions",
+      "author" : [ "G. Riegler", "A.O. Ulusoys", "A. Geiger" ],
+      "venue" : "arXiv preprint arXiv:1611.05009",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Interior distance using barycentric coordinates",
+      "author" : [ "R.M. Rustamov", "Y. Lipman", "T. Funkhouser" ],
+      "venue" : "Computer Graphics Forum, volume 28, pages 1279–1288. Wiley Online Library",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : null,
+      "year" : 2009
+    }, {
+      "title" : "Best practices for convolutional neural networks applied to visual document analysis",
+      "author" : [ "P.Y. Simard", "D. Steinkraus", "J.C. Platt" ],
+      "venue" : "ICDAR, volume 3, pages 958–962",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : null,
+      "year" : 2003
+    }, {
+      "title" : "Very deep convolutional networks for large-scale image recognition",
+      "author" : [ "K. Simonyan", "A. Zisserman" ],
+      "venue" : "arXiv preprint arXiv:1409.1556",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Multi-view convolutional neural networks for 3d shape recognition",
+      "author" : [ "H. Su", "S. Maji", "E. Kalogerakis", "E.G. Learned-Miller" ],
+      "venue" : "Proc. ICCV, to appear",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "A concise and provably informative multi-scale signature based on heat diffusion",
+      "author" : [ "J. Sun", "M. Ovsjanikov", "L. Guibas" ],
+      "venue" : "Computer graphics forum, volume 28, pages 1383–1392. Wiley Online Library",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : null,
+      "year" : 2009
+    }, {
+      "title" : "Order matters: Sequence to sequence for sets",
+      "author" : [ "O. Vinyals", "S. Bengio", "M. Kudlur" ],
+      "venue" : "arXiv preprint arXiv:1511.06391",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "O-cnn: Octree-based convolutional neural networks for 3d shape analysis",
+      "author" : [ "WANG P.-S", "LIU Y", "GUO Y.-X", "SUN C.-Y", "TONG. X" ],
+      "venue" : null,
+      "citeRegEx" : "29",
+      "shortCiteRegEx" : "29",
+      "year" : 2017
+    }, {
+      "title" : "Semantic point cloud interpretation based on optimal neighborhoods",
+      "author" : [ "M. Weinmann", "B. Jutzi", "S. Hinz", "C. Mallet" ],
+      "venue" : "relevant features and efficient classifiers. ISPRS Journal of Photogrammetry and Remote Sensing, 105:286–304",
+      "citeRegEx" : "30",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "3d shapenets: A deep representation for volumetric shapes",
+      "author" : [ "Z. Wu", "S. Song", "A. Khosla", "F. Yu", "L. Zhang", "X. Tang", "J. Xiao" ],
+      "venue" : "Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, pages 1912–1920",
+      "citeRegEx" : "31",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "A scalable active framework for region annotation in 3d shape collections",
+      "author" : [ "L. Yi", "V.G. Kim", "D. Ceylan", "I.-C. Shen", "M. Yan", "H. Su", "C. Lu", "Q. Huang", "A. Sheffer", "L. Guibas" ],
+      "venue" : "SIGGRAPH Asia",
+      "citeRegEx" : "32",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Syncspeccnn: Synchronized spectral cnn for 3d shape segmentation",
+      "author" : [ "L. Yi", "H. Su", "X. Guo", "L. Guibas" ],
+      "venue" : "arXiv preprint arXiv:1612.00606",
+      "citeRegEx" : "33",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 18,
+      "context" : "PointNet [20] is a pioneer in this direction.",
+      "startOffset" : 9,
+      "endOffset" : 13
+    }, {
+      "referenceID" : 18,
+      "context" : "PointNet [20] is a pioneering effort that directly processes point sets.",
+      "startOffset" : 9,
+      "endOffset" : 13
+    }, {
+      "referenceID" : 16,
+      "context" : "We assume that the input point set may have variable density at different areas, which is quite common in real data such as Structure Sensor scanning [18] (see Fig.",
+      "startOffset" : 150,
+      "endOffset" : 154
+    }, {
+      "referenceID" : 23,
+      "context" : "[25] shows that using smaller kernels helps to improve the ability of CNNs.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 18,
+      "context" : "Our work can be viewed as an extension of PointNet [20] with added hierarchical structure.",
+      "startOffset" : 51,
+      "endOffset" : 55
+    }, {
+      "referenceID" : 18,
+      "context" : "1 Review of PointNet [20]: A Universal Continuous Set Function Approximator",
+      "startOffset" : 21,
+      "endOffset" : 25
+    }, {
+      "referenceID" : 18,
+      "context" : "1 is invariant to input point permutations and can arbitrarily approximate any continuous set function [20].",
+      "startOffset" : 103,
+      "endOffset" : 107
+    }, {
+      "referenceID" : 18,
+      "context" : "Note that the response of h can be interpreted as the spatial encoding of a point (see [20] for details).",
+      "startOffset" : 87,
+      "endOffset" : 91
+    }, {
+      "referenceID" : 18,
+      "context" : "We use PointNet [20] as described in Sec.",
+      "startOffset" : 16,
+      "endOffset" : 20
+    }, {
+      "referenceID" : 9,
+      "context" : "Datasets We evaluate on four datasets ranging from 2D objects (MNIST [11]), 3D objects (ModelNet40 [31] rigid object, SHREC15 [12] non-rigid object) to real 3D scenes (ScanNet [5]).",
+      "startOffset" : 69,
+      "endOffset" : 73
+    }, {
+      "referenceID" : 29,
+      "context" : "Datasets We evaluate on four datasets ranging from 2D objects (MNIST [11]), 3D objects (ModelNet40 [31] rigid object, SHREC15 [12] non-rigid object) to real 3D scenes (ScanNet [5]).",
+      "startOffset" : 99,
+      "endOffset" : 103
+    }, {
+      "referenceID" : 10,
+      "context" : "Datasets We evaluate on four datasets ranging from 2D objects (MNIST [11]), 3D objects (ModelNet40 [31] rigid object, SHREC15 [12] non-rigid object) to real 3D scenes (ScanNet [5]).",
+      "startOffset" : 126,
+      "endOffset" : 130
+    }, {
+      "referenceID" : 4,
+      "context" : "Datasets We evaluate on four datasets ranging from 2D objects (MNIST [11]), 3D objects (ModelNet40 [31] rigid object, SHREC15 [12] non-rigid object) to real 3D scenes (ScanNet [5]).",
+      "startOffset" : 176,
+      "endOffset" : 179
+    }, {
+      "referenceID" : 4,
+      "context" : "Semantic scene labeling is evaluated by average voxel classification accuracy following [5].",
+      "startOffset" : 88,
+      "endOffset" : 91
+    }, {
+      "referenceID" : 4,
+      "context" : "We follow the experiment setting in [5] and use 1201 scenes for training, 312 scenes for test.",
+      "startOffset" : 36,
+      "endOffset" : 39
+    }, {
+      "referenceID" : 18,
+      "context" : "Note that PointNet (vanilla) in Table 2 is the the version in [20] that does not use transformation networks, which is equivalent to our hierarchical net with only one level.",
+      "startOffset" : 62,
+      "endOffset" : 66
+    }, {
+      "referenceID" : 18,
+      "context" : "Firstly, our hierarchical learning architecture achieves significantly better performance than the non-hierarchical PointNet [20].",
+      "startOffset" : 125,
+      "endOffset" : 129
+    }, {
+      "referenceID" : 24,
+      "context" : "In ModelNet40, ours with normal information significantly outperforms previous state-of-the-art method MVCNN [26].",
+      "startOffset" : 109,
+      "endOffset" : 113
+    }, {
+      "referenceID" : 18,
+      "context" : "PointNet vanilla [20] is fairly robust under density variation due to its focus on global abstraction rather than fine details.",
+      "startOffset" : 17,
+      "endOffset" : 21
+    }, {
+      "referenceID" : 2,
+      "context" : "2 Point Set Segmentation for Semantic Scene Labeling 3DCNN[3] PointNet[12] Ours 0.",
+      "startOffset" : 58,
+      "endOffset" : 61
+    }, {
+      "referenceID" : 10,
+      "context" : "2 Point Set Segmentation for Semantic Scene Labeling 3DCNN[3] PointNet[12] Ours 0.",
+      "startOffset" : 70,
+      "endOffset" : 74
+    }, {
+      "referenceID" : 2,
+      "context" : "3DCNN[3] PointNet[12] Ours(SSG) Ours(MSG+DP) Ours(MRG+DP) 0.",
+      "startOffset" : 5,
+      "endOffset" : 8
+    }, {
+      "referenceID" : 10,
+      "context" : "3DCNN[3] PointNet[12] Ours(SSG) Ours(MSG+DP) Ours(MRG+DP) 0.",
+      "startOffset" : 17,
+      "endOffset" : 21
+    }, {
+      "referenceID" : 10,
+      "context" : "PointNet[12] Ours(SSG) Ours(SSG+DP) Ours(MSG+DP) Е 5",
+      "startOffset" : 8,
+      "endOffset" : 12
+    }, {
+      "referenceID" : 2,
+      "context" : "3DCNN[3] PointNet[19] Ours(SSG) Ours(MSG+DP)Ours(MRG+DP) 0.",
+      "startOffset" : 5,
+      "endOffset" : 8
+    }, {
+      "referenceID" : 17,
+      "context" : "3DCNN[3] PointNet[19] Ours(SSG) Ours(MSG+DP)Ours(MRG+DP) 0.",
+      "startOffset" : 17,
+      "endOffset" : 21
+    }, {
+      "referenceID" : 4,
+      "context" : "[5] provides a baseline using fully convolutional neural network on voxelized scans.",
+      "startOffset" : 0,
+      "endOffset" : 3
+    }, {
+      "referenceID" : 4,
+      "context" : "To make a fair comparison, we remove RGB information in all our experiments and convert point cloud label prediction into voxel labeling following [5].",
+      "startOffset" : 147,
+      "endOffset" : 150
+    }, {
+      "referenceID" : 4,
+      "context" : "In comparison with [5], which learns on voxelized scans, we directly learn on point clouds to avoid additional quantization error, and conduct data dependent sampling to allow more effective learning.",
+      "startOffset" : 19,
+      "endOffset" : 22
+    }, {
+      "referenceID" : 18,
+      "context" : "Compared with [20], our approach introduces hierarchical feature learning and captures geometry features at different scales.",
+      "startOffset" : 14,
+      "endOffset" : 18
+    }, {
+      "referenceID" : 18,
+      "context" : "[20] captures the overall layout of the room correctly but fails to discover the furniture.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 18,
+      "context" : "We evaluate our framework in three settings (SSG, MSG+DP, MRG+DP) and compare with a baseline approach [20].",
+      "startOffset" : 103,
+      "endOffset" : 107
+    }, {
+      "referenceID" : 10,
+      "context" : "For each shape in [12], we firstly construct the metric space induced by pairwise geodesic distances.",
+      "startOffset" : 18,
+      "endOffset" : 22
+    }, {
+      "referenceID" : 21,
+      "context" : "We follow [23] to obtain an embedding metric that mimics geodesic distance.",
+      "startOffset" : 10,
+      "endOffset" : 14
+    }, {
+      "referenceID" : 0,
+      "context" : "Next we extract intrinsic point features in this metric space including WKS [1], HKS [27] and multi-scale Gaussian curvature [16].",
+      "startOffset" : 76,
+      "endOffset" : 79
+    }, {
+      "referenceID" : 25,
+      "context" : "Next we extract intrinsic point features in this metric space including WKS [1], HKS [27] and multi-scale Gaussian curvature [16].",
+      "startOffset" : 85,
+      "endOffset" : 89
+    }, {
+      "referenceID" : 14,
+      "context" : "Next we extract intrinsic point features in this metric space including WKS [1], HKS [27] and multi-scale Gaussian curvature [16].",
+      "startOffset" : 125,
+      "endOffset" : 129
+    }, {
+      "referenceID" : 12,
+      "context" : "We compare our methods with previous state-of-theart method [14] in Table 3.",
+      "startOffset" : 60,
+      "endOffset" : 64
+    }, {
+      "referenceID" : 12,
+      "context" : "[14] extracts geodesic moments as shape features and use a stacked sparse autoencoder to digest these features to predict shape category.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 12,
+      "context" : "Our approach using nonEuclidean metric space and intrinsic features achieves the best performance in all settings and outperforms [14] by a large margin.",
+      "startOffset" : 130,
+      "endOffset" : 134
+    }, {
+      "referenceID" : 8,
+      "context" : "Among all the learning models, convolutional neural network [10; 25; 8] is one of the most prominent ones.",
+      "startOffset" : 60,
+      "endOffset" : 71
+    }, {
+      "referenceID" : 23,
+      "context" : "Among all the learning models, convolutional neural network [10; 25; 8] is one of the most prominent ones.",
+      "startOffset" : 60,
+      "endOffset" : 71
+    }, {
+      "referenceID" : 7,
+      "context" : "Among all the learning models, convolutional neural network [10; 25; 8] is one of the most prominent ones.",
+      "startOffset" : 60,
+      "endOffset" : 71
+    }, {
+      "referenceID" : 18,
+      "context" : "A few very recent works [20; 28] have studied how to apply deep learning to unordered sets.",
+      "startOffset" : 24,
+      "endOffset" : 32
+    }, {
+      "referenceID" : 26,
+      "context" : "A few very recent works [20; 28] have studied how to apply deep learning to unordered sets.",
+      "startOffset" : 24,
+      "endOffset" : 32
+    }, {
+      "referenceID" : 17,
+      "context" : "Previously several approaches have been developed regarding this [19; 17; 2; 6; 7; 30] either in geometry processing community or photogrammetry and remote sensing community.",
+      "startOffset" : 65,
+      "endOffset" : 86
+    }, {
+      "referenceID" : 15,
+      "context" : "Previously several approaches have been developed regarding this [19; 17; 2; 6; 7; 30] either in geometry processing community or photogrammetry and remote sensing community.",
+      "startOffset" : 65,
+      "endOffset" : 86
+    }, {
+      "referenceID" : 1,
+      "context" : "Previously several approaches have been developed regarding this [19; 17; 2; 6; 7; 30] either in geometry processing community or photogrammetry and remote sensing community.",
+      "startOffset" : 65,
+      "endOffset" : 86
+    }, {
+      "referenceID" : 5,
+      "context" : "Previously several approaches have been developed regarding this [19; 17; 2; 6; 7; 30] either in geometry processing community or photogrammetry and remote sensing community.",
+      "startOffset" : 65,
+      "endOffset" : 86
+    }, {
+      "referenceID" : 6,
+      "context" : "Previously several approaches have been developed regarding this [19; 17; 2; 6; 7; 30] either in geometry processing community or photogrammetry and remote sensing community.",
+      "startOffset" : 65,
+      "endOffset" : 86
+    }, {
+      "referenceID" : 28,
+      "context" : "Previously several approaches have been developed regarding this [19; 17; 2; 6; 7; 30] either in geometry processing community or photogrammetry and remote sensing community.",
+      "startOffset" : 65,
+      "endOffset" : 86
+    }, {
+      "referenceID" : 19,
+      "context" : "In 3D metric space, other than point set, there are several popular representations for deep learning, including volumetric grids [21; 22; 29], and geometric graphs [3; 15; 33].",
+      "startOffset" : 130,
+      "endOffset" : 142
+    }, {
+      "referenceID" : 20,
+      "context" : "In 3D metric space, other than point set, there are several popular representations for deep learning, including volumetric grids [21; 22; 29], and geometric graphs [3; 15; 33].",
+      "startOffset" : 130,
+      "endOffset" : 142
+    }, {
+      "referenceID" : 27,
+      "context" : "In 3D metric space, other than point set, there are several popular representations for deep learning, including volumetric grids [21; 22; 29], and geometric graphs [3; 15; 33].",
+      "startOffset" : 130,
+      "endOffset" : 142
+    }, {
+      "referenceID" : 2,
+      "context" : "In 3D metric space, other than point set, there are several popular representations for deep learning, including volumetric grids [21; 22; 29], and geometric graphs [3; 15; 33].",
+      "startOffset" : 165,
+      "endOffset" : 176
+    }, {
+      "referenceID" : 13,
+      "context" : "In 3D metric space, other than point set, there are several popular representations for deep learning, including volumetric grids [21; 22; 29], and geometric graphs [3; 15; 33].",
+      "startOffset" : 165,
+      "endOffset" : 176
+    }, {
+      "referenceID" : 31,
+      "context" : "In 3D metric space, other than point set, there are several popular representations for deep learning, including volumetric grids [21; 22; 29], and geometric graphs [3; 15; 33].",
+      "startOffset" : 165,
+      "endOffset" : 176
+    } ],
+    "year" : 2017,
+    "abstractText" : "Few prior works study deep learning on point sets. PointNet [20] is a pioneer in this direction. However, by design PointNet does not capture local structures induced by the metric space points live in, limiting its ability to recognize fine-grained patterns and generalizability to complex scenes. In this work, we introduce a hierarchical neural network that applies PointNet recursively on a nested partitioning of the input point set. By exploiting metric space distances, our network is able to learn local features with increasing contextual scales. With further observation that point sets are usually sampled with varying densities, which results in greatly decreased performance for networks trained on uniform densities, we propose novel set learning layers to adaptively combine features from multiple scales. Experiments show that our network called PointNet++ is able to learn deep point set features efficiently and robustly. In particular, results significantly better than state-of-the-art have been obtained on challenging benchmarks of 3D point clouds.",
+    "creator" : null
+  }
+}

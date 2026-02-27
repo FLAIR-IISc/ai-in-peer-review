@@ -1,0 +1,54 @@
+Summary
+The paper proposes Cholesky-CMA-ES, a variant of CMA-ES that maintains and updates the lower-triangular Cholesky factor At of the covariance Ct = AtAt^T directly, avoiding explicit covariance matrix decompositions. The main change to standard CMA-ES is an approximation in the cumulative step-size adaptation (CSA): C^{-1/2}_t is replaced by A^{-1}_t, i.e., the orthogonal factor Et in the RQ decomposition C^{1/2}_t = A_t E_t is ignored. A lemma argues that if the normalized covariance converges in shape, then E_t varies slowly and the CSA error vanishes in norm thanks to exponential forgetting. Algorithmically, the covariance update in (2) is decomposed into a scaling by sqrt(1 − c1 − cµ) and µ + 1 rank-one updates implemented via a specialized cholupdate-like routine (Algorithm 2). The authors claim O(µ d^2) time per iteration and O(d^2) storage (asymptotically optimal for full-matrix CMA-ES), and empirically show large wall-clock speedups with essentially identical numbers of function evaluations on standard benchmarks (including random rotations), compared to a reference CMA-ES that recomputes the matrix square root each iteration and a delayed-update baseline.
+
+Relation to prior work
+The paper builds on prior work that updates decompositions rather than Ct itself (Suttorp et al., 2009) and on rank-one Cholesky updates for special CMA-ES variants ((1+1)-CMA-ES, MO-CMA-ES; Krause & Igel, 2015; Suttorp et al., 2009). The extension to standard CMA-ES with rank-µ updates is natural and practically relevant. The information-geometric interpretation of CMA-ES is acknowledged. However, key literature on numerically stable cholupdate/downdate methods (e.g., Gill-Murray, Higham) and on rank-one updates to Cholesky factors is not cited.
+
+Strengths
+- Clear motivation: when function evaluations are cheap and d is large, decomposition cost dominates CMA-ES; reducing it matters.
+- Simple, implementable algorithm that preserves the full covariance model while avoiding explicit decompositions.
+- Complexity improvement (O(µ d^2), µ ~ O(log d)), with compelling wall-clock speedups.
+- Empirical evidence on multiple benchmarks and rotated instances showing similar evaluation counts and lower runtimes.
+- Useful practical notes (cache effects; leveraging triangular solves).
+
+Weaknesses and detailed comments
+Technical correctness and theory:
+- Serious error: “the diagonal elements of a triangular Cholesky factor are the square roots of the eigenvalues of the factorized matrix.” This is false. The diagonal entries of A are not the eigenvalues of Ct; at best, the singular values of A relate to sqrt of eigenvalues of Ct, but those are not given by diag(A). This undermines a claimed advantage (“eigenvalues for free”) and needs correction.
+- Theoretical justification for replacing C^{-1/2} by A^{-1} is weak. Lemma 1 assumes convergence of the normalized covariance shape C̄_t (an assumption not established for CMA-ES) and proves a trivial continuity property of the RQ decomposition; no quantitative bound is provided on the CSA error ||pσ,t||, nor on its impact on step-size dynamics or invariance properties. The argument that “the error vanishes due to exponential forgetting” is heuristic without rates.
+- Invariance: the CSA approximation explicitly breaks the whitening used to maintain rotational invariance of σ-adaptation. While experiments suggest negligible impact, a more careful analysis or at least diagnostic plots in the main paper (not only in the supplement) are needed. The claim that the error “depends only on rotation of coordinate systems” is not quantified.
+- Algorithm 2 is presented without a derivation, references, or stability guarantees. The conditions under which the update preserves positive definiteness (β ≥ 0 in this paper’s use) should be stated, and numerical stability issues (accumulation of roundoff with many successive rank-one updates) should be discussed; standard techniques and references (e.g., Givens/Cholesky updates, Higham’s analysis) are missing.
+- The text alternates between QR and RQ factorization and lower/upper triangular conventions in a confusing way (Sec. 2 vs. Lemma 1). Please fix and make the factorization assumptions consistent (e.g., RQ with positive diagonal for uniqueness).
+
+Algorithmic/complexity details:
+- You do not need to form A^{-1}_t explicitly for pσ; a triangular solve A_t ŝ_t = (m_{t+1} − m_t)/σ_t is preferable for stability and has the same O(d^2) cost. The paper sometimes suggests computing A^{-1} “for free,” which is unnecessary and can be less stable.
+- The “asymptotically optimal” claim should be qualified: Ω(d^2) per iteration is unavoidable when updating a dense factor and generating samples/solves; but the argument presently leans on a footnote about matrix multiplication rather than a clear lower bound argument.
+- Constraints like c1 + cµ < 1 (to keep the scaling factor real and maintain SPD) should be explicitly stated.
+
+Experiments:
+- Baselines: The reference CMA-ES recomputes the square root every iteration (the delay formula evaluates to 1 for your settings), which is a pessimistic baseline. Please also include a tuned delayed-update baseline recommended in practice (and report its evaluation counts and runtime), not just the fixed d-delay variant.
+- Reporting: For Rosenbrock, you exclude non-convergent trials—this biases results. Report success rates and time-to-target conditional on success. Provide dispersion (e.g., quartiles) and statistical tests. The 10^-14 target is very stringent and may be sensitive to numerical noise; justify this choice and report robustness.
+- Setup details affecting runtime are missing: CPU model, BLAS/LAPACK/threads, compiler flags, memory hierarchy considerations, and the random rotation generation method (Haar measure on SO(d) or not?).
+- An ablation isolating the CSA approximation’s effect (e.g., substituting true C^{-1/2} vs A^{-1}) on evaluation counts would strengthen the claim that performance is unchanged.
+
+Clarity and presentation:
+- Numerous typographical and formatting issues: “th Conference on Neural Information Processing Systems,” inconsistent hyphenation (“multi-variate”), dangling commas and parentheses, footnote marker “1” intruding in the text, some equations misaligned.
+- References are severely broken (missing years/venues, odd “? \Q2012\E” artifacts, author name formatting inconsistencies). This does not meet NeurIPS standards and must be fixed.
+- Notation glitches: C̄∞t=0 is odd notation; be explicit about uniqueness conditions in RQ (positive diagonal).
+
+Originality and significance
+The idea of operating directly on a triangular Cholesky factor for standard CMA-ES (beyond µ=1) and the practical CSA approximation are incremental but useful. Given how widely CMA-ES is used, the speedup could matter in practice. However, the novelty is moderate (building on known cholupdate ideas and previous CMA-ES variants), and the theoretical contribution is limited.
+
+Pros
+- Practical, implementable speedup with convincing wall-clock gains.
+- Maintains full covariance adaptation; likely to be adopted by practitioners.
+- Sensible complexity and memory profile.
+
+Cons
+- Technical error about eigenvalues/Cholesky diagonal.
+- Weak and largely heuristic justification for CSA approximation; no quantitative bounds.
+- Experimental methodology/reporting issues (biased exclusions, limited baselines, missing details).
+- Numerous formatting/reference problems that hinder readability.
+- Stability/accuracy of Algorithm 2 not discussed or validated against standard routines.
+
+Recommendation
+Reject in its current form. The core idea is promising and potentially impactful, but the paper contains a serious technical error, insufficient theoretical support for the key approximation, experimental/reporting shortcomings, and substantial presentation issues. With corrections (especially fixing the eigenvalue claim), stronger analysis of the CSA approximation, more rigorous experiments, and polished presentation, a future submission could be competitive.

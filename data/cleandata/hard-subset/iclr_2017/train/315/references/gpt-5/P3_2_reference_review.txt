@@ -1,0 +1,50 @@
+Summary and contributions
+- The paper studies why large-batch (LB) training often yields worse test performance than small-batch (SB) training despite similar training loss. It hypothesizes that LB converges to “sharp” minima (large positive Hessian eigenvalues) that generalize poorly, whereas SB finds “flat” minima. 
+- It supports this claim with: (i) 1-D and curvilinear interpolation plots between SB and LB solutions showing steeper basins around LB solutions; (ii) an empirical “sharpness” metric that maximizes loss in a small neighborhood (full space and random 100D subspaces); (iii) experiments across several architectures and datasets; (iv) warm-starting experiments showing that an initial SB phase can enable LB to find flatter minima; (v) attempts to mitigate with data augmentation, conservative training, and adversarial training.
+- The paper argues that noise in SB gradients aids exploration and escape from sharp basins, suggesting dynamic sampling as a potential remedy.
+
+Decision: Reject
+Key reasons:
+1) The central sharpness–generalization claim rests on a sharpness metric and experimental protocol that are not invariant to common reparameterizations and have significant confounds (optimizer, learning-rate and batch-size coupling, batch norm), undermining causal conclusions.
+2) Baselines and controls for LB training are insufficient. The paper does not convincingly separate batch size per se from the optimization “temperature” (learning rate, momentum, noise scale) or from standard large-batch best practices.
+
+Supporting arguments
+- Sharpness metric and invariances. The proposed metric (Equation 4) is ad hoc, only weakly normalized, and not invariant to layerwise rescalings that leave the function unchanged (e.g., in ReLU networks with batch normalization). Prior work has shown sharpness measures can be arbitrarily altered by simple reparameterizations without affecting generalization (e.g., Dinh et al., 2017). Without an invariant notion (e.g., top Hessian eigenvalue of the loss in function space, Fisher eigenvalues, or scale-invariant layerwise-normalized Hessian), the central empirical correlation is fragile. Batch norm further complicates the landscape and scaling properties.
+- Missing controls for optimization temperature. Modern analyses view SGD as a stochastic differential equation with a noise scale governed by learning rate, batch size, and gradient variance. Large batches at the same learning rate reduce noise, which alone can drive a bias toward sharper minima. The paper varies batch size but keeps the optimizer (Adam) and, apparently, learning-rate schedule and weight decay fixed, conflating batch size with optimization temperature. Absent controls such as linear learning-rate scaling with batch size, warmup, momentum tuning, or equalizing noise scale, it is unclear whether the observed gap is due to batch size or suboptimal hyperparameters.
+- Optimizer choice and fairness. Results are largely with Adam, which can behave differently across batch sizes and is not the standard baseline for large-batch scaling (SGD+momentum with tuned weight decay, LR schedules, and warmup is). A strong LB baseline should include: LR scaling + warmup; momentum correction; tuned weight decay; possibly ghost batch norm; and large-batch optimizers (e.g., LARS/LAMB). Several studies have shown that, with such practices, LB can match SB generalization on vision benchmarks; the paper does not engage with these baselines.
+- Batch sizes and budgets. Using 10% of the dataset as the LB size leads to extreme batches (e.g., 5k on CIFAR-10) not representative of typical practice and may make the optimization overly deterministic. The paper also does not clearly match compute budgets or total number of examples seen. Warm-start experiments are suggestive but also change both initialization and effective training schedule.
+- Evidence quality. 
+  - 1-D interpolation plots can be illustrative but are not sufficient to establish global sharpness or generalization causality. 
+  - The sharpness maximization uses only 10 L-BFGS-B iterations in high dimensions, which can underexplore directions and be highly sensitive to the choice of A, epsilon, and parameter scaling.
+  - No direct Hessian spectral estimates (e.g., top eigenvalues via power/Lanczos, trace approximations) are reported, although those are feasible and more aligned with the stated definition of sharpness.
+- Scope of claims. The paper extrapolates from correlations to a causal explanation (LB → sharp minima → poor generalization). Given the above confounds, stronger causal evidence is needed: e.g., holding noise scale fixed while varying batch size, or showing reparameterization-invariant curvature differences align with test performance after strong LB tuning.
+
+Additional feedback (to improve the paper; not necessarily basis for the decision)
+- Replace or complement the sharpness metric with:
+  - Top-k Hessian eigenvalues via power/Lanczos at converged solutions (training-time feasible on the reported models).
+  - Fisher information or Gauss–Newton spectra, which are more closely tied to generalization and are scale-invariant to some extent.
+  - Layerwise normalized curvature (e.g., spectral norm after per-layer rescaling) to mitigate reparameterization issues.
+- Strong LB baselines:
+  - SGD+momentum with linear LR scaling and warmup; tuned weight decay and schedule.
+  - Ghost batch norm or per-sample normalization where applicable.
+  - LARS/LAMB for very large batches.
+  - Report sensitivity curves over LR, momentum, weight decay for each batch size.
+- Control optimization temperature:
+  - Equalize the noise scale across batch sizes (adjust LR to match noise) and test whether curvature/generalization differences persist.
+  - Compare constant total number of examples (epochs) vs constant number of parameter updates.
+- Analyze reparameterization sensitivity:
+  - Apply known layerwise scalings that preserve function and show whether the sharpness conclusions are stable.
+- Expand diagnostics:
+  - Distance-to-init trajectories (already hinted), but also weight norm, margin distributions, and calibration.
+  - Report top Hessian eigenvalues during training to track curvature evolution for SB vs LB.
+- Clarify experimental details: exact LR schedules, weight decay, momentum, batch norm settings, data augmentation policies, early stopping criteria, and number of seeds. Provide full code for reproducibility.
+
+Questions for the authors
+1) Did you scale the learning rate with batch size and use warmup or momentum tuning? How do your conclusions change under strong large-batch baselines (e.g., SGD+momentum with LR scaling, ghost BN, LARS/LAMB)?
+2) How sensitive are your sharpness conclusions to simple layerwise rescalings (especially with batch norm), which preserve the function but change parameter scales?
+3) Can you report top Hessian eigenvalues (and possibly the spectral density) at the SB and LB minima to validate the sharpness claim with a reparameterization-robust diagnostic?
+4) If you equalize the optimization noise scale across batch sizes (by adjusting LR), does the generalization gap persist?
+5) Why choose 10% of the dataset as LB? How do results vary across a sweep of batch sizes under best-tuned hyperparameters for each?
+6) Are your results similar with SGD+momentum and tuned weight decay, or are they specific to Adam?
+7) In the warm-start experiments, can you separate the effects of initialization from changes in LR schedules or total compute?
+8) How sensitive is the sharpness metric to ε, the choice of A, and the number of L-BFGS-B steps? Can you provide ablations?

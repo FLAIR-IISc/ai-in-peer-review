@@ -1,0 +1,57 @@
+Summary
+The paper proposes LSDA, a procedure to adapt image classifiers into object detectors when only a subset of categories have bounding box annotations. The approach uses a CNN (AlexNet) pre-trained on ImageNet classification, then:
+- Fine-tunes layers 1–7 plus a background class on the m categories with detection data (set B), arguing this learns a category-invariant “classification-to-detection” transformation and a background model.
+- For categories without detection data (set A), it adjusts their fc8 classifiers by adding the average fc8 weight deltas observed for the k nearest neighbors in B (nearest by fc8 weight similarity), yielding category-specific adaptation without boxes.
+Detection scores are computed as category logit minus background logit. On ILSVRC13 detection, with 100 categories held out of detection training, the method improves mAP on held-out classes from 10.31% (classification-only applied to proposals) to 16.15% (≈50% relative). The largest gains come from category-invariant adaptation (fine-tuning + background). The paper includes an error analysis and a qualitative demonstration of a 7.6K-category detector. Code/models are released.
+
+Relation to prior work
+This builds on R-CNN, which fine-tunes on detection data for all categories, and positions the problem as domain/task adaptation. While domain-adaptive SVMs and MIL-based weakly supervised detection exist, they typically require detection labels per category or have not been shown at ImageNet scale. The category-invariant transfer via fine-tuning and the neighbor-averaged fc8 deltas are the main novel components. The idea sits between established fine-tuning for detection and weak supervision.
+
+Strengths
+- Problem relevance: Reducing dependence on bounding boxes is important and timely.
+- Simple, scalable methodology: Reuses standard CNN training and requires no per-class boxes for the held-out categories.
+- Clear ablation: Separates background learning, shared-layer fine-tuning, and category-specific adaptation; shows the bulk of gains come from the former two.
+- Empirical evidence at nontrivial scale: ILSVRC13 200-class setting with a 100/100 split; significance test reported for k=10.
+- Useful analysis: Error breakdown demonstrates reduced localization and background confusions, aligning with the method’s intent.
+- Reproducibility: Implementation details, Caffe, and released models.
+
+Weaknesses
+- Limited baselines. The main comparator is “classification-only on proposals,” which is weak. Missing are:
+  - R-CNN-style detectors trained on B, then applied to A using fc7 features with simple calibration (e.g., one-vs-rest linear classifiers trained from image-level positives and proposal negatives, or background subtraction). This would isolate the value of LSDA beyond standard pretraining.
+  - A naive background-augmented classification baseline (add a background class, fine-tune on B, but do not perform the neighbor delta transfer) is partially present, but a fuller set of variants would help (e.g., freeze early layers, vary which layers adapt).
+  - Comparisons to weakly supervised MIL at least on VOC-scale subsets, to contextualize absolute performance.
+- Heuristic category-specific adaptation. The nearest-neighbor averaging in fc8 space is ad hoc. There is little analysis of:
+  - Sensitivity to the choice of k and the distance metric (fc8 vs fc7 vs semantic/WordNet or co-occurrence).
+  - Behavior when A is semantically disjoint from B (the split is alphabetical rather than controlled for semantic distance).
+- Absolute performance remains low. 16.15% mAP is a modest level; the “50% relative” improvement obscures that the baseline is weak. The gap to an oracle detector (all categories with boxes) is large; the paper acknowledges this but does not quantify how much is due to background modeling vs localization vs classifier calibration.
+- Evaluation breadth. Results are reported on a single split (val1/val2 like R-CNN) and a single architecture (AlexNet), with only qualitative evidence for the 7.6K detector. No quantitative evidence is shown for scalability beyond 200 classes.
+- Inference/calibration details. The use of score_i − score_background on softmax logits is reasonable but under-justified and may not be well-calibrated across categories. No analysis of thresholding, NMS across categories, or per-class calibration is provided.
+- Fairness of time/compute claims. The decision not to train SVMs or bbox regressors is framed as preserving adaptation capacity, but it also prevents a more apples-to-apples comparison against R-CNN-style detectors on B that could be leveraged for A.
+
+Questions for the authors
+- How sensitive are results to k and to the neighbor metric? Please include curves and, if possible, alternatives such as semantic distances or learned mappings.
+- How does performance vary with m (number of categories with boxes)? E.g., m ∈ {25, 50, 100, 150}. This is key for practical deployment.
+- Can you provide quantitative results for the 7.6K model on any subset with ground-truth (even a few hundred categories), or at least retrieval-style metrics?
+- What is the effect of including SVMs and bbox regression trained on B only? Even if you argue against them, a comparison would situate LSDA’s performance.
+- Have you tried multiple random splits of A/B to assess variance and dependence on semantic proximity?
+- Please clarify whether subtracting background is done at the logit or post-softmax probability level, and whether any calibration across classes is applied.
+
+Minor comments
+- Some references are incomplete; please fix formatting and ensure related weakly supervised detection at the time is fully cited.
+- Clarify region proposal settings and NMS thresholds used in evaluation.
+
+Pros
+- Addresses an important bottleneck (box annotation cost).
+- Conceptually simple and practical; leverages established CNN pipelines.
+- Solid ablation indicating where gains come from.
+- Code/models released.
+
+Cons
+- Baseline and comparative evaluation are limited; absolute gains are modest.
+- Category-specific adaptation is heuristic and under-analyzed.
+- Single-split, single-architecture quantitative evaluation; largely qualitative for 7.6K.
+
+Recommendation
+Borderline reject. The problem is important and the idea is plausible, with some empirical support. However, given the reliance on heuristics and the limited comparative evaluation against stronger baselines, the current evidence falls short of NeurIPS standards for rigor. Strengthening the baselines, adding sensitivity analyses and multiple splits, and providing quantitative results at larger scale would substantially improve the case for acceptance.
+
+Confidence: 0.75 (familiar with detection and adaptation literature; did not re-run experiments).

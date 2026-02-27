@@ -1,0 +1,61 @@
+Summary
+The paper targets ultra–high-dimensional sparse precision matrix estimation via CLIME. It proposes an inexact/linearized ADMM that operates on column blocks (k columns at a time) rather than column-by-column, and exploits (i) low-rank structure of C = AA′ (since n ≪ p) to replace CX by A(A′X), and (ii) potential sparsity in iterates and possibly a sparsified/perturbed C. The algorithm’s core computations are matrix multiplications amenable to block-cyclic distribution across processes (ScaLAPACK-style), enabling shared-memory and distributed-memory parallelization. Convergence guarantees of O(1/T) for objective and residuals are stated, and experiments claim scaling to p = 10^6 (p^2 = 10^12 parameters) in ~11 hours on 400 cores.
+
+Relation to prior work
+The work is positioned relative to: CLIME and its statistical guarantees (Cai et al.), QUIC/DC-QUIC for graphical lasso/precision estimation, ADMM and distributed variants (Boyd et al., Parikh/Boyd GPBS), large-scale ML systems (parameter server, GraphLab), and block-cyclic distribution/BLAS/ScaLAPACK. The combination of CLIME with inexact ADMM and block-cyclic distribution is plausible and within the scope of NeurIPS’ interest in scalable ML optimization.
+
+Strengths
+- A clear focus on scaling a well-studied estimator (CLIME) to extreme dimensions by exploiting low rank (n ≪ p) and parallel matrix multiplication.
+- Column-block formulation that leverages matrix–matrix multiplies (versus repeated matrix–vector), which can be more cache- and communication-friendly.
+- Practical distributed design using block-cyclic data layout; the implementation leverages OpenMP/OpenMPI/ScaLAPACK.
+- Linearized ADMM with a proximal term is standard and appropriate here; the stated O(1/T) rates are plausible under the given condition η ≥ ρ λ_max(C)^2.
+- Empirical scaling trends in both shared and distributed settings are informative; the claimed 1M-dimensional run is ambitious.
+
+Weaknesses and issues
+Technical correctness/clarity
+- Augmented Lagrangian scaling is inconsistent. Equation (4) uses “ρ⟨Y, CX − Z⟩ + ρ‖CX − Z‖^2” (missing the usual 1/2 factor, and with a factor ρ in the linear term that suggests unscaled dual variables), while (5)-(6) use ρ/2 in the quadratic term, and Y is described as “scaled.” Please fix the Lagrangian and consistently distinguish scaled vs. unscaled duals.
+- Notation ρη appears repeatedly (Algorithm 1, Eq. (8)-(9)) but is not defined. It should be ρ/η (not ρ·η). The V-update line in Algorithm 1 seems to use the product.
+- “box” operator inconsistencies: Algorithm 1 Step 7 uses box(Ut+1 + Yt, λ) but its definition requires box(X, E, λ). E is missing in Step 7.
+- Theorem 2 statement is opaque: the norm “‖XT − XT−1‖^2_{η/ρ I − C^2}” is written in a nonstandard way; clarify that η/ρ I − C^2 is PSD under η ≥ ρ λ_max(C)^2, and specify whether results are for last iterate or ergodic averages (Theorem 1 uses X̄T, Theorem 2 seems non-ergodic).
+- Theorem 3 is problematic. As stated, adding an independent sub-exponential matrix Δ to C preserves sup-norm deviation at O(√(log p/n)) without specifying Δ’s scale; this cannot hold unless the sub-exponential parameters shrink with n,p (or Δ is deterministically bounded by O(√(log p/n))). Moreover, the practically relevant “thresholded C” has Δ dependent on C and thus not independent; the theorem does not cover this. This section needs a precise and correct statement (e.g., deterministic sup-norm perturbation bounds) and a discussion of dependence.
+- Claim of “Y becomes sparse” is dubious; Y is a dual residual and typically not sparse in ADMM. If this property is crucial for complexity, provide evidence or revise.
+- The requirement η ≥ ρ λ_max(C)^2 presupposes an estimate of λ_max(C). How is this computed at scale? Provide a practical strategy (e.g., a few power iterations on A′A) and discuss sensitivity.
+
+Algorithmic/methodological gaps
+- Symmetrization and positive definiteness: Standard CLIME symmetrizes the columnwise solutions (e.g., via elementwise min) and does not ensure PD; the paper does not explain how column-block solutions are reconciled across blocks nor how the final symmetric estimator is constructed. Empirical quality of the final Ω̂ (symmetry, PD, constraint violation) is not reported.
+- Stopping criteria and residuals: No stopping rule is provided; T is fixed in experiments. Report primal/dual residuals and constraint violations to ensure feasibility of the CLIME solution.
+- Communication cost analysis is missing. Given the emphasis on distributed scalability, quantify communication volumes/latency costs for the two multiplies W = A′X and U = AW under block-cyclic layout, and justify the chosen block sizes.
+- The process grid description is likely wrong: “For q cores, we use the process grid q2 × 2” would require 2q^2 processes. Please correct (perhaps r × c with r·c = q).
+
+Empirical evaluation
+- Comparisons: It is unclear whether competitors are tuned fairly (e.g., CLIME/TIGER parameter choices). Reporting only the time to achieve a target sparsity is not robust; include constraint violation or statistical error (e.g., edge F1, Frobenius/spectral error to Ω0) versus time. For real data, report KKT residuals/feasibility.
+- Only speedups are shown in scalability plots; include absolute times and memory footprints. Some tables/figures seem malformed or missing (e.g., a stray row “200×1 0.37 0.68 …”; Table 1 not visible).
+- The 1M-dimensional result reports only runtime; no information on accuracy, constraint satisfaction, or resulting sparsity; no baseline is possible at that scale, but at least report residuals and memory/network characteristics.
+- The proposed “sparsified C” idea is not evaluated.
+
+Presentation/formatting
+- Numerous typos and grammatical issues (e.g., “achitectures,” “reasonble,” “colletion,” “groud,” “spase,” “archived”). Symbols for sets (use R not <), spacing artifacts (S p ++), and inconsistent norm notation.
+- Algorithm 1: duplicated step numbering, missing arguments, and unclear typesetting (1η vs 1/η).
+- References are incomplete/malformed (missing years/venues/pages, duplicates, misspellings like “dAspremont”).
+
+Pros for acceptance
+- Addresses an important scaling challenge with a practically relevant method.
+- Sensible exploitation of low rank (n ≪ p) and block-cyclic distribution; implementation likely useful to practitioners.
+- Convergence analysis for the linearized ADMM variant is appropriate.
+- Strong empirical scale (if substantiated) would be impactful.
+
+Cons for acceptance
+- Multiple technical inconsistencies and a likely incorrect Theorem 3.
+- Missing critical methodological details (symmetrization, stopping, feasibility checks).
+- Experimental evaluation emphasizes speedups over correctness; limited fairness and missing accuracy/residual reporting; several figures/tables incomplete.
+- Presentation/notation/reference quality below NeurIPS standards.
+
+Questions for the authors
+1) How do you construct the final symmetric Ω̂ from blockwise solutions? Do you enforce any PD property post hoc?
+2) What stopping criteria do you use? Please report residuals and constraint violation on all experiments, especially the 1M case.
+3) How do you choose ρ and η in practice, and how do you estimate λ_max(C) efficiently?
+4) Please fix and restate Theorem 3 with precise conditions (deterministic bound or dependence-aware random model).
+5) Clarify the process grid configuration and provide a communication-cost analysis.
+
+Recommendation
+Reject. The paper tackles an important problem with promising ideas and engineering, but the current version has too many technical, methodological, empirical, and presentation issues to meet NeurIPS standards. With corrected theory/notation, fuller methodological details (symmetrization, stopping), rigorous evaluation including feasibility and accuracy, and polished writing/references, this work could become a strong systems/optimization contribution.

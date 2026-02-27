@@ -1,0 +1,55 @@
+Summary and contributions:
+The paper proposes Cholesky-CMA-ES, a variant of CMA-ES that maintains and updates the lower-triangular Cholesky factor A of the covariance matrix C = A A^T directly via a sequence of O(d^2) rank-one updates, rather than forming C and recomputing its matrix square-root/eigendecomposition. This yields per-iteration time complexity O(µ d^2) (µ is the number of weighted parents, typically O(log d)) and optimal storage complexity O(d^2), while preserving the standard rank-1 and rank-µ covariance updates. The main difficulty is the cumulative step-size adaptation (CSA), which in standard CMA-ES uses C^{-1/2}(m_{t+1}-m_t)/σ_t; the authors replace C^{-1/2} with A^{-1} (triangular solve) and argue that the resulting rotational error vanishes as the normalized covariance C̄_t converges in shape (Lemma 1 and a continuity argument on the RQ decomposition). Empirically, on rotated benchmarks up to d=256, the method matches the baseline in number of function evaluations and is substantially faster in wall-clock time (e.g., ~20× at d=64), outperforming a delayed-decomposition baseline and a non-triangular Cholesky-factor approach (Suttorp et al., 2009). Implementation details are given (Algorithm 2), and the method is integrated into Shark using LAPACK.
+
+Relation to prior work:
+- The approach builds on ideas to update decompositions directly rather than C (Suttorp et al., 2009), and on an efficient rank-one update for certain CMA variants ((1+1)-CMA-ES and MO-CMA-ES; Krause & Igel, 2015). The novelty is an extension to the standard rank-µ CMA-ES with a theoretically motivated CSA approximation that avoids cubic-time recomputation of polar/orthogonal factors.
+- Alternatives to reduce cost include delayed updates (Hansen), restricted models (diagonal/separable, Ros & Hansen; LM-CMA, Loshchilov), and NES variants. The paper clearly positions itself as preserving full covariance adaptation, targeting non-separable ill-conditioned problems where low-rank/diagonal models underperform.
+
+Quality and technical soundness:
+- The rank-one Cholesky update strategy is sound and standard; the presented Algorithm 2 appears to be a variant of cholupdate, though the paper should discuss numerical stability (see below).
+- The main theoretical argument is that replacing C^{-1/2} with A^{-1} in CSA introduces only a rotational error that decays due to: (i) exponential averaging in CSA, and (ii) convergence of the rotation E_t in the RQ decomposition of C̄_t as t grows. This is a reasonable heuristic justification, but it falls short of a quantitative bound. CMA-ES is stochastic; shape convergence is not guaranteed in general, and the error could be non-negligible during transient phases when C changes rapidly (e.g., early on Rosenbrock). The paper reports empirically that evaluation counts are preserved, but more targeted diagnostics of CSA behavior would strengthen the claim.
+- Important technical mistake: the paper states “the diagonal elements of a triangular Cholesky factor are the square roots of the eigenvalues of the factorized matrix.” This is incorrect in general. The Cholesky diagonal does not equal the eigenvalue square-roots; however, log det C can be obtained from the Cholesky diagonal (sum of log A_{ii}^2), and triangular solves enable efficient conditioning checks without full eigendecomposition. This claim must be corrected.
+- The complexity discussion mostly checks out: avoiding eigendecompositions/polar decompositions removes the O(d^3) bottleneck; the per-iteration cost becomes O(µ d^2), which is asymptotically optimal for dense full-covariance rank-µ updates.
+
+Clarity:
+- The paper is generally clearly written, with good motivation and algorithmic description. However:
+  - Several references are malformed and need fixing.
+  - The use of ω(d^2) is unusual; explicitly state O(d^3) for eigendecomposition/symmetric square-root.
+  - Algorithm 1 uses A^{-1} in CSA; please emphasize that this should be implemented as a triangular solve (do not form A^{-1} explicitly).
+  - Provide more detail or a citation for Algorithm 2 and discuss its numerical properties.
+
+Originality:
+- Extending efficient Cholesky rank-1 updates to full rank-µ CMA-ES with a CSA approximation justified via rotational convergence is a nontrivial and practically meaningful contribution. While conceptually incremental relative to Suttorp et al. and Krause & Igel, it addresses an important missing piece for the standard CMA-ES.
+
+Significance:
+- The speedups are large in practice while preserving evaluation efficiency, which is highly relevant for users of CMA-ES in ML and beyond. The method is likely to be adopted in libraries; the Shark integration supports this.
+
+Empirical evaluation:
+- Pros: Rotated benchmarks, multiple baselines (including non-triangular factor), wall-clock and evaluation counts, multiple dimensions up to 256, 100 trials.
+- Cons and suggestions:
+  - Excluding unsuccessful Rosenbrock runs biases comparison; please report success rates and expected running time (ERT) as in BBOB.
+  - Analyze CSA behavior directly: e.g., track ||p_σ||/E{χ} and σ trajectories, and quantify the rotational discrepancy ||E_t E_{t-1}^T - I|| vs. iteration/dimension.
+  - Discuss active CMA-ES (negative weights). The current method seems to assume β ≥ 0 in rank-one updates. Supporting negative updates requires stable downdates; please comment on feasibility and stability.
+  - Report numerical stability over long runs (e.g., need for periodic re-factorization or jitter to maintain SPD).
+  - Include a brief comparison to LM-CMA to contextualize when full covariance vs. limited-memory is preferable (even if LM-CMA needs more evaluations, it’s a relevant baseline at larger d).
+  - Provide wall-clock breakdowns (sampling, updates, decompositions) to substantiate where time is saved.
+
+Pros for acceptance:
+- Practical, substantial speedups without loss in evaluation efficiency.
+- Clean algorithmic contribution with a plausible theoretical rationale.
+- Addresses a widely used and impactful optimizer; implementation-ready.
+
+Cons against acceptance:
+- Incorrect claim about Cholesky diagonal/eigenvalues.
+- Theoretical justification for CSA approximation is qualitative; no bounds and limited diagnostics.
+- Experimental methodology issues (excluding failures) and missing discussion of active CMA-ES and numerical stability.
+
+Questions for authors:
+1) Do you support active CMA-ES with negative covariance updates? If so, how do you ensure stable downdates? If not, please discuss implications.
+2) Have you observed drift in σ or loss of invariance on highly non-stationary shapes? Can you provide CSA diagnostics and invariance tests in the main paper?
+3) Do you ever re-factorize C from A to control numerical drift, or add jitter? Any observed SPD breakdowns?
+4) Please correct the eigenvalue claim and clarify what spectral information is available “for free” (e.g., log-det).
+5) Can you provide an ablation where the exact CSA is computed occasionally via polar decomposition to estimate the approximation error?
+
+Overall recommendation:
+Borderline accept. The paper offers a practically important improvement to a core optimization method with convincing empirical speedups and reasonable (though not fully rigorous) theoretical justification. With corrections (notably the eigenvalue claim) and added experimental diagnostics on CSA and stability, it would make a strong contribution. Confidence: high.

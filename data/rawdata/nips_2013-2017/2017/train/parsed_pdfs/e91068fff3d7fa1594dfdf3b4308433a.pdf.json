@@ -1,0 +1,347 @@
+{
+  "name" : "e91068fff3d7fa1594dfdf3b4308433a.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Sticking the Landing: Simple, Lower-Variance Gradient Estimators for Variational Inference",
+    "authors" : [ "Geoffrey Roeder", "Yuhuai Wu", "David Duvenaud" ],
+    "emails" : [ "roeder@cs.toronto.edu", "ywu@cs.toronto.edu", "duvenaud@cs.toronto.edu" ],
+    "sections" : [ {
+      "heading" : null,
+      "text" : "1 Introduction\nRecent advances in variational inference have begun to make approximate inference practical in large-scale latent variable models. One of the main recent advances has been the development of variational autoencoders along with the reparameterization trick [Kingma and Welling, 2013, Rezende et al., 2014]. The reparameterization trick is applicable to most continuous latent-variable models, and usually provides lower-variance gradient estimates than the more general REINFORCE gradient estimator [Williams, 1992].\nIntuitively, the reparameterization trick provides more informative gradients by exposing the dependence of sampled latent variables z on variational parameters φ. In contrast, the REINFORCE gradient estimate only depends on the relationship between the density function log qφ(z|x,φ) and its parameters. Surprisingly, even the reparameterized gradient estimate contains the score function—a special case of the REINFORCE gradient estimator. We show that this term can\neasily be removed, and that doing so gives even lower-variance gradient estimates in many circumstances. In particular, as the variational posterior approaches the true posterior, this gradient estimator approaches zero variance faster, making stochastic gradient-based optimization converge and \"stick\" to the true variational parameters, as seen in figure 1.\n31st Conference on Neural Information Processing Systems (NIPS 2017), Long Beach, CA, USA."
+    }, {
+      "heading" : "1.1 Contributions",
+      "text" : "• We present a novel unbiased estimator for the variational evidence lower bound (ELBO) that has zero variance when the variational approximation is exact.\n• We provide a simple and general implementation of this trick in terms of a single change to the computation graph operated on by standard automatic differentiation packages.\n• We generalize our gradient estimator to mixture and importance-weighted lower bounds, and discuss extensions to flow-based approximate posteriors. This change takes a single function call using automatic differentiation packages.\n• We demonstrate the efficacy of this trick through experimental results on MNIST and Omniglot datasets using variational and importance-weighted autoencoders."
+    }, {
+      "heading" : "1.2 Background",
+      "text" : "Making predictions or computing expectations using latent variable models requires approximating the posterior distribution p(z|x). Calculating these quantities in turn amounts to using Bayes’ rule: p(z|x) = p(x|z)p(z)/p(x). Variational inference approximates p(z|x) with a tractable distribution qφ(z|x) parameterized by φ that is close in KL-divergence to the exact posterior. Minimizing the KL-divergence is equivalent to maximizing the evidence lower bound (ELBO):\nL(φ) = Ez∼q[log p(x, z)− log qφ(z |x)] (ELBO) An unbiased approximation of the gradient of the ELBO allows stochastic gradient descent to scalably learn parametric models. Stochastic gradients of the ELBO can be formed from the REINFORCEstyle gradient, which applies to any continuous or discrete model, or a reparameterized gradient, which requires the latent variables to be modeled as continuous. Our variance reduction trick applies to the reparameterized gradient of the evidence lower bound."
+    }, {
+      "heading" : "2 Estimators of the variational lower bound",
+      "text" : "In this section, we analyze the gradient of the ELBO with respect to the variational parameters to show a source of variance that depends on the complexity of the approximate distribution.\nWhen the joint distribution p(x, z) can be evaluated by p(x|z) and p(z) separately, the ELBO can be written in the following three equivalent forms:\nL(φ) = Ez∼q[log p(x|z) + log p(z)− log qφ(z|x)] (1) = Ez∼q[log p(x|z) + log p(z))] +H[qφ] (2) = Ez∼q[log p(x|z)]−KL(qφ(z|x)||p(z)) (3)\nWhich ELBO estimator is best? When p(z) and qφ(z|x) are multivariate Gaussians, using equation (3) is appealing because it analytically integrates out terms that would otherwise have to be estimated by Monte Carlo. Intuitively, we might expect that using exact integrals wherever possible will give lower-variance estimators by reducing the number of terms to be estimated by Monte Carlo methods.\nSurprisingly, even when analytic forms of the entropy or KL divergence are available, sometimes it is better to use (1) because it will have lower variance. Specifically, this occurs when qφ(z|x) = p(z|x), i.e. the variational approximation is exact. Then, the variance of the full Monte Carlo estimator L̂MC is exactly zero. Its value is a constant, independent of z iid∼ qφ(z|x). This follows from the assumption qφ(z|x) = p(z|x):\nL̂MC(φ) = log p(x, z)− log qφ(z|x) = log p(z|x) + log p(x)− log p(z|x) = log p(x), (4) This suggests that using equation (1) should be preferred when we believe that qφ(z|x) ≈ p(z|x). Another reason to prefer the ELBO estimator given by equation (1) is that it is the most generally applicable, requiring a closed form only for qφ(z|x). This makes it suitable for highly flexible approximate distributions such as normalizing flows [Jimenez Rezende and Mohamed, 2015], Real NVP [Dinh et al., 2016], or Inverse Autoregressive Flows [Kingma et al., 2016].\nEstimators of the lower bound gradient What about estimating the gradient of the evidence lower bound? Perhaps surprisingly, the variance of the gradient of the fully Monte Carlo estimator (1) with respect to the variational parameters is not zero, even when the variational parameters exactly capture the true posterior, i.e., qφ(z|x) = p(z|x). This phenomenon can be understood by decomposing the gradient of the evidence lower bound. Using the reparameterization trick, we can express a sample z from a parametric distribution qφ(z) as a deterministic function of a random variable with some fixed distribution and the parameters φ of qφ, i.e., z = t( ,φ). For example, if qφ is a diagonal Gaussian, then for ∼ N(0, I), z = µ+ σ is a sample from qφ.\nUnder such a parameterization of z, we can decompose the total derivative (TD) of the integrand of estimator (1) w.r.t. the trainable parameters φ as\n∇̂TD( ,φ) = ∇φ [log p(x|z) + log p(z)− log qφ(z|x)] (5) = ∇φ [log p(z|x) + log p(x)− log qφ(z|x)] (6) = ∇z [log p(z|x)− log qφ(z|x)]∇φt( ,φ)︸ ︷︷ ︸\npath derivative\n−∇φ log qφ(z|x)︸ ︷︷ ︸ score function , (7)\nVariat ional P\narame ters (φ\n)qφ(z|x) = p(z|x) Latent Variable (z)\nlo g p( x ,z\n) −\nlo g q φ\n(z |x\n)\nlog p(x, z)− log qφ(z|x) Surface Along Trajectory through True φ\nELBO\nFigure 2: The evidence lower bound is a function of the sampled latent variables z and the variational parameters φ. As the variational distribution approaches the true posterior, the gradient with respect to the sampled z (blue) vanishes.\nThe reparameterized gradient estimator w.r.t. φ decomposes into two parts. We call these the path derivative and score function components. The path derivative measures dependence on φ only through the sample z. The score function measures the dependence on log qφ directly, without considering how the sample z changes as a function of φ.\nWhen qφ(z|x) = p(z|x) for all z, the path derivative component of equation (7) is identically zero for all z. However, the score function component is not necessarily zero for any z in some finite sample, meaning that the total derivative gradient estimator (7) will have nonzero variance even when q matches the exact posterior everywhere.\nThis variance is induced by the Monte Carlo sampling procedure itself. Figure 3 depicts this phenomenon through the loss surface of log p(x, z)− log qφ(z|x) for a Mixture of Gaussians approximate and true posterior.\nPath derivative of the ELBO Could we remove the high-variance score function term from the gradient estimate? For stochastic gradient descent to converge, we require that our gradient estimate is unbiased. By construction, the gradient estimate given by equation (7) is unbiased. Fortunately, the problematic score function term has expectation zero. If we simply remove that term, we maintain an unbiased estimator of the true gradient:\n∇̂PD( ,φ) = ∇z [log p(z|x)− log qφ(z|x)]∇φt( ,φ)−((((( ((∇φ log qφ(z|x). (8)\nThis estimator, which we call the path derivative gradient estimator due to its dependence on the gradient flow only through the path variables z to update φ, is equivalent to the standard gradient estimate with the score function term removed. The path derivative estimator has the desirable property that as qφ(z|x) approaches p(z|x), the variance of this estimator goes to zero.\nWhen to prefer the path derivative estimator Does eliminating the score function term from the gradient yield lower variance in all cases? It might seem that its removal can only have a variance reduction effect on the gradient estimator. Interestingly, the variance of the path derivative gradient estimator may actually be higher in some cases. This will be true when the score function is positively correlated with the remaining terms in the total derivative estimator. In this case, the score function acts as a control variate: a zero-expectation term added to an estimator in order to reduce variance.\nAlg. 1 Standard ELBO Gradient Input: Variational parameters φt, Data x t ∼ p( ) def L̂t(φ):\nzt ← sample_q(φ, t)\nreturn log p(x, zt) - log q(zt|x,φ) return ∇φL̂t(φt)\nAlg. 2 Path Derivative ELBO Gradient Input: Variational parameters φt, Data x t ∼ p( ) def L̂t(φ):\nzt ← sample_q(φ, t) φ′ ← stop_gradient(φ)\nreturn log p(x, zt) - log q(zt|x,φ′) return ∇φL̂t(φt)\nControl variates are usually scaled by an adaptive constant c∗, which modifies the magnitude and direction of the control variate to optimally reduce variance, as in Ranganath et al. [2014]. In the preceding discussion, we have shown that ĉ∗ = 1 is optimal when the variational approximation is exact, since that choice yields analytically zero variance. When the variational approximation is not exact, an estimate of c∗ based on the current minibatch will change sign and magnitude depending on the positive or negative correlation of the score function with the path derivative.\nOptimal scale estimation procedures is particularly important when the variance of an estimator is so large that convergence is unlikely. However, in the present case of reparameterized gradients, where the variance is already low, estimating a scaling constant introduces another source of variance. Indeed, we can only recover the true optimal scale when the variational approximation is exact in the regime of infinite samples during Monte Carlo integration.\nMoreover, the score function must be independently estimated in order to scale it. Estimating the gradient of the score function independent of automatic reverse-mode differentiation can be a challenging engineering task for many flexible approximate posterior distributions such as Normalizing Flows [Jimenez Rezende and Mohamed, 2015], Real NVP [Dinh et al., 2016], or IAF [Kingma et al., 2016].\nBy contrast, in section 6 we show improved performance on the MNIST and Omniglot density estimation benchmarks by approximating the optimal scale with 1 throughout optimization. This technique is easy to implement using existing automatic differentiation software packages. However, if estimating the score function independently is computationally feasible, and a practitioner has evidence that the variance induced by Monte Carlo integration will reduce the overall variance away from the optimum point, we recommend establishing an annealling schedule for the optimal scaling constant that converges to 1."
+    }, {
+      "heading" : "3 Implementation Details",
+      "text" : "In this section, we introduce algorithms 1 and 2 in relation to reverse-mode automatic differentiation, and discuss how to implement the new gradient estimator in Theano, Autograd, Torch or Tensorflow Bergstra et al. [2010], Maclaurin et al. [2015], Collobert et al. [2002], Abadi et al. [2015].\nAlgorithm 1 shows the standard reparameterized gradient for the ELBO. We require three function definitions: q_sample to generate a reparameterized sample from the variational approximation, and functions that implement log p(x, z) and log q(z|x,φ). Once the loss L̂t is defined, we can leverage automatic differentiation to return the standard gradient evaluated at φt. This yields equation (7).\nAlgorithm 2 shows the path derivative gradient for the ELBO. The only difference from algorithm 1 is the application of the stop_gradient function to the variational parameters inside L̂t. Table 1 indicates the names of stop_gradient in popular software packages.\nAlg. 3 Path Derivative Mixture ELBO Gradient\nInput: Params πt = {πjt }Kj=1,φt = {φit}Ki=1, Data x t ∼ p( ) φ′t,π ′ t ← stop_gradient(φt,πt)\ndef L̂ct (φ): zct ← sample_q(φ, t)\nreturn log p(x, zct) - log ∑K c=1 π ′c t q(z c t |x,φ′t)\nreturn ∇φ,π (∑K c=1 π c t L̂ct(φct) )\nAlg. 4 IWAE ELBO Gradient Input: Params φt, Data x 1, 2, . . . , K ∼ p( ) φ′t ← stop_gradient(φt) def wi(φ, i):\nzi ← sample_q(φ, i) return p(x,zi)q(zi|x,φ′t)\nreturn ∇φ log ( 1 k ∑K i=1 wi(φ, i) ) This simple modification to algorithm 1 generates a copy of the parameter variable that is treated as a constant with respect to the computation graph generated for automatic differentiation. The copied variational parameters are used to evaluate variational the density log qφ at z.\nRecall that the variational parameters φ are used both to generate z through some deterministic function of an independent random variable , and to evaluate the density of z through log qφ. By blocking the gradient through variational parameters in the density function, we eliminate the score function term that appears in equation (7). Per-iteration updates to the variational parameters φ rely on the z channel only, e.g., the path derivative component of the gradient of the loss function L̂t. This yields the gradient estimator corresponding to equation (8)."
+    }, {
+      "heading" : "4 Extensions to Richer Variational Families",
+      "text" : "Mixture Distributions In this section, we discuss extensions of the path derivative gradient estimator to richer variational approximations to the true posterior.\nUsing a mixture distribution as an approximate posterior in an otherwise differentiable estimator introduces a problematic, non-differentiable random variable π ∼ Cat(α). We solve this by integrating out the discrete mixture choice from both the ELBO and the mixture distribution. In this section, we show that such a gradient estimator is unbiased, and introduce an extended algorithm to handle mixture variational families.\nFor any mixture of K base distributions qφ(z|x), a mixture variational family can be defined by qφM (z|x) = ∑K c=1 πc qφc(z|x), where φM = {π1, ...,πk,φ1, ...,φk} are variational parameters, e.g., the weights and distributional parameters for each component. Then, the mixture ELBO LM is given by:\nK∑ c=1 πcEzc∼qφc [ log p(x, zc)− log ( K∑ k=1 πkqφk(zc|x) )] ,\nwhere the outer sum integrates over the choice of mixture component for each sample from qφM , and the inner sum evaluates the density. Applying the new gradient estimator to the mixture ELBO involves applying it to each qφk(zc|x) in the inner marginalization. Algorithm 3 implements the gradient estimator of (8) in the context of a continuous mixture distribution. Like algorithm 2, the new gradient estimator of 3 differs from the vanilla gradient estimator only in the application of stop_gradient to the variational parameters. This eliminates the gradient of the score function from the gradient of any mixture distribution.\nImportance-Weighted Autoencoder We also explore the effect of our new gradient estimator on the IWAE bound Burda et al. [2015], defined as\nL̂K = Ez1,...,zK∼q(z|x) [ log ( 1\nk K∑ i=1 p(x, zi) q(zi|x) )] (9)\nwith gradient\n∇φL̂K = Ez1,...,zK∼q(z|x) [ K∑ i=1 w̃i∇φ logwi ]\n(10)\nwhere wi := p(x, zi)/q(zi|x) and w̃i := wi/ ∑k i=1 wi. Since ∇φ logwi is the same gradient as the Monte Carlo estimator of the ELBO (equation (7)), we can again apply our trick to get a new estimator.\nHowever, it is not obvious whether this new gradient estimator is unbiased. In the unmodified IWAE bound, when q = p, the gradient with respect to the variational parameters reduces to:\nEz1,...,zk∼q(z|x) [ − k∑ i=1 w̃i∇φ log qφ(zi|x) ] . (11)\nEach sample zi is used to evaluate both w̃i and the partial derivative term. Hence, we cannot simply appeal to the linearity of expectation to show that this gradient is 0. Nevertheless, a natural extension of the variance reduction technique in equation (8) is to apply our variance reduction to each importance-weighted gradient sample. See algorithm 4 for how to implement the path derivative estimator in this form.\nWe present empirical validation of the idea in our experimental results section, which shows markedly improved results using our gradient estimator. We observe a strong improvement in many cases, supporting our conjecture that the gradient estimator is unbiased as in the mixture and multi-sample ELBO cases.\nFlow Distributions Flow-based approximate posteriors such as Kingma et al. [2016], Dinh et al. [2016], Jimenez Rezende and Mohamed [2015] are a powerful and flexible framework for fitting approximate posterior distributions in variational inference. Flow-based variational inference samples an initial z0 from a simple base distribution with known density, then learns a chain of invertible, parameterized maps fk(zk−1) that warp z0 into zK = fK ◦ fK−1 ◦ ... ◦ f1(z0). The endpoint zK represents a sample from a more flexible distribution with density log qK(zK) = log q0(z0)−∑K k=1 log\n∣∣ det ∂fk∂zk−1 ∣∣. We expect our gradient estimator to improve the performance of flow-based stochastic variational inference. However, due to the chain composition used to learn zK , we cannot straightforwardly apply our trick as described in algorithm 2. This is because each intermediate zj , 1 ≤ j ≤ K contributes to the path derivative component in equation (8). The log-Jacobian terms used in the evaluation of log q(zk), however, require this gradient information to calculate the correct estimator. By applying stop_gradient to the variational parameters used to generate each intermediate zi and passing only the endpoint zK to a log density function, we would lose necessary gradient information at each intermediate step needed for the gradient estimator to be correct. At time of writing, the requisite software engineering to track and expose intermediate steps during backpropagation is not implemented in the packages listed in Table 1, and so we leave this to future work."
+    }, {
+      "heading" : "5 Related Work",
+      "text" : "Our modification of the standard reparameterized gradient estimate can be interpreted as adding a control variate, and in fact Ranganath et al. [2014] investigated the use of the score function as a control variate in the context of non-reparameterized variational inference. The variance-reduction effect we use to motivate our general gradient estimator has been noted in the special cases of Gaussian distributions with sparse precision matrices and Gaussian copula inference in Tan and Nott [2017] and Han et al. [2016] respectively. In particular, Tan and Nott [2017] observes that by\neliminating certain terms from a gradient estimator for Gaussian families parameterized by sparse precision matrices, multiple lower-variance unbiased gradient estimators may be derived.\nOur work is a generalization to any continuous variational family. This provides a framework for easily implementing the technique in existing software packages that provide automatic differentiation. By expressing the general technique in terms of automatic differentiation, we eliminate the need for case-by-case analysis of the gradient of the variational lower bound as in Tan and Nott [2017] and Han et al. [2016].\nAn innovation by Ruiz et al. [2016] introduces the generalized reparameterization gradient (GRG) which unifies the REINFORCE-style and reparameterization gradients. GRG employs a weaker form of reparameterization that requires only the first moment to have no dependence on the latent variables, as opposed to complete independence as in Kingma and Welling [2013]. GRG improves on the variance of the score-function gradient estimator in BBVI without the use of Rao-Blackwellization as in Ranganath et al. [2014]. A term in their estimator also behaves like a control variate.\nThe present study, in contrast, develops a simple drop-in variance reduction technique through an analysis of the functional form of the reparameterized evidence lower bound gradient. Our technique is developed outside of the framework of GRG but can strongly improve the performance of existing algorithms, as demonstrated in section 6. Our technique can be applied alongside GRG.\nIn the python toolkit Edward [Tran et al., 2016], efforts are ongoing to develop algorithms that implement stochastic variational inference in general as a black-box method. In cases where an analytic form of the entropy or KL-divergence is known, the score function term can be avoided using Edward. This is equivalent to using equations (2) or (3) respectively to estimate the ELBO. As of release 1.2.4 of Edward, the total derivative gradient estimator corresponding to (7) is used for reparameterized stochastic variational inference."
+    }, {
+      "heading" : "6 Experiments",
+      "text" : "Experimental Setup Because we follow the experimental setup of Burda et al. [2015], we review it briefly here. Both benchmark datasets are composed of 28× 28 binarized images. The MNIST dataset was split into 60, 000 training and 10, 000 test examples. The Omniglot dataset was split into 24, 345 training and 8070 test examples. Each model used Xavier initialization [Glorot and Bengio, 2010] and trained using Adam with parameters β1 = 0.9, β2 = 0.999, and = 1e−4 with 20 observations per minibatch [Kingma and Ba, 2015]. We compared against both architectures reported in Burda et al. [2015]. The first has one stochastic layer with 50 hidden units, encoded using two fully-connected layers of 200 neurons each, using a tanh nonlinearity throughout. The second architecture is two stochastic layers: the first stochastic layer encodes the observations, with two fully-connected layers of 200 hidden units each, into 100 dimensional outputs. The output is used as the parameters of diagonal Gaussian. The second layer takes samples from this Gaussian and passes them through two fully-connected layers of 100 hidden units each into 50 dimensions.\nSee table 2 for NLL scores estimated as the mean of equation (9) with k=5000 on the test set. We can see that the path derivative gradient estimator improves over the original gradient estimator in all but two cases.\nBenchmark Datasets We evaluate our path derivative estimator using two benchmark datasets: MNIST, a dataset of handwritten digits [LeCun et al., 1998], and Omniglot, a dataset of handwritten characters from many different alphabets [Lake, 2014]. To underscore both the easy implementation of this technique and the improvement it offers over existing approaches, we have empirically evaluated our new gradient estimator by a simple modification of existing code1 [Burda et al., 2015].\nOmniglot Results For a two-stochastic-layer VAE using the multi-sample ELBO with gradient corresponding to equation (8) improves over the results in Burda et al. [2015] by 2.36, 1.44, and 0.6 nats for k={1, 5, 50} respectively. For a one-stochastic-layer VAE, the improvements are more modest: 0.72, 0.22, and 0.38 nats lower for k={1, 5, 50} respectively. A VAE with a deep recognition network appears to benefit more from our path derivative estimator than one with a shallow recognition network. For comparison, a VAE using the path derivative estimator with k=5 samples performs only 0.08 nats worse than an IWAE using the total derivative gradient estimator (7) and 5 samples. By contrast, using the total derivative (vanilla) estimator for both models, IWAE otherwise outperforms VAE for k=5 samples by 1.52 nats.\nBy increasing the accuracy of the ELBO gradient estimator, we may also increase the risk of overfitting. Burda et al. [2015] report that they didn’t notice any significant problems with overfitting, as the training log likelihood was usually 2 nats lower than the test log likelihood. With our gradient estimator, we observe only 0.77 nats worse performance for a VAE with k=50 compared to k=5 in the two-layer experiments. IWAE using equation (8) markedly outperforms IWAE using equation (7) on Omniglot. For a 2-layer IWAE, we observe an improvement of 2.34, 1.2, and 0.52 nats for k={1, 5, 50} respectively. For a 1-layer IWAE, the improvements are 0.72, 0.7, and 0.51 for k={1, 5, 50} respectively. Just as in the VAE Omniglot results, a deeper recognition network for an IWAE model benefits more from the improved gradient estimator than a shallow recognition network.\nMNIST Results For all but one experiment, a VAE with our path derivative estimator outperforms a vanilla VAE on MNIST data. For k=50 with one stochastic layer, our gradient estimator underperforms a vanilla VAE by 0.13 nats. Interestingly, the training NLL for this run is 86.11, only 0.37 nats different than the test NLL. The similar magnitude of the two numbers suggests that training for longer than Burda et al. [2015] would improve the performance of our gradient estimator. We hypothesize that the worse performance using the path derivative estimator is a consequence of fine-tuning towards the characteristics of the total derivative estimator.\nFor a two-stochastic-layer VAE on MNIST, the improvements are 0.56, 0.33 and 0.45 for k={1, 5, 50} respectively. In a one-stochastic-layer VAE on MNIST, the improvements are 0.36 and 0.14 for k={1, 5} respectively.\nThe improvements on IWAE are of a similar magnitude. For k=50 in a two-layer path-derivative IWAE, we perform 0.26 nats worse than with a vanilla IWAE. The training loss for the k=50 run is 82.74, only 0.42 nats different. As in the other failure case, this suggests we have room to improve these results by fine-tuning over our method. For a two stochastic layer IWAE, the improvements are 0.66 and 0.22 for k=1 and 5 respectively. In a one stochastic layer IWAE, the improvements are 0.36, 0.34, and 0.33 for k={1, 5, 50} respectively."
+    }, {
+      "heading" : "7 Conclusions and Future Work",
+      "text" : "We demonstrated that even when the reparameterization trick is applicable, further reductions in gradient variance are possible. We presented our variance reduction method in a general way by expressing it as a modification of the computation graph used for automatic differentiation. The gain from using our method grows with the complexity of the approximate posterior, making it complementary to the development of non-Gaussian posterior families.\nAlthough the proposed method is specific to variational inference, we suspect that similar unbiased but high-variance terms might exist in other stochastic optimization settings, such as in reinforcement learning, or gradient-based Markov Chain Monte Carlo.\n1See https://github.com/geoffroeder/iwae"
+    } ],
+    "references" : [ {
+      "title" : "TensorFlow: Large-scale machine learning on heterogeneous systems",
+      "author" : [ "Vanhoucke", "Vijay Vasudevan", "Fernanda Viégas", "Oriol Vinyals", "Pete Warden", "Martin Wattenberg", "Martin Wicke", "Yuan Yu", "Xiaoqiang Zheng" ],
+      "venue" : null,
+      "citeRegEx" : "Vanhoucke et al\\.,? \\Q2015\\E",
+      "shortCiteRegEx" : "Vanhoucke et al\\.",
+      "year" : 2015
+    }, {
+      "title" : "Theano: A cpu and gpu math compiler in python",
+      "author" : [ "James Bergstra", "Olivier Breuleux", "Frédéric Bastien", "Pascal Lamblin", "Razvan Pascanu", "Guillaume Desjardins", "Joseph Turian", "David Warde-Farley", "Yoshua Bengio" ],
+      "venue" : "In Proc. 9th Python in Science Conf,",
+      "citeRegEx" : "Bergstra et al\\.,? \\Q2010\\E",
+      "shortCiteRegEx" : "Bergstra et al\\.",
+      "year" : 2010
+    }, {
+      "title" : "Importance weighted autoencoders",
+      "author" : [ "Yuri Burda", "Roger Grosse", "Ruslan Salakhutdinov" ],
+      "venue" : "arXiv preprint arXiv:1509.00519,",
+      "citeRegEx" : "Burda et al\\.,? \\Q2015\\E",
+      "shortCiteRegEx" : "Burda et al\\.",
+      "year" : 2015
+    }, {
+      "title" : "Torch: a modular machine learning software library",
+      "author" : [ "Ronan Collobert", "Samy Bengio", "Johnny Mariéthoz" ],
+      "venue" : "Technical report, Idiap,",
+      "citeRegEx" : "Collobert et al\\.,? \\Q2002\\E",
+      "shortCiteRegEx" : "Collobert et al\\.",
+      "year" : 2002
+    }, {
+      "title" : "Density estimation using real nvp",
+      "author" : [ "Laurent Dinh", "Jascha Sohl-Dickstein", "Samy Bengio" ],
+      "venue" : "arXiv preprint arXiv:1605.08803,",
+      "citeRegEx" : "Dinh et al\\.,? \\Q2016\\E",
+      "shortCiteRegEx" : "Dinh et al\\.",
+      "year" : 2016
+    }, {
+      "title" : "Understanding the difficulty of training deep feedforward neural networks",
+      "author" : [ "Xavier Glorot", "Yoshua Bengio" ],
+      "venue" : "In Aistats,",
+      "citeRegEx" : "Glorot and Bengio.,? \\Q2010\\E",
+      "shortCiteRegEx" : "Glorot and Bengio.",
+      "year" : 2010
+    }, {
+      "title" : "Variational gaussian copula inference",
+      "author" : [ "Shaobo Han", "Xuejun Liao", "David B Dunson", "Lawrence Carin" ],
+      "venue" : "In Proceedings of the 19th International Conference on Artificial Intelligence and Statistics,",
+      "citeRegEx" : "Han et al\\.,? \\Q2016\\E",
+      "shortCiteRegEx" : "Han et al\\.",
+      "year" : 2016
+    }, {
+      "title" : "Variational inference with normalizing flows",
+      "author" : [ "Danilo Jimenez Rezende", "Shakir Mohamed" ],
+      "venue" : "In The 32nd International Conference on Machine Learning,",
+      "citeRegEx" : "Rezende and Mohamed.,? \\Q2015\\E",
+      "shortCiteRegEx" : "Rezende and Mohamed.",
+      "year" : 2015
+    }, {
+      "title" : "Adam: A method for stochastic optimization",
+      "author" : [ "Diederik Kingma", "Jimmy Ba" ],
+      "venue" : "Proceedings of the 3rd international conference on learning representations,",
+      "citeRegEx" : "Kingma and Ba.,? \\Q2015\\E",
+      "shortCiteRegEx" : "Kingma and Ba.",
+      "year" : 2015
+    }, {
+      "title" : "Auto-encoding variational bayes",
+      "author" : [ "Diederik P Kingma", "Max Welling" ],
+      "venue" : "arXiv preprint arXiv:1312.6114,",
+      "citeRegEx" : "Kingma and Welling.,? \\Q2013\\E",
+      "shortCiteRegEx" : "Kingma and Welling.",
+      "year" : 2013
+    }, {
+      "title" : "Improving variational inference with inverse autoregressive flow",
+      "author" : [ "Diederik P. Kingma", "Tim Salimans", "Max Welling" ],
+      "venue" : "Advances in Neural Information Processing Systems",
+      "citeRegEx" : "Kingma et al\\.,? \\Q2016\\E",
+      "shortCiteRegEx" : "Kingma et al\\.",
+      "year" : 2016
+    }, {
+      "title" : "Towards more human-like concept learning in machines: Compositionality, causality, and learning-to-learn",
+      "author" : [ "Brenden M Lake" ],
+      "venue" : "PhD thesis, Massachusetts Institute of Technology,",
+      "citeRegEx" : "Lake.,? \\Q2014\\E",
+      "shortCiteRegEx" : "Lake.",
+      "year" : 2014
+    }, {
+      "title" : "The mnist dataset of handwritten digits",
+      "author" : [ "Yann LeCun", "Corinna Cortes", "Christopher JC Burges" ],
+      "venue" : "URL http://yann. lecun. com/exdb/mnist,",
+      "citeRegEx" : "LeCun et al\\.,? \\Q1998\\E",
+      "shortCiteRegEx" : "LeCun et al\\.",
+      "year" : 1998
+    }, {
+      "title" : "Autograd: Reversemode differentiation of native Python",
+      "author" : [ "Dougal Maclaurin", "David Duvenaud", "Matthew Johnson", "Ryan P. Adams" ],
+      "venue" : null,
+      "citeRegEx" : "Maclaurin et al\\.,? \\Q2015\\E",
+      "shortCiteRegEx" : "Maclaurin et al\\.",
+      "year" : 2015
+    }, {
+      "title" : "Black box variational inference",
+      "author" : [ "Rajesh Ranganath", "Sean Gerrish", "David M Blei" ],
+      "venue" : "In AISTATS,",
+      "citeRegEx" : "Ranganath et al\\.,? \\Q2014\\E",
+      "shortCiteRegEx" : "Ranganath et al\\.",
+      "year" : 2014
+    }, {
+      "title" : "Stochastic backpropagation and approximate inference in deep generative models",
+      "author" : [ "Danilo J Rezende", "Shakir Mohamed", "Daan Wierstra" ],
+      "venue" : "In Proceedings of the 31st International Conference on Machine Learning",
+      "citeRegEx" : "Rezende et al\\.,? \\Q2014\\E",
+      "shortCiteRegEx" : "Rezende et al\\.",
+      "year" : 2014
+    }, {
+      "title" : "The generalized reparameterization gradient",
+      "author" : [ "Francisco JR Ruiz", "Michalis K Titsias", "David M Blei" ],
+      "venue" : "arXiv preprint arXiv:1610.02287,",
+      "citeRegEx" : "Ruiz et al\\.,? \\Q2016\\E",
+      "shortCiteRegEx" : "Ruiz et al\\.",
+      "year" : 2016
+    }, {
+      "title" : "Gaussian variational approximation with sparse precision matrices",
+      "author" : [ "Linda SL Tan", "David J Nott" ],
+      "venue" : "Statistics and Computing,",
+      "citeRegEx" : "Tan and Nott.,? \\Q2017\\E",
+      "shortCiteRegEx" : "Tan and Nott.",
+      "year" : 2017
+    }, {
+      "title" : "Edward: A library for probabilistic modeling, inference, and criticism",
+      "author" : [ "Dustin Tran", "Alp Kucukelbir", "Adji B. Dieng", "Maja Rudolph", "Dawen Liang", "David M. Blei" ],
+      "venue" : "arXiv preprint arXiv:1610.09787,",
+      "citeRegEx" : "Tran et al\\.,? \\Q2016\\E",
+      "shortCiteRegEx" : "Tran et al\\.",
+      "year" : 2016
+    }, {
+      "title" : "Simple statistical gradient-following algorithms for connectionist reinforcement learning",
+      "author" : [ "Ronald J Williams" ],
+      "venue" : "Machine learning,",
+      "citeRegEx" : "Williams.,? \\Q1992\\E",
+      "shortCiteRegEx" : "Williams.",
+      "year" : 1992
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 19,
+      "context" : "The reparameterization trick is applicable to most continuous latent-variable models, and usually provides lower-variance gradient estimates than the more general REINFORCE gradient estimator [Williams, 1992].",
+      "startOffset" : 192,
+      "endOffset" : 208
+    }, {
+      "referenceID" : 4,
+      "context" : "This makes it suitable for highly flexible approximate distributions such as normalizing flows [Jimenez Rezende and Mohamed, 2015], Real NVP [Dinh et al., 2016], or Inverse Autoregressive Flows [Kingma et al.",
+      "startOffset" : 141,
+      "endOffset" : 160
+    }, {
+      "referenceID" : 10,
+      "context" : ", 2016], or Inverse Autoregressive Flows [Kingma et al., 2016].",
+      "startOffset" : 41,
+      "endOffset" : 62
+    }, {
+      "referenceID" : 14,
+      "context" : "2 Path Derivative ELBO Gradient Input: Variational parameters φt, Data x t ∼ p( ) def L̂t(φ): zt ← sample_q(φ, t) φ′ ← stop_gradient(φ) return log p(x, zt) - log q(zt|x,φ) return ∇φL̂t(φt) Control variates are usually scaled by an adaptive constant c∗, which modifies the magnitude and direction of the control variate to optimally reduce variance, as in Ranganath et al. [2014]. In the preceding discussion, we have shown that ĉ∗ = 1 is optimal when the variational approximation is exact, since that choice yields analytically zero variance.",
+      "startOffset" : 355,
+      "endOffset" : 379
+    }, {
+      "referenceID" : 4,
+      "context" : "Estimating the gradient of the score function independent of automatic reverse-mode differentiation can be a challenging engineering task for many flexible approximate posterior distributions such as Normalizing Flows [Jimenez Rezende and Mohamed, 2015], Real NVP [Dinh et al., 2016], or IAF [Kingma et al.",
+      "startOffset" : 264,
+      "endOffset" : 283
+    }, {
+      "referenceID" : 1,
+      "context" : "In this section, we introduce algorithms 1 and 2 in relation to reverse-mode automatic differentiation, and discuss how to implement the new gradient estimator in Theano, Autograd, Torch or Tensorflow Bergstra et al. [2010], Maclaurin et al.",
+      "startOffset" : 201,
+      "endOffset" : 224
+    }, {
+      "referenceID" : 1,
+      "context" : "In this section, we introduce algorithms 1 and 2 in relation to reverse-mode automatic differentiation, and discuss how to implement the new gradient estimator in Theano, Autograd, Torch or Tensorflow Bergstra et al. [2010], Maclaurin et al. [2015], Collobert et al.",
+      "startOffset" : 201,
+      "endOffset" : 249
+    }, {
+      "referenceID" : 1,
+      "context" : "In this section, we introduce algorithms 1 and 2 in relation to reverse-mode automatic differentiation, and discuss how to implement the new gradient estimator in Theano, Autograd, Torch or Tensorflow Bergstra et al. [2010], Maclaurin et al. [2015], Collobert et al. [2002], Abadi et al.",
+      "startOffset" : 201,
+      "endOffset" : 274
+    }, {
+      "referenceID" : 1,
+      "context" : "In this section, we introduce algorithms 1 and 2 in relation to reverse-mode automatic differentiation, and discuss how to implement the new gradient estimator in Theano, Autograd, Torch or Tensorflow Bergstra et al. [2010], Maclaurin et al. [2015], Collobert et al. [2002], Abadi et al. [2015].",
+      "startOffset" : 201,
+      "endOffset" : 295
+    }, {
+      "referenceID" : 2,
+      "context" : "Importance-Weighted Autoencoder We also explore the effect of our new gradient estimator on the IWAE bound Burda et al. [2015], defined as",
+      "startOffset" : 107,
+      "endOffset" : 127
+    }, {
+      "referenceID" : 8,
+      "context" : "Flow Distributions Flow-based approximate posteriors such as Kingma et al. [2016], Dinh et al.",
+      "startOffset" : 61,
+      "endOffset" : 82
+    }, {
+      "referenceID" : 4,
+      "context" : "[2016], Dinh et al. [2016], Jimenez Rezende and Mohamed [2015] are a powerful and flexible framework for fitting approximate posterior distributions in variational inference.",
+      "startOffset" : 8,
+      "endOffset" : 27
+    }, {
+      "referenceID" : 4,
+      "context" : "[2016], Dinh et al. [2016], Jimenez Rezende and Mohamed [2015] are a powerful and flexible framework for fitting approximate posterior distributions in variational inference.",
+      "startOffset" : 8,
+      "endOffset" : 63
+    }, {
+      "referenceID" : 13,
+      "context" : "Our modification of the standard reparameterized gradient estimate can be interpreted as adding a control variate, and in fact Ranganath et al. [2014] investigated the use of the score function as a control variate in the context of non-reparameterized variational inference.",
+      "startOffset" : 127,
+      "endOffset" : 151
+    }, {
+      "referenceID" : 13,
+      "context" : "Our modification of the standard reparameterized gradient estimate can be interpreted as adding a control variate, and in fact Ranganath et al. [2014] investigated the use of the score function as a control variate in the context of non-reparameterized variational inference. The variance-reduction effect we use to motivate our general gradient estimator has been noted in the special cases of Gaussian distributions with sparse precision matrices and Gaussian copula inference in Tan and Nott [2017] and Han et al.",
+      "startOffset" : 127,
+      "endOffset" : 502
+    }, {
+      "referenceID" : 6,
+      "context" : "The variance-reduction effect we use to motivate our general gradient estimator has been noted in the special cases of Gaussian distributions with sparse precision matrices and Gaussian copula inference in Tan and Nott [2017] and Han et al. [2016] respectively.",
+      "startOffset" : 230,
+      "endOffset" : 248
+    }, {
+      "referenceID" : 6,
+      "context" : "The variance-reduction effect we use to motivate our general gradient estimator has been noted in the special cases of Gaussian distributions with sparse precision matrices and Gaussian copula inference in Tan and Nott [2017] and Han et al. [2016] respectively. In particular, Tan and Nott [2017] observes that by",
+      "startOffset" : 230,
+      "endOffset" : 297
+    }, {
+      "referenceID" : 18,
+      "context" : "In the python toolkit Edward [Tran et al., 2016], efforts are ongoing to develop algorithms that implement stochastic variational inference in general as a black-box method.",
+      "startOffset" : 29,
+      "endOffset" : 48
+    }, {
+      "referenceID" : 13,
+      "context" : "By expressing the general technique in terms of automatic differentiation, we eliminate the need for case-by-case analysis of the gradient of the variational lower bound as in Tan and Nott [2017] and Han et al.",
+      "startOffset" : 176,
+      "endOffset" : 196
+    }, {
+      "referenceID" : 6,
+      "context" : "By expressing the general technique in terms of automatic differentiation, we eliminate the need for case-by-case analysis of the gradient of the variational lower bound as in Tan and Nott [2017] and Han et al. [2016]. An innovation by Ruiz et al.",
+      "startOffset" : 200,
+      "endOffset" : 218
+    }, {
+      "referenceID" : 6,
+      "context" : "By expressing the general technique in terms of automatic differentiation, we eliminate the need for case-by-case analysis of the gradient of the variational lower bound as in Tan and Nott [2017] and Han et al. [2016]. An innovation by Ruiz et al. [2016] introduces the generalized reparameterization gradient (GRG) which unifies the REINFORCE-style and reparameterization gradients.",
+      "startOffset" : 200,
+      "endOffset" : 255
+    }, {
+      "referenceID" : 6,
+      "context" : "By expressing the general technique in terms of automatic differentiation, we eliminate the need for case-by-case analysis of the gradient of the variational lower bound as in Tan and Nott [2017] and Han et al. [2016]. An innovation by Ruiz et al. [2016] introduces the generalized reparameterization gradient (GRG) which unifies the REINFORCE-style and reparameterization gradients. GRG employs a weaker form of reparameterization that requires only the first moment to have no dependence on the latent variables, as opposed to complete independence as in Kingma and Welling [2013]. GRG improves on the variance of the score-function gradient estimator in BBVI without the use of Rao-Blackwellization as in Ranganath et al.",
+      "startOffset" : 200,
+      "endOffset" : 583
+    }, {
+      "referenceID" : 6,
+      "context" : "By expressing the general technique in terms of automatic differentiation, we eliminate the need for case-by-case analysis of the gradient of the variational lower bound as in Tan and Nott [2017] and Han et al. [2016]. An innovation by Ruiz et al. [2016] introduces the generalized reparameterization gradient (GRG) which unifies the REINFORCE-style and reparameterization gradients. GRG employs a weaker form of reparameterization that requires only the first moment to have no dependence on the latent variables, as opposed to complete independence as in Kingma and Welling [2013]. GRG improves on the variance of the score-function gradient estimator in BBVI without the use of Rao-Blackwellization as in Ranganath et al. [2014]. A term in their estimator also behaves like a control variate.",
+      "startOffset" : 200,
+      "endOffset" : 732
+    }, {
+      "referenceID" : 5,
+      "context" : "Each model used Xavier initialization [Glorot and Bengio, 2010] and trained using Adam with parameters β1 = 0.",
+      "startOffset" : 38,
+      "endOffset" : 63
+    }, {
+      "referenceID" : 8,
+      "context" : "999, and = 1e−4 with 20 observations per minibatch [Kingma and Ba, 2015].",
+      "startOffset" : 51,
+      "endOffset" : 72
+    }, {
+      "referenceID" : 2,
+      "context" : "Experimental Setup Because we follow the experimental setup of Burda et al. [2015], we review it briefly here.",
+      "startOffset" : 63,
+      "endOffset" : 83
+    }, {
+      "referenceID" : 2,
+      "context" : "Experimental Setup Because we follow the experimental setup of Burda et al. [2015], we review it briefly here. Both benchmark datasets are composed of 28× 28 binarized images. The MNIST dataset was split into 60, 000 training and 10, 000 test examples. The Omniglot dataset was split into 24, 345 training and 8070 test examples. Each model used Xavier initialization [Glorot and Bengio, 2010] and trained using Adam with parameters β1 = 0.9, β2 = 0.999, and = 1e−4 with 20 observations per minibatch [Kingma and Ba, 2015]. We compared against both architectures reported in Burda et al. [2015]. The first has one stochastic layer with 50 hidden units, encoded using two fully-connected layers of 200 neurons each, using a tanh nonlinearity throughout.",
+      "startOffset" : 63,
+      "endOffset" : 595
+    }, {
+      "referenceID" : 12,
+      "context" : "Benchmark Datasets We evaluate our path derivative estimator using two benchmark datasets: MNIST, a dataset of handwritten digits [LeCun et al., 1998], and Omniglot, a dataset of handwritten characters from many different alphabets [Lake, 2014].",
+      "startOffset" : 130,
+      "endOffset" : 150
+    }, {
+      "referenceID" : 11,
+      "context" : ", 1998], and Omniglot, a dataset of handwritten characters from many different alphabets [Lake, 2014].",
+      "startOffset" : 89,
+      "endOffset" : 101
+    }, {
+      "referenceID" : 2,
+      "context" : "To underscore both the easy implementation of this technique and the improvement it offers over existing approaches, we have empirically evaluated our new gradient estimator by a simple modification of existing code1 [Burda et al., 2015].",
+      "startOffset" : 217,
+      "endOffset" : 237
+    }, {
+      "referenceID" : 2,
+      "context" : "Omniglot Results For a two-stochastic-layer VAE using the multi-sample ELBO with gradient corresponding to equation (8) improves over the results in Burda et al. [2015] by 2.",
+      "startOffset" : 149,
+      "endOffset" : 169
+    }, {
+      "referenceID" : 2,
+      "context" : "Burda et al. [2015] report that they didn’t notice any significant problems with overfitting, as the training log likelihood was usually 2 nats lower than the test log likelihood.",
+      "startOffset" : 0,
+      "endOffset" : 20
+    }, {
+      "referenceID" : 2,
+      "context" : "The similar magnitude of the two numbers suggests that training for longer than Burda et al. [2015] would improve the performance of our gradient estimator.",
+      "startOffset" : 80,
+      "endOffset" : 100
+    } ],
+    "year" : 2017,
+    "abstractText" : "We propose a simple and general variant of the standard reparameterized gradient estimator for the variational evidence lower bound. Specifically, we remove a part of the total derivative with respect to the variational parameters that corresponds to the score function. Removing this term produces an unbiased gradient estimator whose variance approaches zero as the approximate posterior approaches the exact posterior. We analyze the behavior of this gradient estimator theoretically and empirically, and generalize it to more complex variational distributions such as mixtures and importance-weighted posteriors.",
+    "creator" : null
+  }
+}

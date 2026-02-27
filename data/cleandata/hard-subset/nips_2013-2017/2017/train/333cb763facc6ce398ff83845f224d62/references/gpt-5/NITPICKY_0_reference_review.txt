@@ -1,0 +1,68 @@
+Summary
+This paper proposes a Multi-Output Spectral Mixture (MOSM) kernel for stationary multi-output Gaussian processes (MOGPs). The construction works in the spectral domain using Cramér’s theorem: for each output i, a complex Gaussian “square-exponential” factor Ri(ω) with channel-specific amplitude, center, bandwidth, phase φi, and delay θi is defined; the cross-spectrum matrix is then built via a low-rank factorization and symmetrized to ensure a real-valued process. The inverse Fourier transform yields closed-form cross-covariances of the form exp(−0.5(τ+θij)⊤Σij(τ+θij)) cos((τ+θij)⊤μij+φij), enabling inter-channel phase differences and delays. Experiments on a synthetic three-output signal (original, derivative, delayed) and two real datasets (climate sensors, Jura metals) compare MOSM to LMC/SM-LMC, CONV, and CSM; MOSM is competitive and sometimes best.
+
+Relation to prior work
+- Extends Wilson & Adams (SM) to the multi-output case via Cramér’s theorem rather than LMC/CONV. Related to CSM (Ulrich et al.), which models phase; authors argue MOSM generalizes CSM by allowing channel-dependent spectral parameters, phase and delay.
+- Uses complex cross-spectra as in prior complex GP work (Tobar & Turner).
+- Related to multivariate Matérn (Gneiting et al.) but with richer structured cross-spectra.
+
+Strengths
+- Conceptually appealing spectral-domain construction with interpretable parameters (frequency, bandwidth, phase, delay) per output pair.
+- Closed-form stationary cross-covariances including both phase shifts and delays; the shift in τ induced by exp(iθ⊤ω) is elegant.
+- Low-rank spectral factorization gives a simple route to positive semidefiniteness (if correctly implemented).
+- Demonstrates nontrivial behavior in synthetic example (simultaneous derivative and delay).
+- Implementation in GPflow; empirical results are competitive.
+
+Weaknesses and technical concerns
+Major technical issues
+- Hermitian/positivity inconsistencies:
+  - The paper states “for any ω, S(ω) = [Sij(ω)] ∈ Rm×m is Hermitian, i.e., Sij(ω) = Sji(ω)” (Sec. 3). For complex cross-spectra, Hermitian means S(ω) = S(ω)H and thus Sij(ω) = Sji(ω)̄, not equality unless entries are real. Also S(ω) is complex-valued, not real-valued as written.
+  - Positivity condition (6) is stated with “∑i,j zizj Sij(ω) ≥ 0, where z denotes the complex conjugate of z.” This is confusing/wrong notation; it should be zH S(ω) z = ∑i,j z̄i Sij(ω) zj ≥ 0. Using the same symbol z for a number and its conjugate is an error.
+- Factorization mismatch:
+  - The proof in (7) correctly shows that S(ω) = R(ω)H R(ω) is PSD with Sij(ω) = R:i(ω)H R:j(ω), implying complex conjugation on the left index. However, later the paper states Sij(ω) = Ri(ω) Rj(ω) (Sec. 3.1), dropping conjugation. This breaks Hermitian structure and contradicts (7). The expressions for θij = θi − θj and φij = φi − φj only follow if Sij = R̄i Rj. This needs correction and a consistent derivation.
+- Real-valuedness and symmetry:
+  - For real-valued multi-output processes, the spectral density must satisfy S(−ω) = S(ω)H (matrix-level condition), implying kij(τ) = kji(−τ). The proposed “symmetrization” Sij(ω) ← 0.5(Sij(ω) + Sij(−ω)) is insufficient to guarantee the required matrix-level constraint unless applied to the whole matrix as S(ω) ← 0.5(S(ω) + S(−ω)H). The current text is ambiguous and likely incorrect.
+- Gaussian product constants:
+  - The product of Gaussians implies Σij = (Σi−1 + Σj−1)−1 and μij = Σij(Σi−1μi + Σj−1μj). The paper instead states Σij = 2 Σi (Σi + Σj)−1 Σj and other constants; the extraneous factor 2 and certain 1/2 factors around exponents appear inconsistent across (8)–(11). A careful, consistent derivation with the chosen Fourier convention (including (2π)n factors) is needed. As written, dimensions and constants don’t match standard identities, and αij/wij definitions are confusing (e.g., αij is called “magnitude” but later used as possibly negative).
+- Cross-covariance symmetry:
+  - The paper claims cross-covariances can be “non-symmetric” for φij ≠ 0. For real-valued vector processes, kij(τ) need not be symmetric in τ, but it must satisfy kij(τ) = kji(−τ). Please prove MOSM satisfies this with the final, symmetrized S(ω). The current text does not verify this.
+
+Modeling/identifiability concerns
+- Redundant parameterization: Only differences θij = θi − θj and φij = φi − φj matter; there is a gauge invariance (global shift) that is not acknowledged. Similarly, scale ambiguities among wi may exist since cross magnitudes depend on products. Without constraints or priors, optimization may be ill-posed.
+- Parameter count/scaling: For m outputs and Q components, MOSM introduces O(mQ(n + n + 1 + 1 + 1)) parameters (μ, diag Σ, w, θ, φ) per channel per component. This is large relative to CSM/SM-LMC. No discussion of computational complexity, regularization, or initialization is provided.
+- Noise term: The covariance definition uses “σ2ir,noiseδiris,” which is unclear. Observation noise should add σ2i(r),noise δrs; the notation suggests dependence on both indices and is ambiguous.
+
+Experimental issues
+- Fairness and details: The number of components is set to five for all models, but MOSM has many more free parameters per component than SM-LMC/CSM. No parameter counts, CPU time, or convergence diagnostics are reported; no initialization strategy is described (critical for spectral kernels).
+- Metrics: Only MAE is reported; no log-marginal likelihood or uncertainty calibration. Confidence intervals in figures are absent/unclear.
+- Statistical testing: The KS test on absolute errors from time series violates independence assumptions; multiple comparisons are not corrected; number of random splits not clearly stated (especially for climate). Claims of significance are weak under these conditions.
+- Baselines: No comparison to multivariate Matérn (Gneiting et al.) or other cross-spectral constructions beyond CSM; no ablation to quantify the value of per-channel μ/Σ vs. shared ones, or of delay vs. phase.
+- Reproducibility: Code/seed/initialization details and hyperparameter priors are missing.
+
+Clarity and presentation
+- Numerous typos and formatting issues: “multiouput,” “wrt,” broken footnotes (integrability note inline), malformed headers, inconsistent equation punctuation, incomplete references (many missing years/pages), inconsistent bold/transpose notation, misuse of Rm×m for complex matrices, and incorrect Hermitian definition. Equation numbering and 1/2 factors are inconsistent. These hinder reproducibility and raise concerns about mathematical correctness.
+
+Pros
+- Conceptually interesting generalization of SM to MOGPs in the spectral domain.
+- Interpretability (frequency, phase, delay) per pair of outputs; potentially useful in applications requiring delays.
+- Closed-form covariance and straightforward composition over Q components.
+- Promising empirical performance on synthetic and some real tasks.
+
+Cons
+- Fundamental mathematical inconsistencies (Hermitian condition, conjugation, real-valuedness constraints, Gaussian product constants).
+- Ambiguous/incorrect notation and several derivational errors.
+- Under-specified training details, lack of complexity/parameter-count analysis, and questionable statistical testing.
+- Many presentation and formatting errors; references incomplete.
+
+Questions for the authors
+1) Please correct the PSD matrix construction: is S(ω) = R(ω)H R(ω)? If so, all formulas should use Sij = R̄i Rj. Provide a rigorous derivation for μij, Σij, wij under your Fourier convention.
+2) How do you ensure S(−ω) = S(ω)H and consequently kij(τ) = kji(−τ)?
+3) What constraints are used to resolve gauge invariances in θ and φ, and to avoid parameter redundancies in w?
+4) Provide parameter counts, wall-clock times, and initialization strategies; how sensitive are results to initialization and Q?
+5) Revisit statistical testing using appropriate paired tests, accounting for autocorrelation or using multiple independent splits.
+
+Recommendation
+Given the technical inconsistencies in the core construction (conjugation/Hermitian/realness) and the presentation issues, I recommend rejection in the current form. The idea is promising, but the paper needs a substantial rewrite with corrected derivations, proofs, and more rigorous experiments.
+
+Overall score: 4/10
+Confidence: 0.8

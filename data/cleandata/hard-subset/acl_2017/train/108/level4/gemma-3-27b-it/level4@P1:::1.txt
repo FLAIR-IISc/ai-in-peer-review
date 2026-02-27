@@ -1,0 +1,119 @@
+A Multigraph-based Model for Overlapping Entity Recognition
+
+ABSTRACT
+In this paper, we propose a new model capable of recognizing overlapping entities based on multigraphs, as opposed to simple graphs commonly used in graphical models for structured prediction. Through extensive experiments on standard datasets containing overlapping and non-overlapping entities, we demonstrate that our model outperforms previous models. We also present an analysis of the differences between our model and previous models and discuss the possible implications of these differences. To the best of our knowledge, this is the first structured prediction model utilizing multigraphs to predict overlapping structures.
+
+1 Introduction
+Named entity recognition (NER), or, more generally, the task of recognizing entities in text, has been a research topic for many years (McCallum and Li, 2003; Nadeau and Sekine, 2007; Ratinov and Roth, 2009). However, as previously noted by Finkel and Manning (2009), many previous works ignored overlapping entities, despite their common occurrence. For example, the location entity “China” appears within the organization entity “Bank of China.” In practice, overlapping entities have been found in existing datasets, including ACE (Doddington et al., 2004), GENIA (Kim et al., 2003), and a clinical text dataset (Suominen et al., 2013). Figure 1 illustrates examples of overlapping entities adapted from existing datasets.
+
+Solving this task is non-trivial, as the typical approach of modeling entity recognition as a sequence prediction problem (e.g., using a linear-chain CRF, which utilizes simple graphs) struggles to handle overlapping entities (Alex et al., 2007). Finkel and Manning (2009) proposed using a tree-based constituency parsing model to handle nested entities, but its inference procedure has a time complexity of cubic in n, where n is the number of words in the sentence. This complexity was later improved by Lu and Roth (2015) with a hypergraph-based model, which achieves a linear time complexity in n.
+
+In this work, instead of using simple graphs or hypergraphs, we introduce a novel multigraph-based model to tackle the problem of overlapping entity extraction. We demonstrate that it is possible to assign explicit semantics to different edges connecting the same pair of nodes when representing structures, leading to novel multigraph representations capable of representing overlapping structures. We present the training and inference procedures for this novel representation. To the best of our knowledge, this is the first structured prediction model utilizing multigraphs to predict overlapping structures.
+
+In this paper, we make the following major contributions: 
+• We propose a novel multigraph-based model for predicting overlapping entities.
+• Empirically, we show that our model achieves higher F1-scores compared to previous models on multiple datasets.
+• Theoretically, we show that, unlike a previous state-of-the-art model, our model does not exhibit the spurious structures issue during inference and is therefore non-deficient, while maintaining the same inference time complexity. 
+
+We also believe that our proposed multigraph-based structured prediction framework can be used to solve other problems involving overlapping structures and hope this work will inspire further research in this direction. We will make our system and code available for research purposes.
+
+2 Related Work
+Named entity recognition (NER) has been a research focus for some time. It is often regarded as a chunking task similar to base NP chunking (Kudo and Matsumoto, 2001; Shen and Sarkar, 2005), and entities are usually represented accordingly using BILOU (Beginning of an entity, In the middle of an entity, Last token of an entity, Outside of any entity, Unit-length entity) or the simpler BIO annotation scheme (Ratinov and Roth, 2009). Some previous works have focused on obtaining the best representation of the chunks (Sang and Veenstra, 1999; Loper, 2007), and Ratinov and Roth (2009) demonstrated that the BILOU scheme is superior to BIO for recognizing non-overlapping entities. As a chunking task, it is commonly modeled using sequence labeling models, such as the linear-chain CRF (Lafferty et al., 2001), which has a time complexity of O(nT<sup>2</sup>), where n is the number of words in the sentence and T is the number of entity types.
+
+For recognizing entities that may overlap, one of the earliest works to treat this as a structured prediction task was McDonald et al. (2005). They represented entities as top-k predictions with positive scores from a structured multilabel classification model, resembling structured SVMs (Tsochantaridis et al., 2005). Setting k = n resulted in a time complexity of O(n<sup>3</sup>T).
+
+Alex et al. (2007) proposed a cascading approach using multiple sequence labeling models, each handling a subset of all possible entity types. Later models in the pipeline had access to the predictions of earlier models. They used a standard linear-chain CRF for each entity type, resulting in a time complexity of roughly O(nT), depending on the pipeline design. However, they noted that “it involves extensive experimentation to determine the best model combination” due to the many possible pipeline arrangements. Their model only handles overlapping entities of different types.
+
+Finkel and Manning (2009) later proposed a constituency parser to handle nested entities by converting each sentence into a tree, representing each entity as a subtree. Their model has the standard time complexity for a binary parser: O(n<sup>3</sup>|G|), where |G| is the size of the grammar, proportional to T in the best case and T<sup>3</sup> in the worst case. They showed that their model outperformed a semi-CRF baseline. By design, their model cannot handle crossing entities (overlapping entities that are not nested).
+
+More recently, Lu and Roth (2015) proposed a hypergraph-based model called mention hypergraphs, capable of handling overlapping entities while retaining a linear time complexity of O(nT). The model achieved competitive results on standard datasets. We will make extensive comparisons against this state-of-the-art model.
+
+3 Mention Hypergraph
+In the mention hypergraph model of Lu and Roth (2015), nodes and directed hyperedges are used together to encode entities and their combinations. The following five types of states are used at position k of a sentence: 
+• A<sub>k</sub> denotes all entities starting at k or later
+• E<sub>k</sub> denotes all entities starting at k
+• T<sub>k</sub><sup>t</sup> denotes all entities of type t starting at k
+• I<sub>k</sub><sup>t</sup> denotes all entities of type t covering k
+• X denotes the end of an entity (the leaf node)
+Different hyperedges connecting these nodes represent how the semantics of a node are composed from those of its child nodes. 
+
+For brevity, we may also use “edge” to refer to “hyperedge” in some discussions. Specifically, each A<sub>k</sub> is connected to A<sub>k+1</sub> and E<sub>k</sub> through the hyperedge A<sub>k</sub> → (A<sub>k+1</sub>, E<sub>k</sub>), denoting that the set of entities starting at k or later is the union of those starting at k+1 or later and those starting at k. Each E<sub>k</sub> is connected to T<sub>k</sub><sup>1</sup>, T<sub>k</sub><sup>2</sup>, …, T<sub>k</sub><sup>T</sup> through a hyperedge, denoting that entities starting at k must be one of the T types. Each T<sub>k</sub><sup>t</sup> is connected to I<sub>k</sub><sup>t</sup> through an edge (denoting there is an entity of type t starting at the k-th token) and to X through another edge (denoting there are no entities of type t starting at the k-th token). Each I<sub>k</sub><sup>t</sup> is connected to I<sub>k+1</sub><sup>t</sup> (denoting an entity continuing to the next token), to X (denoting an entity ending here), or to both (with a single hyperedge, denoting overlapping entities).
+
+In this mention hypergraph, each possible entity is represented as a path from a T-node to the X-node through a sequence of I-nodes, and the set of all entities in a sentence forms a sub-hypergraph of the overall hypergraph. The bottom part of Figure 2 shows how the mention hypergraph represents the two entities in the phrase “the human TCF-1 protein,” which are “TCF-1” and “human TCF-1 protein.”
+
+4 Multigraph-based Model
+We now describe our proposed multigraph-based model for recognizing overlapping entities. Unlike previous approaches, we assign explicit semantics to the edges in our multigraph-based model, which we call entity separators. We consider the eight possible types of entity separators based on the combination of the following three cases: 
+1. An entity is starting at the next token (S)
+2. An entity is ending at the current token (E)
+3. An entity is continuing to the next token (C)
+
+For each token, the possible combinations of cases are ECS, EC, CS, C, ES, E, S, and X, where X means none of the three cases apply. For example, the separator EC means one entity ends at the current token and another (overlapping) continues to the next token. See Figure 3 for an illustration of these separators.
+
+Next, we define the edges between the states according to the eight possible entity separators between adjacent tokens. Each entity separator is mapped to an edge connecting one state in the current position to another state in the next position, depending on whether the separator defines current and next words as part of an entity. In total, we have eight edges between two positions in the model. Some entity separators may connect the same two states; for example, the ES and C separator both connect I<sub>k</sub><sup>t</sup> to I<sub>k+1</sub><sup>t</sup> since, in both cases, the current token and the next token are part of an entity. In these cases, we simply define multiple edges between the pair of states, hence the multigraph aspect of our model. The first I- and O-nodes in the sentence are connected to the T-node of the corresponding entity type, and the last I- and O-nodes are connected to the unique leaf node X. Finally, a designated root node R is added and connected to all T-nodes by a single hyperedge to complete the multigraph structure. Figure 4 shows an example of our multigraph model considering two entity types and four input tokens. Note that the edges in our multigraph representations are directed, with nodes on the left serving as parents to nodes on the right, which is helpful during inference.
+
+The top part of Figure 2 shows how we model the two entities “human TCF-1 protein” and “TCF-1” in the phrase “the human TCF-1 protein.” Note how each edge maps to a distinct entity separator visualized in the text. Note how the roles of T-I edge and I-I edge in the mention hypergraph are combined in our model using the single edge connecting the two I nodes to represent the entity separator CS.
+
+4.1 Training, Inference and Decoding
+We follow the log-linear approach to define our model, using the following regularized log-likelihood in training data D:
+
+LD(w) = ∑<sub>(x,y)∈D</sub> [ ∑<sub>e∈y</sub> w ⋅ f(e) − log Zw(x) ] −λ||w||<sup>2</sup> (1)
+
+where (x,y) is a training instance consisting of the sentence x and the correct output y, w is the weight vector, f(e) is the feature vector defined over the edge e, Zw(x) is the normalization term, and λ is the l2-regularization parameter. The objective function is optimized until convergence using L-BFGS (Liu and Nocedal, 1989).
+
+We note the mention hypergraph model also defines the objective in a similar manner. For both models, the inference is done based on a generalized inside-outside algorithm. Both models involve directed structures, on top of which the inference algorithm first calculates the inside score for each node from the leaf node to root and then the outside score from the root to the leaf node, as in a classic graphical model. Specifically, for our multigraph-based model, the inside scores are calculated using a bottom-up (right-to-left) dynamic programming procedure, where we calculate the inside score at each node by summing up the scores associated with each path connecting the current node to one of its child nodes. Each path score is defined as the product of the inside score stored in that child node and the score defined over the edge connecting them. The computation of the outside scores is analogous, done from left to right. The time complexity of such an inference procedure for our model is O(nT), which is the same as the mention hypergraph model.
+
+During decoding, we perform MPE inference using a max-product procedure analogous to Viterbi decoding in conventional tree-structured graphical models to find the highest-scoring subgraph from the overall multigraph, from which we extract entities.
+
+5 Model Analysis
+In this section, we make two analytical comparisons between our model and previous models.
+
+5.1 State-based vs. Edge-based Paradigm
+Based on how previous works model the role of each token in defining the predicted entity spans, we classify them into two paradigms: state-based and edge-based.
+
+**State-based Paradigm:** In conventional graph-based models for structured prediction, such as linear-chain conditional random fields (Lafferty et al., 2001) and tree-based models (Finkel and Manning, 2009), nodes and edges encode structured output information. Given the state at each position, we have enough information to interpret the output without relying on edge information. This is the state-based paradigm: the approach where the set of states alone can interpret the predicted entities.
+
+Most previous works fall into this paradigm (McDonald et al., 2005; Alex et al., 2007; Finkel and Manning, 2009; Tang et al., 2013).
+
+**Edge-based Paradigm:** In the mention hypergraph model by Lu and Roth (2015), they used a small number of possible states for each token and did not directly model the roles of each token using only the states. Instead, they used edges (or hyperedges) to capture complex role combinations. This leads to an alternative paradigm where the set of states *together* with the edges define the predicted entities.
+
+Our multigraph-based model falls into this paradigm. Since there are multiple edges between the same pair of states, the states alone do not define the roles of the tokens, and semantics are explicitly assigned to the edges.
+
+While these paradigms are somewhat equivalent (e.g., representing edges as separate states), this leads to modeling unnecessary dependencies and increased model complexity.
+
+Since the edge-based paradigm is relatively unexplored, we hope this discussion encourages further research.
+
+5.2 Spurious Structures
+Our model falls into the edge-based paradigm, similar to the mention hypergraph model. This raises the question: are the two models optimizing the same objective function?
+
+The answer lies in the normalization term Zw(x) calculated by each model using the inside-outside algorithm. The inside score of a node represents the sum of scores of all paths from that node to the leaf node. In the mention hypergraph, this can include spurious structures – combinations of entities that are not valid but are counted due to shared subgraphs. Our model, by not including these spurious combinations in its normalization term, is non-deficient.
+
+6 Experiments
+6.1 Datasets
+... (Dataset details as in original) ...
+
+6.2 Features
+... (Feature details as in original) ...
+
+6.3 Experimental Setup
+... (Experimental setup details as in original) ...
+
+7 Results and Discussion
+... (Results as in original) ...
+
+8 Conclusion and Future Work
+... (Conclusion as in original) ...
+
+A Details on Spurious Structures
+... (Spurious structures explanation as in original) ...
+
+B Features
+... (Features details as in original) ...
+
+C Hyperparameter
+... (Hyperparameter table as in original) ...
+
+D GENIA Preprocessing
+... (GENIA preprocessing details as in original) ...
+
+References:
+... (References as in original) ...

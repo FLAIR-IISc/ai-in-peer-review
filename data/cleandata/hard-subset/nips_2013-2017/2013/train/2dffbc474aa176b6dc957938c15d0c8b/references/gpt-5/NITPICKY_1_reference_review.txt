@@ -1,0 +1,66 @@
+Summary and relation to prior work
+The paper tackles fully Bayesian learning and inference in Gaussian process state-space models (GP-SSMs). The key idea is to place a GP prior on the unknown transition function f, marginalize f exactly, and then perform inference over the latent trajectory x0:T and hyperparameters θ using Particle MCMC, specifically particle Gibbs with ancestor sampling (PGAS). Collapsing f induces a non-Markovian prior over x0:T; the authors use conditional particle filtering with ancestor sampling (CPF-AS) to sample trajectories efficiently and sample θ with slice sampling conditioned on x0:T. They further propose a sparse variant using the FIC prior, reducing complexity from O(T^3) (vanilla GP with incremental Cholesky updates) to O(M^2 T).
+
+This is positioned against: (i) GP-SSM smoothing/prediction methods that assume learned models ([5,6]); (ii) EM/MAP approaches to GP-based dynamical models ([2,7,8]); and (iii) PMCMC for SSMs ([3]) and PGAS ([4]). The main novelty is collapsing f and using PGAS for exact smoothing in the nonparametric GP-SSM, plus implementation details for making it tractable and a sparse alternative.
+
+Strengths
+- Conceptual contribution: clean collapsed formulation that preserves the nonparametric nature of the GP prior while enabling exact (up to Monte Carlo error) smoothing via PGAS.
+- Methodological fit: PGAS is well-suited to the non-Markovian model induced by marginalizing f, and ancestor sampling is leveraged correctly in spirit.
+- Practical insight: computational engineering for incremental Cholesky updates and sparse FIC construction; discussion of how to extract a predictive mixture over f∗ and pragmatic single-GP approximations.
+- Experiments show qualitative handling of multimodality in the smoothing distribution and a nontrivial 4D cart-pole example with uncertainty quantification.
+
+Weaknesses and detailed comments
+Technical correctness and clarity
+1) Proposal/weighting inconsistency in SMC (Section 3.2, Eq. (5)): You state xit ∼ p(xt | θ, xai0:t−1, y0:t) but then use weights wit ∝ p(yt | θ, xit). Those weights correspond to the prior proposal p(xt | θ, xai0:t−1). If the proposal is the optimal p(xt | x0:t−1, y0:t), the incremental weight should be the predictive likelihood p(yt | x0:t−1, y0:t−1) (a function of the ancestor path), not p(yt | xt). Please clarify which proposal you use and adjust the weight formula or the proposal accordingly.
+
+2) Indexing/notation issues in the collapsed prior (Eqs. 3–4): 
+- The dimension “(nxt) × (nxt)” is ambiguous; likely nx t × nx t. 
+- µ1(x0) = m0 and Σ1(x0) = K̃0 are off-by-one notationally (t ≥ 1 uses xt | x0:0?). 
+- Eq. (4) looks Gaussian but depends on x1:t via K̃0:t−1(x1:t) and m0:t−1(x1:t). This deserves an explicit caveat earlier and consistent notation (currently reliance on argument-dependence is easy to miss).
+
+3) Ancestor sampling weights (Eq. (6)): 
+- The last step uses wit−1 p(x̃t:T | xi0:t−1). The derivation drops θ from notation; please state dependence and justify cancellations precisely.
+- The normalization uses w̃it−1|T, but sampling “with P(aNt = j) = w j t−1|t” mixes indices T and t and drops the tilde; likely a typo but confusing. 
+- For non-diagonal Q, block-diagonalization in Λ requires care; define diag[·] explicitly as block-diagonal with nx × nx blocks.
+
+4) Complexity and memory costs: 
+- You report naive O(T^4) then O(T^3) with rank-1 updates. However, ancestor weights require per-particle factorizations of matrices of size O(T) at every t; storing Lit for N particles implies O(N T^2) memory, which can be prohibitive. This is not discussed.
+- Stability of repeated Cholesky downdates is a practical concern; please discuss numerical safeguards and failure modes.
+- For FIC, achieving O(M^2 T) requires avoiding any O(T) intermediate operations; the text asserts this but does not provide concrete recursions/pseudocode. As written, the risk of hidden O(M^2 T^2) costs remains.
+
+5) Hyperparameter sampling: “slice sampling is straightforward” glosses over the nontrivial, multimodal marginal likelihood induced by x0:T and Q. What are the priors, step-size/adaptation, and diagnostics? Without these, θ mixing claims are unsubstantiated.
+
+6) Predictive mixture (Eq. 10): Because x0:T and θ differ across samples, there is no reuse across L; precomputability claims (“factorized covariance matrices can be pre-computed”) need to be clarified—precomputed for each sample, or shared structures? Also, the proposal to learn a single GP from aggregated draws may double-count noise unless care is taken; discuss how you set the likelihood variance when pseudo-targets f are drawn from their posterior.
+
+7) Identifiability assumptions: You argue for known g(·) to avoid non-identifiability, but examples use a nonlinear observation with unknown scale (d) (Sec. 6.1). Please state precisely what is learned vs fixed and any constraints to avoid confounding between f and g.
+
+Empirical evaluation
+8) Limited baselines and metrics: Sec. 6.1 compares RMSE against “two parametric models” and “two known models,” but details and Table 1 are missing here; no uncertainty intervals, no timing/compute budget. The PGAS chain uses only 50 iterations and N=20 particles; provide ESS, autocorrelations, and sensitivity to N, T, and M to substantiate “very good mixing.”
+
+9) Cart-pole: Only 100 observations in 4D, with qualitative plots of means/variances. No comparison to learned parametric models, variational GPSSM baselines, or non-collapsed PMCMC. One-step prediction is insufficient; report multi-step rollout error, calibration (PIT/CRPS), and runtime.
+
+10) Reproducibility: Important details are missing: exact priors on θ, initialization of x0:T and θ, burn-in, thinning, number of repeats, inducing point selection strategy (you defer to greedy selection, but for time series with latent states the selection space is itself uncertain).
+
+Presentation and formatting
+- Numerous minor typographical and notation issues (e.g., “X , Rnx”, inconsistent superscripts/subscripts, missing hats/tilde positionings).
+- References are incomplete (many lack years, venues, pages) and inconsistently formatted; some entries list “NIPS” while in-text use numeric citations.
+- Figures and tables are not included; the text refers to Figure 2/3 and Table 1 but they are absent here. Captions should describe experimental setup comprehensively.
+- Algorithm 1 is too terse for reproduction; include the CPF-AS steps, weight formulas, and boundary conditions.
+
+Originality and significance
+The idea of collapsing f and using PGAS for GP-SSMs is interesting and, to my knowledge, not standard in earlier GP-SSM learning work that relied on EM/MAP or assumed learned dynamics. The sparse variant and incremental updates are practically relevant. However, the empirical section does not convincingly demonstrate superiority or robustness, and several technical details are underspecified.
+
+Pros
+- Conceptually elegant collapsed GP-SSM with exact (Monte Carlo) smoothing.
+- Appropriate use of PGAS for non-Markovian latent models.
+- Attention to computational engineering and sparse priors.
+- Clear motivation for leveraging mean functions for prior knowledge.
+
+Cons
+- Proposal/weight inconsistency; several notational and algorithmic inaccuracies.
+- Insufficient empirical validation (limited baselines, diagnostics, and ablations).
+- Incomplete discussion of numerical stability, memory costs, and practicalities of the O(M^2 T) implementation.
+- Reference and formatting issues detract from clarity and reproducibility.
+
+Recommendation
+I lean to reject in the current form. The core idea is promising and potentially impactful, but the paper contains multiple technical and presentation issues that collectively undermine confidence in correctness and reproducibility. A revised version that (i) fixes the SMC proposal/weighting, (ii) tightens notation and ancestor-sampling derivations, (iii) provides concrete algorithms and complexity/memory analyses (with stability notes), and (iv) substantially strengthens experiments with strong baselines, diagnostics, and runtime/memory reporting, could be a solid contribution.

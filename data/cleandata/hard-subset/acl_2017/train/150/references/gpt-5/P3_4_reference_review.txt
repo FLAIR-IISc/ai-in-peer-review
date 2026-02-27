@@ -1,0 +1,46 @@
+Summary and main contributions
+- Proposes a deep character-level NMT architecture (DCNMT) with a hierarchical pipeline: character → subword/word encoder → sentence encoder → word-level decoder → character-level decoder.
+- Introduces a character-based word encoder that computes a word embedding as a weighted sum over prefix character RNN states, where the weights are produced by a second (bi-)RNN over characters (an attention-like mechanism without normalization). The intent is to learn morpheme-like units and composition rules.
+- Presents a hierarchical decoder: a word-level decoder produces states s_t, and a custom “HGRU” character decoder generates characters, resetting its state to s_t at predicted word boundaries; proposes a batching trick (an unfolding matrix) to efficiently condition the character decoder on word-level states.
+- Empirically evaluates on WMT En–Fr and En–Cs/Cs–En, with qualitative analyses suggesting the word encoder captures morphological regularities and handles misspellings/nonce words.
+
+Strengths
+- Architectural idea that explicitly separates (i) learning prefix character representations and (ii) learning position-specific weights is interesting and intuitively aligned with morphology. The weighted sum over character prefixes is a plausible way to emphasize morpheme boundaries; the qualitative energy plots on “any*/every*” and PCA projections are suggestive.
+- The hierarchical decoder with a settable-state character RNN is a practical mechanism for character-level generation while keeping encoder sequence lengths close to word-level models. The batching/unfolding trick makes the two-level decoding trainable in standard minibatches.
+- Open-vocabulary behavior and handling of misspellings/nonce words are demonstrated with concrete examples; this is a genuine advantage of character-level generation over word-only systems and over post-hoc UNK replacement strategies.
+- Results are competitive with prior character-level systems on the reported setups, with smaller parameter counts than some baselines. Training times/epochs suggest the method is reasonably efficient despite the six-RNN depth.
+
+Weaknesses
+- Novelty and positioning: The core components resemble existing lines of work: character-to-word encoders (Ling et al. C2W; Kim et al. char-CNN) and hierarchical decoders (Luong & Manning hybrid; Lee et al. char2char; Chung et al. char decoders). The proposed weighting over character positions is essentially an unnormalized attention over character prefixes. The paper underplays similarities to prior attention-over-subword/character models and does not clearly delineate what is technically new versus a recombination of known ideas.
+- Technical clarity and rigor: Key parts of the method are under-specified or difficult to follow.
+  - The HGRU equations and notation are confusing (e.g., sit, indices, the role of a_t, and how the “settable” state interacts with standard GRU gates). A formal, unambiguous specification and a comparison to a simple conditional GRU/LSTM baseline are missing.
+  - The unnormalized weights w_t = exp(aff(h_t)) in the encoder can lead to uncontrolled scaling; the choice to avoid normalization and “use tanh after the sum” is ad hoc and not justified with ablations.
+  - The batching “unfolding matrix” is essentially a tiling/masking operation; correctness and complexity benefits are stated but not quantified.
+  - Decoding: beam search over characters with on-the-fly switching to the next s_t at predicted delimiters is nontrivial; details (beam width, how beams that hypothesize different numbers of words are handled, recombination, length/word-boundary penalties) are missing.
+- Experimental comparisons and reproducibility:
+  - Several baselines are borrowed from different papers with different data/preprocessing, vocabularies, and training budgets. This makes claims such as “character-level models are better than subword-level models” hard to support. A strong, controlled BPE baseline trained under the same setup is missing.
+  - Reported datasets are not entirely consistent (e.g., En–Fr trained on WMT’14 parallel data but evaluated on newstest2015; RNNsearch commonly reports on newstest2014). Tokenization only vs. BPE choices differ across baselines. No significance testing is provided.
+  - Training speed and memory advantages are asserted but not carefully measured against re-trained baselines. “Days/epochs” across different hardware/papers is not a reliable metric.
+- Morphology claims are largely anecdotal:
+  - PCA plots and a few energy profiles are illustrative but not rigorous. No quantitative morphology evaluation (e.g., correlation with gold morpheme boundaries, improvement on morphologically rich languages beyond Czech, or analysis of OOV/rare morphology).
+  - Some segmentations shown are questionable (e.g., “consum-er-s” conflates derivation and truncates a base “consume”).
+- Open-vocabulary limitations: The character set is restricted to the top 120 characters, with the rest mapped to <unk>. This undermines the “open vocabulary” claim, especially for multilingual scripts and noisy text. The impact of this choice is not analyzed.
+
+Questions to authors
+- HGRU and decoding:
+  - Please provide a clear, consistent definition of the HGRU equations, including the exact role of a_t, the reset/set operation at word boundaries, and how the next s_{t+1} is selected during training and inference.
+  - How is beam search implemented when different beams hypothesize different word-boundary positions? Do you maintain both word-level and character-level beams? Any normalization for variable numbers of words?
+- Word encoder:
+  - Why not normalize the weights over character positions (e.g., softmax attention)? Did you try normalized attention and/or a gating alternative? Please include ablations comparing tanh, softmax-normalized weights, and different combination functions.
+  - Does the BiRNN that produces weights use lookahead over the whole word (i.e., future characters)? If so, what is the linguistic interpretation of the weights as “morpheme energies”?
+- Experimental setup:
+  - Please include in-paper, re-trained BPE baselines (e.g., 32k BPE on both sides) under identical data, tokenization, and training budgets for all language pairs. Report beam sizes, length penalties, and significance tests.
+  - Provide wall-clock training time per epoch and decoding speed (chars/sec) on your hardware for DCNMT and your own baselines.
+  - Clarify the data splits for En–Fr (train set composition and choice of test set) and the exact preprocessing pipeline.
+- Open vocabulary:
+  - What fraction of training/test characters are mapped to <unk> for each language pair? How sensitive is performance to the character vocabulary size?
+- Analysis:
+  - Can you quantify morphology learning (e.g., boundary F1 against a morphological segmenter; gains on rare/derived forms; error analysis on Czech inflectional phenomena)?
+  - Please release code and scripts for the unfolding/batching trick and HGRU for reproducibility.
+
+Overall, this is a creative and potentially useful hierarchical character-level NMT variant with promising qualitative behavior, but the paper needs stronger experimental baselines, clearer technical presentation, and more rigorous evidence for the morphology-learning claims to warrant acceptance.

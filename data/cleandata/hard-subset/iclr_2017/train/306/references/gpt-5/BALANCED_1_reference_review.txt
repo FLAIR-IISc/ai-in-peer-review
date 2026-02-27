@@ -1,0 +1,57 @@
+1. Summary of contributions
+The paper tackles few-shot N-way classification by framing learning as a two-level process: a learner (classifier) is optimized within each task using a limited number of updates, and a meta-learner is trained across tasks to enable rapid adaptation. The core idea is to parameterize the learner’s update rule with an LSTM whose cell state holds the learner’s parameters. By aligning the LSTM update with gradient descent, the meta-learner learns both an initialization for the learner and a task-dependent, learned optimizer (via learned input/forget gates that depend on current loss, gradient, parameters, and prior gate values). To make this scalable, the method uses coordinate-wise parameter sharing and gradient/loss preprocessing, and it trains the meta-learner to minimize held-out test loss for each episodic task, matching train/test conditions carefully (notably for batch normalization). Empirically, on 5-way Mini-ImageNet (own split), the approach outperforms baselines and is competitive with Matching Networks, especially strong in 5-shot. Visualizations of gate behaviors suggest the meta-learner discovers meaningful update strategies. Code is provided.
+
+2. Decision: Accept
+Key reasons:
+- Well-motivated, principled formulation of few-shot learning as learning to optimize, with a clear and elegant instantiation using LSTM updates that directly mirror gradient descent.
+- Strong empirical results on Mini-ImageNet, outperforming tuned fine-tuning and nearest-neighbor baselines and competitive with Matching Networks, with careful attention to evaluation protocol and BN handling.
+
+3. Supporting arguments
+What problem is tackled? Few-shot supervised learning where standard deep optimization fails due to scarce data and few update steps per task. The paper seeks a meta-learned optimizer and initialization that enable rapid adaptation.
+
+Is the approach well-motivated and well-placed in the literature? Yes. The connection between LSTM cell updates and gradient descent is insightful and builds appropriately on prior work: learning to learn/optimizers (Andrychowicz et al.), memory-augmented few-shot methods (Matching Networks, Santoro et al.), and related meta-learning efforts. The distinction from Andrychowicz et al. (optimize large-scale training) is clear: here the objective explicitly captures few-shot generalization in a fixed step budget. The design choices (coordinate sharing, preprocessing) follow established practice and are justified.
+
+Do results support the claims? Largely yes. The method wins over strong baselines (nearest neighbor on pretrained embeddings and tuned fine-tuning) and matches or exceeds Matching Networks on the authors’ Mini-ImageNet split, with clear confidence intervals and matching train/test conditions per episode. The analysis of gates across tasks suggests the optimizer is not simply a fixed schedule. Implementation details (optimizer, clipping, number of updates) are documented, and the code release supports reproducibility.
+
+Limitations tempering the strength:
+- Experimental scope is somewhat narrow: one dataset (Mini-ImageNet with an author-specific split), only 5-way classification, and 1-shot/5-shot settings. No 20-way or cross-dataset evaluation, and no Omniglot for breadth.
+- Matching Networks are not evaluated with their optional fine-tuning; this may disadvantage that baseline. Also, the learner architecture differs (32 filters vs 64 for baselines), which could affect fairness and capacity comparisons.
+- The “gradient independence” assumption (ignoring second-order terms wrt meta-learner) is a pragmatic simplification but under-discussed empirically; ablations quantifying its impact would strengthen the case.
+- Limited ablations: it/ft gate roles, learned initialization vs learned update rule, dependence on preprocessing and parameter sharing, number of updates, and sensitivity to BN strategy.
+- Compute/memory costs and wall-clock per episode are not reported; backprop through many updates can be expensive.
+
+4. Additional feedback and questions to help improve the paper (constructive; not all are decision-critical)
+- Fairness and breadth of evaluation:
+  - Please report 20-way results and include Omniglot or another dataset to assess generality.
+  - Provide results with Matching Networks + optional fine-tuning, and clarify whether you tuned its hyperparameters comparably. Also consider Prototypical Networks or Siamese baselines if feasible.
+  - Unify model capacity across methods where possible (e.g., same number of conv filters) or add a capacity-controlled ablation.
+
+- Ablations and diagnostics:
+  - Separate the contributions of learned initialization (c0) vs learned update rule: e.g., fix ft=1 and it to a learned global scalar schedule; or use only learned initialization + SGD/Adam. Quantify how much each part helps in 1-shot vs 5-shot.
+  - Study the effect of the gradient-independence assumption by enabling full second-order updates on smaller settings to estimate the gap.
+  - Vary the number of allowed updates at meta-test time and show robustness/generalization beyond the training step budget.
+  - Explore tying ft=1 (no forgetting) vs learned forgetting to test the necessity of the forget gate.
+  - Provide sensitivity to the preprocessing parameter p and to the choice of coordinate-wise sharing vs layer-wise or block-wise sharing.
+
+- Training and implementation details:
+  - Report the number of episodes used for meta-training, meta-validation, and meta-testing, and the exact number of episodes used to compute confidence intervals.
+  - Include compute statistics (training time, memory footprint, per-episode latency), since backpropagating through T steps can be heavy.
+  - Clarify the two-layer LSTM structure: is the first layer global across coordinates and the second coordinate-wise? Provide dimensionalities and how losses/gradients are batched per coordinate.
+
+- Batch normalization:
+  - The per-episode running-statistics approach is sound; please include an ablation comparing: (a) batch stats at test; (b) global running averages from meta-train; (c) your per-episode running averages, to quantify the impact.
+
+- Analysis:
+  - Extend gate visualizations with correlations to gradient norms and loss landscapes; show representative parameter-wise distributions rather than aggregated means to highlight heterogeneity.
+  - Consider simple convex/quadratic tasks to verify that the learned optimizer recovers known behaviors (e.g., weight decay, step-size scheduling) before moving to CNNs.
+
+Questions for the authors
+- How sensitive is performance to the number of meta-training updates T relative to the meta-test budget? Does the learned optimizer generalize to longer/shorter horizons?
+- What is the performance when only c0 is learned and updates use vanilla SGD/Adam? Conversely, when c0 is random but the LSTM update is learned?
+- Did you attempt second-order meta-gradients (without the independence assumption) on reduced models? If so, how do results and stability compare?
+- Can you report compute/memory overhead vs fine-tuning baselines and Matching Networks?
+- How many episodes were used to compute the reported confidence intervals? Are results stable across multiple random dataset splits?
+- Does the method transfer across domains (e.g., trained on one set of classes/dataset and tested on a different dataset)?
+- Could the per-parameter coordinate-wise LSTM overfit to the specific learner architecture? How does it perform if the learner architecture changes at meta-test time?
+
+Overall, this is a well-motivated, clearly presented, and practically useful contribution to few-shot learning via learned optimization. The main opportunities are to broaden and deepen the empirical evaluation and include key ablations to isolate where the gains come from.

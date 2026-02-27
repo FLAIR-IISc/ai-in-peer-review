@@ -1,0 +1,43 @@
+Summary and main contributions
+This paper proposes a character-level NMT architecture that tries to explicitly leverage morphology via:
+1) A word encoder: two RNNs over characters—one producing prefix representations rt and another (a BiRNN) producing scalar weights wt via an affine transform—to form a weighted sum rword = tanh(∑t wt rt). The intent is to learn morpheme-like units and their composition.
+2) A hierarchical decoder: a word-level decoder produces states st which initialize a character-level decoder (HGRU). A batching trick (“unfolding” matrix and delimiter indicators) enables training the character decoder efficiently by resetting its state at word boundaries.
+3) Empirical results on WMT En–Fr, En–Cs, and Cs–En showing BLEU comparable to prior character-level systems, with claims of faster training and some qualitative evidence of morphology learning (PCA plots, “energy” visualizations, and anecdotal robustness to misspellings/nonce forms).
+
+Strengths
+- Attempts to address open-vocabulary and morphological generalization at the character level: The hierarchical design is motivated by the difficulty of very long character sequences and attempts to retain word-level compression in the encoder while decoding at character level. This remains a relevant challenge.
+- Competitive BLEU on three language pairs: The system achieves BLEU roughly on par with published char-level models (Chung et al., Lee et al.), and above a bpe2bpe baseline reported from prior work, suggesting the approach is viable.
+- Efficiency-oriented decoder engineering: The settable-state HGRU and unfolding mechanism provide a concrete, practical way to batch character-level decoding conditioned on word-level states. While similar ideas exist, the batching detail is useful to practitioners.
+- Some interpretability analyses: The PCA visualizations and “energy” plots are interesting and potentially indicative that the encoder is learning recurring morphological boundaries and related semantics.
+
+Weaknesses
+- Limited novelty relative to prior hierarchical/character NMT: Compositional char-to-word encoders and hierarchical decoders with resets at word boundaries have appeared (e.g., Ling et al. 2015a,b; Luong & Manning 2016; Chung et al. 2016b). The proposed word encoder resembles an unnormalized attention over character prefixes, and the hierarchical decoder with state resets is conceptually close to earlier work. The paper does not sufficiently differentiate its mechanisms or provide ablations that isolate what is new versus existing practice.
+- Methodological clarity and soundness issues:
+  • The word-encoder weighting is not normalized; using tanh after a sum of exp(aff(ht))·rt is unusual and can conflate scale with content. No justification or ablation comparing normalized attention vs the proposed variant is provided.
+  • The HGRU equations are hard to follow and contain ambiguous notation (indexing, dimensions); it is unclear whether they match a standard gated update and how exactly the reset with st interacts with gates.
+  • The batching/unfolding relies on gold delimiters during training; it is worth clarifying whether this is effectively teacher forcing with known word boundaries and how divergence at inference (incorrect delimiter generation) is handled.
+- Evaluation setup and baselines are not strictly comparable:
+  • BLEU comparisons are drawn from different codebases, model sizes, and possibly different tokenization/casing; training time (“days”) on different hardware/software makes efficiency claims weak.
+  • The bpe baseline is from prior work and appears underpowered compared to strong BPE systems with larger models and optimized training (e.g., Sennrich et al. 2016 settings). Missing are controlled comparisons where only the input/output granularity differs under the same architecture and optimization.
+  • No statistical significance testing, no multiple runs or variance reporting.
+- Morphology claims are anecdotal: The PCA plots and a few hand-picked examples (“convenienter”, misspellings) are suggestive but not rigorous. There is no quantitative morphological evaluation (e.g., segmentation F1 vs Morfessor, derivational analogy tests, or correlation with human morphological boundaries). The segmentation example on PTB is a single line.
+- “Open vocabulary” claim undermined by character set truncation: Restricting to the top 120 characters and mapping the rest to <unk> contradicts the open-vocab motivation, especially for languages with diacritics or punctuation variety. This choice and its impact on BLEU and error patterns are not analyzed.
+- Incomplete ablations: A “CNMT” baseline (ordinary RNN word encoder) is given only for En–Fr; the claimed morphology-learning gains are not demonstrated consistently across language pairs and model depths. The impact of the hierarchical decoder vs a standard char decoder is not isolated.
+
+Questions to authors
+1) Word encoder design:
+  • Why not use a normalized attention (softmax over positions) when weighting rt? Please report an ablation comparing softmax attention, sigmoid gates, and the current exp+ t anh variant on at least one language pair.
+  • Are the wi constrained to be positive (exp) but otherwise unbounded? How is numerical stability handled?
+2) HGRU clarity:
+  • Please provide a precise, dimensionally consistent definition of HGRU, including how gt is initialized and how st is injected at delimiter positions, and compare to a standard GRU reset gate. A small schematic or pseudo-code would help.
+  • What fraction of words produce incorrect delimiter decisions at inference, and how does that affect downstream decoding?
+3) Evaluation controls:
+  • Can you reproduce a strong BPE baseline under your codebase, matching encoder/decoder depth, hidden sizes, attention, optimizer, and beam settings? Report BLEU and training time on the same hardware.
+  • Provide detokenized, case-sensitive BLEU (sacreBLEU or similar) and disclose tokenization/casing. Include significance tests and variance over multiple runs.
+4) Morphology evidence:
+  • Can you quantify morphological segmentation quality (e.g., on MorphoChallenge data or UniMorph-derived segmentations) and/or derivational regularities (analogy or vector offsets)?
+  • Beyond two examples, do you have a systematic noise-robustness evaluation (misspellings/nonce words) comparing to BPE and char baselines?
+5) Character set:
+  • What coverage do the 120 characters achieve per language, and what is the BLEU drop due to mapping rare characters to <unk>? Could you report results with full Unicode coverage or language-specific char sets?
+
+Overall, the paper addresses an important problem and proposes a practical hierarchical character-level alternative. However, the novelty over prior hierarchical/char works is limited and the empirical validation does not meet the rigor needed for a strong claim. Clearer method specification, controlled baselines, and quantitative morphology evaluation would substantially strengthen the submission.

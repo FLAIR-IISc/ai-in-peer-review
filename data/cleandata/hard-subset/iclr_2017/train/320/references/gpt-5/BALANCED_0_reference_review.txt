@@ -1,0 +1,44 @@
+1) Summary of contributions (positive and generous)
+The paper tackles visual servoing by combining pre-trained convolutional features, learned predictive feature dynamics, and reinforcement learning to obtain a simple yet robust servo controller. The key ideas are:
+- Use modified VGG-16 intermediate feature maps (multi-scale, spatially preserved via dilations) as the visual representation, leveraging invariances learned from ImageNet to improve robustness to distractors, lighting, and viewpoint.
+- Learn a short-horizon, bilinear predictive model of feature dynamics (locally connected variant for efficiency) that maps current features and control to next-step features, enabling one-step lookahead control.
+- Define a simple servo policy that picks controls minimizing predicted Euclidean distance between features at the next step and the goal features; then learn feature-channel and scale weights, and action regularization weights, so that this greedy policy aligns with long-horizon performance.
+- Derive a linear Q-function approximator consistent with the servo objective, enabling efficient fitted Q-iteration with a novel step that rescales parameters (α, b) jointly for current/target Q to stabilize training.
+- Demonstrate on a realistic synthetic quadcopter-car-following benchmark that the method (notably with conv4_3 features) is highly sample efficient in RL (20 trajectories), outperforms pixel-based servoing, IBVS with ORB or tracking, and TRPO-based baselines, and generalizes somewhat to novel cars. Code, environment, and videos are provided.
+
+2) Decision: Reject
+Key reasons:
+- Empirical scope and claims of sample efficiency rely on privileged information and a single simulated domain, making it hard to assess robustness and generality.
+- The comparison to model-free RL underplays the substantial supervised data and engineering (10k triplets for dynamics, ground-truth-based costs) that enable the reported efficiency, raising fairness concerns.
+
+3) Supporting arguments
+- Problem and motivation: Clear and well-placed in the literature. The use of pre-trained features for servoing is compelling, as is the observation that convolutional responses can act like images with approximately bilinear dynamics under camera motion.
+- Methodological soundness: The one-step greedy servo with a learned bilinear Jacobian and learned weights is elegant. The Q-function construction that exactly recovers the greedy policy and the scaling trick in FQI are neat and likely to interest the community. The locally-connected bilinear model is a pragmatic compromise between expressivity and tractability.
+- Empirical support: The synthetic benchmark appears challenging and the baselines are reasonably strong (IBVS with ORB and state-of-the-art tracker, TRPO with raw pixels, TRPO for weight learning). The layer-wise analysis (conv1_2–conv5_3) is informative. Reported runtime and code release help reproducibility.
+- Limitations undermining claims:
+  • Sample efficiency is reported for RL only, but the approach relies on a sizable supervised dataset for dynamics and a privileged cost computed from ground-truth 3D car pose and FOV checks. This weakens the practical claim that the method is data-efficient in new deployments.
+  • Evaluation is confined to a single synthetic task with a fixed platform and task structure (target-following). There is no real-world evaluation or systematic domain shift analysis (backgrounds, weather, lighting) beyond “novel cars.”
+  • The fairness of comparisons: TRPO baselines must learn far more (perception + control) than the proposed method; a more appropriate competing approach would be model-based control or MPC/shooting using the same learned dynamics and features, or off-policy algorithms with the same representation.
+  • The method learns only feature weights and action penalties; the controller structure and the dynamics are fixed. Some ablations are provided, but it remains unclear how robust the approach is to dynamics model errors and whether multi-step planning would close the gap further.
+  • The reward design uses termination and costs that depend on simulator state (distance, FOV), which is not directly available from images in realistic settings. No experiments show learning from image-only costs or task success metrics derivable from perception.
+
+4) Additional feedback to improve the paper (helpful suggestions; not all are part of the decision)
+- Account for all data when claiming sample efficiency. Report the number of supervised dynamics samples and RL samples together; provide wall-clock and gradient steps for all methods.
+- Include a model-predictive baseline: shooting/CEM or iLQR in control space over a short horizon using the same learned feature dynamics and a simple feature-space cost, with and without the learned weights. This would clarify whether the main gain comes from learned weights vs planning.
+- Analyze the role of dynamics accuracy: show performance vs training data size for dynamics; report prediction/gradient errors; test robustness to dynamics misspecification and moving distractors.
+- Clarify the VGG modification: how were weights reused with dilated convolutions after removing pooling? Provide implementation detail and justification that receptive fields and activations remain comparable.
+- Reward realism: Provide experiments where the cost is image-derived (e.g., detector confidence or self-supervised surrogate) rather than ground-truth pose, to assess applicability without privileged state.
+- Extend evaluation: add a second domain (e.g., different simulator, different target object, or manipulation servoing), and test larger domain shifts (textures, illumination, weather). Even a small real-robot validation (e.g., tabletop servoing) would greatly strengthen the paper.
+- Stability and safety: analyze control smoothness and failure modes. The learned λ’s act as regularizers; report their learned values and how they trade off responsiveness vs stability.
+- Reproducibility: move key hyperparameters from appendix into the main text; ensure seeds and splits are clearly documented.
+
+Questions for the authors
+- How sensitive is performance to the amount/coverage of the supervised dynamics data? Can you show curves of servo performance vs number of triplets used to train the bilinear model?
+- How exactly were VGG weights reused after removing pooling and adding dilations? Were any layers fine-tuned, or strictly frozen? Any normalization differences across layers/scales?
+- What fraction of the performance gain comes from learning the weights via FQI vs using uniform weights? Could CEM or L-BFGS directly on rollout returns over the same parameterization close the gap?
+- Did you try MPC or multi-step planning with the learned dynamics and the same feature-space objective? If so, how does it compare in compute and performance?
+- The cost uses ground-truth 3D pose and FOV. How would you obtain a learnable cost in a real setting, and do you have experiments with such a proxy?
+- How do results vary with different action latencies and camera rates? Is the local bilinear model sufficient at higher speeds or lower frame rates?
+- Can the approach disambiguate targets among similar distractors without an explicit tracker or segmentation? How often does it lock onto the wrong car, and can the learned weights be visualized to show which channels/features matter?
+
+Overall, this is a creative and well-motivated approach with promising results, but it needs stronger, fairer, and broader empirical validation—and a clearer accounting of data and supervision—before I can recommend acceptance.

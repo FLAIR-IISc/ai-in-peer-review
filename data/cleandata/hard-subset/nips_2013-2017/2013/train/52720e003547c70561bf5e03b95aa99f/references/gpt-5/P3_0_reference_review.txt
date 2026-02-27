@@ -1,0 +1,57 @@
+Summary
+The paper proposes a scalable algorithm and system for sparse precision matrix estimation via the CLIME estimator. The core contribution is an inexact/linearized ADMM tailored to CLIME that operates on column blocks rather than single columns, enabling the dominant operations to be matrix–matrix multiplies. The authors exploit two forms of structure: (i) low sample size relative to dimension (C = A A^T with n ≪ p) to reduce matmul cost from O(p^2 k) to O(n p k), and (ii) sparsity in iterates and, optionally, a truncated/perturbed sample covariance that preserves CLIME’s deviation conditions. They present shared-memory and distributed-memory implementations using block-cyclic data distribution, and show near-linear scaling up to 400 cores, including a demonstration with p = 10^6 completed in about 11 hours. Theoretical results give O(1/T) convergence rates for the objective (ergodic) and residuals under a stepsize condition η ≥ ρ λ_max(C)^2.
+
+Relation to prior work
+The work builds on CLIME (Cai et al.), which decomposes into p LPs. Prior solvers include interior point, ADMM, and coordinate/QUIC-like methods; TIGER is a tuning-insensitive alternative estimator. On the systems side, the paper leverages standard linearized/inexact ADMM ideas and block-cyclic distribution, citing ScaLAPACK/BLAS and distributed optimization frameworks (ADMM, parameter servers, GraphLab). The novelty is not a new estimator but a scalable CLIME solver that uses column-block ADMM with low-rank multiplies and a careful distributed design. Compared to DC-QUIC (for graphical lasso, different objective), the paper targets CLIME specifically and demonstrates better scalability in their settings.
+
+Strengths
+- A clear, practically motivated systems contribution that enables CLIME at unprecedented scales.
+- Good algorithmic design: using column blocks to convert repeated matvecs into matmuls leverages memory hierarchies and BLAS-3.
+- Solid parallelization strategy with block-cyclic distribution that addresses load balance and cache effects; concrete implementation details (OpenMP/OpenMPI/ScaLAPACK).
+- Convergence analysis for the linearized ADMM with explicit stepsize condition.
+- Empirical scalability, including a 10^6-dimensional run, and comparisons on synthetic and real datasets.
+- Discussion on leveraging low-rank structure (C = A A^T) instead of forming C, which is essential at scale.
+
+Weaknesses and technical concerns
+- A likely inconsistency in the algorithm’s X-update scaling. In a linearized ADMM, the gradient of the quadratic term is g_t = ρ C(C X^t − Z^t + Y^t). The proximal step should use X^{t+1} = soft(X^t − g_t/η, 1/η). The paper defines V_t = ρ η C(…) and uses X^{t+1} = soft(X^t − V_t, 1/η); this makes the effective step proportional to ρ η rather than ρ/η. Later identities using V̂_t = C Y_t suggest the intended definition is V_t = (ρ/η) C(2Y^t − Y^{t−1}). Please clarify and correct. The stepsize condition η ≥ ρ λ_max(C)^2 also supports V_t = g_t/η.
+- Theorem 3 on perturbations of C is not fully aligned with the proposed deterministic truncation. You analyze random, independent sub-exponential Δ, but the practical suggestion is deterministic hard-thresholding. A simple deterministic triangle-inequality argument can be given: if τ ≤ c √(log p / n), then ||C_thr − Σ_0||_∞ ≤ ||C − Σ_0||_∞ + τ. Please formalize this directly for the truncation scheme.
+- CLIME solutions are columnwise and need symmetrization; positive definiteness is not enforced. The paper does not discuss how symmetry is enforced for the final estimator (e.g., the “min” rule in CLIME) or downstream implications of non-PD estimates. This is important for practitioners.
+- Parameter choices (ρ, η, λ), stopping criteria, and tolerance settings are not specified. Given scalability claims, practical guidance and sensitivity would be valuable. Computing λ_max(C) at scale can be costly; how is it estimated (e.g., via power iteration on A A^T)?
+- Experimental baselines: TIGER is highly competitive and parallelizable across columns. It is unclear whether TIGER was run with parallelization comparable to your setup. DC-QUIC targets graphical lasso (different objective), so accuracy comparisons are not apples-to-apples. For large-scale timing, additional baselines (e.g., BIGQUIC/QUIC on smaller p) would strengthen the case.
+- Limited reporting of estimation accuracy at scale. The million-dimensional run reports time only; some summary statistics (e.g., KKT residuals, constraint violation, sparsity, support overlap on synthetic with known support for the same p/n) would increase confidence.
+- Clarity/format concerns: typos and incomplete references (several entries are malformed), minor inconsistencies in the definition of box(·) (sometimes with/without E), and in algorithm steps.
+
+Quality
+- Theory: The linearized ADMM analysis and stepsize condition are standard and reasonable; however, the X-update scaling needs correction/clarity.
+- Systems: The design choices are sound and in line with HPC best practices; the load-balance/cache arguments are credible.
+- Empirics: Strong scalability results; accuracy comparisons are limited and not fully fair across estimators/objectives.
+
+Clarity
+- Generally readable, but the algorithmic scaling mismatch and scattered typos hinder reproducibility. Please provide precise parameter settings, stopping criteria, and clarify symmetrization.
+
+Originality
+- Methodologically incremental (linearized ADMM and column-blocking are known), but the integration for CLIME with a rigorously engineered distributed implementation and low-rank multiplies is novel and useful.
+
+Significance
+- High practical significance: enables CLIME at scales previously infeasible. Likely to be used by practitioners dealing with ultra-high-dimensional precision estimation and by researchers building distributed solvers for constrained problems.
+
+Questions for the authors
+1. Please clarify the definition of V_t and the X-update to match the standard linearization; is V_t = (ρ/η) C(2Y^t − Y^{t−1})?
+2. How do you choose ρ, η, and λ in practice? How is λ_max(C) estimated at scale?
+3. How do you symmetrize the final estimate, and do you post-process to ensure PD if needed?
+4. What are the stopping criteria and tolerances? How do these affect runtime/accuracy?
+5. Can you report accuracy/support recovery at large p for synthetic data (with known ground truth), and the final constraint violations?
+
+Pros for acceptance
+- Strong systems contribution with demonstrated large-scale impact.
+- Clear speedups and near-linear scaling on distributed systems.
+- Reasonable convergence guarantees under standard conditions.
+
+Cons for acceptance
+- Algorithmic clarity issues (potential scaling bug) that must be resolved.
+- Limited and partially mismatched baselines; scant accuracy assessment at scale.
+- Incomplete discussion of symmetrization/PD and parameter selection.
+
+Overall rating: weak accept if the algorithmic clarifications (V_t scaling), parameter/stopping details, and symmetrization are addressed; otherwise borderline.
+
+Reviewer confidence: high on optimization and distributed aspects; medium on statistical claims around perturbation/truncation without full proofs.

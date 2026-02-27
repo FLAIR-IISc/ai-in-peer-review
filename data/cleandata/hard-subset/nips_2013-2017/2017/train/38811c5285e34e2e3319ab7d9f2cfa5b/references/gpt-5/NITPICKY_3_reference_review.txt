@@ -1,0 +1,57 @@
+Summary
+This paper proposes the Radon machine, a black-box parallelization scheme for convex, regularized risk minimization. The method trains base learners independently on rh random data shards (r is the Radon number of the hypothesis space; h is tree height) and performs hierarchical aggregation using Radon points instead of averaging. The key theoretical claim is that if each base learner outputs an ε-good hypothesis with probability ≥ 1−δ, then one level of Radon aggregation reduces the failure probability from δ to at most (rδ)^2; recursively, after h levels, the failure probability is at most (rδ)^(2^h), i.e., “doubly exponential” improvement in h. Under assumptions on sample complexity of the base learner and availability of rh processors, the authors argue that the overall runtime to achieve a target (ε,Δ) can be reduced from polynomial to polylogarithmic (in the effective sample complexity), at the cost of quasi-polynomial data usage and processors. Experiments on several datasets compare to the base learners, a simple averaging baseline, and Spark MLlib.
+
+Strengths
+- Conceptually simple, black-box scheme that can wrap a wide class of convex ERM algorithms.
+- The aggregation via Radon points is interesting and less explored than averaging; the concentration inequality (Proposition 2, Theorem 3) is clean, general (quasi-convex), and plausibly tight in spirit.
+- Good high-level connection to NC and parallel complexity notions.
+- Empirical results suggest substantial wall-clock speedups vs single-processor base learners and comparable AUC to MLlib baselines on some tasks.
+
+Weaknesses and concerns
+Technical correctness and clarity
+- Notational overloading and ambiguity: r denotes both the Radon number and a random variable for a Radon point; F is used for the hypothesis space and for a random variable; rh/r^h is inconsistently typeset; “ld” for log is not defined. These hinder readability and may mask errors.
+- Exponents: Several places write “2 h” instead of “2^h” (e.g., Eq. (4), Theorem 3 statement, the expression “(rδ) 2h”). The intended doubly-exponential squaring implies 2^h, not 2h.
+- Assumption “δ ≤ 1/2r” appears (Section 3) but is unclear: do the authors mean δ ≤ 1/(2r) or δ ≤ 2^(-r)? The analysis relies on rδ<1. Please specify and check all downstream dependencies.
+- Proposition 2 proof sketch: The bound P(Q(r)>ε) ≤ (r p)^2 with p=P(Q(F)>ε) is quite loose and ignores the exact combinatorial factor ((r choose 2) p^2); fine as an upper bound, but the text should reflect this and justify independence where used.
+- The central runtime claim depends on picking h ≈ log M − log log M to make the per-shard sample size n ≈ log M, but n must also be ≥ N_L0(ε,δ). This requires δ to be a fixed constant (≤1/(2r)), which may force large n depending on ε and the base learner’s αε,βε. The interplay between δ, n, and the overall Δ target needs to be made precise. As written, the “polylog” conclusion feels driven by parameter tuning rather than an end-to-end bound in terms of ε,Δ and fixed constants.
+- Theorem 4 assumes the Radon number is polylogarithmic in the sample complexity. In Euclidean Rd, r=d+2, so this requires d ≤ polylog(N0). This is a strong limitation; the theoretical “NC-like” result seems to apply only to very low/moderate dimensions. The paper should make this caveat explicit in the main text (not only Discussion).
+- Communication complexity analysis is hand-wavy: messages “of size O(r)” is misleading as a hypothesis in Rd has size Θ(d)=Θ(r). Total messages O(r^{h+1}) can be enormous; the practical impact (latency, network) is not analyzed.
+- Numerical aspects of computing Radon points (solving r×r systems) for large d are not discussed: stability, conditioning, regularization, and the effect on Q.
+
+Related work and positioning
+- Empirical and conceptual comparisons to robust aggregation schemes are missing. Geometric median/median-of-means aggregators (and related robust distributed ERM) provide high-confidence aggregation with strong guarantees and robustness to outliers/Byzantine failures. Please discuss and, ideally, compare.
+- The paper cites CoCoA/DANE/approximate Newton and mini-batch methods, but there is no empirical comparison to strong recent distributed ERM/SGD frameworks (e.g., CoCoA variants, distributed SVRG/SAGA), nor discussion of the trade-offs in rounds vs. accuracy vs. comms.
+- Several references are incomplete or have formatting glitches; some lines are placeholders.
+
+Empirical evaluation
+- Experimental setup lacks essential details for reproducibility: dataset preprocessing (feature scaling, regularization strength search spaces), hardware specs (CPU, RAM, network), Spark config, and the exact base solver settings (e.g., scikit-learn solvers, convergence tolerances).
+- No uncertainty estimates (std/CI) for AUC/RMSE across folds; no statistical tests. Claims like “outperforms by at least 10%” should be backed with error bars.
+- The speedup vs base learners is expected when comparing 150 processors vs 1. More interesting is scaling of runtime/quality vs number of processors and h; such scaling curves are missing.
+- For high d, r^h can be huge; yet experiments cap processors at 150. How were groups scheduled when rh≫150? What was the actual wall-clock per-level pipeline? This is critical to understanding real-world viability.
+- “h=max s.t. shard size≥100” is ad hoc; there is no link to the theory’s δ control. The presented empirical results therefore do not validate the claimed confidence improvements.
+
+Presentation issues
+- Numerous typos/grammar (e.g., “We proof”, “st Conference on NIPS 2017” artifact, inconsistent spacing in math).
+- Several symbols undefined when first used (“ld”, “iid subsets S1,…Sri”; “ri” vs “rh”).
+- Figures 1–4 are referenced but not interpretable here; textual descriptions should be more quantitative.
+
+Questions for the authors
+1. Please clarify everywhere whether the exponent is 2^h and fix δ assumptions (δ ≤ 1/(2r)?).
+2. Provide an end-to-end bound expressing total data N, processors c, runtime, and Δ purely in terms of ε,Δ,d, and base learner constants, without tuning h ex post.
+3. How numerically stable is Radon aggregation at large d? Any regularization used in solving linear systems?
+4. How does Radon aggregation compare empirically to geometric median or median-of-means aggregation?
+5. Provide scaling plots vs processors and h, and show robustness to outliers/noise.
+6. Clarify independence assumptions across nodes in Theorem 3 when Radon points at one level are used to produce the next level.
+
+Pros
+- Novel use of Radon points for high-confidence aggregation.
+- Black-box applicability to convex ERM; simple algorithm.
+- Potentially interesting direction for confidence amplification in distributed settings.
+
+Cons
+- Core theoretical claims hinge on strong assumptions (low d, abundant processors, fixed δ) and are obscured by notation/typos.
+- Experimental validation does not convincingly support the claimed theoretical advantages (confidence guarantees, NC-like efficiency), and lacks strong baselines and statistical rigor.
+- Many presentation and formatting issues.
+
+Recommendation
+Reject. While the idea is appealing and has some nice theory, the paper in its current form has significant clarity issues, strong/unclear assumptions behind the main claims, and insufficient empirical validation against strong baselines. With a thorough rewrite, corrected and tightened analysis, clearer assumptions, and stronger experiments (including robust aggregators), this could become a solid contribution.

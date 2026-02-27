@@ -1,0 +1,55 @@
+Summary
+The paper proposes Sparse Access Memory (SAM), a memory-augmented neural network with sparse reads and writes. The key idea is to: (i) compute content-based reads over only the top-K nearest memory slots using an approximate nearest neighbor (ANN) index (randomized k-d trees or LSH), and (ii) restrict writes to previously read locations and to the least-recently-used (LRU) slot, yielding O(log N) time per step (for ANN operations) and O(1) space per step (tracking sparse deltas for BPTT) for a memory of N slots. A sparse variant of DNC (SDNC) is also claimed in the supplement. Experiments show large speed/space gains over NTMs, comparable learning on standard NTM tasks, scaling via curriculum to millions of slots and thousands of time steps, competitive BABi results without supervision (SDNC best), and improved Omniglot one-shot performance attributed to larger memory.
+
+Relation to prior work: Builds on NTMs and Memory Networks by making content-based addressing scalable via sparse top-K and efficient data structures; contrasts with RL-NTM that uses discrete actions and high-variance gradients. The idea of LRU-style allocation appears related to DNC’s differentiable usage-based allocation, but SAM’s version is sparse and discrete.
+
+Strengths
+- Clear practical motivation: dense content-based access scales poorly; the proposed sparse read/write and memory rollback are compelling engineering advances.
+- Significant empirical speed/memory gains (up to orders of magnitude) with large external memory; sublinear empirical scaling with ANN.
+- Demonstrates training with very long sequences (no TBPTT) and very large memories; generalization to lengths far beyond training on associative recall.
+- BABi and Omniglot results indicate that sparsity does not necessarily harm data efficiency; SDNC claims strong results without access supervision.
+- The sparse rollback trick for BPTT is useful and of independent interest.
+
+Weaknesses and detailed concerns
+Technical soundness and rigor
+- Differentiability is asserted (“retaining end-to-end gradient based optimization”) but several core components are non-differentiable: top-K selection for reads, argmin in LRU selection, and the ANN itself. The paper effectively ignores gradients w.r.t. selection/indices and backprops only through selected values. This introduces biased, discontinuous gradients; the impact on learning stability and optimality is not analyzed, and there is no ablation vs soft relaxation (e.g., sparsemax/top-k softmax or straight-through estimators).
+- Complexity claims omit dependence on word dimension M and K. Several “O(1)” or “constant” costs are only constant if M and K are treated as fixed. For example, computing r̃t still requires O(KM); the write update and outer products also scale with M. Please state complexity in terms of (T, N, K, M).
+- LSH complexity is inaccurately summarized as O(log N) for query/insert/delete; for standard LSH it depends on hash parameters and can be sublinear but not typically logarithmic. Rebuilding the index “every N insertions” to avoid imbalance is irrelevant for LSH and costly for k-d trees; this rebuild overhead should be accounted for.
+- Equation/notation issues: multiple typos and ambiguities. Examples:
+  - Eq. (5) wW_t = α_t τ_t wR_{t−1} + (1−τ_t) I_Ut: the symbol τ_t is not earlier defined (called “interpolation gate parameter t”), and mixing α_t and τ_t is confusing. Also, “purely additive” vs “set to zero before being written to” needs precise formulae tying Rt, At, α_t, τ_t together.
+  - U^(2)_T(i) = T − max{t: w^W_t(i)+w^R_t(i) > ε} seems intended, but the minus is missing in text (“T max{...}”).
+  - Rt = I_Ut 1^T: this implies a full erase for the LRU slot; how does this interact with partial erase gate e_t in NTM? Are e_t and a_t still produced and used?
+  - Shapes, transposes and outer products (e.g., AT = wW_t a_t^T) are inconsistently typeset.
+- Optimality claim (“asymptotically optimal in time and space”) is deferred to Supplementary A. No assumptions are stated in the main text; the claim is too strong without a sketch.
+- Backprop memory rollback states “apply in-place updates” and “revert in O(1).” Details of the data structure and correctness when multiple writes hit the same slot across time are in the supplement; the main text should at least outline invariants and per-step bookkeeping.
+
+Experimental methodology and reproducibility
+- Heavy reliance on supplement for essential details: optimizer, learning rates, gradient clipping, β, ε for ANN/LSH, K values, rebuild frequency, hashing parameters, controller size, memory word size, batch sizes. The main text is not reproducible without the supplement.
+- Fairness of comparisons: scaling curriculum compares sparse models with 2×10^6 slots to dense ones with 64 slots, chosen to equalize physical memory over 100 steps. This biases results towards sparse approaches in tasks that inherently benefit from capacity; more meaningful would be controlled compute/parameter/time budgets and/or matching effective addressable capacity, plus LSTM baselines with external non-differentiable memory or chunking.
+- Missing ablations:
+  - Effect of K on speed/accuracy and gradient behavior.
+  - Impact of ANN approximation error: compare exact top-K vs ANN, and measure recall@K of ANN during training.
+  - Sensitivity to ε (usage threshold), rebuild interval, and choice of ANN (k-d vs LSH) across dimensionalities.
+  - Contribution of LRU writes vs “write-to-read” only; vs purely content-based sparse writes.
+- BABi/Omniglot details are insufficient in the main paper; SDNC (a substantial method) is only in the supplement. The BABi claim (“best reported result without supervision”) requires exact task configs (10k vs 1k, joint vs per-task, question types) and references; also, NTMs often need allocation mechanisms (as you note), so stronger baselines (DNC, MemN2N variants) should be in main text for key claims.
+- Generalization claims (associative recall to 200k) are in the supplement; quantify failure modes and errors vs length.
+
+Clarity and presentation
+- Numerous formatting/typographical issues: stray “⇥” for “×” and “Θ,” garbled conference header lines, inconsistent capitalization (k-d vs K-d), inconsistent notation and transposes, missing minus sign in usage formula, “1-hot” vs “one-hot.”
+- References are incomplete (many missing years/venues/pages), making verification difficult.
+
+Originality and significance
+- The core combination—sparse top-K reads with ANN, sparse writes via LRU/previous-read, and sparse rollback for BPTT—is novel (relative to 2014–2016 MANN literature) and practically important. If properly substantiated, this could significantly advance scalable differentiable memory.
+
+Pros
+- Addresses a key scalability bottleneck in MANNs with a practical, implementable approach.
+- Strong empirical speed/memory improvements; impressive long-sequence training demonstrations.
+- Conceptually simple write policy (read locations + LRU) that works well empirically.
+
+Cons
+- Non-differentiable selections contradict “end-to-end” claim; lack of analysis/ablation.
+- Overstated/underspecified complexity results; omission of M and K; questionable O(log N) LSH claim.
+- Excessive reliance on supplement for core details; limited ablations and fairness concerns in comparisons.
+- Notational errors and inconsistent presentation; incomplete references.
+
+Recommendation: Reject (borderline). The contribution is promising and potentially impactful, but the paper, as written, has too many technical ambiguities, missing experimental analyses, and presentation issues. I encourage a thorough revision that (i) clarifies differentiability and selection mechanisms, (ii) tightens and corrects complexity claims, (iii) adds critical ablations and fair comparisons, and (iv) fixes notation/formatting and completes references.

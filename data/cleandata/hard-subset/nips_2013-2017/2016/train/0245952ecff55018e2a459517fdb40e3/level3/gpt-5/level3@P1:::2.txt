@@ -1,0 +1,62 @@
+This paper extends Generative Moment Matching Networks (GMMN) to the conditional setting. The authors propose Conditional GMMN (CGMMN), which models p(y|x) by feeding both x and a noise vector h into a neural generator y = f(x, h; w), trained via a conditional maximum mean discrepancy (CMMD) criterion. CMMD measures the Hilbert–Schmidt distance between conditional mean embedding operators CY|X of the data and the model. The resulting training objective can be written entirely in terms of Gram matrices of kernels on inputs and outputs (Eq. 2), enabling straightforward backpropagation through the output kernel. Experiments cover: (a) predictive modeling on MNIST and SVHN, where CGMMN-CNN achieves competitive error relative to deep discriminative baselines and is comparable to max-margin deep generative models; (b) contextual generation on MNIST and Yale Faces, including a variant that learns in an autoencoder code space for cleaner samples; and (c) Bayesian dark knowledge distillation, where CGMMN approximates a Bayesian predictive distribution (PBP teacher) on Boston Housing without degrading RMSE. The work relates to (i) kernel mean embedding and MMD (Gretton et al.), (ii) conditional mean embeddings (Song et al.; Grunewälder et al.), and (iii) conditional deep generative models such as CGAN (Mirza & Osindero) and CVAE (Sohn et al.).
+
+Quality
+- Technical soundness: The CMMD objective is well-motivated by conditional mean embeddings, and training by backprop through the output kernel is standard. However, the derivation and assumptions behind Eq. (2) are not sufficiently explained. In particular, the transition from operator norms to tractable trace expressions, the role of regularization λ, and the assumptions needed for CY|X ∈ F ⊗ G are not made concrete in the main text. The practical implications of using mini-batch approximations (variance, bias, stability) are not discussed.
+- Empirical evaluation: Results are competitive across tasks. Predictive performance is close to MMVA/CMMVA; generative samples are reasonable and improve with an autoencoder code space; the distillation experiment is a nice application. Missing, however, are ablations (kernel choice/bandwidth, λ, batch size), complexity/runtime analysis, and comparisons to CVAE/CGAN on conditional generation tasks.
+- Implementation details: The paper does not clearly map Eq. (2) to the actual computations performed per batch (what matrices are built, where gradients flow, complexity). This hurts reproducibility.
+
+Clarity
+- The presentation is heavy on formalism without an accessible intuition for CMMD. In contrast to the intuitive story for (unconditional) MMD in GMMN, the conditional case would benefit from a simple explanation that CMMD amounts to MMD in output space with input-dependent, kernel-regression-like weights.
+- Eq. (2) is stated but not derived; its assumptions and consequences (e.g., that inverses K̃−1 depend only on x and need not be differentiated) are not unpacked. The supplement is hard to follow for non-specialists.
+- Practical algorithmic steps (how Gram matrices are formed, which kernels are used, how inversions are computed and regularized, gradient paths) should be explicit.
+
+Originality
+- Conceptually, combining conditional mean embeddings with deep generators and training via CMMD is a natural but non-trivial extension of GMMN. The operator-based objective and its mini-batch implementation are interesting. The application to Bayesian dark knowledge is a nice twist.
+- Related work on conditional GANs and CVAEs is cited, but empirical and conceptual positioning could be sharper (e.g., when CMMD has advantages over adversarial or variational training).
+
+Significance
+- A simple, likelihood-free alternative to CGAN/CVAE for conditional generation and conditional prediction is valuable. The approach could be adopted broadly if the computational and practical aspects are clarified.
+- Current impact is tempered by scalability concerns (O(b^3) batch-time for K inversions; O(b^2) memory) and the lack of strong generative benchmarks/comparisons.
+
+Pros
+- Clear and modular idea: conditional deep generator trained by CMMD.
+- Theoretically grounded via kernel mean embeddings.
+- Simple backprop training without adversarial min–max.
+- Versatile across prediction, conditional generation, and Bayesian distillation.
+- Competitive empirical performance.
+
+Cons
+- Derivation and intuition for Eq. (2) and the CMMD objective are under-explained.
+- Algorithmic pathway from Eq. (2) to implemented SGD is not made explicit.
+- No complexity/runtime analysis; scalability unclear.
+- Limited ablations and sensitivity analyses; limited comparison to CVAE/CGAN on conditional generation.
+- Some experimental setups (e.g., when X is finite vs continuous) gloss over practical estimator choices.
+
+Requested clarifications (actionable)
+1) Intuitive derivation of Eq. (2):
+- Start from ĈY|X = Φ(K + λI)−1Υ⊤ (kernel ridge regression estimate of the conditional operator).
+- CMMD is the squared Hilbert–Schmidt/Frobenius norm: ||Ĉd − Ĉs||^2 = Tr[(Ĉd − Ĉs)⊤(Ĉd − Ĉs)].
+- Expand and use Φ⊤Φ = L (output Gram), Υ⊤Υ = K (input Gram), Υ⊤d Υs = Ksd, Φ⊤d Φs = Lds, and the fact that (·)⊤ swaps Φ and Υ.
+- This yields the three trace terms with K̃−1 factors: Tr(Kd K̃d−1 Ld K̃d−1) + Tr(Ks K̃s−1 Ls K̃s−1) − 2 Tr(Ksd K̃d−1 Lds K̃s−1).
+- Provide the intuition: CMMD is MMD over outputs with input-dependent weights given by kernel ridge regression in x; λ controls the smoothness of conditioning.
+
+2) Step-by-step mapping from Eq. (2) to the practical algorithm (per mini-batch of size b):
+- Sample b pairs (xi, yi) from data (optionally with small perturbations to xi when needed).
+- For each xi, sample noise hi and produce y′i = f(xi, hi; w).
+- Choose kernels kx on inputs (need not be differentiable; e.g., RBF with median bandwidth; add λI for stability) and ky on outputs (must be differentiable; typically RBF).
+- Build Gram matrices:
+  • Ks = Kx(X, X) for the data batch; Kd = Kx(X̃, X̃) for the generated batch (often X̃ = X, so Ks = Kd = Ksd).
+  • Ls = Ky(Y, Y); Ld = Ky(Y′, Y′); Lds = Ky(Y′, Y).
+- Compute K̃−1 via Cholesky solves; these depend only on x and are treated as constants in backprop.
+- Compute the scalar loss using Eq. (2).
+- Backpropagate: gradients flow through Ld and Lds to Y′ (via ∂Ky/∂Y′), then through the network to w. No gradients flow through Ks, Kd, or K̃−1.
+- Complexity: O(b^2) to form Gram matrices; O(b^3) to invert/solve with K̃; O(b^2 dy) for output-kernel gradients; memory O(b^2). Report typical b and wall-clock times.
+
+Suggestions to improve the paper
+- Add the above derivation and algorithmic mapping in the main text with a concise figure/pseudocode, and discuss the role of λ.
+- Provide a complexity/runtime section and a sensitivity study (batch size, λ, kernel bandwidth, noise dim).
+- Compare to CVAE/CGAN on at least one conditional generation benchmark.
+- Discuss scalability strategies (e.g., Nyström/random features for kx, shared x so K̃ can be reused across iterations).
+- Report calibration metrics for predictive modeling and distillation (e.g., Brier score/ECE) to emphasize distributional benefits.
+
+Overall, the idea is promising and broadly useful, but the paper needs clearer exposition of the objective and the practical algorithm, plus modest empirical and complexity clarifications, to reach its full impact.

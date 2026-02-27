@@ -1,0 +1,52 @@
+Summary and relation to prior work
+The paper proposes the Radon machine, a black-box parallelization scheme for convex regularized risk minimization in finite-dimensional Euclidean hypothesis spaces. The method trains a base learner independently on rh random data partitions (leaves of a tree) and aggregates bottom-up by computing Radon points (rather than averaging) at internal nodes. Using properties of Radon points and quasi-/convexity, the authors show that if a base learner produces an ε-good hypothesis with failure probability δ, then a single Radon aggregation step produces an ε-good hypothesis with failure probability bounded by (rδ)², and after h levels the bound is (rδ)^{2^h}. Under sample complexity assumptions NL0(ε,δ) ≈ (αε + βε log(1/δ))^k and runtime TL(n) ∈ O(n^κ), they argue that choosing h ≈ log M − log log M yields polylogarithmic runtime in M for the Radon machine, at the expense of more data and a quasi-polynomial number of processors c = r^h, where r = d+2. Empirically, they compare to averaging-at-the-end and Spark MLlib baselines on several classification/regression datasets, reporting substantial speedups (80–700× vs single-node base learners; 15–85% of Spark runtimes) with comparable AUC/RMSE.
+
+This builds on classic parallel learning and NC-learnability (Vitter & Lin; Long & Servedio), distributed ERM/SGD and model averaging (e.g., Zhang-Duchi-Wainwright; Shamir & Srebro; Zinkevich et al.; Rosenblatt & Nadler), and geometric robustness notions (Radon/Tukey depth). The novelty is leveraging Radon points as an aggregation operator to achieve doubly-exponential confidence amplification in a divide-and-conquer learning scheme.
+
+Evaluation
+
+Quality
+- Theory: The confidence amplification bound follows from properties of Radon points and a union bound over pairs; the iterative argument is clear. The runtime/sample complexity discussion is plausible under the stated assumptions. However:
+  - The key precondition rδ < 1 (authors state δ ≤ 1/(2r), but notation is ambiguous; clarify 1/(2r) vs 1/2^r) must hold at leaves; achieving small δ may require substantial per-leaf samples, potentially eroding practical speedups.
+  - The main complexity result (polylog runtime) depends on r ≤ polylog(N0), i.e., low-dimensional hypotheses; for r = d+2 this means d must be polylog in sample size. This is a strong restriction, and h induces c = r^h quasi-polynomial processors; feasibility is unclear.
+  - Independence assumptions: the proofs rely on iid draws at leaves and across groups per level; this is fine for disjoint iid data partitions, but wording “iid subsets” is imprecise (subsets’ elements are iid; subsets themselves are independent but not identically distributed after aggregation).
+  - Constants: Proposition 2’s bound (r p)^2 is looser than C(r,2) p^2; that is fine but should be stated.
+- Empirics: Results show strong wall-clock speedups and comparable predictive performance. However, experiments do not validate the claimed confidence/Δ behavior (they report AUC/RMSE, not regret/confidence), nor the tradeoffs as a function of h, d, and δ. The number of processors used is far below r^h in theory, and the effect of “deparallelization” on runtime is briefly discussed but not quantified experimentally.
+
+Clarity
+- The paper is generally well written and organized. Algorithm 1 is clear, though “iid subsets” should be corrected. Communication complexity statements should refer to hypothesis dimension d (messages are O(d) words; with r = d+2 this is consistent but worth stating explicitly).
+- The derivation of αε, βε for VC/Rademacher classes is deferred; a concise instantiation in the main text would help readers map the theory to common learners.
+- It would help to state more explicitly the regimes where the polylog result is meaningful (e.g., d ≪ polylog N, abundant data, large cluster).
+
+Originality
+- Using Radon points for hypothesis aggregation to obtain doubly-exponential reduction in failure probability is novel in this context. This contrasts with averaging and geometric-median/median-of-means style aggregations used in distributed learning. The connection to NC and the framing as a step toward polylog-time learning are interesting.
+
+Significance
+- Conceptually, the work adds a new tool to the distributed learning toolbox with a clean, black-box interface and appealing robustness properties.
+- Practically, the strongest theoretical claim requires quasi-polynomial processors and low d; many modern problems are high-dimensional. The authors propose embeddings/random features to reduce d, but then the statistical/approximation impact is not analyzed. Empirical gains likely come from parallelism rather than the theoretical regime promised, which somewhat weakens the claimed significance.
+
+Pros
+- Simple, black-box parallelization scheme applicable to convex regularized ERM.
+- Clean theoretical guarantees: doubly-exponential confidence amplification with depth; robustness vs. averaging.
+- Bridges ML parallelization with NC notions; clarifies limits/possibilities.
+- Empirical results show large speedups and competitive accuracy vs. both single-node learners and Spark baselines.
+- Public code and broad set of datasets.
+
+Cons
+- Strong assumptions for the main polylog result: low-dimensional hypothesis spaces (r = d+2) and quasi-polynomial number of processors.
+- Gap between theory (confidence/Δ) and experiments (AUC/RMSE; no calibration/coverage).
+- Limited comparison to alternative robust aggregators (e.g., geometric median-of-means, robust averaging).
+- Aggregation cost O(r^3) may be substantial in moderate/high dimensions; no profiling of aggregation overhead vs. learning.
+- Some notational/clarity issues (δ condition; “iid subsets”; communication complexity phrasing).
+
+Recommendation: Weak reject
+The idea is elegant and the theoretical confidence amplification via Radon points is interesting, but the main efficiency claim requires regimes that seem restrictive for typical NeurIPS-scale problems, and the experiments do not probe the theoretical predictions (confidence vs. h, dependence on d, impact of δ). Strengthening the empirical and theoretical connections and broadening comparisons would make this a stronger contribution.
+
+Suggestions for improvement
+- Clarify the δ condition (is it δ ≤ 1/(2r)?), the independence assumptions at each aggregation level, and constants in Proposition 2.
+- Provide a tighter and more nuanced complexity discussion: explicit scaling of c = r^h and N = r^h n for realistic d; when does aggregation O(r^3 h) dominate?
+- Add experiments varying h systematically, reporting both test performance and empirical failure rates/confidence intervals to illustrate the (rδ)^{2^h} effect.
+- Compare against robust aggregators such as geometric median (and median-of-means) of parameter vectors, as studied in distributed optimization/statistics; characterize robustness to outlier leaves.
+- Include ablations on high-dimensional settings with feature hashing/random projections or random features: quantify the trade-off between reduced r, approximation error, and runtime.
+- Profile communication and compute overhead, and report scaling with number of processors when c < r^h (deparallelized schedule).
+- Minor: fix wording (“iid subsets”), state message sizes in terms of d, and bring key instantiations of αε, βε to the main text.

@@ -1,0 +1,44 @@
+Summary of contributions
+- The paper proposes Neural Architecture Search (NAS): a controller RNN trained with REINFORCE to generate variable-length descriptions of neural network architectures (both CNNs and RNN cells). The child model is trained to convergence; its validation accuracy/perplexity serves as the reward, and the controller is updated to increase the likelihood of better architectures.
+- The method incorporates skip-connection selection, branching, and other layer types via attention-like set selection, and uses a large-scale asynchronous parameter-server setup for parallel evaluation of thousands of child models.
+- Empirically, the approach finds competitive CNNs on CIFAR-10 (reported best test error 3.65% after post-hoc tuning) and a novel recurrent cell that improves perplexity on PTB, with some transfer to character-level PTB and modest BLEU gains in GNMT without re-tuning.
+
+Decision: Reject
+Key reasons:
+1) The empirical claims rest on an enormous and uneven compute budget (e.g., up to 800 GPUs for CIFAR and 400 CPUs for PTB; 12,800–15,000 architectures evaluated), without compute-normalized or sample-efficiency comparisons to strong, established alternatives (random search, Bayesian optimization, evolutionary methods). This prevents a fair assessment of the proposed method’s merit versus brute-force search.
+2) The paper lacks critical ablations and statistical rigor to support that the controller meaningfully “learns to search” beyond reward shaping and search-space design choices. As a result, the causal attribution of gains to the proposed RL-based controller is unclear.
+
+Supporting arguments
+- Problem and positioning: The goal—automating architecture design—is important and timely. The paper correctly situates itself relative to hyperparameter optimization and neuroevolution, and highlights the flexibility of variable-length architecture generation. However, the claim that prior methods “cannot” design models from scratch is overstated; Bayesian optimization and evolutionary approaches can operate over rich, conditional spaces given careful encoding, and there were contemporary efforts in this direction.
+- Methodological soundness:
+  - Training signal design uses ad hoc reward shaping (e.g., cubed validation accuracy; squared perplexity times a constant). No ablation shows sensitivity to these choices or their impact on controller stability/variance.
+  - The controller’s policy gradient is standard REINFORCE with a moving-average baseline; again, no variance-reduction ablation (e.g., entropy regularization, GAE) is provided. Asynchronous updates with delayed gradients are used, but there is no analysis of staleness effects.
+  - The search space is heavily hand-crafted (filter sizes, channel options, scheduled depth, skip-connection padding rules). Performance may largely reflect these design choices rather than the search algorithm per se. No study varies the search space to show robustness (beyond a small “max”/“sin” control on PTB).
+- Empirical validation:
+  - Compute fairness: The CIFAR controller evaluates 12,800 architectures on 800 GPUs; PTB evaluates 15,000 on 400 CPUs. Baselines were not afforded comparable budgets. The only random search comparison is on PTB, and only in aggregate without budget-normalized curves on CIFAR. Absent compute-normalized comparisons to SMBO/Bayesian optimization/evolutionary baselines, it is unclear whether the RL-based controller is necessary or more sample-efficient.
+  - Post-hoc tuning conflates architecture vs. hyperparameters: After selecting architectures, the paper performs grid searches over LR, weight decay, BN epsilon, decay epoch. This advantage is not mirrored for baselines, nor is the combined search budget accounted for.
+  - Claims on “speed” are vague: The 3.65% CIFAR model is said to be 1.05x faster than DenseNet, but the metric (training vs. inference, FLOPs vs. wall-clock) and hardware parity are not specified; DenseNet variants differ (use of 1x1, growth rate). The apples-to-oranges caveats acknowledge this, but the comparison remains weak.
+  - Statistical rigor: Results are reported as single best runs; no variance across seeds, no confidence intervals, and no significance tests. Given the large search budget and post-selection, reporting only the best-case can be misleading.
+  - Generalization: On GNMT, the reported +0.5 BLEU is small and not tuned; while suggestive, it does not substantiate broad transferability. On character PTB, gains are reported but again without compute-normalized baselines or multiple seeds.
+
+Additional feedback (to help improve the work)
+- Provide compute- and budget-normalized comparisons (e.g., performance vs. number of architectures evaluated; wall-clock vs. quality) against: random search, Bayesian optimization (e.g., TPE, SMAC), and a strong evolutionary baseline on the same search space.
+- Add ablations:
+  - Reward shaping (with/without cubic/square transforms).
+  - Skip-connection prediction vs. fixed templates.
+  - Controller capacity and entropy regularization.
+  - Effect of depth-scheduling and zero-padding rules.
+- Report variance across multiple controller runs; provide CIs for test metrics of selected architectures.
+- Clarify the “speed” claims with FLOPs/parameter counts and equal hardware; include inference latency/throughput.
+- Distinguish architecture gains from post-hoc hyperparameter tuning by fixing identical training hyperparameters across compared architectures or by affording equal tuning budgets to baselines.
+- Improve clarity of the recurrent cell search specification with a formal grammar or pseudo-code; the current description is hard to reproduce precisely.
+
+Questions for the authors
+1) How does NAS compare to random search, Bayesian optimization, and an evolutionary algorithm on CIFAR-10 under identical architecture evaluation budgets (e.g., 1k/5k/10k models) and identical training recipes?
+2) Can you provide performance-vs-budget curves showing that the controller learns a better proposal distribution over time, not just at the end? Please include entropy of the policy and the KL to a uniform prior over actions.
+3) How sensitive are results to the reward shaping (cubic accuracy, squared perplexity) and to the moving-average baseline configuration?
+4) What is the exact definition of “1.05x faster” on CIFAR-10, and is it measured on identical hardware with identical input pipelines? Please include FLOPs and latency.
+5) How robust are the found architectures across seeds and re-trainings, and what is the variance in test accuracy/perplexity?
+6) Can you release the exact search space specification (including padding/concatenation rules) and controller/training code to enable reproducibility for those without 800 GPUs? Is there a smaller-budget setting where similar qualitative gains persist?
+
+Overall, the paper tackles an important problem with a creative approach, but the current empirical methodology does not isolate the value of the proposed controller from massive compute and search-space design, and lacks the rigorous, budget-normalized comparisons needed to justify acceptance.

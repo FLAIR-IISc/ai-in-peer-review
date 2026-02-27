@@ -1,0 +1,55 @@
+Summary and contributions
+The paper tackles exploration and sample efficiency in sparse-reward continuous-control tasks by: (1) pretraining a single multi-skill low-level policy using a Stochastic Neural Network (SNN) with a categorical latent variable z sampled per episode; (2) encouraging diversity via an information-theoretic regularizer that maximizes I(Z; C), where C is a hand-chosen subset of state (e.g., CoM position), implemented as a per-step reward bonus using a batch-based posterior estimate p̂(Z|C); and (3) freezing the low-level SNN and training a high-level “Manager” that selects a skill every T steps, thereby yielding temporally consistent exploration. The paper proposes a “bilinear integration” (outer product of observation and latent) to increase expressiveness relative to concatenation. Empirically, on MuJoCo locomotion with Swimmer and Snake in Maze and Gather variants, the approach learns interpretable skills, improves exploratory coverage, and solves sparse tasks faster than several baselines (including a multi-policy baseline and a proxy-reward baseline). Code and videos are provided. The paper also reports negative results on Ant and discusses limitations.
+
+Decision: Reject
+Key reasons:
+- Methodological clarity and rigor are not sufficient: the MI estimator and bilinear integration are underspecified and potentially problematic; claims about sample efficiency and weight sharing are not convincingly supported.
+- Presentation quality is below ICLR standards: extensive formatting/citation errors, typos, and missing details obscure reproducibility and evaluation fairness.
+
+Supporting arguments
+- Mutual information regularizer:
+  - The posterior estimator p̂(Z|C): p̂(Z=z|c)=mc(z)/∑z′mc(z′) uses batch visitation counts per grid cell. There is no mention of smoothing (e.g., Laplace), so log p̂ can be −∞ with zero counts; numerical stability and bias are unaddressed. The MI term depends on the entire batch distribution, making the reward non-stationary and non-Markovian; this interaction with TRPO is not discussed.
+  - The choice of C=(x,y) CoM is highly domain-specific. This MI encourages spatially segregated skills, but it is unclear whether this is the right inductive bias for tasks requiring non-spatial skills (e.g., contact-rich manipulation), contradicting the “minimal domain knowledge” claim.
+  - No ablation on grid resolution (“10 divisions/unit”) or environment scale; sensitivity can be large (sparser counts, more zeros). No comparison to density-model MI (continuous) or learned posterior networks (which the paper briefly mentions but does not evaluate).
+
+- Bilinear integration:
+  - With one-hot z, an “outer product” with the observation and a linear first layer is algebraically equivalent to using z-specific first-layer weights (i.e., K separate first-layer blocks and shared upper layers). This is a strong architectural prior; the paper should quantify parameter counts, computational overhead, and clarify whether the improved span is due to effectively separate first layers rather than a more principled multiplicative integration.
+  - The claim that “training an SNN takes a comparable number of samples to a single policy” is asserted but not supported with controlled wall-clock/sample complexity comparisons and learning curves for the same training budget.
+
+- Hierarchy and baselines:
+  - The multi-policy baseline uses 6× more pretraining samples, making it a weak comparison if the goal is sample-parity. Conversely, the paper’s main sample-efficiency claim vs. training K separate policies is not quantified under equal compute.
+  - Sparse-task baselines are limited. Option-critic is cited but not compared; the VIME comparison is delegated to an appendix with a different configuration. There is no comparison to other HRL baselines (e.g., feudal, HIRO/HAC-type methods), even at a high level.
+  - The Manager uses fixed switch period T. While Appendix C.3 shows some sensitivity, the main results use T=500, which is large and task-specific. The effect of learning termination vs. fixed T, or using recurrent Managers, is crucial for generality.
+
+- Evaluation and reporting:
+  - Many results are qualitative (visitation plots). The main learning curves do not report exact numerical returns, success rates, or confidence intervals in the paper body (Appendices are referenced, but not fully verifiable here). It is unclear how many environment steps are used per downstream task, and whether the pretraining budget is accounted for in total sample complexity.
+  - The claim of “K-times better sample efficiency” in pretraining is not substantiated with a controlled comparison (e.g., performance vs. environment steps per skill).
+  - The Gather task is changed to a much longer horizon (5,000) for the main claim that hierarchy “shines,” while comparisons to prior work use 500 (Appendix B). Fairness and comparability are muddled.
+
+- Technical correctness/clarity:
+  - Equation and notation issues: η(πθ)=E[∑γ^t r(st,at)] typesetting glitches; αH sometimes written αH without clear definition; inconsistent use of H(·). Algorithm 1 relies on batch counts but does not specify smoothing or handling unseen cells.
+  - Treating z as observation for TRPO is standard, but it changes the effective state space; any variance-reduction or advantage-estimation specifics (GAE λ, normalization) are missing.
+  - “Proxy reward minimal domain knowledge” is contradicted by examples needing environment instrumentation (e.g., generic grasp success).
+
+- Presentation:
+  - Numerous typos and grammatical issues: “signle,” “coeficient,” “sparcity,” “Mulit-policy,” “SILL,” “preform,” etc.
+  - References are in poor shape: inconsistent formats, missing venues/years/pages, malformed BibTeX artifacts (\Q2016\E), duplicate authors, stray punctuation, and missing details for many entries.
+  - Figures, appendices, and videos are heavily relied upon but many crucial experimental details are only referenced, not summarized.
+
+Additional feedback (to help improve the paper)
+- Provide a principled MI objective and estimator: either a learned classifier qφ(z|c) trained by MLE with proper regularization, or a mutual information lower bound (e.g., Barber-Agakov), and quantify the sensitivity to C, grid resolution, and αH. Add smoothing to avoid log 0.
+- Clarify bilinear integration implementation, parameterization, and equivalence to z-specific first-layer gating. Include parameter counts, FLOPs, and a controlled ablation vs. K independent first layers with shared upper layers.
+- Reframe the sample-efficiency claim with rigorous accounting: total environment steps (pretraining + downstream), wall-clock when possible, and performance vs. steps under identical budgets across methods.
+- Strengthen baselines: at least include option-critic with learned termination and a hand-shaped option baseline; optionally include intrinsic exploration methods in the same horizon and environment configuration as main results.
+- Report numerical metrics with mean±std across seeds, success rates for Mazes, and sensitivity to T (and possibly learned termination). Consider a recurrent Manager.
+- Discuss generality beyond locomotion: either restrict claims or add at least one non-spatial skill domain to validate the C choice.
+- Thoroughly fix references, typos, and formatting to ICLR standards.
+
+Questions for the authors
+1) How exactly is the bilinear outer product integrated into the first layer? With one-hot z, is this equivalent to K separate first-layer weight matrices? Please provide parameter counts and clarify weight sharing.
+2) How do you handle zeros in p̂(Z|c)? Do you use any smoothing? How sensitive are results to the grid resolution and αH? Please provide quantitative ablations.
+3) Can you report performance vs. total environment steps (including pretraining) and wall-clock for SNN vs. training K independent policies?
+4) What are the exact TRPO/GAE settings (λ, advantage normalization, KL constraint) and do they differ between pretraining and downstream?
+5) For fairness, can you include option-critic (or similar HRL) and VIME comparisons under the same horizon and task settings as the main results?
+6) How does performance change if C includes orientation or velocity (not just position), and in tasks where spatial segregation is less meaningful?
+7) Can the Manager learn termination (or variable T) and does this alleviate the Ant failure modes?

@@ -1,0 +1,55 @@
+Summary
+This paper proposes Stochastic Gradient Richardson–Romberg Langevin Dynamics (SGRRLD), which applies Richardson–Romberg (RR) extrapolation to SG-MCMC, specifically SGLD, by simultaneously running two discretizations with steps γ and γ/2 and combining their time-averaged estimators. The key idea is to cancel the O(γ) discretization bias using RR while keeping variance controlled via a carefully correlated Gaussian noise construction across the two chains (Brownian increments sharing). The authors provide a CLT for the estimator, non-asymptotic bounds for bias and MSE, and identify optimal step-size schedules. They also demonstrate the approach on synthetic Gaussian models, compare to SGHMC and a higher-order SGHMC integrator, and evaluate on three MovieLens datasets for matrix factorization, exploiting parallel execution of the two chains.
+
+Relation to prior work
+The method builds on classical RR extrapolation for SDE weak error (Talay–Tubaro) and its use for invariant measures (Lamberton–Pagès; Lemaire–Pagès–Panloup), and adapts the correlated increment construction argued to minimize variance. Within SG-MCMC, it complements analyses of SGLD and higher-order integrators (Teh et al., Chen et al., Ma et al.), and relates to ideas in multilevel Monte Carlo (MLMC) and variance reduction. To my knowledge, applying RR to SG-MCMC with stochastic gradients is novel and well-motivated.
+
+Strengths
+- Conceptually simple, generic idea (applicable beyond SGLD; a SGHMC variant is shown).
+- Theoretical contributions: CLT with variance minimization via correlated Brownian increments, non-asymptotic bias and MSE bounds showing O(γ^2 + 1/(Kγ)) bias and O(γ^4 + 1/(Kγ)) MSE, and rate-optimal step-size schedules (α=1/5 for MSE, α=1/3 for bias).
+- Clear performance improvements over SGLD on synthetic tasks and in a large-scale matrix factorization application; competitive to higher-order SGHMC for suitable γ.
+- Parallel/distributed amenability by design.
+
+Weaknesses and detailed concerns
+Technical correctness and clarity
+- Potentially serious typo in Chain 2 update (Eq. (5)): the first half-step uses ∇Ũ(θ(γ/2)2k+1) though θ(γ/2)2k+1 is the updated variable; Euler’s method should evaluate the gradient at θ(γ/2)2k. If this is not a typo and an implicit step is intended, the algorithm and proofs need modification and a solver is required. Please clarify and correct.
+- Off-by-one/time-averaging indices: the estimator denominator is ∑k=2 K+1 γk while the numerator uses ∑k=1 K γk+1. This is confusing and appears inconsistent with the stated time horizon ∑k=1 K γk. A clear derivation is needed, or just use ∑k=1 K γk consistently.
+- Theorems rely on heavy regularity (e.g., Poisson solution g ∈ C9 and 7th-order Taylor expansions) with “appropriate conditions” deferred to the supplement. The main text should clearly state key assumptions on U (dissipativity, smoothness), the gradient noise distribution L (moment, independence, conditional structure), and the mixing/ergodicity conditions to make the results interpretable and checkable.
+- The statement “the Gaussian noise dominates the stochastic gradient noise” is strong; the conditions under which this holds (e.g., bounded variance of the gradient estimator uniformly in θ; how errors propagate through the RR combination) should be spelled out. In practice, with large gradient noise (small B), this may fail.
+- The result “asymptotic variance O(γ4)” is stated in the introduction but the finite-K MSE also contains the 1/(Kγ) term that will dominate for small γ or finite K; the text should be consistent about which “variance” is being referred to (discretization variance vs Monte Carlo variance).
+- The role of correlated stochastic gradients is underexplored. You note the minibatch sizes must match but claim correlation does not impact asymptotics. Given RR cancellation involves matching leading-order weak error terms, using identical minibatches across coupled steps could substantially reduce variance; either analyze or empirically study this choice.
+
+Algorithmic and experimental issues
+- Parallelism fairness: SGRRLD is run as two processes in parallel on a quad-core CPU; SGLD is reported as “inherently sequential,” which is not entirely fair. SGLD iterations are sequential but per-iteration computations can leverage parallel BLAS/OMP and data parallelism; also one could run two independent SGLD chains in parallel for comparable resource usage. Please report thread/process counts and BLAS threading for both methods, and compare per-gradient runtime and total floating-point work to isolate algorithmic gains from parallelism.
+- Mini-batch sizes across datasets are inconsistent ratios (N/10, N/50, N/500); this changes the stochastic gradient noise level and may favor SGRRLD differently across datasets. Justify these choices, or sweep B.
+- Tuning: Some synthetic experiments infer constants (γ?b, γ?M) from prior runs; this risks cherry-picking. A more systematic procedure or cross-validation should be used, or hyperparameters fixed a priori.
+- Baselines: For overdamped Langevin, a comparison to the higher-order integrators for SGLD (e.g., symmetric splitting or BAOAB-like variants as in Chen et al. 2015; Ma et al. 2015) is missing. Only SGHMC-s is considered. This is important given the claim “achieves the theoretical accuracy of methods that are based on higher-order integrators.”
+- Metrics: Synthetic experiments focus mainly on posterior variance MSE; including means and other functionals f(θ) would better test the generality of the extrapolation benefit.
+- Practical guidance: The paper does not discuss the wall-clock trade-off when parallelism is unavailable (SGRRLD costs roughly 3 gradient evaluations per macro-step). A fair single-thread speed vs accuracy plot would be informative.
+
+Presentation and formatting
+- The stray line “th Conference on Neural Information Processing Systems (NIPS 2016), Barcelona, Spain.” should be removed.
+- Several references are incomplete or inconsistently formatted (missing years/pages; inconsistent punctuation and capitalization).
+- Minor notational inconsistencies: e.g., the use of √2γ vs √γ in (4)–(5) is correct but could be explicitly tied to the η=γ/2 choice; explain the rationale once to avoid confusion.
+- Typo: “variace” → “variance”; “Futher” → “Further”; “mean squarederror” → “mean-squared error”.
+- Clarify the dependence of constants C in Theorem 2 on moments of ∇Ũ and state explicit moment assumptions (order needed).
+
+Questions for the authors
+- Please confirm and correct the Chain 2 first half-step gradient argument.
+- Do you share the same minibatch between the two half-steps at level γ/2 and with the γ step (i.e., a coupled subsampling scheme)? If not, what is the impact?
+- Can you provide (even informally) the expression for σR^2 and its dependence on Σ in the main text?
+- How sensitive are results to B and to using decreasing step sizes in practice?
+- Can you include an overdamped higher-order SGLD baseline?
+
+Pros
+- Simple, generic idea with clear theoretical and practical appeal.
+- Solid theoretical results (CLT; non-asymptotics) extending RR to SG-MCMC.
+- Demonstrated gains on synthetic and large-scale applications; parallel-friendly.
+
+Cons
+- A likely error in the algorithm update and indexing ambiguities.
+- Heavy reliance on supplementary assumptions; unclear scope of validity.
+- Experimental fairness and baseline coverage need improvement.
+- Presentation/formatting issues and several minor typos.
+
+Recommendation: Weak reject. The idea is promising and likely impactful, but the algorithmic typo, lack of clarity on assumptions and coupling of stochastic gradients, and experimental concerns (parallelism fairness; missing baselines) need to be addressed. With these fixes and a clearer empirical protocol, I would be inclined to accept.

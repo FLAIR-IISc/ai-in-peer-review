@@ -1,0 +1,69 @@
+Summary and relation to prior work
+This paper formalizes “on-the-job learning,” a hybrid human–machine prediction framework that starts with no labeled data and uses real-time crowdsourcing to resolve uncertainty at test time. As inputs arrive, the system selectively queries the crowd on uncertain components (e.g., token labels in NER), waits for asynchronous responses, and returns a prediction when the expected utility (accuracy minus time and monetary cost) is maximized. Over time the model learns from the (noisy) responses and reduces reliance on the crowd. The decision problem is cast as a stochastic game informed by Bayesian decision theory; optimal policies are approximated via Monte Carlo Tree Search (MCTS) with progressive widening to handle continuous response times. Experiments on NER, sentiment classification, and image classification compare the proposed system (LENSE) against human-majority voting, an online learner, and a simple threshold heuristic.
+
+The work connects to online learning (regret minimization, but here accuracy is maintained from the start), active learning (but here labels are queried pre-decision and at test time), active classification/test-time acquisition (e.g., value-of-information approaches, but this framework adapts its policy online), crowd-POMDP style control (e.g., TurKontrol), and structured prediction. It also extends the real-time crowd-in-the-loop idea explored in Legion:AR with a more explicit decision-theoretic and game-playing formulation.
+
+Strengths
+- Clear and timely problem: deploying high-accuracy systems without upfront labeled data, explicitly trading off accuracy, latency, and monetary cost.
+- Principled formulation: a unified Bayesian decision-theoretic objective over structured outputs with asynchronous, noisy responses and explicit cost/time terms.
+- Algorithmic contribution: adapting MCTS with progressive widening to a hybrid human–machine, continuous-time setting; the framework supports parallel vs sequential querying and redundancy decisions.
+- Practical system: real-time crowdsourcing infrastructure (retainer model); open-source code and CodaLab bundles improve reproducibility.
+- Empirical evidence: on NER, substantial cost reductions relative to full human annotation and improvements over both single-vote and online-only baselines.
+
+Weaknesses
+- Modeling assumptions: response model pR is simplified (fixed, positionwise accuracy ~70%, no worker heterogeneity or task difficulty), which may bias the policy and underrepresent realistic crowd noise.
+- Some clarity issues and notational inconsistencies (see detailed questions below), and limited ablations/sensitivity (e.g., dependence on wM, wT, response-time distributions).
+- Baseline strength: the “online” learner may not reflect best-available models/features; improvements could largely come from human supervision rather than better decision policies.
+- Evaluation depth: limited error analysis; unclear how performance “exceeds expert labels” and whether that stems from label schema differences or aggregation effects.
+- Underexplored structure: while the CRF setting is discussed, more analysis of structured vs independent decisions (e.g., how sequence dependencies change query allocation) would strengthen the case.
+
+Quality
+- The formulation is technically sound and well-motivated. The utility specification and game dynamics are reasonable, and MCTS is an appropriate approximate solver.
+- However, the learning component appears to treat noisy crowd responses as truth when updating the CRF. A latent-variable approach (e.g., Dawid–Skene/EM) or calibrated noise-aware training would likely improve robustness and better align with the probabilistic environment model.
+- The empirical methodology is thoughtful (retainer pool; pre-sampled response/delay pools to control variability), but the paper would benefit from sensitivity studies (vary pR accuracy, response-time distributions, and utility weights) and ablations (e.g., MCTS depth/budget, without progressive widening, deterministic vs stochastic response times).
+- The comparison to a threshold heuristic is useful, but the heuristic seems mis-specified in the text (see below). A stronger set of baselines (e.g., myopic value-of-information, simple dynamic programming under a simplified model, or a calibrated confidence-thresholding baseline) would be informative.
+
+Clarity
+- The paper is generally well organized and readable, but a few definitions/equations and algorithmic details need clarification (see questions).
+- Reporting would benefit from more explicit descriptions of features/models used per task, the learning updates with noisy labels, and the exact inference budget for MCTS (rollouts per decision, horizon, UCT constant).
+
+Originality
+- The combination of a Bayesian decision-theoretic game formulation with MCTS for on-the-job, structured prediction with continuous-time crowdsourcing appears novel relative to prior NIPS work. It extends related lines (active classification, crowd control via POMDPs, real-time crowd-in-the-loop) in a cohesive framework.
+
+Significance
+- For practitioners who need immediate, high-accuracy predictions without labeled data, the approach is compelling. The NER gains suggest practical impact. The generality to other structured tasks is promising, though stronger results beyond NER would increase confidence.
+
+Specific questions and requests for clarification
+1) Equation (2) and conditioning: In Eq. (1), ExpAcc is applied to p(y | x, q, s, r, t). In Eq. (2), ExpAcc(p) = E_{p(y)}[Accuracy(argmax_y′ p(y′))]. Please clarify the notation by writing ExpAcc(x, q, s, r, t) explicitly (or define p unambiguously as the posterior conditioned on x, q, s, r, t). Also clarify where s appears in all conditionals in Eqs. (1)–(3) for consistency.
+
+2) Marginalizing y in the response model: In the environment model p(y, r, t | x, q, s) = pθ(y | x) ∏ pR(ri | y_qi) pT(ti | si), please show the intermediate step when computing p(r′ | x, r, q, s) by marginalizing over y and t, and state the independence assumptions explicitly. This will address how y “vanishes.”
+
+3) Algorithm 1 notation: What is N(s) in the UCT rule? It appears to be a typo for N(σ). Please also state the UCT exploration constant c, rollout depth/budget, and stopping criteria.
+
+4) Threshold baseline parameters: The text mentions a factor 0.3 and a threshold 0.98 (and elsewhere 0.88 is referenced). Please:
+- Explain the origin of 0.3 (is it 1 − worker accuracy = 1 − 0.7?).
+- Correct the inequality (as written, (1 − pθ(yi | x)) × 0.3^m ≥ 0.98 seems inconsistent; perhaps ≤ 0.02?).
+- Reconcile 0.98 vs 0.88 and justify the chosen target confidence.
+- Provide a brief derivation/calibration procedure for these constants.
+
+5) Online baseline strength: Are the “online” systems representative of task-specific best practice (features, architectures, hyperparameters)? For NER, would a stronger CRF with richer features or a modern neural tagger change the comparison? For sentiment, how do UNIGRAMS vs RNN features compare to the state of the art used in your system? If the online baseline is not competitive, please add a stronger machine-only baseline or clarify that the gain is primarily from crowd input plus the decision policy.
+
+6) Learning with noisy labels: Do you train the CRF by treating crowd responses as gold, or do you marginalize over latent y using pR (e.g., via EM)? Please clarify and, if the former, discuss potential bias and whether noise-aware training helps.
+
+7) Utility weights and sensitivity: Report performance across a range of wM and wT (Pareto front of accuracy–cost–latency), and the sensitivity to the response-time model pT. This will help practitioners set operating points.
+
+8) Error analysis: Provide examples where LENSE improves over both human-only and machine-only approaches, and where it fails. For NER, clarify the claim of “boosting performance relative to expert labels” and whether this stems from aggregation, schema differences, or true expert errors.
+
+Pros for acceptance
+- Principled, general framework addressing an important practical need.
+- Novel integration of decision-theoretic modeling, MCTS, and continuous-time crowdsourcing.
+- Reproducible system with open-source code and real-time infrastructure.
+- Strong NER results and clear demonstration of accuracy–cost–latency tradeoffs.
+
+Cons for acceptance
+- Simplified crowd/noise model and limited analysis of its impact.
+- Some notation/algorithmic ambiguities and baseline weaknesses.
+- Limited sensitivity analyses and error analysis; mixed gains outside NER.
+
+Overall assessment
+A solid and promising contribution that advances decision-theoretic, crowd-in-the-loop learning for immediate deployment without labeled data. With clarifications, stronger baselines, and additional analyses (noise-aware learning, sensitivity studies, error analysis), this work would have substantial impact. I lean positive, particularly given the principled formulation and practical relevance.

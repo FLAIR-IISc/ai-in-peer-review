@@ -1,0 +1,470 @@
+{
+  "name" : "6aca97005c68f1206823815f66102863.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Incremental Local Gaussian Regression",
+    "authors" : [ "Franziska Meier", "Philipp Hennig", "Stefan Schaal" ],
+    "emails" : [ "fmeier@usc.edu", "phennig@tue.mpg.de", "sschaal@usc.edu" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Besides accuracy and sample efficiency, computational cost is a crucial design criterion for machine learning algorithms in real-time settings, such as control problems. An example is the modeling of robot dynamics: The sensors in a robot can produce thousands of data points per second, quickly amassing a coverage of the task related workspace, but what really matters is that the learning algorithm incorporates this data in real time, as a physical system can not necessarily stop and wait in its control – e.g., a biped would simply fall over. Thus, a learning method in such settings should produce a good local model in fractions of a second, and be able to extend this model as the robot explores new areas of a very high dimensional workspace that can often not be anticipated by collecting “representative” training data. Ideally, it should rapidly produce a good (local) model from a large number N of data points by adjusting a small number M of parameters. In robotics, local learning approaches such as locally weighted regression [1] have thus been favored over global approaches such as Gaussian process regression [2] in the past.\nLocal regression models approximate the function in the neighborhood of a query point x∗. Each local model’s region of validity is defined by a kernel. Learning the shape of that kernel [3] is the key component of locally weighted learning. Schaal & Atkeson [4] introduced a non-memory-based version of LWR to compress large amounts of data into a small number of parameters. Instead of keeping data in memory and constructing local models around query points on demand, their\nalgorithm incrementally compresses data into M local models, where M grows automatically to cover the experienced input space of the data. Each local model can have its own distance metric, allowing local adaptation to local characteristics like curvature or noise. Furthermore, each local model is trained independently, yielding a highly efficient parallelizable algorithm. Both its local adaptiveness and its low computation cost (linear, O(NM)) has made LWR feasible and successful in control learning. The downside is that LWR requires several tuning parameters, whose optimal values can be highly data dependent. This is at least partly a result of the strongly localized training, which does not allow models to ‘coordinate’, or to benefit from other local models in their vicinity.\nGaussian process regression (GPR) [2], on the other hand, offers principled inference for hyperparameters, but at high computational cost. Recent progress in sparsifying Gaussian processes [5, 6] has resulted in computationally efficient variants of GPR . Sparsification is achieved either through a subset selection of support points [7, 8] or through sparsification of the spectrum of the GP [9, 10]. Online versions of such sparse GPs [11, 12, 13] have produced a viable alternative for real-time model learning problems [14]. However, these sparse approaches typically learn one global distance metric, making it difficult to fit the non-stationary data encountered in robotics. Moreover, restricting the resources in a GP also restricts the function space that can be covered, such that with the need to cover a growing workspace, the accuracy of learning with naturally diminish.\nHere we develop a probabilistic alternative to LWR that, like GPR, has a global generative model, but is locally adaptive and retains LWRs fast incremental training. We start in the batch setting, where rethinking LWRs localization strategy results in a loss function coupling local models that can be modeled within the Gaussian regression framework (Section 2). Modifying and approximating the global model, we arrive at a localized batch learning procedure (Section 3), which we term Local Gaussian Regression (LGR). Finally, we develop an incremental version of LGR that processes streaming data (Section 4). Previous probabilistic formulations of local regression [15, 16, 17] are bottom-up constructions—generative models for one local model at a time. Ours is a top-down approach, approximating a global model to give a localized regression algorithm similar to LWR."
+    }, {
+      "heading" : "2 Background",
+      "text" : "Locally weighted regression (LWR) with a fixed set of M local models minimizes the loss function\nL(w) = N\n∑ n=1\nM\n∑ m=1\nηm(xn)(yn − ξm(xn) Twm)\n2 = M\n∑ m=1 L(wm). (1)\nThe right hand side decomposes L(w) into independent losses for M models. We assume each model has K local feature functions ξmk(x), so that the m-th model’s prediction at x is\nfm(x) = K\n∑ k=1\nξmk(x)wmk = ξm(x) ⊺wm (2)\nK = 2, ξm1(x) = 1, ξm2(x) = (x − cm) gives a linear model around cm. Higher polynomials can be used, too, but linear models have a favorable bias-variance trade-off [18]. The models are localized by a non-negative, symmetric and integrable weighting ηm(x), typically the radial basis function\nηm(x) = exp [− (x − cm)\n2\n2λ2m ] , or ηm(x) = exp [−\n1 2 (x − cm)Λ −1 m (x − cm) ⊺] (3)\nfor x ∈ RD, with center cm and length scale λm or positive definite metric Λm. ηm(xn) localizes the effect of errors on the least-squares estimate of wm—data points far away from cm have little effect. The prediction y∗ at a test point x∗ is a normalized weighted average of the local predictions y∗,m:\ny∗ = ∑ M m=1 ηm(x∗)fm(x∗)\n∑ M m=1 ηm(x∗)\n(4)\nLWR effectively trains M linear models on M separate datasets ym(xn) = √ ηm(xn)yn. These models differ from the one of Eq. (4), used at test time. This smoothes discontinuous transitions between models, but also means that LWR can not be cast probabilistically as one generative model for training and test data simultaneously. (This holds for any bottom-up construction that learns local\nmodels independently and combines them as above, e.g., [15, 16]). The independence of local models is key to LWR’s training: changing one local model does not affect the others. While this lowers cost, we believe it is also partially responsible for LWR’s sensitivity to manually tuned parameters.\nHere, we investigate a different strategy to achieve localization, aiming to retain the computational complexity of LWR, while adding a sense of globality. Instead of using ηm to localize the training error of data points, we localize a model’s contribution ŷm = ξ(x)Twm towards the global fit of training point y, similar to how LWR operates during test time (Eq.4). Thus, already during training, local models must collaborate to fit a data point ŷ = ∑m=1 ηm(x)ξ(x)Twm. Our loss function is\nL(w) = N\n∑ n=1\n(yn − M\n∑ m=1\nηm(xn)ξm(xn) Twm)\n2\n= N\n∑ n=1\n(yn − M\n∑ m=1\nφm(xn) Twm)\n2\n, (5)\ncombining the localizer ηm(xn) and the mth input function ξm(xn) to form the feature φm(xn) = ηm(xn)ξm(xn). This form of localization couples all local models, as in classical radial basis function networks [19]. At test time, all local predictions form a joined prediction\ny∗ = M\n∑ m=1\ny∗m = M\n∑ m=1\nφm(x∗) Twm (6)\nThis loss can be minimized through a regularized least-square estimator forw (the concatenation of all wm). We follow the probabilistic interpretation of least-squares estimation as inference on the weights w, from a Gaussian prior p(w) = N (w;µ0,Σ0) and likelihood p(y ∣φ,w) = N (y;φ\n⊺w, β−1y I). The probabilistic formulation has additional value as a generative model for all (training and test) data points y, which can be used to learn hyperparameters (Figure 1, left). The posterior is\np(w ∣y,φ) = N (w;µN ,ΣN) with (7)\nµN = (Σ −1 0 + βyΦ ⊺Φ)−1(βyΦ⊺y −Σ−10 µ0) and ΣN = (Σ −1 0 + βyΦ ⊺Φ)−1 (8)\n(Heteroscedastic data will be addressed below). The prediction for f(x∗) with features φ(x∗) =∶ φ∗ is also Gaussian, with p(f(x∗) ∣y,φ) = N (f(x∗);φ∗µN ,φ∗ΣNφ ⊺ ∗). As is widely known, this framework can be extended nonparametrically by a limit that replaces all inner products φ(xi)Σ0φ(xj)\n⊺ with a Mercer (positive semi-definite) kernel k(xi,xj), corresponding to a Gaussian process prior. The direct connection between Gaussian regression and the elegant theory of Gaussian processes is a conceptual strength. The main downside, relative to LWR, is computational cost: Calculating the posterior (7) requires solving the least-squares problem for all F parameters w jointly, by inverting the Gram matrix (Σ−10 + βyΦ\n⊺Φ). In general, this requires O(F 3) operations. Below we propose approximations to lower the computational cost of this operation to a level comparable to LWR, while retaining the probabilistic interpretation, and the modeling robustness of the full Gaussian model."
+    }, {
+      "heading" : "3 Local Parametric Gaussian Regression",
+      "text" : "The above shows that Gaussian regression with features φm(x) = ηm(x)ξm(x) can be interpreted as global regression with M models, where ηm(xn) localizes the contribution of the model ξm(x) towards the joint prediction of yn. The choice of local parametric model ξm is essentially free. Local\nlinear regression in a K-dimensional input space takes the form ξm(xn) = xn − cm, and can be viewed as the analog of locally weighted linear regression. Locally constant models ξm(x) = 1 correspond to Gaussian regression with RBF features. Generalizing to M local models with K parameters each, feature function φnmk combines the k\nth component of the local model ξkm(xn), localized by the m-th weighting function ηm(xn)\nφnmk ∶= φmk(xn) = ηm(xn)ξkm(xn). (9)\nTreating mk as indices of a vector ∈ RMK , Equation (7) gives localized linear Gaussian regression. Since it will become necessary to prune the model, we adopt the classic idea of automatic relevance determination [20, 21] using a factorizing prior\np(w∣A) = M\n∏ m=1 N (wm; 0,A\n−1 m ) with Am = diag(αm1, . . . , αmK). (10)\nThus every component k of local model m has its own precision, and can be pruned out by setting αmk_∞. Section 3.1 assumes a fixed number M of local models with fixed centers cm. The parameters are θ = {βy,{αmk},{λmd}}, where K is the dimension of local model ξ(x) and D is the dimension of input x. We propose an approximation for estimating θ. Section 4 then describes an incremental algorithm allocating local models as needed, adapting M and cm."
+    }, {
+      "heading" : "3.1 Learning in Local Gaussian Regression",
+      "text" : "Exact Gaussian regression with localized features still has cubic cost. However, because of the localization, correlation between distant local models approximately vanishes, and inference is approximately independent between local models. To use this near-independence for cheap local approximate inference, similar to LWR, we introduce a latent variable fnm for each local model m and datum xn, as in probabilistic backfitting [22]. Intuitively, the f form approximate local targets, against which the local parameters fit (Figure 1, right). Moreover, as formalized below, each fnm has its own variance parameter, which re-introduces the ability to model hetereoscedastic data.\nThis modified model motivates a factorizing variational bound (Section 3.1.1). Rendering the local models computationally independent, it allows for fast approximate inference in the local Gaussian model. Hyperparameters can be learned by approximate maximum likelihood (Section 3.1.2), i.e. iterating between constructing a bound q(z ∣θ) on the posterior over hidden variables z (defined below) given current parameter estimates θ and optimizing q with respect to θ."
+    }, {
+      "heading" : "3.1.1 Variational Bound",
+      "text" : "The complete data likelihood of the modified model (Figure 1, right) is\np(y,f ,w ∣Φ, θ) = N\n∏ n=1 N (yn;f\nn, βy) N\n∏ n=1\nM\n∏ m=1 N (fnm;φ n mwm, βfm)\nM\n∏ m=1 N (wm; 0,Am) (11)\nOur Gaussian model involves the latent variablesw and f , the precisions β = {βy, βf1, . . . , βfM} and the model parameters λm,cm. We treatw and f as probabilistic variables and estimate θ = {β,λ,c}. On w,f , we construct a variational bound q(w,f) imposing factorization q(w,f) = q(w)q(f). The variational free energy is a lower bound on the log evidence for the observations y:\nlog p(y ∣ θ) ≥ ∫ q(w,f) log p(y,w,f ∣ θ)\nq(w,f) . (12)\nThis bound is maximized by the q(w,f) minimizing the relative entropy DKL[q(w,f)∥p(w,f ∣y, θ)], the distribution for which log q(w) = Ef [log p(y ∣f ,w)p(w,f)] and log q(f) = Ew[log p(y ∣f ,w)p(w,f)]. It is relatively easy to show (e.g. [23]) that these distributions are Gaussian in both w and f .The approximation on w is\nlog q(w) = Ef [ N\n∑ n=1\nlog p(fn ∣φn,w) + log p(w ∣A)] = log M\n∏ m=1 N (wm;µwm ,Σwm) (13)\nwhere\nΣwm = (βfm N\n∑ n=1 φnmφ n m T +Am)\n−1 ∈ RK×K and µwm = βfmΣwm ( N\n∑ n=1 φnmE [f n m]) ∈ R\nK×1\n(14)\nThe posterior update equations for the weights are local: each of the local models updates its parameters independently. This comes at the cost of having to update the belief over the variables fnm, which achieves a coupling between the local models. The Gaussian variational bound on f is\nlog q(fn) = Ew [log p(yn ∣fn, βy) + log p(fn ∣φnm,w)] = N (f n;µfn,Σf), (15)\nwhere\nΣf = B −1 −B−11(β−1y + 1 TB−11)−11TB−1 = B−1 − B−111TB−1\nβ−1y + 1 TB−11\n(16)\nµfnm = Ew [wm] T φnm β−1fm β−1y +∑ M m=1 β−1fm (yn − M ∑ m=1 Ew [wm] T φnm) (17)\nand B = diag (βf1, . . . , βfM). µfnm is the posterior mean of the m-th model’s virtual target for data point n. These updates can be performed in O(MK). Note how the posterior over hidden variables f couples the local models, allowing for a form of message passing between local models."
+    }, {
+      "heading" : "3.1.2 Optimizing Hyperparameters",
+      "text" : "To set the parameters θ = {βy,{βfm, λm}Mm=1,{αmk}}, we maximize the expected complete log likelihood under the variational bound\nEf ,w[log p(y,f ,w ∣Φ, θ)] = Ef ,w{ N\n∑ n=1\n[ logN (yn; M\n∑ m=1\nfnm, β −1 y )\n+ M\n∑ m=1\nlogN (fnm;w T mφ n m, β −1 fm)] +\nM\n∑ m=1\nlogN (wm; 0,A −1 m )}. (18)\nSetting the gradient of this expression to zero leads to the following update equations for the variances\nβ−1y = 1\nN\nN\n∑ n=1\n(yn − 1µfn) 2 + 1TΣf1 (19)\nβ−1fm = 1\nN\nN\n∑ n=1\n[(µfnm −µwmφ n m) 2 +φnm T Σwmφ n m] + σ 2 fm (20)\nα−1mk = µ 2 wmk +Σw,kk (21)\nThe gradient with respect to the scales of each local model is completely localized\n∂Ef ,w [log p(y,f ,w ∣Φ, θ)] ∂λmd = ∂Ef ,w [∑Nn=1N (fnm;wTmφ n m, β −1 fm)] ∂λmd (22)\nWe use gradient ascent to optimize the length scales λmd. All necessary equations are of low cost and, with the exception of the variance 1/βy, all hyper-parameter updates are solved independently for each local model, similar to LWR. In contrast to LWR, however, these local updates do not cause a potential catastrophic shrinking in the length scales: In LWR, both inputs and outputs are weighted by the localizing function, thus reducing the length scale improves the fit. The localization in Equation (22) only affects the influence of regression model m, but the targets still need to be fit accordingly. Shrinking of local models only happens if it actually improves the fit against the unweighted targets fnm such that no complex cross validation procedures are required."
+    }, {
+      "heading" : "3.1.3 Prediction",
+      "text" : "Predictions at a test point x∗ arise from marginalizing over both f and w, using\n∫ [∫ N (y∗;1 Tf∗, β −1 y )N (f∗;W Tφ(x∗),B−1)df∗] N (w;µw,Σw)dw\n= N (y∗;∑ m\nwTmφ ∗ m, σ 2(x∗)) (23)\nwhere σ2(x∗) = β−1y +∑ M m=1 β −1 fm +∑ M m=1φ ∗ m T Σwmφ ∗ m, which is linear in M and K."
+    }, {
+      "heading" : "4 Incremental Local Gaussian Regression",
+      "text" : "The above approximate posterior updates apply in the batch setting, assuming the number M and locations c of local models are fixed. This section constructs an online algorithm for incrementally incoming data, creating new local models when needed. There has been recent interest in variational online algorithms for efficient learning on large data sets [24, 25]. Stochastic variational inference [24] operates under the assumption that the data set has a fixed size N and optimizes the variational lower bound for N data points via stochastic gradient descent. Here, we follow algorithms for streaming datasets of unknown size. Probabilistic methods in this setting typically follow a Bayesian filtering approach [26, 25, 27] in which the posterior after n − 1 data points becomes the prior for the n-th incoming data point. Following this principle we extend the model presented in Section 3 and treat precision variables {βfm, αmk} as random variables, assuming Gamma priors p(βfm) = G(βfm ∣a β 0 , b β 0 ) and p(αm) = ∏ K k=1 G(αmk ∣a α 0 , b α 0 ). Thus, the factorized approximation on the posterior q(z) over all random variables z = {f ,w,α,βf} is changed to\nq(z) = q(f ,w,βf ,α) = q(f)q(w)q(βf)q(α) (24) A batch version of this was introduced in [28]. Given that, the recursive application of Bayes’ theorem results in the approximate posterior\np(z∣x1, . . . ,xn) ≈ p(xn ∣z)q(z ∣x1, . . .xn−1) (25) after n data points. In essence, this formulates the (approximate) posterior updates in terms of sufficient statistics, which are updated with each new incoming data point. The batch updates (listed in [28]) can be rewritten such that they depend on the following sufficient statistics ∑ N n=1φ n mφ n m ⊺ ,∑n=1φ n mµ n fm and ∑n=1(µ n fm)\n2. Although the length-scales λm could be treated as random variables too, here we update them using the noisy (stochastic) gradients produced by each incoming data point. Due to space limitations, we only summarize these update equations in the algorithm below, where we have replaced the expectation operator by ⟨⋅⟩.\nFinally, we use an extension analogous to incremental training of the relevance vector machine [29] to iteratively add local models at new, greedily selected locations cM+1. Starting with one local model, each iteration adds one local model in the variational step, and prunes out existing local models for which all components αmk_∞. This works well in practice, with the caveat that the model number M can grow fast initially, before the pruning becomes effective. Thus, we check for each selected location cM+1 whether any of the existing local models c1∶M produces a localizing weight ηm(cM+1) ≥ wgen, where wgen is a parameter between 0 and 1 and regulates how many parameters are added. Algorithm 1 gives an overview of the entire incremental algorithm.\nAlgorithm 1 Incremental LGR 1: M = 0;C = {}, aα0 , b α 0 , a β 0 , β β 0 , forgetting rate κ, learning rate ν\n2: for all (xn, yn) do // for each data point 3: if ηm(xn) < wgen,∀m = 1, . . . ,M then cm^xn; C^C ∪ {cm}; M =M + 1 end if 4: Σf = B−1 − B −111TB−1\nβ−1y +∑m⟨β⟩fm , µfnm = µ T wmφ n m β−1fm β−1y +∑Mm=1⟨β⟩−1fm (yn −∑ M m=1 µ T wmφ n m)\n5: for m = 1 to M do 6: if ηm(xn) < 0.01 then continue end if 7: SφmφTm ^κSφmφ⊺m +φ n mφ n m ⊺ , Sφmµfm ^κSφmµfm + φnmµfnm , Sµ2fm ^κSµ2fm + µ 2 fnm 8: Σwm = (⟨β⟩fmSφmφTm + ⟨A⟩m) −1 , µwm = ⟨β⟩fmΣwmSφmµfm 9: Nm = κNm + 1, a β Nm = a β 0 +Nm, a α Nm = a α 0 + 0.5"
+    }, {
+      "heading" : "10: bβNm = Sµ2fnm",
+      "text" : "− 2µ⊺wmSφmµfm + tr [Sφmφ⊺m(Σwm + µwmµ ⊺ wm)] +Nmσ 2 fm 11: bαNmk = µ 2 wm,k +Σwm,kk 12: ⟨β⟩fm = a β Nm/bβNm, ⟨A⟩m = diag (a α Nmk/bαNmk) 13: λm = λm + ν(∂/∂λmN (⟨fn⟩m; ⟨w⟩Tmφ n m, ⟨β⟩ −1 fm))\n14: if ⟨α⟩mk > 1e3 ∀k = 1, . . . ,K then prune local model m, M ^M − 1 end if 15: end for 16: end for"
+    }, {
+      "heading" : "5 Experiments",
+      "text" : "We evaluate our LGR on inverse dynamics learning tasks, using data from two robotic platforms: a SARCOS anthropomorphic arm and a KUKA lightweight arm. For both robots, learning the inverse dynamics involves learning a map from the joint positions q (rad), velocities q̇ (rad/s) and accelerations q̈ (rad/s2), to torques τ (Nm) for each of 7 joints (degrees of freedom). We compare to two methods previously used for inverse dynamics learning: LWPR1 – an extension of LWR for high dimensional spaces [31] – and I-SSGPR2 [13] – an incremental version of Sparse Spectrum GPR. I-SSGPR differs from LGR and LWPR in that it is a global method and does not learn the distance metric online. Instead, I-SSGPR needs offline training of hyperparameters before it can be used online. We mimic the procedure used in [13]: An offline training set is used to learn an initial model and hyperparameters, then an online training set is used to evaluate incremental learning. Where indicated we use initial offline training for all three methods. I-SSGPR uses typical GPR optimization procedures for offline training, and is thus only available in batch mode. For LGR, we use the batch version for pre-training/hyperparameter learning. For all experiments we initialized the length scales to λ = 0.3, and used wgen = 0.3 for both LWPR and LGR.\nWe evaluate on four different data sets, listed in Table 1. These sets vary in scale, types of motion and how well the offline training set represents the data encountered during online learning. All results were averaged over 5 randomly seeded runs, mean-squared error (MSE) and normalized mean-squared error (nMSE) are reported on the online training dataset. The nMSE is reported as the mean-squared error normalized by the variance of the outputs.\nSarcos: Table 2 summarizes results on the popular Sarcos benchmark for inverse dynamics learning tasks [2]. The traditional test set is used as the offline training data to pre-train all three models. I-SSGPR is trained with 200 and 400 sparse spectrum features, indicated as I-SSGPR200(400), where 200 features is the optimal design choice according to [13]. We report the (normalized) mean-squared error on the online training data, after one sweep through it - i.e. each data point has been used once - has been performed. All three methods perform well on this data, with I-SSGPR and LGR having a slight edge over LWPR in terms of accuracy; and LGR uses fewer local models than LWPR. The Sarcos data offline training set represents the data encountered during online training very well. Thus, here online distance metric learning is not necessary to achieve good performance.\n1we use the LWPR implementation found in the SL simulation software package [30] 2we use code from the learningMachine library in the RobotCub framework, from http:// eris.liralab.it/iCub\nKUKA1 and KUKA2: The two KUKA datasets consist of rhythmic motions at various speeds, and represent a more realistic setting in robotics: While one can collect some data for offline training, it is not feasible to cover the whole state-space. Offline data of KUKA1 has been chosen to give partial coverage of the range of available speeds, while KUKA2 consists of motion at only one speed. In this setting, both LWPR and LGR excel (Table 3). As they can learn local distance metrics on the fly, they adapt to incoming data in previously unexplored input areas. Performance of I-SSGPR200 degrades as the offline training data is less representative, while LGR and LWPR perform almost equally well on KUKA1 and KUKA2. While there is little difference in accuracy between LGR and LWPR, LGR consistently uses fewer local models and does not require careful manual meta-parameter tuning. Since both LGR and LWPR use more local models on this data (compared to the Sarcos data) we also tried increasing the feature space of I-SSGPR to 400 features. This did not improve I-SSGPRs performance on the online data (see Table 3). Finally, it is noteworthy that LGR processes both of these data sets at ∼ 500Hz (C++ code, on a 3.4GHz Intel Core i7), making it a realistic alternative for real-time inverse dynamics learning tasks.\nKUKAsim : Finally, we evaluate LGRs ability to learn from scratch on KUKAsim, a large data set of 2 million simulated data points, collected using [30]. We randomly drew 1% points as a test set, on which we evaluate convergence during online training. Figure 2 (left) shows convergence and number of local models used, averaged over 5 randomly seeded runs for joint 1. After the first 1e5 data points, both LWPR and LGR achieve a normalized mean squared error below 0.07, and eventually converge to a nMSE of ∼ 0.01. LGR converges slightly faster, while using fewer local models (Figure 2, right)."
+    }, {
+      "heading" : "6 Conclusion",
+      "text" : "We proposed a top-down approach to probabilistic localized regression. Local Gaussian Regression decouples inference over M local models, resulting in efficient and principled updates for all parameters, including local distance metrics. These localized updates can be used in batch as well as incrementally, yielding computationally efficient learning in either case and applicability to big data sets. Evaluated on a variety of simulated and real robotic inverse dynamics tasks, and compared to I-SSGPR and LWPR, incremental LGR shows an ability to add resources (local models) and to update its distance metrics online. This is essential to consistently achieve high accuracy. Compared to LWPR, LGR matches or improves precision, while consistently using fewer resources (local models) and having significantly fewer manual tuning parameters."
+    } ],
+    "references" : [ {
+      "title" : "Locally weighted learning for control",
+      "author" : [ "Christopher G Atkeson", "Andrew W Moore", "Stefan Schaal" ],
+      "venue" : "Artificial Intelligence Review,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : "1",
+      "year" : 1997
+    }, {
+      "title" : "Gaussian Processes for Machine Learning",
+      "author" : [ "Carl Edward Rasmussen", "Christopher KI Williams" ],
+      "venue" : null,
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 2006
+    }, {
+      "title" : "Data-driven bandwidth selection in local polynomial fitting: variable bandwidth and spatial adaptation",
+      "author" : [ "Jianqing Fan", "Irene Gijbels" ],
+      "venue" : "Journal of the Royal Statistical Society.,",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 1995
+    }, {
+      "title" : "Constructive incremental learning from only local information",
+      "author" : [ "Stefan Schaal", "Christopher G Atkeson" ],
+      "venue" : "Neural Computation,",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : "4",
+      "year" : 1998
+    }, {
+      "title" : "A unifying view of sparse approximate Gaussian process regression",
+      "author" : [ "Joaquin Quiñonero Candela", "Carl Edward Rasmussen" ],
+      "venue" : null,
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : "5",
+      "year" : 1939
+    }, {
+      "title" : "A framework for evaluating approximation methods for Gaussian process",
+      "author" : [ "Krzysztof Chalupka", "Christopher KI Williams", "Iain Murray" ],
+      "venue" : "regression. JMLR,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : "6",
+      "year" : 2013
+    }, {
+      "title" : "Variational learning of inducing variables in sparse Gaussian processes",
+      "author" : [ "Michalis K Titsias" ],
+      "venue" : "In International Conference on Artificial Intelligence and Statistics,",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : "7",
+      "year" : 2009
+    }, {
+      "title" : "Sparse Gaussian processes using pseudo-inputs",
+      "author" : [ "Edward Snelson", "Zoubin Ghahramani" ],
+      "venue" : "Advances in neural information processing systems,",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : "8",
+      "year" : 2006
+    }, {
+      "title" : "Random features for large-scale kernel machines",
+      "author" : [ "Ali Rahimi", "Benjamin Recht" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 2007
+    }, {
+      "title" : "Sparse spectrum Gaussian process regression",
+      "author" : [ "Miguel Lázaro-Gredilla", "Joaquin Quiñonero-Candela", "Carl Edward Rasmussen", "Anı́bal R Figueiras- Vidal" ],
+      "venue" : "JMLR, 11:1865–1881,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : "10",
+      "year" : 2010
+    }, {
+      "title" : "Recursive Gaussian process: On-line regression and learning",
+      "author" : [ "Marco F Huber" ],
+      "venue" : "Pattern Recognition Letters,",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 2014
+    }, {
+      "title" : "Sparse on-line Gaussian processes",
+      "author" : [ "Lehel Csató", "Manfred Opper" ],
+      "venue" : "Neural computation,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 2002
+    }, {
+      "title" : "Real-time model learning using incremental sparse spectrum Gaussian process regression",
+      "author" : [ "Arjan Gijsberts", "Giorgio Metta" ],
+      "venue" : "Neural Networks,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 2013
+    }, {
+      "title" : "Gaussian processes for big data",
+      "author" : [ "James Hensman", "Nicolo Fusi", "Neil D Lawrence" ],
+      "venue" : null,
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 2013
+    }, {
+      "title" : "Bayesian kernel shaping for learning control",
+      "author" : [ "Jo-Anne Ting", "Mrinal Kalakrishnan", "Sethu Vijayakumar", "Stefan Schaal" ],
+      "venue" : "Advances in neural information processing systems,",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : "15",
+      "year" : 2008
+    }, {
+      "title" : "Local Gaussian process regression for real time online model learning",
+      "author" : [ "Duy Nguyen-Tuong", "Jan R Peters", "Matthias Seeger" ],
+      "venue" : "In Advances in Neural Information Processing Systems,",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : "16",
+      "year" : 2008
+    }, {
+      "title" : "Local and global sparse Gaussian process approximations",
+      "author" : [ "Edward Snelson", "Zoubin Ghahramani" ],
+      "venue" : "In International Conference on Artificial Intelligence and Statistics,",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : "17",
+      "year" : 2007
+    }, {
+      "title" : "Local regression: Automatic kernel carpentry",
+      "author" : [ "Trevor Hastie", "Clive Loader" ],
+      "venue" : "Statistical Science,",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : "18",
+      "year" : 1993
+    }, {
+      "title" : "Learning with localized receptive fields",
+      "author" : [ "J. Moody", "C. Darken" ],
+      "venue" : "In Proceedings of the 1988 Connectionist Summer School,",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : "19",
+      "year" : 1988
+    }, {
+      "title" : "Bayesian Learning for Neural Network, volume",
+      "author" : [ "Radford M Neal" ],
+      "venue" : null,
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : "20",
+      "year" : 1996
+    }, {
+      "title" : "Sparse Bayesian learning and the relevance vector machine",
+      "author" : [ "Michael E Tipping" ],
+      "venue" : "The Journal of Machine Learning Research,",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : "21",
+      "year" : 2001
+    }, {
+      "title" : "The Bayesian backfitting relevance vector machine",
+      "author" : [ "Aaron D’Souza", "Sethu Vijayakumar", "Stefan Schaal" ],
+      "venue" : "In ICML,",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : "22",
+      "year" : 2004
+    }, {
+      "title" : "Graphical models, exponential families, and variational inference",
+      "author" : [ "Martin J Wainwright", "Michael I Jordan" ],
+      "venue" : "Foundations and Trends® in Machine Learning,",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : "23",
+      "year" : 2008
+    }, {
+      "title" : "Stochastic variational inference",
+      "author" : [ "Matthew D. Hoffman", "David M. Blei", "Chong Wang", "John Paisley" ],
+      "venue" : "J. Mach. Learn. Res.,",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : "24",
+      "year" : 2013
+    }, {
+      "title" : "Streaming variational Bayes",
+      "author" : [ "Tamara Broderick", "Nicholas Boyd", "Andre Wibisono", "Ashia C Wilson", "Michael Jordan" ],
+      "venue" : "In Advances in Neural Information Processing Systems,",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : "25",
+      "year" : 2013
+    }, {
+      "title" : "Real-time semiparametric regression",
+      "author" : [ "Jan Luts", "Tamara Broderick", "Matt Wand" ],
+      "venue" : "arxiv,",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : "26",
+      "year" : 2013
+    }, {
+      "title" : "On-line variational Bayesian learning",
+      "author" : [ "Antti Honkela", "Harri Valpola" ],
+      "venue" : "In 4th International Symposium on Independent Component Analysis and Blind Signal Separation,",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : "27",
+      "year" : 2003
+    }, {
+      "title" : "Efficient Bayesian local model learning for control",
+      "author" : [ "Franziska Meier", "Philipp Hennig", "Stefan Schaal" ],
+      "venue" : "In Proceedings of the IEEE International Conference on Intelligent Robotics Systems (IROS),",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : "28",
+      "year" : 2014
+    }, {
+      "title" : "Incremental Gaussian processes",
+      "author" : [ "Joaquin Quiñonero-Candela", "Ole Winther" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "29",
+      "shortCiteRegEx" : "29",
+      "year" : 2002
+    }, {
+      "title" : "The SL simulation and real-time control software package",
+      "author" : [ "Stefan Schaal" ],
+      "venue" : "Technical report,",
+      "citeRegEx" : "30",
+      "shortCiteRegEx" : "30",
+      "year" : 2009
+    }, {
+      "title" : "Locally weighted projection regression: Incremental real time learning in high dimensional space",
+      "author" : [ "Sethu Vijayakumar", "Stefan Schaal" ],
+      "venue" : "In ICML,",
+      "citeRegEx" : "31",
+      "shortCiteRegEx" : "31",
+      "year" : 2000
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 0,
+      "context" : "In robotics, local learning approaches such as locally weighted regression [1] have thus been favored over global approaches such as Gaussian process regression [2] in the past.",
+      "startOffset" : 75,
+      "endOffset" : 78
+    }, {
+      "referenceID" : 1,
+      "context" : "In robotics, local learning approaches such as locally weighted regression [1] have thus been favored over global approaches such as Gaussian process regression [2] in the past.",
+      "startOffset" : 161,
+      "endOffset" : 164
+    }, {
+      "referenceID" : 2,
+      "context" : "Learning the shape of that kernel [3] is the key component of locally weighted learning.",
+      "startOffset" : 34,
+      "endOffset" : 37
+    }, {
+      "referenceID" : 3,
+      "context" : "Schaal & Atkeson [4] introduced a non-memory-based version of LWR to compress large amounts of data into a small number of parameters.",
+      "startOffset" : 17,
+      "endOffset" : 20
+    }, {
+      "referenceID" : 1,
+      "context" : "Gaussian process regression (GPR) [2], on the other hand, offers principled inference for hyperparameters, but at high computational cost.",
+      "startOffset" : 34,
+      "endOffset" : 37
+    }, {
+      "referenceID" : 4,
+      "context" : "Recent progress in sparsifying Gaussian processes [5, 6] has resulted in computationally efficient variants of GPR .",
+      "startOffset" : 50,
+      "endOffset" : 56
+    }, {
+      "referenceID" : 5,
+      "context" : "Recent progress in sparsifying Gaussian processes [5, 6] has resulted in computationally efficient variants of GPR .",
+      "startOffset" : 50,
+      "endOffset" : 56
+    }, {
+      "referenceID" : 6,
+      "context" : "Sparsification is achieved either through a subset selection of support points [7, 8] or through sparsification of the spectrum of the GP [9, 10].",
+      "startOffset" : 79,
+      "endOffset" : 85
+    }, {
+      "referenceID" : 7,
+      "context" : "Sparsification is achieved either through a subset selection of support points [7, 8] or through sparsification of the spectrum of the GP [9, 10].",
+      "startOffset" : 79,
+      "endOffset" : 85
+    }, {
+      "referenceID" : 8,
+      "context" : "Sparsification is achieved either through a subset selection of support points [7, 8] or through sparsification of the spectrum of the GP [9, 10].",
+      "startOffset" : 138,
+      "endOffset" : 145
+    }, {
+      "referenceID" : 9,
+      "context" : "Sparsification is achieved either through a subset selection of support points [7, 8] or through sparsification of the spectrum of the GP [9, 10].",
+      "startOffset" : 138,
+      "endOffset" : 145
+    }, {
+      "referenceID" : 10,
+      "context" : "Online versions of such sparse GPs [11, 12, 13] have produced a viable alternative for real-time model learning problems [14].",
+      "startOffset" : 35,
+      "endOffset" : 47
+    }, {
+      "referenceID" : 11,
+      "context" : "Online versions of such sparse GPs [11, 12, 13] have produced a viable alternative for real-time model learning problems [14].",
+      "startOffset" : 35,
+      "endOffset" : 47
+    }, {
+      "referenceID" : 12,
+      "context" : "Online versions of such sparse GPs [11, 12, 13] have produced a viable alternative for real-time model learning problems [14].",
+      "startOffset" : 35,
+      "endOffset" : 47
+    }, {
+      "referenceID" : 13,
+      "context" : "Online versions of such sparse GPs [11, 12, 13] have produced a viable alternative for real-time model learning problems [14].",
+      "startOffset" : 121,
+      "endOffset" : 125
+    }, {
+      "referenceID" : 14,
+      "context" : "Previous probabilistic formulations of local regression [15, 16, 17] are bottom-up constructions—generative models for one local model at a time.",
+      "startOffset" : 56,
+      "endOffset" : 68
+    }, {
+      "referenceID" : 15,
+      "context" : "Previous probabilistic formulations of local regression [15, 16, 17] are bottom-up constructions—generative models for one local model at a time.",
+      "startOffset" : 56,
+      "endOffset" : 68
+    }, {
+      "referenceID" : 16,
+      "context" : "Previous probabilistic formulations of local regression [15, 16, 17] are bottom-up constructions—generative models for one local model at a time.",
+      "startOffset" : 56,
+      "endOffset" : 68
+    }, {
+      "referenceID" : 17,
+      "context" : "Higher polynomials can be used, too, but linear models have a favorable bias-variance trade-off [18].",
+      "startOffset" : 96,
+      "endOffset" : 100
+    }, {
+      "referenceID" : 18,
+      "context" : "This form of localization couples all local models, as in classical radial basis function networks [19].",
+      "startOffset" : 99,
+      "endOffset" : 103
+    }, {
+      "referenceID" : 19,
+      "context" : "Since it will become necessary to prune the model, we adopt the classic idea of automatic relevance determination [20, 21] using a factorizing prior",
+      "startOffset" : 114,
+      "endOffset" : 122
+    }, {
+      "referenceID" : 20,
+      "context" : "Since it will become necessary to prune the model, we adopt the classic idea of automatic relevance determination [20, 21] using a factorizing prior",
+      "startOffset" : 114,
+      "endOffset" : 122
+    }, {
+      "referenceID" : 21,
+      "context" : "To use this near-independence for cheap local approximate inference, similar to LWR, we introduce a latent variable f m for each local model m and datum xn, as in probabilistic backfitting [22].",
+      "startOffset" : 189,
+      "endOffset" : 193
+    }, {
+      "referenceID" : 22,
+      "context" : "[23]) that these distributions are Gaussian in both w and f .",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 23,
+      "context" : "There has been recent interest in variational online algorithms for efficient learning on large data sets [24, 25].",
+      "startOffset" : 106,
+      "endOffset" : 114
+    }, {
+      "referenceID" : 24,
+      "context" : "There has been recent interest in variational online algorithms for efficient learning on large data sets [24, 25].",
+      "startOffset" : 106,
+      "endOffset" : 114
+    }, {
+      "referenceID" : 23,
+      "context" : "Stochastic variational inference [24] operates under the assumption that the data set has a fixed size N and optimizes the variational lower bound for N data points via stochastic gradient descent.",
+      "startOffset" : 33,
+      "endOffset" : 37
+    }, {
+      "referenceID" : 25,
+      "context" : "Probabilistic methods in this setting typically follow a Bayesian filtering approach [26, 25, 27] in which the posterior after n − 1 data points becomes the prior for the n-th incoming data point.",
+      "startOffset" : 85,
+      "endOffset" : 97
+    }, {
+      "referenceID" : 24,
+      "context" : "Probabilistic methods in this setting typically follow a Bayesian filtering approach [26, 25, 27] in which the posterior after n − 1 data points becomes the prior for the n-th incoming data point.",
+      "startOffset" : 85,
+      "endOffset" : 97
+    }, {
+      "referenceID" : 26,
+      "context" : "Probabilistic methods in this setting typically follow a Bayesian filtering approach [26, 25, 27] in which the posterior after n − 1 data points becomes the prior for the n-th incoming data point.",
+      "startOffset" : 85,
+      "endOffset" : 97
+    }, {
+      "referenceID" : 27,
+      "context" : "Thus, the factorized approximation on the posterior q(z) over all random variables z = {f ,w,α,βf} is changed to q(z) = q(f ,w,βf ,α) = q(f)q(w)q(βf)q(α) (24) A batch version of this was introduced in [28].",
+      "startOffset" : 201,
+      "endOffset" : 205
+    }, {
+      "referenceID" : 27,
+      "context" : "The batch updates (listed in [28]) can be rewritten such that they depend on the following sufficient statistics ∑ N n=1φ n mφ n m ⊺ ,∑n=1φ n mμ n fm and ∑n=1(μ n fm) (2).",
+      "startOffset" : 29,
+      "endOffset" : 33
+    }, {
+      "referenceID" : 28,
+      "context" : "Finally, we use an extension analogous to incremental training of the relevance vector machine [29] to iteratively add local models at new, greedily selected locations cM+1.",
+      "startOffset" : 95,
+      "endOffset" : 99
+    }, {
+      "referenceID" : 1,
+      "context" : "Dataset freq Motion Noffline train Nonline train Ntest ISoffline ∪ ISonline Sarcos [2] 100 rhythmic 4449 44484 - large overlap KUKA1 500 rhythmic at various speeds 17560 180360 - small overlap KUKA2 500 rhythmic at various speeds 17560 180360 no overlap KUKAsim 500 rhythmic + discrete - 1984950 20050 -",
+      "startOffset" : 83,
+      "endOffset" : 86
+    }, {
+      "referenceID" : 30,
+      "context" : "We compare to two methods previously used for inverse dynamics learning: LWPR1 – an extension of LWR for high dimensional spaces [31] – and I-SSGPR2 [13] – an incremental version of Sparse Spectrum GPR.",
+      "startOffset" : 129,
+      "endOffset" : 133
+    }, {
+      "referenceID" : 12,
+      "context" : "We compare to two methods previously used for inverse dynamics learning: LWPR1 – an extension of LWR for high dimensional spaces [31] – and I-SSGPR2 [13] – an incremental version of Sparse Spectrum GPR.",
+      "startOffset" : 149,
+      "endOffset" : 153
+    }, {
+      "referenceID" : 12,
+      "context" : "We mimic the procedure used in [13]: An offline training set is used to learn an initial model and hyperparameters, then an online training set is used to evaluate incremental learning.",
+      "startOffset" : 31,
+      "endOffset" : 35
+    }, {
+      "referenceID" : 1,
+      "context" : "Sarcos: Table 2 summarizes results on the popular Sarcos benchmark for inverse dynamics learning tasks [2].",
+      "startOffset" : 103,
+      "endOffset" : 106
+    }, {
+      "referenceID" : 12,
+      "context" : "I-SSGPR is trained with 200 and 400 sparse spectrum features, indicated as I-SSGPR200(400), where 200 features is the optimal design choice according to [13].",
+      "startOffset" : 153,
+      "endOffset" : 157
+    }, {
+      "referenceID" : 29,
+      "context" : "we use the LWPR implementation found in the SL simulation software package [30] (2)we use code from the learningMachine library in the RobotCub framework, from http:// eris.",
+      "startOffset" : 75,
+      "endOffset" : 79
+    }, {
+      "referenceID" : 29,
+      "context" : "KUKAsim : Finally, we evaluate LGRs ability to learn from scratch on KUKAsim, a large data set of 2 million simulated data points, collected using [30].",
+      "startOffset" : 147,
+      "endOffset" : 151
+    } ],
+    "year" : 2014,
+    "abstractText" : "Locally weighted regression (LWR) was created as a nonparametric method that can approximate a wide range of functions, is computationally efficient, and can learn continually from very large amounts of incrementally collected data. As an interesting feature, LWR can regress on non-stationary functions, a beneficial property, for instance, in control problems. However, it does not provide a proper generative model for function values, and existing algorithms have a variety of manual tuning parameters that strongly influence bias, variance and learning speed of the results. Gaussian (process) regression, on the other hand, does provide a generative model with rather black-box automatic parameter tuning, but it has higher computational cost, especially for big data sets and if a non-stationary model is required. In this paper, we suggest a path from Gaussian (process) regression to locally weighted regression, where we retain the best of both approaches. Using a localizing function basis and approximate inference techniques, we build a Gaussian (process) regression algorithm of increasingly local nature and similar computational complexity to LWR. Empirical evaluations are performed on several synthetic and real robot datasets of increasing complexity and (big) data scale, and demonstrate that we consistently achieve on par or superior performance compared to current state-of-the-art methods while retaining a principled approach to fast incremental regression with minimal manual tuning parameters.",
+    "creator" : null
+  }
+}

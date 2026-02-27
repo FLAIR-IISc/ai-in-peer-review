@@ -1,0 +1,364 @@
+{
+  "name" : "8b16ebc056e613024c057be590b542eb.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Learning convolution filters for inverse covariance estimation of neural network connectivity",
+    "authors" : [ "George O. Mohler" ],
+    "emails" : [ "gmohler@scu.edu" ],
+    "sections" : [ {
+      "heading" : null,
+      "text" : "We consider the problem of inferring direct neural network connections from Calcium imaging time series. Inverse covariance estimation has proven to be a fast and accurate method for learning macro- and micro-scale network connectivity in the brain and in a recent Kaggle Connectomics competition inverse covariance was the main component of several top ten solutions, including our own and the winning team’s algorithm. However, the accuracy of inverse covariance estimation is highly sensitive to signal preprocessing of the Calcium fluorescence time series. Furthermore, brute force optimization methods such as grid search and coordinate ascent over signal processing parameters is a time intensive process, where learning may take several days and parameters that optimize one network may not generalize to networks with different size and parameters. In this paper we show how inverse covariance estimation can be dramatically improved using a simple convolution filter prior to applying sample covariance. Furthermore, these signal processing parameters can be learned quickly using a supervised optimization algorithm. In particular, we maximize a binomial log-likelihood loss function with respect to a convolution filter of the time series and the inverse covariance regularization parameter. Our proposed algorithm is relatively fast on networks the size of those in the competition (1000 neurons), producing AUC scores with similar accuracy to the winning solution in training time under 2 hours on a cpu. Prediction on new networks of the same size is carried out in less than 15 minutes, the time it takes to read in the data and write out the solution."
+    }, {
+      "heading" : "1 Introduction",
+      "text" : "Determining the topology of macro-scale functional networks in the brain and micro-scale neural networks has important applications to disease diagnosis and is an important step in understanding brain function in general [11, 19]. Modern neuroimaging techniques allow for the activity of hundreds of thousands of neurons to be simultaneously monitored [19] and recent algorithmic research has focused on the inference of network connectivity from such neural imaging data. A number of approaches to solve this problem have been proposed, including Granger causality [3], Bayesian networks [6], generalized transfer entropy [19], partial coherence [5], and approaches that directly model network dynamics [16, 18, 14, 22].\n∗\nSeveral challenges must be overcome when reconstructing network connectivity from imaging data. First, imaging data is noisy and low resolution. The rate of neuron firing may be faster than the image sampling rate [19] and light scattering effects [13, 19] lead to signal correlations at short distances irrespective of network connectivity. Second, causality must be inferred from observed correlations in neural activity. Neuron spiking is highly correlated both with directly connected neurons and those connected through intermediate neurons. Coupled with the low sampling rate this poses a significant challenge, as it may be the case that neuron i triggers neuron j, which then triggers neuron k, all within a time frame less than the sampling rate.\nTo solve the second challenge, sparse inverse covariance estimation has recently become a popular technique for disentangling causation from correlation [11, 15, 23, 1, 9, 10]. While the sample covariance matrix only provides information on variable correlations, zeros in the inverse covariance matrix correspond to conditional independence of variables under normality assumptions on the data. In the context of inferring network connectivity from leaky integrate and fire neural network time-series, however, it is not clear what set of random variables one should use to compute sample covariance (a necessary step for estimating inverse covariance). While the simplest choice is the raw time-series signal, the presence of both Gaussian and jump-type noise make this significantly less accurate than applying signal preprocessing aimed at filtering times at which neurons fire.\nIn a recent Kaggle competition focused on inferring neural network connectivity from Calcium imaging time series, our approach used inverse covariance estimation to predict network connections. Instead of using the raw time series to compute sample covariance, we observed improved Area Under the Curve (receiver operating characteristic [2]) scores by thresholding the time derivative of the time-series signal and then combining inverse covariance corresponding to several thresholds and time-lags in an ensemble. This is similar to the approach of the winning solution [21], though they considered a significantly larger set of thresholds and nonlinear filters learned via coordinate ascent, the result of which produced a private leaderboard AUC score of .9416 compared to our score of .9338. However, both of these approaches are computationally intensive, where prediction on a new network alone takes 10 hours in the case of the winning solution [21]. Furthermore, parameters for signal processing were highly tuned for optimizing AUC of the competition networks and don’t generalize to networks of different size or parameters [21]. Given that coordinate ascent takes days for learning parameters of new networks, this makes such an approach impractical.\nIn this paper we show how inverse covariance estimation can be significantly improved by applying a simple convolution filter to the raw time series signal. The filter can be learned quickly in a supervised manner, requiring no time intensive grid search or coordinate ascent. In particular, we optimize a smooth binomial log-likelihood loss function with respect to a time series convolution kernel, along with the inverse covariance regularization parameter, using L-BFGS [17]. Training the model is fast and accurate, running in under 2 hours on a CPU and producing AUC scores that are competitive with the winning Kaggle solution. The outline of the paper is as follows. In Section 2 we review inverse covariance estimation and introduce our convolution based method for signal preprocessing. In Section 3 we provide the details of our supervised learning algorithm and in Section 4 we present results of the algorithm applied to the Kaggle Connectomics dataset."
+    }, {
+      "heading" : "2 Modeling framework for inferring neural connectivity",
+      "text" : ""
+    }, {
+      "heading" : "2.1 Background on inverse covariance estimation",
+      "text" : "Let X ∈ Rn×p be a data set of n observations from a multivariate Gaussian distribution with p variables, let Σ denote the covariance matrix of the random variables, and S the sample covariance. Variables i and j are conditionally independent given all other variables if the ijth component of Θ = Σ−1 is zero. For this reason, a popular approach for inferring connectivity in sparse networks is to estimate the inverse covariance matrix via l1 penalized maximum likelihood,\nΘ̂ = arg max Θ\n{ log ( det(Θ) ) − tr(SΘ)− λ‖Θ‖1 } , (1)\n[11, 15, 23, 1, 9, 10], commonly referred to as GLASSO (graphical least absolute shrinkage and selection operator). GLASSO has been used to infer brain connectivity for the purpose of diagnosing Alzheimer’s disease [11] and determining brain architecture and pathologies [23].\nWhile GLASSO is a useful method for imposing sparsity on network connections, in the Kaggle Connectomics competition AUC was the metric used for evaluating competing models and on AUC GLASSO only performs marginally better (AUC≈ .89) than the generalized transfer entropy Kaggle benchmark (AUC≈ .88). The reason for the poor performance of GLASSO on AUC is that l1 penalization forces a large percentage of neuron connection scores to zero, whereas high AUC performance requires ranking all possible connections.\nWe therefore use l2 penalized inverse covariance estimation [23, 12],\nΘ̂ = ( S + λI )−1 , (2)\ninstead of optimizing Equation 1. While one advantage of Equation 2 is that all connections are assigned a non-zero score, another benefit is derivatives with respect to model parameters are easy to determine and compute using the standard formula for the derivative of an inverse matrix. In particular, our model consists of parametrizing S using a convolution filter applied to the raw Calcium fluorescence time series and Equation 2 facilitates derivative based optimization. We return to GLASSO in the discussion section at the end of the paper."
+    }, {
+      "heading" : "2.2 Signal processing",
+      "text" : "Next we introduce a model for the covariance matrix S taking as input observed imaging data from a neural network. Let f be the Calcium fluorescence time series signal, where f it is the signal observed at neuron i in the network at time t. The goal in this paper is to infer direct network connections from the observed fluorescence time series (see Figure 1). While f it can be used directly to calculate\ncovariance between fluorescence time series, significant improvements in model performance are achieved by filtering the signal to obtain an estimate of nit, the number of times neuron i fired between t and t + ∆t. In the competition we used simple thresholding of the time series derivative\n∆f it = f i t+∆t − f it to estimate neuron firing times,\nnit = 1{∆fit>µ}. (3)\nThe covariance matrix was then computed using a variety of threshold values µ and time-lags k. In particular, the (i, j)th entry of S(µ, k) was determined by,\nsij = 1\nT T∑ t=k (nit − ni)(n j t−k − n j), (4)\nwhere ni is the mean signal. The covariance matrices were then inverted using Equation 2 and combined using LambdaMart [4] to optimize AUC, along with a restricted Boltzmann machine and generalized linear model. In Figure 2, we illustrate the sensitivity of inverse covariance estimation on the threshold parameter µ, regularization parameter λ, and time-lag parameter k. Using the raw time series signal leads to AUC scores between 0.84 and 0.88, whereas for good choices of the threshold and regularization parameter Equation 2 yields AUC scores above 0.92. Further gains are achieved by using an ensemble over varying µ, λ, and k.\nIn this paper we take a different approach in order to jointly learn the processed fluorescence signal and the inverse covariance estimate. In particular, we convolve the fluorescence time series f i with a kernel α and then pass the convolution through the logistic function σ(x),\nyi = σ(f i ∗α + αbias). (5)\nNote for α0 = −α1 (and αk = 0 otherwise) this convolution filter approximates the threshold filter in Equation 3. However, it turns out that the learned optimal filter is significantly different than time derivative thresholding (see Figure 1C). Inverse covariance is then estimated via Equation 2, where the sample covariance is given by,\nsij = 1\nT T∑ t=1 (yit − yi)(y j t − yj). (6)\nThe time lags no longer appear in Equation 6, but instead are reflected in the convolution filter."
+    }, {
+      "heading" : "2.3 Supervised inverse covariance estimation",
+      "text" : "Given the sensitivity of model performance on signal processing illustrated in Figure 2, our goal is now to learn the optimal filter α by optimizing a smooth loss function. To do this we introduce a model for the probability of neurons being connected as a function of inverse covariance.\nLet zij = 1 if neuron i connects to neuron j and zero otherwise and let Θ(α, λ) be the inverse covariance matrix that depends on the smoothing parameter λ from Section 2.1 and the convolution filter α from Section 2.2. We model the probability of neuron i connecting to j as σij = σ(θijβ0 + β1) where σ is the logistic function and θij is the (i, j)th entry of Θ. In summary, our model for scoring the connection from i to j is detailed in Algorithm 1.\nAlgorithm 1: Inverse covariance scoring algorithm Input: f α αbias λ β0 β1 \\\\ fluorescence signal and model parameters yi = σ(f i ∗α + αbias) \\\\ apply convolution filter and logistic function to signal for i← 1 to N do\nfor j ← 1 to N do sij = 1 T ∑T t=1(y i t − yi)(y j t − yj) \\\\ compute sample covariance matrix\nend end Θ = (S + λI)−1 \\\\ compute inverse covariance matrix Output: σ(Θβ0 + β1) \\\\ output connection probability matrix\nThe loss function we aim to optimize is the binomial log-likelihood, given by,\nL(α, λ, β0, β1) = ∑ i 6=j χzij log(σij) + (1− χ)(1− zij) log(1− σij), (7)\nwhere the parameter χ is chosen to balance the dataset. The networks in the Kaggle dataset are sparse, with approximately 1.2% connections, so we choose χ = .988. For χ values within 10% of the true percentage of connections, AUC scores are above .935. Without data balancing, the model achieves an AUC score of .925, so the introduction of χ is important. While smooth approximations of AUC are possible, we find that optimizing Equation 7 instead still yields high AUC scores.\nTo use derivative based optimization methods that converge quickly, we need to calculate the derivatives of Equation 7. Defining,\nωij = χzij(1− σij)− (1− χ)(1− zij)σij , (8)\nthen the derivatives of the loss function with respect to the model parameters are specified by,\ndL dβ0 = ∑ i 6=j ωijθij , dL dβ1 = ∑ i 6=j ωij , (9)\ndL dλ = ∑ i 6=j β0ωij dθij dλ , dL dαk = ∑ i 6=j β0ωij dθij dαk . (10)\nUsing the inverse derivative formula, we have that the derivatives of the inverse covariance matrix satisfy the following convenient equations,\ndΘ dλ = −\n( (S(α) + λI)−1 )2 , dΘ\ndαk = −(S(α) + λI)−1 dS dαk (S(α) + λI)−1, (11)\nwhere S is the sample covariance matrix from Section 2.2. The derivatives of the sample covariance are then found by substituting dy i t\ndαk = yit(1− yit)f it−k into Equation 6 and using the product rule."
+    }, {
+      "heading" : "3 Results",
+      "text" : "We test our methodology using data provided through the Kaggle Connectomics competition. In the Kaggle competition, neural activity was modeled using a leaky integrate and fire model outlined in [19]. Four 1000 neuron networks with 179,500 time series observations per network were provided for training, a test network of the same size and parameters was provided without labels to determine the public leaderboard, and final standings were computed using a 6th network for validation. The goal of the competition was to infer the network connections from the observed Fluorescence time series signal (see Figure 1) and the error metric for determining model performance was AUC.\nThere are two ways in which we determined the size of the convolution filter. The first is through inspecting the decay of cross-correlation as a function of the time-lag. For the networks we consider in the paper, this decay takes place over 10-15 time units. The second method is to add an additional time unit one at a time until cross-validated AUC scores no longer improve. This happens for the networks we consider at 10 time units. We therefore consider a convolution filter with k = 0...10.\nWe use the off-the-shelf optimization method L-BFGS [17] to optimize Equation 7. Prior to applying the convolution filter, we attempt to remove light scattering effects simulated in the competition by inverting the equation,\nF it = f i t +Asc ∑ j 6=i f jt exp { − (dij/λsc)2 } . (12)\nHere F it is the observed fluorescence provided for the competition with light scattering effects (see [19]) and dij is the distance between neuron i and j. The parameter values Asc = .15 and λsc = .025 were determined such that the correlation between neuron distance and signal covariance was approximately zero.\nWe learn the model parameters using network 2 and training time takes less than 2 hours in Matlab on a laptop with a 2.3 GHz Intel Core i7 processor and 16GB of RAM. Whereas prediction alone takes 10 hours on one network for the winning Kaggle entry [21], prediction using Algorithm 1 takes 15 minutes total and the algorithm itself runs in 20 seconds (the rest of the time is dedicated to reading the competition csv files into and out of Matlab). In Figure 3 we display results for all four of the training networks using 80 iterations of L-BFGS (we used four outer iterations with maxIter= 20 and TolX= 1e− 5). The convolution filter is initialized to random values and at every 20 iterations we plot the corresponding filtered signal for neuron 1 of network 2 over the first 1000 time series observations. After 10 iterations all four networks have an AUC score above 0.9. After 80 iterations the AUC private leaderboard score of the winning solution is within the range of the AUC scores of networks 1, 3, and 4 (trained on network 2). We note that during training intermediate AUC scores do not increase monotonically and also exhibit several plateaus. This is likely due to the fact that AUC is a non-smooth loss function and we used the binomial likelihood in its stead."
+    }, {
+      "heading" : "4 Discussion",
+      "text" : "We introduced a model for inferring connectivity in neural networks along with a fast and easy to implement optimization strategy. In this paper we focused on the application to leaky integrate and fire models of neural activity, but our methodology may find application to other types of crossexciting point processes such as models of credit risk contagion [7] or contagion processes on social networks [20].\nIt is worth noting that we used a Gaussian model for inverse covariance even though the data was highly non-Gaussian. In particular, neural firing time series data is generated by a nonlinear, mutually-exciting point process. We believe that it is the fact that the input data is non-Gaussian that the signal processing is so crucial. In this case f it and f j s are highly dependent for 10 > t − s > 0\nand j → i. Empirically, the learned convolution filter compensates for the model mis-specification and allows for the “wrong” model to still achieve a high degree of accuracy.\nWe also note that using directed network estimation did not improve our methods, nor the methods of other top solutions in the competition. This may be due to the fact that the resolution of Calcium fluorescence imaging is coarser than the timescale of network dynamics, so that directionality information is lost in the imaging process. That being said, it is possible to adapt our method for estimation of directed networks. This can be accomplished by introducing two different filters αi and αj into Equations 5 and 6 to allow for an asymmetric covariance matrix S in Equation 6. It would be interesting to assess the performance of such a method on networks with higher resolution imaging in future research.\nWhile the focus here was on AUC maximization, other loss functions may be useful to consider. For sparse networks where the average network degree is known, precision or discounted cumulative gain may be reasonable alternatives to AUC. Here it is worth noting that l1 penalization is more accurate for these types of loss functions that favor sparse solutions. In Table 1 we compare the accuracy of Equation 1 vs Equation 2 on both AUC and PREC@k (where k is chosen to be the known number of network connections). For signal processing we return to time-derivative thresholding and use the parameters that yielded the best single inverse covariance estimate during the competition. While l2 penalization is significantly more accurate for AUC, this is not the case for PREC@k for which GLASSO achieves a higher precision.\nIt is clear that the sample covariance S in Equation 1 can be parameterized by a convolution kernel α, but supervised learning is no longer as straightforward. Coordinate ascent can be used, but given that Equation 1 is orders of magnitude slower to solve than Equation 2, such an approach may not be practical. Letting G(Θ,S) be the penalized log-likelihood corresponding to GLASSO in Equation 1, another possibility is to jointly optimize\nρG(Θ,S) + (1− ρ)L(Θ,S) (13)\nwhere L is the binomial log-likelihood in Equation 7. In this case both the convolution filter and the inverse covariance estimate Θ would need to be learned jointly and the parameter ρ could be determined via cross validation on a held-out network. Extending the results in this paper to GLASSO will be the focus of subsequent research."
+    } ],
+    "references" : [ {
+      "title" : "d’Aspremont. Model selection through sparse maximum likelihood estimation for multivariate gaussian or binary data",
+      "author" : [ "Onureena Banerjee", "Laurent El Ghaoui", "Alexandre" ],
+      "venue" : "The Journal of Machine Learning Research,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : "1",
+      "year" : 2008
+    }, {
+      "title" : "The use of the area under the roc curve in the evaluation of machine learning algorithms",
+      "author" : [ "Andrew P Bradley" ],
+      "venue" : "Pattern recognition,",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 1997
+    }, {
+      "title" : "Wiener–granger causality: a well established methodology",
+      "author" : [ "Steven L Bressler", "Anil K Seth" ],
+      "venue" : null,
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 2011
+    }, {
+      "title" : "Learning to rank using an ensemble of lambda-gradient models",
+      "author" : [ "Christopher JC Burges", "Krysta Marie Svore", "Paul N Bennett", "Andrzej Pastusiak", "Qiang Wu" ],
+      "venue" : "Journal of Machine Learning Research-Proceedings Track,",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : "4",
+      "year" : 2011
+    }, {
+      "title" : "Identification of synaptic connections in neural ensembles by graphical models",
+      "author" : [ "Rainer Dahlhaus", "Michael Eichler", "Jürgen Sandkühler" ],
+      "venue" : "Journal of neuroscience methods,",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : "5",
+      "year" : 1997
+    }, {
+      "title" : "On the use of dynamic bayesian networks in reconstructing functional neuronal networks from spike train ensembles",
+      "author" : [ "Seif Eldawlatly", "Yang Zhou", "Rong Jin", "Karim G Oweiss" ],
+      "venue" : "Neural computation,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : "6",
+      "year" : 2010
+    }, {
+      "title" : "Affine point processes and portfolio credit risk",
+      "author" : [ "Eymen Errais", "Kay Giesecke", "Lisa R Goldberg" ],
+      "venue" : "SIAM Journal on Financial Mathematics,",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : "7",
+      "year" : 2010
+    }, {
+      "title" : "Sparse inverse covariance estimation with the graphical lasso",
+      "author" : [ "Jerome Friedman", "Trevor Hastie", "Robert Tibshirani" ],
+      "venue" : null,
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 2008
+    }, {
+      "title" : "Sparse inverse covariance matrix estimation using quadratic approximation",
+      "author" : [ "Cho-Jui Hsieh", "Matyas A Sustik", "Inderjit S Dhillon", "Pradeep D Ravikumar" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : "10",
+      "year" : 2011
+    }, {
+      "title" : "Learning brain connectivity of alzheimer’s disease from neuroimaging data",
+      "author" : [ "Shuai Huang", "Jing Li", "Liang Sun", "Jun Liu", "Teresa Wu", "Kewei Chen", "Adam Fleisher", "Eric Reiman", "Jieping Ye" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 2009
+    }, {
+      "title" : "A well-conditioned estimator for large-dimensional covariance matrices",
+      "author" : [ "Olivier Ledoit", "Michael Wolf" ],
+      "venue" : "Journal of multivariate analysis,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 2004
+    }, {
+      "title" : "Deconvolution techniques for experimental optical imaging in medicine",
+      "author" : [ "Olaf Minet", "Jürgen Beuthan", "Urszula Zabarylo" ],
+      "venue" : "Medical Laser Application,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 2008
+    }, {
+      "title" : "A bayesian approach for inferring neuronal connectivity from calcium fluorescent imaging data",
+      "author" : [ "Yuriy Mishchenko", "Joshua T Vogelstein", "Liam Paninski" ],
+      "venue" : "The Annals of Applied Statistics,",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 2011
+    }, {
+      "title" : "A novel sparse graphical approach for multimodal brain connectivity inference",
+      "author" : [ "Bernard Ng", "Gaël Varoquaux", "Jean-Baptiste Poline", "Bertrand Thirion" ],
+      "venue" : "In Medical Image Computing and Computer-Assisted Intervention–MICCAI",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : "15",
+      "year" : 2012
+    }, {
+      "title" : "Ising model for neural data: Model quality and approximate methods for extracting functional connectivity",
+      "author" : [ "Yasser Roudi", "Joanna Tyrcha", "John Hertz" ],
+      "venue" : "Physical Review E,",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : "16",
+      "year" : 1915
+    }, {
+      "title" : "Inferring network topology from complex dynamics",
+      "author" : [ "Srinivas Gorur Shandilya", "Marc Timme" ],
+      "venue" : "New Journal of Physics,",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : "18",
+      "year" : 2011
+    }, {
+      "title" : "Model-free reconstruction of excitatory neuronal connectivity from calcium imaging signals",
+      "author" : [ "Olav Stetter", "Demian Battaglia", "Jordi Soriano", "Theo Geisel" ],
+      "venue" : "PLoS computational biology,",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : "19",
+      "year" : 2012
+    }, {
+      "title" : "Reconstruction of missing data in social networks based on temporal patterns of interactions",
+      "author" : [ "Alexey Stomakhin", "Martin B Short", "Andrea L Bertozzi" ],
+      "venue" : "Inverse Problems,",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : "20",
+      "year" : 2011
+    }, {
+      "title" : "Inferring synaptic connectivity from spatio-temporal spike patterns",
+      "author" : [ "Frank Van Bussel", "Birgit Kriener", "Marc Timme" ],
+      "venue" : "Frontiers in computational neuroscience,",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : "22",
+      "year" : 2011
+    }, {
+      "title" : "Brain covariance selection: better individual functional connectivity models using population prior",
+      "author" : [ "Gaël Varoquaux", "Alexandre Gramfort", "Jean-Baptiste Poline", "Bertrand Thirion" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : "23",
+      "year" : 2010
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 9,
+      "context" : "Determining the topology of macro-scale functional networks in the brain and micro-scale neural networks has important applications to disease diagnosis and is an important step in understanding brain function in general [11, 19].",
+      "startOffset" : 221,
+      "endOffset" : 229
+    }, {
+      "referenceID" : 16,
+      "context" : "Determining the topology of macro-scale functional networks in the brain and micro-scale neural networks has important applications to disease diagnosis and is an important step in understanding brain function in general [11, 19].",
+      "startOffset" : 221,
+      "endOffset" : 229
+    }, {
+      "referenceID" : 16,
+      "context" : "Modern neuroimaging techniques allow for the activity of hundreds of thousands of neurons to be simultaneously monitored [19] and recent algorithmic research has focused on the inference of network connectivity from such neural imaging data.",
+      "startOffset" : 121,
+      "endOffset" : 125
+    }, {
+      "referenceID" : 2,
+      "context" : "A number of approaches to solve this problem have been proposed, including Granger causality [3], Bayesian networks [6], generalized transfer entropy [19], partial coherence [5], and approaches that directly model network dynamics [16, 18, 14, 22].",
+      "startOffset" : 93,
+      "endOffset" : 96
+    }, {
+      "referenceID" : 5,
+      "context" : "A number of approaches to solve this problem have been proposed, including Granger causality [3], Bayesian networks [6], generalized transfer entropy [19], partial coherence [5], and approaches that directly model network dynamics [16, 18, 14, 22].",
+      "startOffset" : 116,
+      "endOffset" : 119
+    }, {
+      "referenceID" : 16,
+      "context" : "A number of approaches to solve this problem have been proposed, including Granger causality [3], Bayesian networks [6], generalized transfer entropy [19], partial coherence [5], and approaches that directly model network dynamics [16, 18, 14, 22].",
+      "startOffset" : 150,
+      "endOffset" : 154
+    }, {
+      "referenceID" : 4,
+      "context" : "A number of approaches to solve this problem have been proposed, including Granger causality [3], Bayesian networks [6], generalized transfer entropy [19], partial coherence [5], and approaches that directly model network dynamics [16, 18, 14, 22].",
+      "startOffset" : 174,
+      "endOffset" : 177
+    }, {
+      "referenceID" : 14,
+      "context" : "A number of approaches to solve this problem have been proposed, including Granger causality [3], Bayesian networks [6], generalized transfer entropy [19], partial coherence [5], and approaches that directly model network dynamics [16, 18, 14, 22].",
+      "startOffset" : 231,
+      "endOffset" : 247
+    }, {
+      "referenceID" : 15,
+      "context" : "A number of approaches to solve this problem have been proposed, including Granger causality [3], Bayesian networks [6], generalized transfer entropy [19], partial coherence [5], and approaches that directly model network dynamics [16, 18, 14, 22].",
+      "startOffset" : 231,
+      "endOffset" : 247
+    }, {
+      "referenceID" : 12,
+      "context" : "A number of approaches to solve this problem have been proposed, including Granger causality [3], Bayesian networks [6], generalized transfer entropy [19], partial coherence [5], and approaches that directly model network dynamics [16, 18, 14, 22].",
+      "startOffset" : 231,
+      "endOffset" : 247
+    }, {
+      "referenceID" : 18,
+      "context" : "A number of approaches to solve this problem have been proposed, including Granger causality [3], Bayesian networks [6], generalized transfer entropy [19], partial coherence [5], and approaches that directly model network dynamics [16, 18, 14, 22].",
+      "startOffset" : 231,
+      "endOffset" : 247
+    }, {
+      "referenceID" : 16,
+      "context" : "The rate of neuron firing may be faster than the image sampling rate [19] and light scattering effects [13, 19] lead to signal correlations at short distances irrespective of network connectivity.",
+      "startOffset" : 69,
+      "endOffset" : 73
+    }, {
+      "referenceID" : 11,
+      "context" : "The rate of neuron firing may be faster than the image sampling rate [19] and light scattering effects [13, 19] lead to signal correlations at short distances irrespective of network connectivity.",
+      "startOffset" : 103,
+      "endOffset" : 111
+    }, {
+      "referenceID" : 16,
+      "context" : "The rate of neuron firing may be faster than the image sampling rate [19] and light scattering effects [13, 19] lead to signal correlations at short distances irrespective of network connectivity.",
+      "startOffset" : 103,
+      "endOffset" : 111
+    }, {
+      "referenceID" : 9,
+      "context" : "To solve the second challenge, sparse inverse covariance estimation has recently become a popular technique for disentangling causation from correlation [11, 15, 23, 1, 9, 10].",
+      "startOffset" : 153,
+      "endOffset" : 175
+    }, {
+      "referenceID" : 13,
+      "context" : "To solve the second challenge, sparse inverse covariance estimation has recently become a popular technique for disentangling causation from correlation [11, 15, 23, 1, 9, 10].",
+      "startOffset" : 153,
+      "endOffset" : 175
+    }, {
+      "referenceID" : 19,
+      "context" : "To solve the second challenge, sparse inverse covariance estimation has recently become a popular technique for disentangling causation from correlation [11, 15, 23, 1, 9, 10].",
+      "startOffset" : 153,
+      "endOffset" : 175
+    }, {
+      "referenceID" : 0,
+      "context" : "To solve the second challenge, sparse inverse covariance estimation has recently become a popular technique for disentangling causation from correlation [11, 15, 23, 1, 9, 10].",
+      "startOffset" : 153,
+      "endOffset" : 175
+    }, {
+      "referenceID" : 7,
+      "context" : "To solve the second challenge, sparse inverse covariance estimation has recently become a popular technique for disentangling causation from correlation [11, 15, 23, 1, 9, 10].",
+      "startOffset" : 153,
+      "endOffset" : 175
+    }, {
+      "referenceID" : 8,
+      "context" : "To solve the second challenge, sparse inverse covariance estimation has recently become a popular technique for disentangling causation from correlation [11, 15, 23, 1, 9, 10].",
+      "startOffset" : 153,
+      "endOffset" : 175
+    }, {
+      "referenceID" : 1,
+      "context" : "Instead of using the raw time series to compute sample covariance, we observed improved Area Under the Curve (receiver operating characteristic [2]) scores by thresholding the time derivative of the time-series signal and then combining inverse covariance corresponding to several thresholds and time-lags in an ensemble.",
+      "startOffset" : 144,
+      "endOffset" : 147
+    }, {
+      "referenceID" : 9,
+      "context" : "[11, 15, 23, 1, 9, 10], commonly referred to as GLASSO (graphical least absolute shrinkage and selection operator).",
+      "startOffset" : 0,
+      "endOffset" : 22
+    }, {
+      "referenceID" : 13,
+      "context" : "[11, 15, 23, 1, 9, 10], commonly referred to as GLASSO (graphical least absolute shrinkage and selection operator).",
+      "startOffset" : 0,
+      "endOffset" : 22
+    }, {
+      "referenceID" : 19,
+      "context" : "[11, 15, 23, 1, 9, 10], commonly referred to as GLASSO (graphical least absolute shrinkage and selection operator).",
+      "startOffset" : 0,
+      "endOffset" : 22
+    }, {
+      "referenceID" : 0,
+      "context" : "[11, 15, 23, 1, 9, 10], commonly referred to as GLASSO (graphical least absolute shrinkage and selection operator).",
+      "startOffset" : 0,
+      "endOffset" : 22
+    }, {
+      "referenceID" : 7,
+      "context" : "[11, 15, 23, 1, 9, 10], commonly referred to as GLASSO (graphical least absolute shrinkage and selection operator).",
+      "startOffset" : 0,
+      "endOffset" : 22
+    }, {
+      "referenceID" : 8,
+      "context" : "[11, 15, 23, 1, 9, 10], commonly referred to as GLASSO (graphical least absolute shrinkage and selection operator).",
+      "startOffset" : 0,
+      "endOffset" : 22
+    }, {
+      "referenceID" : 9,
+      "context" : "GLASSO has been used to infer brain connectivity for the purpose of diagnosing Alzheimer’s disease [11] and determining brain architecture and pathologies [23].",
+      "startOffset" : 99,
+      "endOffset" : 103
+    }, {
+      "referenceID" : 19,
+      "context" : "GLASSO has been used to infer brain connectivity for the purpose of diagnosing Alzheimer’s disease [11] and determining brain architecture and pathologies [23].",
+      "startOffset" : 155,
+      "endOffset" : 159
+    }, {
+      "referenceID" : 19,
+      "context" : "We therefore use l2 penalized inverse covariance estimation [23, 12],",
+      "startOffset" : 60,
+      "endOffset" : 68
+    }, {
+      "referenceID" : 10,
+      "context" : "We therefore use l2 penalized inverse covariance estimation [23, 12],",
+      "startOffset" : 60,
+      "endOffset" : 68
+    }, {
+      "referenceID" : 3,
+      "context" : "The covariance matrices were then inverted using Equation 2 and combined using LambdaMart [4] to optimize AUC, along with a restricted Boltzmann machine and generalized linear model.",
+      "startOffset" : 90,
+      "endOffset" : 93
+    }, {
+      "referenceID" : 16,
+      "context" : "For comparison, generalized transfer entropy [19] corresponds to AUC≈ .",
+      "startOffset" : 45,
+      "endOffset" : 49
+    }, {
+      "referenceID" : 16,
+      "context" : "In the Kaggle competition, neural activity was modeled using a leaky integrate and fire model outlined in [19].",
+      "startOffset" : 106,
+      "endOffset" : 110
+    }, {
+      "referenceID" : 16,
+      "context" : "Here F i t is the observed fluorescence provided for the competition with light scattering effects (see [19]) and dij is the distance between neuron i and j.",
+      "startOffset" : 104,
+      "endOffset" : 108
+    }, {
+      "referenceID" : 6,
+      "context" : "In this paper we focused on the application to leaky integrate and fire models of neural activity, but our methodology may find application to other types of crossexciting point processes such as models of credit risk contagion [7] or contagion processes on social networks [20].",
+      "startOffset" : 228,
+      "endOffset" : 231
+    }, {
+      "referenceID" : 17,
+      "context" : "In this paper we focused on the application to leaky integrate and fire models of neural activity, but our methodology may find application to other types of crossexciting point processes such as models of credit risk contagion [7] or contagion processes on social networks [20].",
+      "startOffset" : 274,
+      "endOffset" : 278
+    } ],
+    "year" : 2014,
+    "abstractText" : "We consider the problem of inferring direct neural network connections from Calcium imaging time series. Inverse covariance estimation has proven to be a fast and accurate method for learning macroand micro-scale network connectivity in the brain and in a recent Kaggle Connectomics competition inverse covariance was the main component of several top ten solutions, including our own and the winning team’s algorithm. However, the accuracy of inverse covariance estimation is highly sensitive to signal preprocessing of the Calcium fluorescence time series. Furthermore, brute force optimization methods such as grid search and coordinate ascent over signal processing parameters is a time intensive process, where learning may take several days and parameters that optimize one network may not generalize to networks with different size and parameters. In this paper we show how inverse covariance estimation can be dramatically improved using a simple convolution filter prior to applying sample covariance. Furthermore, these signal processing parameters can be learned quickly using a supervised optimization algorithm. In particular, we maximize a binomial log-likelihood loss function with respect to a convolution filter of the time series and the inverse covariance regularization parameter. Our proposed algorithm is relatively fast on networks the size of those in the competition (1000 neurons), producing AUC scores with similar accuracy to the winning solution in training time under 2 hours on a cpu. Prediction on new networks of the same size is carried out in less than 15 minutes, the time it takes to read in the data and write out the solution.",
+    "creator" : null
+  }
+}

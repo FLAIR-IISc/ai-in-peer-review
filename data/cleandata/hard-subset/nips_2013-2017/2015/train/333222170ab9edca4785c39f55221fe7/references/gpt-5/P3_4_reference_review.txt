@@ -1,0 +1,55 @@
+Summary and contributions
+The paper introduces “on-the-job learning,” a decision-theoretic framework that integrates crowd queries at test time to maintain high accuracy from the outset while reducing dependence on the crowd over time as the model improves. The setting is formalized as a stochastic game between the system and the crowd, where the system can issue token-level queries, wait for asynchronous responses, or terminate. A Bayesian utility trades off expected accuracy, monetary cost, and latency. Because optimal planning is intractable, the authors propose an MCTS-based planner with progressive widening to handle continuous response times. The approach (LENSE) is instantiated with a CRF for NER and evaluated also on sentiment and image classification, showing cost reductions relative to pure-crowd baselines and accuracy gains relative to a pure-ML baseline that cannot query at test time.
+
+Relation to prior work
+The paper positions itself against online learning (improves with time but cannot ensure high initial accuracy), online active learning (queries labels only after making predictions), and active classification/test-time feature acquisition (typically learns a static policy offline). It is related to crowd-POMDP approaches (e.g., TurKontrol) and real-time crowd systems (Legion:AR). Structured prediction aspects relate to partial measurements and distant supervision with structure. The decision-theoretic planning with a cost/latency/accuracy utility is also connected to budgeted prediction and adaptive feature acquisition.
+
+Strengths
+- Clear and timely problem formulation: deploying systems with high initial quality when no labeled data is available, with explicit latency and monetary constraints.
+- Principled decision-theoretic framing and game model with asynchronous responses; utility matches the operational goals (cost and latency matter in practice).
+- Use of MCTS with progressive widening is a sensible and general approximate planner for the mixed discrete/continuous action-outcome space.
+- Structured prediction emphasis (token-level NER queries) makes the problem richer than i.i.d. settings; the qualitative behaviors (parallel vs sequential querying) are well-motivated.
+- Open-source implementation and reproducibility materials.
+
+Weaknesses and concerns
+- Environment modeling is simplistic and potentially mis-specified:
+  - Response noise pR is fixed at 70% with uniform off-diagonal mass, ignoring worker heterogeneity, per-item difficulty, and correlations. Established crowd models (Dawid–Skene, GLAD/Whitehill, Bayesian variants) are not leveraged; TurKontrol-like reliability modeling is only cited but not adopted.
+  - Response time model pT is underspecified; the implementation relies on pre-collected empirical response times but details (parametric form, covariates) are missing.
+- Policy evaluation relies on Monte Carlo simulation from a “frozen pool” of 5 worker responses per label per instance. This may underestimate variance, induces dependence across methods (good for comparability) but limits external validity; results may not reflect live conditions, worker turnover, or temporal drift. The paper should include at least one live end-to-end trial to validate latency/cost claims.
+- Utility definition and metric mismatch:
+  - U uses ExpAcc of the MAP under the posterior; for sequence labeling this becomes posterior mass of the MAP or token accuracy proxy. However, NER performance is reported in span-level F1. The paper does not define “Accuracy” in Eq. 2 or reconcile this with the downstream F1 objective. Optimizing an accuracy surrogate can misalign with F1 decisions (e.g., whether to query boundaries).
+  - Calibration is critical here; decision-theoretic control on miscalibrated CRF posteriors often yields suboptimal query policies. The paper alludes to calibration feedback but provides no method or analysis.
+- Learning from noisy labels: The CRF is trained on raw crowd responses (without gold) using AdaGrad, with no explicit noise model or EM to marginalize latent true y. This can propagate systematic noise, particularly early on. Given the setup, incorporating a confusion model and joint inference over y and worker reliabilities seems crucial.
+- Baselines are weak or mismatched:
+  - “Online learning” assumes access to gold labels for past instances but no test-time queries; this is not the most competitive budgeted baseline and seems tailored to underperform early. More appropriate comparators include: (i) budgeted/adaptive feature acquisition methods trained offline; (ii) active classification policies trained from prior data; (iii) POMDP-style crowd planning (TurKontrol-family).
+  - The “threshold baseline” is a strawman that assumes fixed 0.3 error reduction per query and ignores time; stronger heuristic baselines (e.g., myopic value-of-information with marginal entropy reduction and cost) would be fairer.
+- Sensitivity and ablations are missing:
+  - No analysis of the weights wM and wT, which can be tuned to produce favorable trade-offs; sensitivity plots are needed.
+  - No ablations on MCTS parameters (UCT constant c, rollout policy, progressive widening schedule) or computational overhead; real-time applicability hinges on planner latency.
+  - No study of parallel vs sequential query policies under differing latency penalties, despite being a central conceptual claim.
+- Clarity/details:
+  - Accuracy in Eq. 2 is undefined (token vs sequence vs span F1). For NER, an expected-F1 surrogate or structured VOI approximation should be discussed.
+  - Response-time and response-noise model specifications are thin. The constraint that you cannot launch a new query while “waiting” is acknowledged but its impact on optimality is not analyzed.
+
+Significance
+The problem is important and practically relevant; integrating crowd input at test time under resource constraints is of broad interest. The proposed formulation is general and could influence subsequent work. However, the current empirical evidence is not yet strong enough to conclude state-of-the-art improvements, because the environment model and baselines are limited and the evaluation is largely simulated.
+
+Questions for the authors
+1. How are wM and wT chosen per task? Please provide sensitivity analysis and discuss how a practitioner would set them.
+2. What is the exact “Accuracy” in Eq. 2 for structured outputs? How do you handle F1 for NER in the utility?
+3. Can you incorporate and compare to worker-reliability models (Dawid–Skene/GLAD), and report their effect on cost/accuracy?
+4. What is the planner’s compute time per example, and how does it scale with sequence length and number of pending queries?
+5. Do live (non-simulated) experiments support the same latency/cost trade-offs?
+
+Pros
+- Well-motivated, novel integration of decision-theoretic planning with real-time crowd interaction.
+- Clear formalization and generally well-written.
+- Open-source system; potentially impactful framework.
+
+Cons
+- Simplistic and potentially miscalibrated environment and noise models.
+- Baselines and evaluation design limit strength of claims; heavy reliance on simulated crowd from a small pool.
+- Utility/metric mismatch and lack of calibration/ablation analyses.
+
+Recommendation
+Weak reject. The paper tackles an important problem with a promising framework, but the modeling of crowd noise/timing, evaluation methodology, and baseline comparisons need strengthening. With improved environment modeling (worker reliabilities), live experiments, and stronger baselines/sensitivity analyses, this could become a solid contribution.

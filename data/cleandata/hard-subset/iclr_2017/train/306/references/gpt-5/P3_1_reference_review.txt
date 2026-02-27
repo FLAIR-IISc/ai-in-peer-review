@@ -1,0 +1,48 @@
+1) Summary of contributions
+This paper tackles few-shot N-way classification by learning an optimizer and initialization that enable a base learner (a CNN) to rapidly adapt to a new task with very few gradient updates. The key idea is to cast the learner’s parameter updates as the cell-state dynamics of an LSTM: the meta-learner’s forget and input gates implement a learned update rule, while the LSTM cell state stores the learner’s parameters. The meta-learner takes as inputs the current loss, per-parameter gradients, and prior gate values (with coordinate-wise parameter sharing and gradient/loss preprocessing), and is trained end-to-end with an episodic objective that directly optimizes test performance after a fixed small number of steps on each task. The approach also learns an initial parameter vector for the base learner, serving as a task-common prior. The authors address practicalities such as training stability (gate bias initialization), batch normalization statistics per-episode, and computational considerations (ignoring second derivatives as in Andrychowicz et al., 2016). On mini-ImageNet (own split), the method outperforms fine-tuning and nearest-neighbor baselines and is competitive with Matching Networks, notably surpassing them in 5-shot in the authors’ implementation.
+
+2) Decision: Accept
+Key reasons:
+- A well-motivated and technically sound meta-learning formulation that jointly learns an optimizer and initialization tailored for few-shot adaptation, with an episodic training objective matching test conditions.
+- Empirical results demonstrating clear gains over strong baselines (including a metric learning method) in 5-shot, with careful engineering choices for stability and scalability.
+
+3) Supporting arguments
+Novelty and positioning
+- The paper builds on learned optimization (Andrychowicz et al.) but adapts it to the few-shot episodic setting, with an objective that directly targets generalization after T steps on Dtest. This “optimization-as-model” framing is an appealing alternative to metric-based methods (Matching Nets) and memory-augmented networks (Santoro et al.).
+- Learning both the initialization and the update rule within an LSTM cell-state view is conceptually elegant and practically useful for few-shot adaptation.
+
+Technical soundness
+- The coordinate-wise parameter sharing and gradient/loss preprocessing are appropriate to keep meta-learner size manageable and to stabilize training across heterogeneous parameter scales.
+- The episodic training loop and the handling of batch normalization statistics per episode are thoughtful; the authors explicitly try to match meta-train and meta-test conditions to avoid leakage across episodes.
+
+Empirical support
+- Experiments on mini-ImageNet 5-way 1-shot and 5-shot, with comparisons to two baselines (nearest neighbor on pretrained features and fine-tuning) and to Matching Networks, show strong performance, particularly in 5-shot. The analysis of gate values provides qualitative insight that the optimizer learned nontrivial task-dependent behavior rather than a fixed schedule.
+- The authors report confidence intervals and implement a reasonable evaluation protocol (episodic sampling, disjoint class splits).
+
+Limitations/concerns
+- Comparisons rely on the authors’ reimplementation of Matching Networks and a custom mini-ImageNet split; absolute numbers are therefore not directly comparable to prior work. This limits external validity.
+- The paper adopts the “gradient independence assumption,” ignoring second-derivative terms through the learner’s gradients. While this follows prior work, there is no ablation to quantify its effect here.
+- The contribution of learned initialization vs. learned optimizer is not disentangled. It’s plausible that a good initialization accounts for a substantial fraction of the gains (as also suggested by transfer learning heuristics). An ablation would clarify this.
+- The optimizer is coordinate-wise. This choice is pragmatic but ignores parameter structure (e.g., across channels/kernels), which may limit scalability or performance on larger backbones.
+- Generalization across variable N and k, and across different numbers of inner updates T, is not tested. The method is trained with task-specific T and k; robustness to mismatches remains unclear.
+
+4) Additional feedback to improve the paper (constructive, not decisive)
+- Provide ablations:
+  - Fix f=1 (no forgetting) and/or use a scalar learned learning rate to isolate the effect of the LSTM gating vs. learned initialization.
+  - Train with standard SGD/Adam from the learned initialization (no meta-optimizer) to quantify the value of the initialization alone.
+  - Compare with a simple cosine classifier on pretrained features and with fine-tuning plus weight decay/early stopping, as stronger baselines.
+- Clarify the exact definition of the candidate cell state c̃t in the modified LSTM. Earlier you map gradient descent to c̃t = −∇Lt, but later you state c̃t = ∇Lt. Please resolve the sign convention and whether c̃t is computed via a parametric function or directly set to the gradient.
+- Report meta-training stability details: gradients clipping for the meta-learner, sensitivity to gate bias initialization, and failure modes (e.g., exploding updates).
+- BN handling: to better align meta-train/meta-test, consider using per-episode statistics in both phases in the same way (e.g., use running averages computed on Dtrain for both phases), and quantify the performance impact of alternative normalizations (LayerNorm/GroupNorm) that avoid cross-example coupling.
+- Provide compute/memory costs: wall-clock time per episode, meta-training time, and scaling with learner parameter count.
+- Extend evaluation: include Omniglot for comparability to prior few-shot literature, and test cross-condition generalization (train at 5-shot, test at 1-shot; train with T, test with different T).
+
+5) Questions for the authors
+- Candidate state/sign: Is c̃t set to −∇θ Lt or +∇θ Lt? If it is +∇, how can the optimizer implement descent given sigmoid gates in (0,1)? Is there an additional learned transformation that can flip the sign?
+- Ablation on learned initialization: How well does a vanilla optimizer (SGD/Adam) perform when initialized with your learned c0, without the meta-optimizer? Conversely, how well does the learned optimizer perform when starting from a random initialization?
+- Robustness to T mismatch: If the meta-learner is trained with T steps (e.g., 5 for 5-shot), how does performance change when evaluated with fewer/more steps? Does it extrapolate reasonably?
+- Gradient independence assumption: Did you attempt including second-order terms (even approximately) on smaller models to assess the benefit vs. cost?
+- BN details: During meta-training, do you use batch statistics or running averages on Dtest? If batch stats are used on Dtest at meta-train, that differs from meta-test where you use running averages computed on Dtrain. Can you quantify the performance gap between these modes?
+- Task generality: Can the same meta-learner handle variable N at meta-test without retraining? What happens when the base learner backbone size changes?
+
+Overall, this is a well-motivated and carefully engineered contribution to few-shot meta-learning with solid results and a clear path for strengthening through ablations and broader evaluation.

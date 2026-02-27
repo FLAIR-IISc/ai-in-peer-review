@@ -1,0 +1,36 @@
+### Summary and Contributions
+
+This paper proposes a deep, purely character-level neural machine translation model designed to explicitly learn morphological structures within words. The core of the model is a hierarchical architecture spanning from characters to the full sentence representation and back down to characters on the target side.
+
+The main contributions of this work, as I see them, are:
+1.  **A novel word encoder that models sub-word compositionality.** The encoder uses two parallel RNNs over the input characters: one to generate contextual character representations and another (a BiRNN) to compute an unnormalized attention-like weight for each character position. This mechanism is designed to identify and weight morpheme-like segments, producing a single vector representation for each word.
+2.  **An efficient, hierarchical character-level decoder.** The decoder operates on two levels: a word-level RNN that produces a latent representation for each target word, and a character-level RNN (a custom "HGRU") that uses this representation to generate the corresponding character sequence. The design, particularly the use of an "unfolding matrix" for batching, makes this complex architecture surprisingly efficient to train compared to prior character-level models.
+3.  **Strong empirical results combined with compelling qualitative analysis.** The model achieves state-of-the-art or competitive BLEU scores on En-Fr and morphologically rich En-Cs/Cs-En translation tasks. Crucially, the authors provide strong qualitative evidence (visualizations of internal weights, handling of nonce words) to support their central claim that the model learns useful morphological representations.
+
+### Strengths
+
+1.  **Well-motivated and elegant word encoder design.** The central idea of using an internal, attention-like mechanism to compose a word representation from its characters is a significant strength. It provides a learnable, data-driven alternative to fixed segmentation schemes like BPE. The authors' hypothesis that this structure can learn to identify morphemes is well-supported by the visualizations in Figure 4 and Figure 5, which show that the learned "energy" peaks align with intuitive morpheme boundaries. This analysis is a highlight of the paper.
+
+2.  **Effective solution to the efficiency problem in character-level models.** Pure character-level models often struggle with the very long sequences they must process, leading to slow training and difficulties in capturing long-range dependencies. This paper's hierarchical approach cleverly mitigates this by operating at the word level for the main sentence encoder-decoder, effectively keeping the sequence lengths manageable. The custom HGRU and the batching trick for the decoder are clever engineering solutions that demonstrably lead to significant training speed-ups compared to other character-level SOTA models (e.g., Luong and Manning, 2016), as shown in Table 1.
+
+3.  **Thorough and convincing evaluation.** The paper is evaluated on standard WMT benchmarks, including a morphologically rich language pair (English-Czech), which is the proper setting to test a morphology-aware model. The comparisons are made against strong and relevant baselines, including BPE-based models and other character-level approaches. Beyond BLEU scores, the analysis in Sections 5.2 and 5.3, which demonstrates the model's ability to create meaningful word embeddings and translate misspelled or nonce words (e.g., "convenienter"), provides powerful evidence of the practical benefits of the proposed architecture.
+
+### Weaknesses
+
+1.  **Lack of justification for a key design choice in the word encoder.** The word representation is computed as `tanh(sum(wt * rt))`. The weights `wt` are derived from an `exp` function but are not normalized via a softmax, as is standard in attention mechanisms. This means the weights are not a distribution and can have arbitrarily large magnitudes. The only justification provided is that this "performs best in experiments." This is insufficient. A proper explanation of the intuition behind this choice, or an ablation study comparing it to a standard softmax-normalized attention, is necessary for the reader to fully understand why this formulation works and what properties it has. It leaves a significant methodological question unanswered.
+
+2.  **High model complexity without sufficient ablation.** The full model contains six separate RNNs, making it a very deep and complex architecture. While the end-to-end results are strong, the paper lacks ablation studies to tease apart the contributions of its various components. For instance:
+    *   How crucial is the BiRNN for computing the weights in the word encoder versus a simpler unidirectional RNN or even a non-recurrent approach?
+    *   What is the performance impact of the target-side word encoder used for feedback, compared to a simpler feedback mechanism?
+    *   How does this RNN-based word encoder compare directly against a character-level CNN encoder (e.g., Kim et al., 2016) within the same hierarchical framework?
+    Without such analysis, it is difficult to ascertain whether all parts of this complex architecture are essential for its success.
+
+3.  **Potentially overstated claims about "learning morphology."** While the model's ability to identify sub-word units is impressive and the visualizations are compelling, the claim of "learning morphology" might be too strong. The model is learning statistical patterns that correlate with morphological boundaries, but it has no explicit linguistic knowledge of morphemes, stems, affixes, or their grammatical functions. A more precise phrasing, such as "learning representations sensitive to morphological structure" or "learning to perform implicit morphological segmentation," would be more accurate and less prone to misinterpretation.
+
+### Questions to Authors
+
+1.  Regarding the word encoder (Sec 3.1): Could you please elaborate on the decision to use an unnormalized weighted sum passed through a `tanh` activation, rather than a conventional attention mechanism with softmax normalization? What is the intuition here? Does this formulation prevent weights from becoming too peaked or provide a better gradient path, and was a version with softmax tested?
+
+2.  The "unfolding matrix" R is used during training to efficiently align the word-level decoder states (`s_it`) with the longer character sequence. How is this process handled during inference/generation, where the target word boundaries are not known a priori? Does the model simply use the same `s_t` to initialize the HGRU state until a delimiter is generated, at which point a new `s_{t+1}` is computed? A bit more clarity on the generation algorithm would be helpful.
+
+3.  Considering the overall complexity, have you explored simpler variants of the model? Specifically, have you tested replacing your proposed word encoder with a character-level CNN, which is often faster and has been shown to be effective at capturing character n-gram features that can approximate morphemes? This would help situate the contribution of your specific RNN-based word encoder more clearly.

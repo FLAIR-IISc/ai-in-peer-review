@@ -1,0 +1,636 @@
+{
+  "name" : "b59c67bf196a4758191e42f76670ceba.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Learning Transferrable Representations for Unsupervised Domain Adaptation",
+    "authors" : [ "Ozan Sener", "Hyun Oh Song", "Ashutosh Saxena", "Silvio Savarese" ],
+    "emails" : [ "ozan@cs.stanford.edu", "hsong@cs.stanford.edu", "asaxena@cs.stanford.edu", "ssilvio@cs.stanford.edu" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Recently, deep convolutional neural networks [17, 26, 30] have propelled unprecedented advances in artificial intelligence including object recognition, speech recognition, and image captioning. Although these networks are very good at learning state of the art feature representations and recognizing discriminative patterns, one major drawback is that the network requires huge amounts of labelled training data to fit millions of parameters in the complex network. However, creating such datasets with complete annotations is not only tedious and error prone, but also extremely costly. In this regard, the research community has proposed different mechanisms such as semi-supervised learning [27, 37], transfer learning [23, 31], weakly labelled learning, and domain adaptation. Among these approaches, domain adaptation is one of the most appealing techniques when a fully annotated dataset (e.g. ImageNet [7], Sports1M [14]) is already available as a reference.\nThe goal of unsupervised domain adaptation, in particular, is as follows. Given a fully labeled source dataset and an unlabeled target dataset, to learn a model which can generalize to the target domain while taking the domain shift across the datasets into account. The majority of the literature [13, 29, 9, 28, 32] in unsupervised domain adaptation formulates a learning problem where the task is to find a transformation matrix to align the labelled source data distribution to the unlabelled target data distribution. Although these approaches have shown promising results, they show accuracy degradation because of the discrepancy between the learning procedure and the actual target inference procedure. In this paper, we aim to address this issue by incorporating the unknown target labels into the training procedure.\n30th Conference on Neural Information Processing Systems (NIPS 2016), Barcelona, Spain.\nIn this regard, we formulate a unified deep learning framework where the feature representation, domain transformation, and target labels are all jointly optimized in an end-to-end fashion. The proposed framework first takes as input a batch of labelled source and unlabelled target examples, and maps this batch of raw input examples into a deep representation. Then, the framework computes the loss of the input batch based on a two stage optimization in which it alternates between inferring the labels of the target examples transductively and optimizing the domain transformation parameters.\nConcretely, in the transduction stage, given the fixed domain transform parameter, we jointly infer all target labels by solving a discrete multi-label energy minimization problem. In the adaptation stage, given a fixed target label assignment, we seek to find the optimal asymmetric metric between the source and the target data. The advantage of our method is that we can jointly learn the optimal feature representation and the optimal domain transformation parameter, which are aware of the subsequent transductive inference procedure.\nFollowing the standard evaluation protocol in the unsupervised domain adaptation community, we evaluate our method on the digit classification task using MNIST [19] and SVHN[21] as well as the object recognition task using the Office [25] dataset, and demonstrate state of the art performance in comparison to all existing unsupervised domain adaptation methods. Learned models and the source code can be reached from the project webpage http://cvgl.stanford.edu/transductive_adaptation."
+    }, {
+      "heading" : "2 Related Work",
+      "text" : "This paper is closely related to two active research areas: (1) Unsupervised domain adaptation, and (2) Transductive learning.\nUnsupervised domain adaptation: [16] casts the zero-shot learning [22] problem as an unsupervised domain adaptation problem in the dictionary learning and sparse coding framework, assuming access to additional attribute information. Recently, [3] proposed the active nearest neighbor algorithm, which combines the component of active learning into the domain adaptation problem and makes a bounded number of active queries to users. Also, [13, 9, 28] proposed subspace alignment based approaches to unsupervised domain adaptation where the task is to learn a joint transformation and projection in which the difference between the source and the target covariance is minimized. However, these methods learn the transformation matrices on the whole source and target dataset without utilizing the source labels.\n[32] utilizes a local max margin metric learning objective [35] to first assign the target labels with the nearest neighbor scheme and then learn a distance metric to enforce the negative pairwise distances to be larger than the positive pairwise distances. However, this method learns a symmetric distance matrix shared by both the source and the target domains so the method is susceptible to the discrepancies between the source and the target distributions. Recently, [11, 33] proposed a deep learning based method to learn domain invariant features by providing the reversed gradient signal from the binary domain classifiers. Although this method performs better than aforementioned approaches, their accuracy is limited since domain invariance does not necessarily imply discriminative features in the target domain.\nTransductive learning: In the transductive learning [10], the model has access to unlabelled test samples during training. [24] utilizes a semi-supervised label propagation algorithm into the semisupervised transfer learning problem assuming access to few labeled examples and additional human specified semantic knowledge. [15] tackled a classification problem where predictions are made jointly across all test examples in a transductive [10] setting. The method essentially enforces the notion that the true labels vary smoothly with respect to the input data. We extend this notion to jointly infer the labels of unsupervised target data points in a k-NN graph.\nTo summarize, our main contribution is to formulate an end-to-end deep learning framework where we learn the optimal feature representation, infer target labels via discrete energy minimization (transduction), and learn the transformation (adaptation) between source and target examples all jointly. Our experiments on digit classification using MNIST [19] and SVHN[21] as well as the object recognition experiments on Office [25] datasets show state of the art results, outperforming all existing methods by a substantial margin."
+    }, {
+      "heading" : "3 Method",
+      "text" : ""
+    }, {
+      "heading" : "3.1 Problem Definition and Notation",
+      "text" : "In the unsupervised domain adaptation, one of the domains (source) is supervised {x̂i, ŷi}i∈[Ns] with Ns data points x̂i and the corresponding labels ŷi from a discrete set ŷi ∈ Y = {1, . . . , Y }. The other domain (target), on the other hand is unsupervised and has Nu data points {xi}i∈[Nu]. We further assume that two domains have different distributions x̂i ∼ ps and xi ∼ pt defined on the same space x̂i,xi ∈ X . We consider a case in which there are two feature functions Φs,Φt : X → Rd applicable to source and target separately. These feature functions extract the information both shared among domains and explicit to the individual ones. The way we model common features is by sharing a subset of parameters between feature functions as Φs = Φθc,θs and Φt = Φθc,θt . We use deep neural networks to implement these functions. In our implementation, θc corresponds to the parameters in the first few layers of the networks and θs, θt correspond to the respective final layers. In general, our model is applicable to any hierarchical and differentiable feature function which can be expressed as a composite function Φs = fθs(gθc(·)) for both source and target."
+    }, {
+      "heading" : "3.2 Consistent Structured Transduction",
+      "text" : "Our method is based on jointly learning the transferable domain specific representations for source and target as well as estimating the labels of the unsupervised data-points. We denote these two main components of our method as transduction and adaptation. The transduction is the sub-problem of labelling unsupervised data points and the adaptation is the sub-problem of solving for the domain shift. In order to solve this joint problem tractably, we exploit two heuristics: cyclic consistency for adaptation and structured consistency for transduction.\nCyclic consistency: One desired property of Φs and Φt is consistency. If we estimate the labels of the unsupervised data points and then use these points with their estimated labels to estimate the labels of supervised data-points, we want the predicted labels of the supervised data-points to be consistent with the ground truth labels. Using the inner product as an asymmetric similarity metric as s(x̂i,xj) = Φs(x̂i) ᵀΦt(xj), this consistency can be represented with the following diagram.\n(x̂i, ŷi)OO\nCyclic Consistency: ŷi = ŷpredi\nTransduction // (xj , yj) Transduction // (x̂i, ŷ pred i )\nIt can be shown that if the transduction from target to source follows a nearest neighbor rule, cyclic consistency can be enforced without explicitly computing ŷpredi using the large-margin nearest neighbor (LMNN)[35] rule. For each source point, we enforce a margin such that the similarity between the source point and the nearest neighbor from the target with the same label is greater than the similarity between the source point and the nearest neighbor from the target with a different label. Formally; Φs(x̂i)ᵀΦt(xi+) > Φs(x̂i)ᵀΦt(xi−) + α where xi+ is the nearest target having the same class label as x̂i and xi− is the nearest target having a different class label.\nStructured consistency: We enforce a structured consistency when we label the target points during the transduction. The structure we enforce is; if two target points are similar to each other, they are more likely to have the same label. To do so, we create a k-NN graph of target points using a similarity metric Φt(xi)ᵀΦt(xj). We denote the neighbors of the point x̂i as N (x̂i). We enforce structured consistency by penalizing neighboring points of different labels proportional to their similarity score.\nOur model leads to the following optimization problem, over the target labels yi and the feature function parameters θc, θs, θt, jointly solving transduction and adaptation.\nmin θc,θs,θt, y1,...yNu ∑ i∈[Ns] [Φs(x̂i) ᵀΦt(xi−)− Φs(x̂i)\nᵀΦt(xi+) + α]+︸ ︷︷ ︸ Cyclic Consistency\n+λ ∑ i∈[Nu] ∑ xj∈N (xi) Φt(xi) ᵀΦt(xj)1(yi 6= yj)\n︸ ︷︷ ︸ Structured Consistency\ns.t. i+ = arg maxj|yj=ŷiΦs(x̂i) ᵀΦt(xj) and i− = arg maxj|yj 6=ŷiΦs(x̂i) ᵀΦt(xj)\n(1) where 1(a) is an indicator function which is 1 if a is true and 0 otherwise. [a]+ is a rectifier function which is equal to max(0, a).\nWe solve this optimization problem via alternating minimization through iterating over solving for unsupervised labels yi(transduction) and learning the similarity metric θc, θs, θt (adaptation). We explain these two steps in detail in the following sections."
+    }, {
+      "heading" : "3.3 Transduction: Labeling Target Domain",
+      "text" : "In order to label the unsupervised points, we base our model on the k-nearest-neighbor rule. We simply compute the k-NN supervised data point for each unsupervised data point using the learned metric and transfer the corresponding majority label. Formally, given a similarity metric θc, θs, θt, the k-NN rule is (yi)pred = arg maxy ky(xi) k where ky(xi) is the number of samples having label y in the k nearest neighbors of xi from the source domain. One major issue with this approach is the inaccuracy of transduction during the initial stage of the algorithm. Since the learned metric will not be accurate, we expect to see some noisy k-NN sets. Hence, we propose two solutions to solve this problem.\nStructured Consistency: Similar to existing graph transduction algorithms [4, 36], we create a k-nearest neighbor (k-NN) graph over the unsupervised data points and penalize disagreements of labels between neighbors.\nReject option: In the initial stage of the algorithm, we let the transduction step use the reject R as an additional label (besides the class labels) to label the unsupervised target points. In other words, our transduction algorithm can decide to not label (reject) some of the points so that they will not be used for adaptation. As the learned metric gets more accurate in the future iterations, transduction algorithm can change the label from R to other class labels.\nUsing aforementioned heuristics, we define our transduction sub-problem as1:\nmin y1,...yNu∈Y∪R ∑ i∈[Nu] l(xi, yi) + λ ∑ i∈[Nu] ∑ xj∈N (xi) Φt(xi) ᵀΦt(xj)1(yi 6= yj) (2)\nwhere l(xi, y) =\n{ 1− ky(xi)k y ∈ Y\nγmaxy′∈Y k′y(xi) k y = R and γ is relative cost of the reject option.\nThe l(xi, R) is smaller if none of the class has a majority, promoting the reject option for undecided cases. We also modulate the γ during learning to decrease number of reject options in the later stage of the adaptation. This problem can approximately be solved using many existing methods. We use the α-β swapping algorithm from [5] since it is experimentally shown to be efficient and accurate."
+    }, {
+      "heading" : "3.4 Adaptation: Learning the Metric",
+      "text" : "Given the predicted labels yi for unsupervised data points xi, we can then learn a metric in order to minimize the loss function defined in (1). Following the cyclic consistency construction, the LMNN rule can be represented using the triplet loss defined between the supervised source data points and their nearest positive and negative neighbors among the unsupervised target points. We do not include the target-data points with reject labels during this construction. Formally, we can define the adaptation problem given unsupervised labels as;\nmin θc,θs,θt ∑ i∈[Ns] [Φs(x̂i) ᵀΦt(xi−)− Φs(x̂i) ᵀΦt(xi+) + α]+ + λ ∑ i∈[Nu] ∑ xj∈N (xi) Φt(xi) ᵀΦt(xj)1(yi 6= yj)\n(3) where\ni+ = arg maxj|yj=ŷiΦs(x̂i) ᵀΦt(xj) and i− = arg maxj|yj 6=ŷi,yj 6=RΦs(x̂i) ᵀΦt(xj) (4)\nWe optimize this function via stochastic gradient descent using the sub-gradients ∂loss∂θs , ∂loss ∂θt and ∂loss ∂θc . These sub-gradients can be efficiently computed with back-propagation (see [1] for details).\n1The subproblem we define here does not directly correspond to optimization of (1) with respect to y1, . . . yNu . It is extension of the exact sub-problem by replacing 1-NN rule with k-NN rule and introducing reject option."
+    }, {
+      "heading" : "3.5 Implementation Details",
+      "text" : "We use Alexnet [17] and LeNet [18] architectures with small modifications. We remove their final softmax layer and change the size of the final fully connected layer according to the desired feature dimension. We consider the last fully connected layer as domain specific (θs, θt) and the rest as common network θc. Common network weights are tied between domains, and the final layers are learned separately. In order to have a fair comparison, we use the same architectures from [11] only modifying the embedding size. (See supplementary material [1] for details).\nAlgorithm 1 Transduction with Domain Shift Input: Source x̂1···Ns , ŷ1,···Ns , Target x1,··· ,Nu , Batch Size 2×B for t = 0 to max_iter do\nSample {x̂1,...,B , ŷ1,...,B}, {x1,...,B} Solve (2) for {y1···B} for i = 1 to B do\nif ŷi ∈ y1···B and ∃k yk ∈ Y \\ ŷi then Compute (i+, i−) using {y1···B} in (4) Update ∂loss\n∂θc , ∂loss ∂θs , ∂loss ∂θt\nend if end for η(t)← Adagrad Rule [8] θc ← θc + η(t) ∂loss∂θc , θs ← θs + η(t) ∂loss ∂θs\n, θt ← θt + η(t) ∂loss∂θt\nend for\nSince the office dataset is quite small, we do not learn the network from scratch for office experiments and instead we initialize with the weights pre-trained on ImageNet. In all of our experiments, we set the feature dimension as 128. We use stochastic gradient descent to learn the feature function with AdaGrad[8]. We initialize convolutional weights with truncated normals having std-dev 0.1, biases with constant value 0.1, and use a learning rate of 2.5× 10−4 with batch size 512. We start the rejection penalty with γ = 0.1 and linearly increase with each epoch as γ = #epoch−1M + 0.1. In our experiments, we use M = 20, λ = 0.001 and α = 1."
+    }, {
+      "heading" : "4 Experimental Results",
+      "text" : "We evaluate our algorithm on various unsupervised domain adaptation tasks while focusing on two different problems: hand-written digit classification and object recognition.\nDatasets: We use MNIST [19], Street View House Number [21] and the artificially generated version of MNIST -MNIST-M- [11] to experiment our algorithm on the digit classification task. MNIST-M is simply a blend of the digit images of the original MNIST dataset and the color images of BSDS500 [2] following the method explained in [11]. Since the dataset is not distributed directly by the authors, we generated the dataset using the same procedure and further confirmed that the performance is the same as the one reported in [11]. Street View House Numbers is a collection of house numbers collected from Google street view images. Each of these three domains are quite different from each other. Among many important differences, the most significant ones are MNIST being grayscale whilw the others are colored, and SVHN images having extra confusing digits around the centered digit of interest. Moreover, all domains are large-scale, having at least 60k examples over 10 classes.\nIn addition, we use the Office [25] dataset to evaluate our algorithm on the object recognition task. The office dataset includes images of the objects taken from Amazon, captured with a webcam and captured with a D-SLR. Differences between domains include the white background of Amazon images versus realistic webcam images, and the resolution differences. The Office dataset has fewer images, with a maximum of 2478 per domain over 31 classes.\nBaselines: We compare our method against a variety of methods with and without feature learning. SA*[9] is the dominant state-of-the-art approach not employing any feature learning, and Backprop(BP)[11] is the dominant state-of-the-art employing feature learning. We use the available source code of [11] and [9] and following the evaluation procedure in [11], we choose the hyper-parameter of [9] as the highest performing one among various alternatives. We also compare our method with the source only baseline which is a convolutional neural network trained only using the source data. This classifier is clearly different from our nearest neighbor classifier; however, we experimentally validated that the CNN always outperformed the nearest neighbor based classifier. Hence, we report the highest performing source only method.\nEvaluation: We evaluate all algorithms in a fully transductive setup [12]. We feed training images and labels of first domain as the source and training images of the second domain as the target. We evaluate the accuracy on the target domain as the ratio of correctly labeled images to all target images."
+    }, {
+      "heading" : "4.1 Results",
+      "text" : "Following the fully transductive evaluation, we summarize the results in Table 1 and Table 2. Table 1 summarizes the results on the object recognition task using office dataset whereas Table 2 summarizes the digit classification task on MNIST and SVHN.\nTables 1&2 show results on object recognition and digit classification tasks covering all adaptation scenarios. Our experiments show that our proposed method outperforms all state-of-the-art algorithms. Moreover, the increase in the accuracy is rather significant when there is a large domain difference such as MNIST↔MNIST-M, MNIST↔SVHN, Amazon↔Webcam and Amazon↔D-SLR. Our hypothesis is that the state-of-the-art algorithms\nsuch as [11] are seeking features invariant to the domains whereas we seek an explicit similarity metric explaining both differences and similarities of domains. In other words, instead of seeking an invariance, we seek an equivariance.\nTable 2 further suggests that our algorithm is the only one which can successfully perform adaptation from MNIST to SVHN. Clearly the features which are learned from MNIST cannot generalize to SVHN since the SVHN has concepts like color and occlusion which are not available in MNIST. Hence, our algorithm learns SVHN specific features by enforcing accurate transduction in the adaptation.\nAnother interesting conclusion is the asymmetric results. For example, adapting webcam to Amazon and adapting Amazon to webcam yield very different accuracies. The similar asymmetry exists in MNIST and SVHN as well. This observation validates the importance of an asymmetric modeling.\nTo evaluate the importance of joint labelling and reject option, we compare our method with self baselines. Our self-baselines are versions of our algorithm not using the reject option (no reject) and the version using neither reject option nor joint labelling (k-NN only). Results on both experiments suggest that joint labelling and the reject option are both crucial for successful transduction. Moreover, the reject option is more important when the domain shift is large (e.g. MNIST→SVHN). This is expected since transduction under a large shift is more likely to fail a situation that can be prevented with reject option."
+    }, {
+      "heading" : "4.1.1 Qualitative Analysis",
+      "text" : "To further study the learned representations and the similarity metric, we performed a series of qualitative analysis in the form of nearest neighbor and tSNE[34] plots.\nFigure 1 visualizes example target images from MNIST and their corresponding source images. First of all, our experimental analysis suggests that MNIST and SVHN are the two domains with the largest difference. Hence, we believe MNIST↔SVHN is a very challenging set-up and despite the huge\nvisual differences, our algorithm results in accurate nearest neighbors. On the other hand, Figure 2 visualizes the example target images from webcam and their corresponding nearest source images from Amazon.\nThe difference between invariance and equivariance is clearer in the tSNE plots of the Office dataset in Figure 3 and the digit classification task in Figure 4. In Figure 3, we plot the distribution of features before and after adaptation for source and target while color coding class labels. We use the learned embeddings as output of Φs and Φt as an input to tSNE algorithm[34]. As Figure 3 suggests, the source domain is well clustered according to the object classes with and without adaptation. This is expected since the features are specifically fine-tuned to the source domain before the adaptation starts. However, the target domain features have no structure before adaptation. This is also expected since the algorithm did not see any image from the target domain. After the adaptation, target images also get clustered according to the object classes.\nIn Figure 4, we show the digit images of the source and target after the adaptation. In order to see the effect of common features and domain specific features separately, we compute the low-dimensional embeddings of the output of the shared network (output of the first fully connected layer). We further compute the NN points between the source and target using Φs and Φt, and draw an edge between NNs. Clearly, the target is well clustered according to the classes and the source is not very well clustered although it has some structure. Since we learn the entire network for digit classification, our networks learn discriminative features in the target domain as our loss depends directly on classification scores in the target domain. Moreover, discriminative features in the target arises because of the transductive modeling. In comparison, state of the art domain invariance based algorithms only try to be invariant to the domains without explicit modeling of discriminative behavior on the target. Hence, our method explicitly models the relationship between the domains and results in an equivarient model while enforcing discriminative behavior in the target."
+    }, {
+      "heading" : "5 Conclusion",
+      "text" : "We described an end-to-end deep learning framework for jointly optimizing the optimal deep feature representation, cross domain transformation, and the target label inference for state of the art unsupervised domain adaptation.\nExperimental results on digit classification using MNIST[19] and SVHN[21] as well as on object recognition using the Office[25] dataset show state of the art performance with a significant margin."
+    }, {
+      "heading" : "Acknowledgments",
+      "text" : "We acknowledge the support of ONR-N00014-13-1-0761, MURI - WF911NF-15-1-0479 and Toyota Center grant 1191689-1-UDAWF."
+    } ],
+    "references" : [ {
+      "title" : "Contour detection and hierarchical image segmentation",
+      "author" : [ "P. Arbelaez", "M. Maire", "C. Fowlkes", "J. Malik" ],
+      "venue" : "T-PAMI, 33:898–916,",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Active nearest neighbors in changing environments",
+      "author" : [ "C. Berlind", "R. Urner" ],
+      "venue" : "ICML,",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Learning from labeled and unlabeled data using graph mincuts",
+      "author" : [ "A. Blum", "S. Chawla" ],
+      "venue" : "ICML,",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : null,
+      "year" : 2001
+    }, {
+      "title" : "An experimental comparison of min-cut/max-flow algorithms for energy minimization in vision",
+      "author" : [ "Y. Boykov", "V. Kolmogorov" ],
+      "venue" : "T-PAMI, 26:1124–1137,",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : null,
+      "year" : 2004
+    }, {
+      "title" : "Dlid: Deep learning for domain adaptation by interpolating between domains",
+      "author" : [ "S. Chopra", "S. Balakrishnan", "R. Gopalan" ],
+      "venue" : "ICML W,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Imagenet: A large-scale hierarchical image database",
+      "author" : [ "J. Deng", "W. Dong", "R. Socher", "L.-J. Li", "K. Li", "L. Fei-Fei" ],
+      "venue" : "CVPR,",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : null,
+      "year" : 2009
+    }, {
+      "title" : "Adaptive subgradient methods for online learning and stochastic optimization",
+      "author" : [ "J. Duchi", "E. Hazan", "Y. Singer" ],
+      "venue" : "JMLR, pages 2121–2159,",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Unsupervised visual domain adaptation using subspace alignment",
+      "author" : [ "B. Fernando", "A. Habrard", "M. Sebban", "T. Tuytelaars" ],
+      "venue" : "ICCV,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Learning by transduction",
+      "author" : [ "A. Gammerman", "V. Vovk", "V. Vapnik" ],
+      "venue" : "UAI,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : null,
+      "year" : 1998
+    }, {
+      "title" : "Unsupervised domain adaptation by backpropagation",
+      "author" : [ "Y. Ganin", "V.S. Lempitsky" ],
+      "venue" : "ICML,",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Connecting the dots with landmarks: Discriminatively learning domain-invariant features for unsupervised domain adaptation",
+      "author" : [ "B. Gong", "K. Grauman", "F. Sha" ],
+      "venue" : "ICML,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Geodesic flow kernel for unsupervised domain adaptation",
+      "author" : [ "B. Gong", "Y. Shi", "F. Sha", "K. Grauman" ],
+      "venue" : "CVPR,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Large-scale video classification with convolutional neural networks",
+      "author" : [ "A. Karpathy", "G. Toderici", "S. Shetty", "T. Leung", "R. Sukthankar", "L. Fei-Fei" ],
+      "venue" : "CVPR,",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Coconut: Co-classification with output space regularization",
+      "author" : [ "S. Khamis", "C. Lampert" ],
+      "venue" : "BMVC,",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Domain adaptation for zero-shot learning",
+      "author" : [ "E. Kodirov", "T. Xiang", "Z. Fu", "S. Gong" ],
+      "venue" : "ICCV,",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Imagenet classification with deep convolutional neural networks",
+      "author" : [ "A. Krizhevsky", "I. Sutskever", "G.E. Hinton" ],
+      "venue" : "NIPS,",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Gradient-based learning applied to document recognition",
+      "author" : [ "Y. LeCun", "L. Bottou", "Y. Bengio", "P. Haffner" ],
+      "venue" : "Proceedings of the IEEE, 86:2278–2324,",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : null,
+      "year" : 1998
+    }, {
+      "title" : "The mnist database of handwritten digits",
+      "author" : [ "Y. LeCun", "C. Cortes", "C.J. Burges" ],
+      "venue" : null,
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : "19",
+      "year" : 1998
+    }, {
+      "title" : "Learning transferable features with deep adaptation networks",
+      "author" : [ "M. Long", "C. Yue", "J. Wang", "J. Michael" ],
+      "venue" : "arXiv,",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Reading digits in natural images with unsupervised feature learning",
+      "author" : [ "Y. Netzer", "T. Wang", "A. Coates", "A. Bissacco", "B. Wu", "A.Y. Ng" ],
+      "venue" : "NIPS W,",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Zero-shot learning with semantic output codes",
+      "author" : [ "M. Palatucci", "D. Pomerleau", "G.E. Hinton", "T.M. Mitchell" ],
+      "venue" : "NIPS,",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : null,
+      "year" : 2009
+    }, {
+      "title" : "Self-taught learning: transfer learning from unlabeled data",
+      "author" : [ "R. Raina", "A. Battle", "H. Lee", "B. Packer", "A.Y. Ng" ],
+      "venue" : "ICML. ACM,",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : null,
+      "year" : 2007
+    }, {
+      "title" : "Transfer learning in a transductive setting",
+      "author" : [ "M. Rohrbach", "S. Ebert", "B. Schiele" ],
+      "venue" : "NIPS,",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Adapting visual category models to new domains",
+      "author" : [ "K. Saenko", "B. Kulis", "M. Fritz", "T. Darrell" ],
+      "venue" : "ECCV, pages 213–226. Springer,",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : null,
+      "year" : 2010
+    }, {
+      "title" : "Very deep convolutional networks for large-scale image recognition",
+      "author" : [ "K. Simonyan", "A. Zisserman" ],
+      "venue" : "CoRR, abs/1409.1556,",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Beyond the point cloud: from transductive to semi-supervised learning",
+      "author" : [ "V. Sindhwani", "P. Niyogi", "M. Belkin" ],
+      "venue" : "ICML,",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : null,
+      "year" : 2005
+    }, {
+      "title" : "Return of frustratingly easy domain adaptation",
+      "author" : [ "B. Sun", "J. Feng", "K. Saenko" ],
+      "venue" : "AAAI,",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Subspace alignment for unsupervised domain adaptation",
+      "author" : [ "B. Sun", "K. Saenko" ],
+      "venue" : "BMVC,",
+      "citeRegEx" : "29",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Going deeper with convolutions",
+      "author" : [ "C. Szegedy", "W. Liu", "Y. Jia", "P. Sermanet", "S. Reed", "D. Anguelov", "D. Erhan", "V. Vanhoucke", "A. Rabinovich" ],
+      "venue" : "arXiv:1409.4842,",
+      "citeRegEx" : "30",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Learning to learn",
+      "author" : [ "S. Thrun", "L. Pratt" ],
+      "venue" : "Springer Science & Business,",
+      "citeRegEx" : "31",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Frustratingly easy NBNN domain adaptation",
+      "author" : [ "T. Tommasi", "B. Caputo" ],
+      "venue" : "ICCV,",
+      "citeRegEx" : "32",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Deep domain confusion: Maximizing for domain invariance",
+      "author" : [ "E. Tzeng", "J. Hoffman", "N. Zhang", "K. Saenko", "T. Darrell" ],
+      "venue" : "arXiv:1412.3474,",
+      "citeRegEx" : "33",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Accelerating t-sne using tree-based algorithms",
+      "author" : [ "L. van der maaten" ],
+      "venue" : "In JMLR,",
+      "citeRegEx" : "34",
+      "shortCiteRegEx" : "34",
+      "year" : 2014
+    }, {
+      "title" : "Distance metric learning for large margin nearest neighbor classification",
+      "author" : [ "K.Q. Weinberger", "J. Blitzer", "L.K. Saul" ],
+      "venue" : "NIPS,",
+      "citeRegEx" : "35",
+      "shortCiteRegEx" : null,
+      "year" : 2006
+    }, {
+      "title" : "Learning from labeled and unlabeled data with label propagation",
+      "author" : [ "X. Zhu", "Z. Ghahramani" ],
+      "venue" : null,
+      "citeRegEx" : "36",
+      "shortCiteRegEx" : "36",
+      "year" : 2002
+    }, {
+      "title" : "Semi-supervised learning using gaussian fields and harmonic functions",
+      "author" : [ "X. Zhu", "Z. Ghahramani", "J. Lafferty" ],
+      "venue" : "In ICML,",
+      "citeRegEx" : "37",
+      "shortCiteRegEx" : "37",
+      "year" : 2003
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 9,
+      "context" : "Since unsupervised domain adaptation algorithms directly address this domain shift problem between a labelled source dataset and an unlabelled target dataset, recent papers [11, 33] have shown promising results by fine-tuning the networks with domain adaptation loss functions which try to align the mismatch between the training and testing data distributions.",
+      "startOffset" : 173,
+      "endOffset" : 181
+    }, {
+      "referenceID" : 31,
+      "context" : "Since unsupervised domain adaptation algorithms directly address this domain shift problem between a labelled source dataset and an unlabelled target dataset, recent papers [11, 33] have shown promising results by fine-tuning the networks with domain adaptation loss functions which try to align the mismatch between the training and testing data distributions.",
+      "startOffset" : 173,
+      "endOffset" : 181
+    }, {
+      "referenceID" : 9,
+      "context" : "Nevertheless, these recent deep learning based domain adaptation approaches still suffer from issues such as high sensitivity to the gradient reversal hyperparameters [11] and overfitting during the fine-tuning stage.",
+      "startOffset" : 167,
+      "endOffset" : 171
+    }, {
+      "referenceID" : 15,
+      "context" : "Recently, deep convolutional neural networks [17, 26, 30] have propelled unprecedented advances in artificial intelligence including object recognition, speech recognition, and image captioning.",
+      "startOffset" : 45,
+      "endOffset" : 57
+    }, {
+      "referenceID" : 24,
+      "context" : "Recently, deep convolutional neural networks [17, 26, 30] have propelled unprecedented advances in artificial intelligence including object recognition, speech recognition, and image captioning.",
+      "startOffset" : 45,
+      "endOffset" : 57
+    }, {
+      "referenceID" : 28,
+      "context" : "Recently, deep convolutional neural networks [17, 26, 30] have propelled unprecedented advances in artificial intelligence including object recognition, speech recognition, and image captioning.",
+      "startOffset" : 45,
+      "endOffset" : 57
+    }, {
+      "referenceID" : 25,
+      "context" : "In this regard, the research community has proposed different mechanisms such as semi-supervised learning [27, 37], transfer learning [23, 31], weakly labelled learning, and domain adaptation.",
+      "startOffset" : 106,
+      "endOffset" : 114
+    }, {
+      "referenceID" : 35,
+      "context" : "In this regard, the research community has proposed different mechanisms such as semi-supervised learning [27, 37], transfer learning [23, 31], weakly labelled learning, and domain adaptation.",
+      "startOffset" : 106,
+      "endOffset" : 114
+    }, {
+      "referenceID" : 21,
+      "context" : "In this regard, the research community has proposed different mechanisms such as semi-supervised learning [27, 37], transfer learning [23, 31], weakly labelled learning, and domain adaptation.",
+      "startOffset" : 134,
+      "endOffset" : 142
+    }, {
+      "referenceID" : 29,
+      "context" : "In this regard, the research community has proposed different mechanisms such as semi-supervised learning [27, 37], transfer learning [23, 31], weakly labelled learning, and domain adaptation.",
+      "startOffset" : 134,
+      "endOffset" : 142
+    }, {
+      "referenceID" : 5,
+      "context" : "ImageNet [7], Sports1M [14]) is already available as a reference.",
+      "startOffset" : 9,
+      "endOffset" : 12
+    }, {
+      "referenceID" : 12,
+      "context" : "ImageNet [7], Sports1M [14]) is already available as a reference.",
+      "startOffset" : 23,
+      "endOffset" : 27
+    }, {
+      "referenceID" : 11,
+      "context" : "The majority of the literature [13, 29, 9, 28, 32] in unsupervised domain adaptation formulates a learning problem where the task is to find a transformation matrix to align the labelled source data distribution to the unlabelled target data distribution.",
+      "startOffset" : 31,
+      "endOffset" : 50
+    }, {
+      "referenceID" : 27,
+      "context" : "The majority of the literature [13, 29, 9, 28, 32] in unsupervised domain adaptation formulates a learning problem where the task is to find a transformation matrix to align the labelled source data distribution to the unlabelled target data distribution.",
+      "startOffset" : 31,
+      "endOffset" : 50
+    }, {
+      "referenceID" : 7,
+      "context" : "The majority of the literature [13, 29, 9, 28, 32] in unsupervised domain adaptation formulates a learning problem where the task is to find a transformation matrix to align the labelled source data distribution to the unlabelled target data distribution.",
+      "startOffset" : 31,
+      "endOffset" : 50
+    }, {
+      "referenceID" : 26,
+      "context" : "The majority of the literature [13, 29, 9, 28, 32] in unsupervised domain adaptation formulates a learning problem where the task is to find a transformation matrix to align the labelled source data distribution to the unlabelled target data distribution.",
+      "startOffset" : 31,
+      "endOffset" : 50
+    }, {
+      "referenceID" : 30,
+      "context" : "The majority of the literature [13, 29, 9, 28, 32] in unsupervised domain adaptation formulates a learning problem where the task is to find a transformation matrix to align the labelled source data distribution to the unlabelled target data distribution.",
+      "startOffset" : 31,
+      "endOffset" : 50
+    }, {
+      "referenceID" : 17,
+      "context" : "Following the standard evaluation protocol in the unsupervised domain adaptation community, we evaluate our method on the digit classification task using MNIST [19] and SVHN[21] as well as the object recognition task using the Office [25] dataset, and demonstrate state of the art performance in comparison to all existing unsupervised domain adaptation methods.",
+      "startOffset" : 160,
+      "endOffset" : 164
+    }, {
+      "referenceID" : 19,
+      "context" : "Following the standard evaluation protocol in the unsupervised domain adaptation community, we evaluate our method on the digit classification task using MNIST [19] and SVHN[21] as well as the object recognition task using the Office [25] dataset, and demonstrate state of the art performance in comparison to all existing unsupervised domain adaptation methods.",
+      "startOffset" : 173,
+      "endOffset" : 177
+    }, {
+      "referenceID" : 23,
+      "context" : "Following the standard evaluation protocol in the unsupervised domain adaptation community, we evaluate our method on the digit classification task using MNIST [19] and SVHN[21] as well as the object recognition task using the Office [25] dataset, and demonstrate state of the art performance in comparison to all existing unsupervised domain adaptation methods.",
+      "startOffset" : 234,
+      "endOffset" : 238
+    }, {
+      "referenceID" : 14,
+      "context" : "Unsupervised domain adaptation: [16] casts the zero-shot learning [22] problem as an unsupervised domain adaptation problem in the dictionary learning and sparse coding framework, assuming access to additional attribute information.",
+      "startOffset" : 32,
+      "endOffset" : 36
+    }, {
+      "referenceID" : 20,
+      "context" : "Unsupervised domain adaptation: [16] casts the zero-shot learning [22] problem as an unsupervised domain adaptation problem in the dictionary learning and sparse coding framework, assuming access to additional attribute information.",
+      "startOffset" : 66,
+      "endOffset" : 70
+    }, {
+      "referenceID" : 1,
+      "context" : "Recently, [3] proposed the active nearest neighbor algorithm, which combines the component of active learning into the domain adaptation problem and makes a bounded number of active queries to users.",
+      "startOffset" : 10,
+      "endOffset" : 13
+    }, {
+      "referenceID" : 11,
+      "context" : "Also, [13, 9, 28] proposed subspace alignment based approaches to unsupervised domain adaptation where the task is to learn a joint transformation and projection in which the difference between the source and the target covariance is minimized.",
+      "startOffset" : 6,
+      "endOffset" : 17
+    }, {
+      "referenceID" : 7,
+      "context" : "Also, [13, 9, 28] proposed subspace alignment based approaches to unsupervised domain adaptation where the task is to learn a joint transformation and projection in which the difference between the source and the target covariance is minimized.",
+      "startOffset" : 6,
+      "endOffset" : 17
+    }, {
+      "referenceID" : 26,
+      "context" : "Also, [13, 9, 28] proposed subspace alignment based approaches to unsupervised domain adaptation where the task is to learn a joint transformation and projection in which the difference between the source and the target covariance is minimized.",
+      "startOffset" : 6,
+      "endOffset" : 17
+    }, {
+      "referenceID" : 30,
+      "context" : "[32] utilizes a local max margin metric learning objective [35] to first assign the target labels with the nearest neighbor scheme and then learn a distance metric to enforce the negative pairwise distances to be larger than the positive pairwise distances.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 33,
+      "context" : "[32] utilizes a local max margin metric learning objective [35] to first assign the target labels with the nearest neighbor scheme and then learn a distance metric to enforce the negative pairwise distances to be larger than the positive pairwise distances.",
+      "startOffset" : 59,
+      "endOffset" : 63
+    }, {
+      "referenceID" : 9,
+      "context" : "Recently, [11, 33] proposed a deep learning based method to learn domain invariant features by providing the reversed gradient signal from the binary domain classifiers.",
+      "startOffset" : 10,
+      "endOffset" : 18
+    }, {
+      "referenceID" : 31,
+      "context" : "Recently, [11, 33] proposed a deep learning based method to learn domain invariant features by providing the reversed gradient signal from the binary domain classifiers.",
+      "startOffset" : 10,
+      "endOffset" : 18
+    }, {
+      "referenceID" : 8,
+      "context" : "Transductive learning: In the transductive learning [10], the model has access to unlabelled test samples during training.",
+      "startOffset" : 52,
+      "endOffset" : 56
+    }, {
+      "referenceID" : 22,
+      "context" : "[24] utilizes a semi-supervised label propagation algorithm into the semisupervised transfer learning problem assuming access to few labeled examples and additional human specified semantic knowledge.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 13,
+      "context" : "[15] tackled a classification problem where predictions are made jointly across all test examples in a transductive [10] setting.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 8,
+      "context" : "[15] tackled a classification problem where predictions are made jointly across all test examples in a transductive [10] setting.",
+      "startOffset" : 116,
+      "endOffset" : 120
+    }, {
+      "referenceID" : 17,
+      "context" : "Our experiments on digit classification using MNIST [19] and SVHN[21] as well as the object recognition experiments on Office [25] datasets show state of the art results, outperforming all existing methods by a substantial margin.",
+      "startOffset" : 52,
+      "endOffset" : 56
+    }, {
+      "referenceID" : 19,
+      "context" : "Our experiments on digit classification using MNIST [19] and SVHN[21] as well as the object recognition experiments on Office [25] datasets show state of the art results, outperforming all existing methods by a substantial margin.",
+      "startOffset" : 65,
+      "endOffset" : 69
+    }, {
+      "referenceID" : 23,
+      "context" : "Our experiments on digit classification using MNIST [19] and SVHN[21] as well as the object recognition experiments on Office [25] datasets show state of the art results, outperforming all existing methods by a substantial margin.",
+      "startOffset" : 126,
+      "endOffset" : 130
+    }, {
+      "referenceID" : 33,
+      "context" : "It can be shown that if the transduction from target to source follows a nearest neighbor rule, cyclic consistency can be enforced without explicitly computing ŷ i using the large-margin nearest neighbor (LMNN)[35] rule.",
+      "startOffset" : 210,
+      "endOffset" : 214
+    }, {
+      "referenceID" : 2,
+      "context" : "Structured Consistency: Similar to existing graph transduction algorithms [4, 36], we create a k-nearest neighbor (k-NN) graph over the unsupervised data points and penalize disagreements of labels between neighbors.",
+      "startOffset" : 74,
+      "endOffset" : 81
+    }, {
+      "referenceID" : 34,
+      "context" : "Structured Consistency: Similar to existing graph transduction algorithms [4, 36], we create a k-nearest neighbor (k-NN) graph over the unsupervised data points and penalize disagreements of labels between neighbors.",
+      "startOffset" : 74,
+      "endOffset" : 81
+    }, {
+      "referenceID" : 3,
+      "context" : "We use the α-β swapping algorithm from [5] since it is experimentally shown to be efficient and accurate.",
+      "startOffset" : 39,
+      "endOffset" : 42
+    }, {
+      "referenceID" : 15,
+      "context" : "We use Alexnet [17] and LeNet [18] architectures with small modifications.",
+      "startOffset" : 15,
+      "endOffset" : 19
+    }, {
+      "referenceID" : 16,
+      "context" : "We use Alexnet [17] and LeNet [18] architectures with small modifications.",
+      "startOffset" : 30,
+      "endOffset" : 34
+    }, {
+      "referenceID" : 9,
+      "context" : "In order to have a fair comparison, we use the same architectures from [11] only modifying the embedding size.",
+      "startOffset" : 71,
+      "endOffset" : 75
+    }, {
+      "referenceID" : 6,
+      "context" : ",B} Solve (2) for {y1···B} for i = 1 to B do if ŷi ∈ y1···B and ∃k yk ∈ Y \\ ŷi then Compute (i, i−) using {y1···B} in (4) Update ∂loss ∂θc , ∂loss ∂θs , ∂loss ∂θt end if end for η(t)← Adagrad Rule [8] θc ← θc + η(t) ∂loss ∂θc , θs ← θs + η(t) ∂loss ∂θs ,",
+      "startOffset" : 197,
+      "endOffset" : 200
+    }, {
+      "referenceID" : 6,
+      "context" : "We use stochastic gradient descent to learn the feature function with AdaGrad[8].",
+      "startOffset" : 77,
+      "endOffset" : 80
+    }, {
+      "referenceID" : 17,
+      "context" : "Datasets: We use MNIST [19], Street View House Number [21] and the artificially generated version of MNIST -MNIST-M- [11] to experiment our algorithm on the digit classification task.",
+      "startOffset" : 23,
+      "endOffset" : 27
+    }, {
+      "referenceID" : 19,
+      "context" : "Datasets: We use MNIST [19], Street View House Number [21] and the artificially generated version of MNIST -MNIST-M- [11] to experiment our algorithm on the digit classification task.",
+      "startOffset" : 54,
+      "endOffset" : 58
+    }, {
+      "referenceID" : 9,
+      "context" : "Datasets: We use MNIST [19], Street View House Number [21] and the artificially generated version of MNIST -MNIST-M- [11] to experiment our algorithm on the digit classification task.",
+      "startOffset" : 117,
+      "endOffset" : 121
+    }, {
+      "referenceID" : 0,
+      "context" : "MNIST-M is simply a blend of the digit images of the original MNIST dataset and the color images of BSDS500 [2] following the method explained in [11].",
+      "startOffset" : 108,
+      "endOffset" : 111
+    }, {
+      "referenceID" : 9,
+      "context" : "MNIST-M is simply a blend of the digit images of the original MNIST dataset and the color images of BSDS500 [2] following the method explained in [11].",
+      "startOffset" : 146,
+      "endOffset" : 150
+    }, {
+      "referenceID" : 9,
+      "context" : "Since the dataset is not distributed directly by the authors, we generated the dataset using the same procedure and further confirmed that the performance is the same as the one reported in [11].",
+      "startOffset" : 190,
+      "endOffset" : 194
+    }, {
+      "referenceID" : 23,
+      "context" : "In addition, we use the Office [25] dataset to evaluate our algorithm on the object recognition task.",
+      "startOffset" : 31,
+      "endOffset" : 35
+    }, {
+      "referenceID" : 7,
+      "context" : "SA*[9] is the dominant state-of-the-art approach not employing any feature learning, and Backprop(BP)[11] is the dominant state-of-the-art employing feature learning.",
+      "startOffset" : 3,
+      "endOffset" : 6
+    }, {
+      "referenceID" : 9,
+      "context" : "SA*[9] is the dominant state-of-the-art approach not employing any feature learning, and Backprop(BP)[11] is the dominant state-of-the-art employing feature learning.",
+      "startOffset" : 101,
+      "endOffset" : 105
+    }, {
+      "referenceID" : 9,
+      "context" : "We use the available source code of [11] and [9] and following the evaluation procedure in [11], we choose the hyper-parameter of [9] as the highest performing one among various alternatives.",
+      "startOffset" : 36,
+      "endOffset" : 40
+    }, {
+      "referenceID" : 7,
+      "context" : "We use the available source code of [11] and [9] and following the evaluation procedure in [11], we choose the hyper-parameter of [9] as the highest performing one among various alternatives.",
+      "startOffset" : 45,
+      "endOffset" : 48
+    }, {
+      "referenceID" : 9,
+      "context" : "We use the available source code of [11] and [9] and following the evaluation procedure in [11], we choose the hyper-parameter of [9] as the highest performing one among various alternatives.",
+      "startOffset" : 91,
+      "endOffset" : 95
+    }, {
+      "referenceID" : 7,
+      "context" : "We use the available source code of [11] and [9] and following the evaluation procedure in [11], we choose the hyper-parameter of [9] as the highest performing one among various alternatives.",
+      "startOffset" : 130,
+      "endOffset" : 133
+    }, {
+      "referenceID" : 10,
+      "context" : "Evaluation: We evaluate all algorithms in a fully transductive setup [12].",
+      "startOffset" : 69,
+      "endOffset" : 73
+    }, {
+      "referenceID" : 9,
+      "context" : "Our hypothesis is that the state-of-the-art algorithms such as [11] are seeking features invariant to the domains whereas we seek an explicit similarity metric explaining both differences and similarities of domains.",
+      "startOffset" : 63,
+      "endOffset" : 67
+    }, {
+      "referenceID" : 32,
+      "context" : "To further study the learned representations and the similarity metric, we performed a series of qualitative analysis in the form of nearest neighbor and tSNE[34] plots.",
+      "startOffset" : 158,
+      "endOffset" : 162
+    }, {
+      "referenceID" : 32,
+      "context" : "We use the learned embeddings as output of Φs and Φt as an input to tSNE algorithm[34].",
+      "startOffset" : 82,
+      "endOffset" : 86
+    }, {
+      "referenceID" : 17,
+      "context" : "Experimental results on digit classification using MNIST[19] and SVHN[21] as well as on object recognition using the Office[25] dataset show state of the art performance with a significant margin.",
+      "startOffset" : 56,
+      "endOffset" : 60
+    }, {
+      "referenceID" : 19,
+      "context" : "Experimental results on digit classification using MNIST[19] and SVHN[21] as well as on object recognition using the Office[25] dataset show state of the art performance with a significant margin.",
+      "startOffset" : 69,
+      "endOffset" : 73
+    }, {
+      "referenceID" : 23,
+      "context" : "Experimental results on digit classification using MNIST[19] and SVHN[21] as well as on object recognition using the Office[25] dataset show state of the art performance with a significant margin.",
+      "startOffset" : 123,
+      "endOffset" : 127
+    } ],
+    "year" : 2016,
+    "abstractText" : "Supervised learning with large scale labelled datasets and deep layered models has caused a paradigm shift in diverse areas in learning and recognition. However, this approach still suffers from generalization issues under the presence of a domain shift between the training and the test data distribution. Since unsupervised domain adaptation algorithms directly address this domain shift problem between a labelled source dataset and an unlabelled target dataset, recent papers [11, 33] have shown promising results by fine-tuning the networks with domain adaptation loss functions which try to align the mismatch between the training and testing data distributions. Nevertheless, these recent deep learning based domain adaptation approaches still suffer from issues such as high sensitivity to the gradient reversal hyperparameters [11] and overfitting during the fine-tuning stage. In this paper, we propose a unified deep learning framework where the representation, cross domain transformation, and target label inference are all jointly optimized in an end-to-end fashion for unsupervised domain adaptation. Our experiments show that the proposed method significantly outperforms state-of-the-art algorithms in both object recognition and digit classification experiments by a large margin.",
+    "creator" : null
+  }
+}

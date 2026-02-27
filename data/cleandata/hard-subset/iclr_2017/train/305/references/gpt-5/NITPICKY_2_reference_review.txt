@@ -1,0 +1,55 @@
+1) Summary of claims/contributions
+- Proposes an end-to-end trainable image compression system based on cascaded convolutional transforms with generalized divisive normalization (GDN) in the analysis path and an approximate inverse (IGDN) in the synthesis path.
+- Optimizes a rate–distortion objective by replacing quantization with additive uniform noise to obtain a differentiable surrogate; trains nonparametric marginal models for latent densities; at test time uses rounding and an arithmetic coder (CABAC-like) to report actual bitrates.
+- Establishes a connection to VAEs, clarifying similarities and key differences.
+- Reports qualitatively improved artifacts vs. JPEG/JPEG2000 and better MS-SSIM at all rates; often better PSNR, especially at low rates. Claims feasibility as a complete lossy compression method with an actual entropy code.
+
+2) Decision: Reject
+Key reasons:
+- Serious presentation/specification issues and anonymity violations (e.g., incomplete core method definitions, missing implementation details, and identifiable URLs/names).
+- Evaluation is limited and unbalanced (older baselines only, small test set aggregation, no runtime/model-size analysis), weakening empirical support despite promising results.
+
+3) Supporting arguments
+Technical/methodological issues
+- Incomplete synthesis definition: Eq. (5) defines upsampling only “if m/ŝk and n/ŝk are integers” and leaves the “otherwise” case blank. This is a critical omission (zero insertion vs. interpolation vs. learned upsampling materially affects behavior, receptive fields, invertibility, and bitrate-distortion). The paper cannot be reproduced without this detail.
+- GDN/IGDN stability/specification: βk,i is parameterized as (β′)^2 − 2^−10 with β′ projected to [2^−5, ∞). This can make β arbitrarily close to 0; if γ terms are similarly near zero and w = 0, the denominator in GDN can be zero, leading to instability. Please justify bounds ensuring β + Σ γ w^2 ≥ ε > 0 at all times; clarify positivity/symmetry handling for γ (you mention symmetrization and squaring, but the exact constraints are scattered and easy to misapply).
+- Independence assumption in the latent code: Both the relaxed density and the final entropy code assume independent marginals within each channel (spatial adaptation handled only coarsely in the coder). This is a strong modeling limitation and likely leaves bitrate on the table; the paper should quantify the residual dependencies (e.g., mutual information between neighboring codes) and how much the coder’s simple context model recovers. Current claims of “complete” compression are undermined by this simplification.
+- Nonparametric marginal models: Piecewise linear splines with “10 samples per unit interval,” with occasional range adaptation, are under-specified. How are spline knots chosen across the entire dynamic range? How do you avoid aliasing at high variance latents? What is the overhead of storing these models (you imply they’re fixed per-λ and not transmitted), and how sensitive is performance to knot density?
+- Relaxation quality: While Fig. 4 is referenced to show small bias/variance, there is no quantitative summary across images/rates (e.g., mean absolute bias of rate and distortion, and worst cases). This matters because λ-selection and claimed “actual bitrates” hinge on relaxation fidelity during training.
+
+Evaluation concerns
+- Baselines: Only JPEG and JPEG 2000 are considered. Modern baselines (e.g., BPG/HEVC-intra, AVIF, VTM-intra, WebP) are standard and often much stronger in PSNR/MS-SSIM and subjective quality. Without these, the strength of the claimed improvements remains unclear.
+- Aggregation: The paper explicitly avoids summary R-D metrics and relies on per-image plots hosted online. This is unsatisfactory. Standard practice includes BD-rate/BD-PSNR summaries across a test set. The choice to not aggregate because it is “difficult” weakens empirical rigor.
+- Test sets: Kodak (24 images) plus a few classics is too small/dated for strong claims. While training uses ~6.5k ImageNet-derived crops, generalization should be established on broader modern datasets (e.g., Tecnick, CLIC, DIV2K) with both grayscale and color.
+- MS-SSIM evaluation: For RGB, MS-SSIM is computed on only the luma after Y’CbCr conversion. Report chroma-weighted perceptual metrics or at least justify the choice; also report color fidelity metrics (e.g., DeltaE) where relevant.
+- Practicality: A separately trained model for each λ is impractical in deployment. The paper discusses Toderici et al. but does not provide a single scalable model or a conditional λ mechanism. Storage/runtime implications of multiple models are not reported.
+- Runtime/model size: No complexity analysis (MACs/pixel, encoder/decoder latency, memory footprint) is provided. A claim of “efficiency” needs quantitative evidence vs. baselines.
+
+Coding pipeline and fairness
+- Entropy coding: The proposed CABAC-like binary decision tree around the mode is simplistic and not competitive with modern context models. The paper admits this but still uses it to claim “actual bitrates.” A fair comparison requires a stronger coder and/or matching the coding power of JPEG2000’s MQ-coder with robust context design, or testing with a non-adaptive arithmetic coder consistently across methods.
+- Side information: The bitstream includes only image size, color flag, and λ. It assumes the decoder has the exact per-λ model parameters a priori. This is fine for research but should be stated as such when claiming “complete method.” Report how many parameter sets exist, their sizes, and how versioning is handled.
+
+Presentation/anonymity/formatting
+- Anonymity breaches: Multiple author names, acknowledgments, and direct URLs to named lab pages break double-blind policy.
+- References have numerous formatting errors (garbled years, placeholders like “? \Q2016\E”, inconsistent author fields, missing venues/DOIs), which reflects poorly on rigor.
+- Notation issues: Eq. (10) writes pỹ(n) = Pq(n) at integer lattice points; while the identity is standard, please clarify it as equality of mass at lattice points (or via convolution identity), to avoid confusion between densities and pmfs.
+
+4) Additional feedback (to improve the paper; not all are decision-critical)
+- Provide a precise and complete definition of the synthesis upsampling operator and all layer hyperparameters (sk, ŝk), including boundary handling.
+- Include ablations: GDN/IGDN vs. ReLU/LeakyReLU/Swish with matched parameter budgets; number of stages; effect of latent independence vs. a hyperprior/context model; effect of spline knot density.
+- Report BD-rate/BD-PSNR against stronger baselines (BPG/AVIF/VTM-intra) on modern datasets; include subjective side-by-sides with multiple seeds/images.
+- Quantify relaxation bias/variance across datasets and rates.
+- Provide runtime, MACs/pixel, and model size comparisons; discuss feasibility on mobile/embedded hardware.
+- Clarify λ values used, how many separate models are trained, and storage requirements. Consider a single conditional model supporting continuous rate control.
+- Release code and trained models for reproducibility.
+
+Questions for the authors
+- What exactly is the upsampling operation in Eq. (5) for the “otherwise” case? Zero insertion, learned interpolation, or something else?
+- What concrete bounds guarantee GDN denominator positivity during training/inference? Are γ parameters constrained to be nonnegative, and how?
+- How many λ models are trained? What are their parameter counts and total storage?
+- What is the average encoding/decoding time per megapixel on a standard GPU/CPU?
+- How sensitive are results to the spline knot density (10 samples/unit)? Did you try log-spaced knots or mixtures?
+- Can you report BD-rate vs. BPG/AVIF on Kodak/Tecnick/CLIC? If not, why?
+- What is the residual spatial/neighbor dependence in the latents (e.g., measured by MI), and how much compression gain might a hyperprior/context add?
+
+Despite promising ideas and qualitatively appealing results, the current manuscript’s specification gaps, evaluation limitations, and policy/formatting issues prevent acceptance at this time.

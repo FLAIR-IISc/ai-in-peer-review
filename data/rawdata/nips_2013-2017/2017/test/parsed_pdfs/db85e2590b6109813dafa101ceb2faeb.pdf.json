@@ -1,0 +1,944 @@
+{
+  "name" : "db85e2590b6109813dafa101ceb2faeb.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Compression-aware Training of Deep Networks",
+    "authors" : [ "Jose M. Alvarez", "Mathieu Salzmann" ],
+    "emails" : [ "jose.alvarez@tri.global", "mathieu.salzmann@epfl.ch" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "With the increasing availability of large-scale datasets, recent years have witnessed a resurgence of interest for Deep Learning techniques. Impressive progress has been made in a variety of application domains, such as speech, natural language and image processing, thanks to the development of new learning strategies [15, 53, 30, 45, 26, 3] and of new architectures [31, 44, 46, 23]. In particular, these architectures tend to become ever deeper, with hundreds of layers, each of which containing hundreds or even thousands of units.\nWhile it has been shown that training such very deep architectures was typically easier than smaller ones [24], it is also well-known that they are highly over-parameterized. In essence, this means that equally good results could in principle be obtained with more compact networks. Automatically deriving such equivalent, compact models would be highly beneficial in runtime- and memorysensitive applications, e.g., to deploy deep networks on embedded systems with limited hardware resources. As a consequence, many methods have been proposed to compress existing architectures.\nAn early trend for such compression consisted of removing individual parameters [33, 22] or entire units [36, 29, 38] according to their influence on the output. Unfortunately, such an analysis of individual parameters or units quickly becomes intractable in the presence of very deep networks. Therefore, currently, one of the most popular compression approaches amounts to extracting low-rank approximations either of individual units [28] or of the parameter matrix/tensor of each layer [14]. This latter idea is particularly attractive, since, as opposed to the former one, it reduces the number of units in each layer. In essence, the above-mentioned techniques aim to compress a network that has been pre-trained. There is, however, no guarantee that the parameter matrices of such pre-trained networks truly have low-rank. Therefore, these methods typically truncate some of the relevant information, thus resulting in a loss of prediction accuracy, and, more importantly, do not necessarily achieve the best possible compression rates.\nIn this paper, we propose to explicitly account for compression while training the initial deep network. Specifically, we introduce a regularizer that encourages the parameter matrix of each layer to have\n31st Conference on Neural Information Processing Systems (NIPS 2017), Long Beach, CA, USA.\nlow rank in the training loss, and rely on a stochastic proximal gradient descent strategy to optimize the network parameters. In essence, and by contrast with methods that aim to learn uncorrelated units to prevent overfitting [5, 54, 40], we seek to learn correlated ones, which can then easily be pruned in a second phase. Our compression-aware training scheme therefore yields networks that are well adapted to the following post-processing stage. As a consequence, we achieve higher compression rates than the above-mentioned techniques at virtually no loss in prediction accuracy.\nOur approach constitutes one of the very few attempts at explicitly training a compact network from scratch. In this context, the work of [4] has proposed to learn correlated units by making use of additional noise outputs. This strategy, however, is only guaranteed to have the desired effect for simple networks and has only been demonstrated on relatively shallow architectures. In the contemporary work [51], units are coordinated via a regularizer acting on all pairs of filters within a layer. While effective, exploiting all pairs can quickly become cumbersome in the presence of large numbers of units. Recently, group sparsity has also been employed to obtain compact networks [2, 50]. Such a regularizer, however, acts on individual units, without explicitly aiming to model their redundancies. Here, we show that accounting for interactions between the units within a layer allows us to obtain more compact networks. Furthermore, using such a group sparsity prior in conjunction with our compression-aware strategy lets us achieve even higher compression rates.\nWe demonstrate the benefits of our approach on several deep architectures, including the 8-layers DecomposeMe network of [1] and the 50-layers ResNet of [23]. Our experiments on ImageNet and ICDAR show that we can achieve compression rates of more than 90%, thus hugely reducing the number of required operations at inference time."
+    }, {
+      "heading" : "2 Related Work",
+      "text" : "It is well-known that deep neural networks are over-parametrized [13]. While, given sufficient training data, this seems to facilitate the training procedure, it also has two potential drawbacks. First, over-parametrized networks can easily suffer from overfitting. Second, even when they can be trained successfully, the resulting networks are expensive both computationally and memory-wise, thus making their deployment on platforms with limited hardware resources, such as embedded systems, challenging. Over the years, much effort has been made to overcome these two drawbacks.\nIn particular, much progress has been made to reduce overfitting, for example by devising new optimization strategies, such as DropOut [45] or MaxOut [16]. In this context, other works have advocated the use of different normalization strategies, such as Batch Normalization [26], Weight Normalization [42] and Layer Normalization [3]. Recently, there has also been a surge of methods aiming to regularize the network parameters by making the different units in each layer less correlated. This has been achieved by designing new activation functions [5], by explicitly considering the pairwise correlations of the units [54, 37, 40] or of the activations [9, 52], or by constraining the weight matrices of each layer to be orthonormal [21].\nIn this paper, we are more directly interested in addressing the second drawback, that is, the large memory and runtime required by very deep networks. To tackle this, most existing research has focused on pruning pre-trained networks. In this context, early works have proposed to analyze the saliency of individual parameters [33, 22] or units [36, 29, 38, 34], so as to measure their impact on the output. Such a local analysis, however, quickly becomes impractically expensive when dealing with networks with millions of parameters.\nAs a consequence, recent works have proposed to focus on more global methods, which analyze larger groups of parameters simultaneously. In this context, the most popular trend consists of extracting low-rank approximations of the network parameters. In particular, it has been shown that individual units can be replaced by rank 1 approximations, either via a post-processing step [28, 46] or directly during training [1, 25]. Furthermore, low-rank approximations of the complete parameter matrix/tensor of each layer were computed in [14], which has the benefit of reducing the number of units in each layer. The resulting low-rank representation can then be fine-tuned [32], or potentially even learned from scratch [47], given the rank of each layer in the network. With the exception of this last work, which assumes that the ranks are known, these methods, however, aim to approximate a given pre-trained model. In practice, however, the parameter matrices of this model might not have low rank. Therefore, the resulting approximations yield some loss of accuracy and, more importantly,\nwill typically not correspond to the most compact networks. Here, we propose to explicitly learn a low-rank network from scratch, but without having to manually define the rank of each layer a priori.\nTo this end, and in contrast with the above-mentioned methods that aim to minimize correlations, we rather seek to maximize correlations between the different units within each layer, such that many of these units can be removed in a post-processing stage. In [4], additional noise outputs were introduced in a network to similarly learn correlated filters. This strategy, however, is only justified for simple networks and was only demonstrated on relatively shallow architectures. The contemporary work [51] introduced a penalty during training to learn correlated units. This, however, was achieved by explicitly computing all pairwise correlations, which quickly becomes cumbersome in very deep networks with wide layers. By contrast, our approach makes use of a low-rank regularizer that can effectively be optimized by proximal stochastic gradient descent.\nOur approach belongs to the relatively small group of methods that explicitly aim to learn a compact network during training, i.e., not as a post-processing step. Other methods have proposed to make use of sparsity-inducing techniques to cancel out individual parameters [49, 10, 20, 19, 35] or units [2, 50, 55]. These methods, however, act, at best, on individual units, without considering the relationships between multiple units in the same layer. Variational inference [17] has also been used to explicitly compress the network. However, the priors and posteriors used in these approaches will typically zero out individual weights. Our experiments demonstrate that accounting for the interactions between multiple units allows us to obtain more compact networks.\nAnother line of research aims to quantize the weights of deep networks [48, 12, 18]. Note that, in a sense, this research direction is orthogonal to ours, since one could still further quantize our compact networks. Furthermore, with the recent progress in efficient hardware handling floating-point operations, we believe that there is also high value in designing non-quantized compact networks."
+    }, {
+      "heading" : "3 Compression-aware Training of Deep Networks",
+      "text" : "In this section, we introduce our approach to explicitly encouraging compactness while training a deep neural network. To this end, we propose to make use of a low-rank regularizer on the parameter matrix in each layer, which inherently aims to maximize the compression rate when computing a low-rank approximation in a post-processing stage. In the following, we focus on convolutional neural networks, because the popular visual recognition models tend to rely less and less on fully-connected layers, and, more importantly, the inference time of such models is dominated by the convolutions in the first few layers. Note, however, that our approach still applies to fully-connected layers.\nTo introduce our approach, let us first consider the l-th layer of a convolutional network, and denote its parameters by θl ∈ RKl×Cl×d H l ×d W l , where Cl and Kl are the number of input and output channels, respectively, and dHl and d W l are the height and width of each convolutional kernel. Alternatively, these parameters can be represented by a matrix θ̂l ∈ RKl×Sl with Sl =CldHl dWl . Following [14], a network can be compacted via a post-processing step performing a singular value decomposition of θ̂l and truncating the 0, or small, singular values. In essence, after this step, the parameter matrix can be approximated as θ̂l ≈UlMTl , where Ul is a Kl× rl matrix representing the basis kernels, with rl ≤min(Kl ,Sl), and Ml is an Sl× rl matrix that mixes the activations of these basis kernels. By making use of a post-processing step on a network trained in the usual way, however, there is no guarantee that, during training, many singular values have become near-zero. Here, we aim to explicitly account for this post-processing step during training, by seeking to obtain a parameter matrix such that rl << min(Kl ,Sl). To this end, given N training input-output pairs (xi,yi), we formulate learning as the regularized minimization problem\nmin Θ 1 N\nN\n∑ i=1 `(yi, f (xi,Θ))+ r(Θ) , (1)\nwhere Θ encompasses all network parameters, `(·, ·) is a supervised loss, such as the cross-entropy, and r(·) is a regularizer encouraging the parameter matrix in each layer to have low rank. Since explicitly minimizing the rank of a matrix is NP-hard, following the matrix completion literature [7, 6], we make use of a convex relaxation in the form of the nuclear norm. This lets us\nwrite our regularizer as\nr(Θ) = τ L\n∑ l=1 ‖θ̂l‖∗ , (2)\nwhere τ is a hyper-parameter setting the influence of the regularizer, and the nuclear norm is defined as ‖θ̂l‖∗ = ∑ rank(θ̂l) j=1 σ j l , with σ j l the singular values of θ̂l .\nIn practice, to minimize (1), we make use of proximal stochastic gradient descent. Specifically, this amounts to minimizing the supervised loss only for one epoch, with learning rate ρ , and then applying the proximity operator of our regularizer. In our case, this can be achieved independently for each layer. For layer l, this proximity operator corresponds to solving\nθ ∗l = argmin θ̄l 1 2ρ ‖θ̄l− θ̂l‖2F + τ‖θ̄l‖∗ , (3)\nwhere θ̂l is the current estimate of the parameter matrix for layer l. As shown in [6], the solution to this problem can be obtained by soft-thresholding the singular values of θ̂l , which can be written as\nθ ∗l =UlΣl(ρτ)V T l , where Σl(ρτ) = diag([(σ 1 l −ρτ)+, . . . ,(σ rank(θ̂l) l −ρτ)+]), (4)\nUl and Vl are the left - and right-singular vectors of θ̂l , and (·)+ corresponds to taking the maximum between the argument and 0."
+    }, {
+      "heading" : "3.1 Low-rank and Group-sparse Layers",
+      "text" : "While, as shown in our experiments, the low-rank solution discussed above significantly reduces the number of parameters in the network, it does not affect the original number of input and output channels Cl and Kl . By contrast, the group-sparsity based methods [2, 50] discussed in Section 2 cancel out entire units, thus reducing these numbers, but do not consider the interactions between multiple units in the same layer, and would therefore typically not benefit from a post-processing step such as the one of [14]. Here, we propose to make the best of both worlds to obtain low-rank parameter matrices, some of whose units have explicitly been removed.\nTo this end, we combine the sparse group Lasso regularizer used in [2] with the low-rank one described above. This lets us re-define the regularizer in (1) as\nr(Θ) = L\n∑ l=1\n( (1−α)λl √ Pl Kl\n∑ n=1 ‖θ nl ‖2 +αλl‖θl‖1\n) + τ L\n∑ l=1 ‖θ̂l‖∗ , (5)\nwhere Kl is the number of units in layer l, θ nl denotes the vector of parameters for unit n in layer l, Pl is the size of this vector (the same for all units in a layer), α ∈ [0,1] balances the influence of sparsity terms on groups vs. individual parameters, and λl is a layer-wise hyper-parameter. In practice, following [2], we use only two different values of λl ; one for the first few layers and one for the remaining ones.\nTo learn our model with this new regularizer consisting of two main terms, we make use of the incremental proximal descent approach proposed in [39], which has the benefit of having a lower memory footprint than parallel proximal methods. The proximity operator for the sparse group Lasso regularizer also has a closed form solution derived in [43] and provided in [2]."
+    }, {
+      "heading" : "3.2 Benefits at Inference",
+      "text" : "Once our model is trained, we can obtain a compact network for faster and more memory-efficient inference by making use of a post-processing step. In particular, to account for the low rank of the parameter matrix of each layer, we make use of the SVD-based approach of [14]. Specifically, for each layer l, we compute the SVD of the parameter matrix as θ̂l = ŨlΣ̃lṼl and only keep the rl singular values that are either non-zero, thus incurring no loss, or larger than a pre-defined threshold, at some potential loss. The parameter matrix can then be represented as θ̂l =UlMl , with Ul ∈RCld H l d W l ×rl and Ml = ΣlVl ∈ Rrl×Kl). In essence, every layer is decomposed into two layers. This incurs significant memory and computational savings if rl(CldHl d W l +Kl)<< (Cld H l d W l Kl).\nFurthermore, additional savings can be achieved when using the sparse group Lasso regularizer discussed in Section 3.1. Indeed, in this case, the zeroed-out units can explicitly be removed, thus yielding only K̂l filters, with K̂l < Kl . Note that, except for the first layer, units have also been removed from the previous layer, thus reducing Cl to a lower Ĉl . Furthermore, thanks to our low-rank regularizer, the remaining, non-zero, units will form a parameter matrix that still has low rank, and can thus also be decomposed. This results in a total of rl(ĈldHl d W l + K̂l) parameters.\nIn our experiments, we select the rank rl based on the percentage el of the energy (i.e., the sum of singular values) that we seek to capture by our low-rank approximation. This percentage plays an important role in the trade-off between runtime/memory savings and drop of prediction accuracy. In our experiments, we use the same percentage for all layers."
+    }, {
+      "heading" : "4 Experimental Settings",
+      "text" : "Datasets: For our experiments, we used two image classification datasets: ImageNet [41] and ICDAR, the character recognition dataset introduced in [27]. ImageNet is a large-scale dataset comprising over 15 million labeled images split into 22,000 categories. We used the ILSVRC2012 [41] subset consisting of 1000 categories, with 1.2 million training images and 50,000 validation images. The ICDAR dataset consists of 185,639 training samples combining real and synthetic characters and 5,198 test samples coming from the ICDAR2003 training set after removing all non-alphanumeric characters. The images in ICDAR are split into 36 categories. The use of ICDAR here was motivated by the fact that it is fairly large-scale, but, in contrast with ImageNet, existing architectures haven’t been heavily tuned to this data. As such, one can expect our approach consisting of training a compact network from scratch to be even more effective on this dataset.\nNetwork Architectures: In our experiments, we make use of architectures where each kernel in the convolutional layers has been decomposed into two 1D kernels [1], thus inherently having rank-1 kernels. Note that this is orthogonal to the purpose of our low-rank regularizer, since, here, we essentially aim at reducing the number of kernels, not the rank of individual kernels. The decomposed layers yield even more compact architectures that require a lower computational cost for training and testing while maintaining or even improving classification accuracy. In the following, a convolutional layer refers to a layer with 1D kernels, while a decomposed layer refers to a block of two convolutional layers using 1D vertical and horizontal kernels, respectively, with a non-linearity and batch normalization after each convolution.\nLet us consider a decomposed layer consisting of C and K input and output channels, respectively. Let v̄ and h̄T be vectors of length dv and dh, respectively, representing the kernel size of each 1D feature map. In this paper, we set dh = dv ≡ d. Furthermore, let ϕ(·) be a non-linearity, and xc denote the c-th input channel of the layer. In this setting, the activation of the i-th output channel fi can be written as\nfi = ϕ(bhi + L\n∑ l=1\nh̄Til ∗ [ϕ(bvl + C\n∑ c=1 v̄lc ∗ xc)]), (6)\nwhere L is the number of vertical filters, corresponding to the number of input channels for the horizontal filters, and bvl and b h l are biases.\nWe report results with two different models using such decomposed layers: DecomposeMe [1] and ResNets [23]. In all cases, we make use of batch-normalization after each convolutional layer 1. We rely on rectified linear units (ReLU) [31] as non-linearities, although some initial experiments suggest that slightly better performance can be obtained with exponential linear units [8]. For DecomposeMe, we used two different Dec8 architectures, whose specific number of units are provided in Table 1. For residual networks, we used a decomposed ResNet-50, and empirically verified that the use of 1D kernels instead of the standard ones had no significant impact on classification accuracy.\nImplementation details: For the comparison to be fair, all models, including the baselines, were trained from scratch on the same computer using the same random seed and the same framework. More specifically, we used the torch-7 multi-gpu framework [11]. 1 We empirically found the use of batch normalization after each convolutional layer to have more impact with our low-rank regularizer than with group sparsity or with no regularizer, in which cases the computational cost can be reduced by using a single batch normalization after each decomposed layer.\nFor ImageNet, training was done on a DGX-1 node using two-P100 GPUs in parallel. We used stochastic gradient descent with a momentum of 0.9 and a batch size of 180 images. The models were trained using an initial learning rate of 0.1 multiplied by 0.1 every 20 iterations for the small models (Dec2568 in Table 1) and every 30 iterations for the larger models (Dec 512 8 in Table 1). For ICDAR, we trained each network on a single TitanX-Pascal GPU for a total of 55 epochs with a batch size of 256 and 1,000 iterations per epoch. We follow the same experimental setting as in [2]: The initial learning rate was set to an initial value of 0.1 and multiplied by 0.1. We used a momentum of 0.9.\nFor DecomposeMe networks, we only performed basic data augmentation consisting of using random crops and random horizontal flips with probability 0.5. At test time, we used a single central crop. For ResNets, we used the standard data augmentation advocated for in [23]. In practice, in all models, we also included weight decay with a penalty strength of 1e−4 in our loss function. We observed empirically that adding this weight decay prevents the weights to overly grow between every two computations of the proximity operator.\nIn terms of hyper-parameters, for our low-rank regularizer, we considered four values: τ ∈{0,1,5,10}. For the sparse group Lasso term, we initially set the same λ to every layer to analyze the effect of combining both types of regularization. Then, in a second experiment, we followed the experimental set-up proposed in [2], where the first two decomposed layers have a lower penalty. In addition, we set α = 0.2 to favor promoting sparsity at group level rather than at parameter level. The sparse group Lasso hyper-parameter values are summarized in Table 2.\nComputational cost: While a convenient measure of computational cost is the forward time, this measure is highly hardware-dependent. Nowadays, hardware is heavily optimized for current architectures and does not necessarily reflect the concept of any-time-computation. Therefore, we focus on analyzing the number of multiply-accumulate operations (MAC). Let a convolution be defined as fi = ϕ(bi +∑Cj=1 Wi j ∗ x j), where each Wi j is a 2D kernel of dimensions dH × dW and i ∈ [1, . . .K]. Considering a naive convolution algorithm, the number of MACs for a convolutional layer is equal to PCKdhdW where P is the number of pixels in the output feature map. Therefore, it is important to reduce CK whenever P is large. That is, reducing the number of units in the first convolutional layers has more impact than in the later ones."
+    }, {
+      "heading" : "5 Experimental Results",
+      "text" : "Parameter sensitivity and comparison to other methods on ImagNet: We first analyze the effect of our low-rank regularizer on its own and jointly with the sparse group Lasso one on MACs and accuracy. To this end, we make use of the Dec2568 model on ImageNet, and measure the impact of varying both τ and λ in Eq. 5. Note that using τ = λ = 0 corresponds to the standard model, and τ = 0 and λ 6= 0 to the method of [2]. Below, we report results obtained without and with the post-processing step described in Section 3.2. Note that applying such a post-processing on the standard model corresponds to the compression technique of [14]. Fig. 1 summarizes the results of this analysis.\nIn Fig. 1(a), we can observe that accuracy remains stable for a wide range of values of τ and λ . In fact, there are even small improvements in accuracy when a moderate regularization is applied.\nFigs. 1(b,c) depict the MACs without and with applying the post-processing step discussed in Section 3.2. As expected, the MACs decrease as the weights of the regularizers increase. Importantly, however, Figs. 1(a,b) show that several models can achieve a high compression rate at virtually no loss in accuracy. In Fig. 1(c), we provide the curves after post-processing with two different energy percentages el = {100%,80%}. Keeping all the energy tends to incur an increase in MAC, since the inequality defined in Section 3.2 is then not satisfied anymore. Recall, however, that, without post-processing, the resulting models are still more compact than and as accurate as the baseline one. With el = 80%, while a small drop in accuracy typically occurs, the gain in MAC is significantly larger. Altogether, these experiments show that, by providing more compact models, our regularizer lets us consistently reduce the computational cost over the baseline.\nInterestingly, by looking at the case where Confλ = 0 in Fig. 1(b), we can see that we already significantly reduce the number of operations when using our low-rank regularizer only, even without post-processing. This is due to the fact that, even in this case, a significant number of units are automatically zeroed-out. Empirically, we observed that, for moderate values of τ , the number of zeroed-out singular values corresponds to complete units going to zero. This can be observed in Fig. 2(left), were we show the number of non-zero units for each layer. In Fig. 2(right), we further show the effective rank of each layer before and after post-processing.\nComparison to other approaches on ICDAR: We now compare our results with existing approaches on the ICDAR dataset. As a baseline, we consider the Dec5123 trained using SGD and L2 regularization for 75 epochs. For comparison, we consider the post-processing approach in [14] with el = 90%, the group-sparsity regularization approach proposed in [2] and three different instances of our model. First, using τ = 15, no group-sparsity and el = 90%. Then, two instances combining our low-rank regularizer with group-sparsity (Section 3.1) with el = 90% and el = 100%. In this case, the models are trained for 55 epochs and then reloaded and fine tuned for 20 more epochs. Table 3 summarizes these results. The comparison with [14] clearly evidences the benefits of our compression-aware training strategy. Furthermore, these results show the benefits of further combining our low-rank regularizer with the groups-sparsity one of [2].\nIn addition, we also compare our approach with L1 and L2 regularizers on the same dataset and with the same experimental setup. Pruning the weights of the baseline models with a threshold of 1e−4 resulted in 1.5M zeroed-out parameters for the L2 regularizer and 2.8M zeroed-out parameters for the L1 regularizer. However, these zeroed out weights are sparsely located within units (neurons). Applying our post-processing step (low-rank approximation with el = 100%) to these results yielded models with 3.6M and 3.2M parameters for L2 and L1 regularizers, respectively. The top-1 accuracy for these two models after post-processing was 87% and 89%, respectively. Using a stronger L1 regularizer resulted in lower top-1 accuracy. By comparison, our approach yields a model with 3.4M zeroed-out parameters after post-processing and a top-1 accuracy of 90%. Empirically, we found the benefits of our approach to hold for varying regularizer weights.\nResults with larger models: In Table 4, we provide the accuracies and MACs for our approach and the baseline on ImageNet and ICDAR for Dec5128 models. Note that using our low-rank regularizer yields more compact networks than the baselines for similar or higher accuracies. In particular, for ImageNet, we achieve reductions in parameter number of more than 20% and more than 50% for el = 100% and el = 80%, respectively. For ICDAR, these reductions are around 90% in both cases.\nWe now focus on our results with a ResNet-50 model on ImageNet. For post-processing we used el = 90% for all these experiments which resulted in virtually no loss of accuracy. The baseline corresponds to a top-1 accuracy of 74.7% and 18M parameters. Applying the post-processing step on this baseline resulted in a compression rate of 4%. By contrast, our approach with low-rank yields a top-1 accuracy of 75.0% for a compression rate of 20.6%, and with group sparsity and low-rank\njointly, a top-1 accuracy of 75.2% for a compression rate of 27%. By comparison, applying [2] to the same model yields an accuracy of 74.5% for a compression rate of 17%.\nInference time: While MACs represent the number of operations, we are also interested in the inference time of the resulting models. Table 5 summarizes several representative inference times for different instances of our experiments. Interestingly, there is a significant reduction in inference time when we only remove the zeroed-out neurons from the model. This is a direct consequence of the pruning effect, especially in the first layers. However, there is no significant reduction in inference time when post-processing our model via a low-rank decomposition. The main reason for this is that modern hardware is designed to compute convolutions with much fewer operations than a naive algorithm. Furthermore, the actual computational cost depends not only on the number of floating point operations but also on the memory bandwidth. In modern architectures, decomposing a convolutional layer into a convolution and a matrix multiplication involves (with current hardware) additional intermediate computations, as one cannot reuse convolutional kernels. Nevertheless, we believe that our approach remains beneficial for embedded systems using customized hardware, such as FPGAs.\nAdditional benefits at training time: So far, our experiments have demonstrated the effectiveness of our approach at test time. Empirically, we found that our approach is also beneficial for training, by pruning the network after only a few epochs (e.g., 15) and reloading and training the pruned network, which becomes much more efficient. Specifically, Table 3 summarizes the effect of varying the reload epoch for a model relying on both low-rank and group-sparsity. We were able to reduce the training time (with a batch size of 32 and training for 100 epochs) from 1.69 to 0.77 hours (relative speedup of 54.5%). The accuracy also improved by 2% and the number of parameters reduced from 3.7M (baseline) to 210K (relative 94.3% reduction). We found this behavior to be stable across a wide range of regularization parameters. If we seek to maintain accuracy compared to the baseline, we found that we could achieve a compression rate of 95.5% (up to 96% for an accuracy drop of 0.5%), which corresponds to a training time reduced by up to 60%."
+    }, {
+      "heading" : "6 Conclusion",
+      "text" : "In this paper, we have proposed to explicitly account for a post-processing compression stage when training deep networks. To this end, we have introduced a regularizer in the training loss to encourage the parameter matrix of each layer to have low rank. We have further studied the case where this regularizer is combined with a sparsity-inducing one to achieve even higher compression. Our experiments have demonstrated that our approach can achieve higher compression rates than state-ofthe-art methods, thus evidencing the benefits of taking compression into account during training. The SVD-based technique that motivated our approach is only one specific choice of compression strategy. In the future, we will therefore study how regularizers corresponding to other such compression mechanisms can be incorporated in our framework."
+    } ],
+    "references" : [ {
+      "title" : "Decomposeme: Simplifying convnets for end-to-end learning",
+      "author" : [ "J.M. Alvarez", "L. Petersson" ],
+      "venue" : "CoRR, abs/1606.05426,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Learning the number of neurons in neural networks",
+      "author" : [ "J.M. Alvarez", "M. Salzmann" ],
+      "venue" : "NIPS,",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Layer normalization",
+      "author" : [ "L.J. Ba", "R. Kiros", "G.E. Hinton" ],
+      "venue" : "CoRR, abs/1607.06450,",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Noiseout: A simple way to prune neural networks",
+      "author" : [ "M. Babaeizadeh", "P. Smaragdis", "R.H. Campbell" ],
+      "venue" : "emdnn Nips workshops,",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Slow, decorrelated features for pretraining complex cell-like networks",
+      "author" : [ "Y. Bengio", "J.S. Bergstra" ],
+      "venue" : "NIPS, pages 99–107.",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : null,
+      "year" : 2009
+    }, {
+      "title" : "A singular value thresholding algorithm for matrix completion",
+      "author" : [ "J.-F. Cai", "E.J. Candès", "Z. Shen" ],
+      "venue" : "SIAM J. on Optimization, 20(4):1956–1982, Mar.",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : null,
+      "year" : 2010
+    }, {
+      "title" : "Exact matrix completion via convex optimization",
+      "author" : [ "E.J. Candès", "B. Recht" ],
+      "venue" : "CoRR, abs/0805.4471,",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : null,
+      "year" : 2008
+    }, {
+      "title" : "Fast and accurate deep network learning by exponential linear units (elus)",
+      "author" : [ "D. Clevert", "T. Unterthiner", "S. Hochreiter" ],
+      "venue" : "CoRR, abs/1511.07289,",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Reducing overfitting in deep networks by decorrelating representations",
+      "author" : [ "M. Cogswell", "F. Ahmed", "R. Girshick", "L. Zitnick", "D. Batra" ],
+      "venue" : "ICLR,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Memory Bounded Deep Convolutional Networks",
+      "author" : [ "M.D. Collins", "P. Kohli" ],
+      "venue" : "CoRR, volume abs/1412.1442,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Torch7: A matlab-like environment for machine learning",
+      "author" : [ "R. Collobert", "K. Kavukcuoglu", "C. Farabet" ],
+      "venue" : "BigLearn, NIPS Workshop,",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Binarynet: Training deep neural networks with weights and activations constrained to +1 or -1",
+      "author" : [ "M. Courbariaux", "Y. Bengio" ],
+      "venue" : "CoRR, abs/1602.02830,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Predicting parameters in deep learning",
+      "author" : [ "M. Denil", "B. Shakibi", "L. Dinh", "M. Ranzato", "N. de Freitas" ],
+      "venue" : "CoRR, abs/1306.0543,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 2013
+    }, {
+      "title" : "Exploiting linear structure within convolutional networks for efficient evaluation",
+      "author" : [ "E.L. Denton", "W. Zaremba", "J. Bruna", "Y. LeCun", "R. Fergus" ],
+      "venue" : "NIPS.",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Adaptive subgradient methods for online learning and stochastic optimization",
+      "author" : [ "J. Duchi", "E. Hazan", "Y. Singer" ],
+      "venue" : "Technical Report UCB/EECS-2010-24, EECS Department, University of California, Berkeley, Mar",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : null,
+      "year" : 2010
+    }, {
+      "title" : "Maxout networks",
+      "author" : [ "I.J. Goodfellow", "D. Warde-farley", "M. Mirza", "A. Courville", "Y. Bengio" ],
+      "venue" : "ICML,",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Practical variational inference for neural networks",
+      "author" : [ "A. Graves" ],
+      "venue" : "NIPS,",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Deep learning with limited numerical precision",
+      "author" : [ "S. Gupta", "A. Agrawal", "K. Gopalakrishnan", "P. Narayanan" ],
+      "venue" : "CoRR, abs/1502.02551,",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Deep compression: Compressing deep neural networks with pruning, trained quantization and huffman coding",
+      "author" : [ "S. Han", "H. Mao", "W.J. Dally" ],
+      "venue" : "ICLR,",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Learning both weights and connections for efficient neural network",
+      "author" : [ "S. Han", "J. Pool", "J. Tran", "W. Dally" ],
+      "venue" : "NIPS,",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Generalized backpropagation, étude de cas: Orthogonality",
+      "author" : [ "M. Harandi", "B. Fernando" ],
+      "venue" : "CoRR, abs/1611.05927,",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Optimal brain surgeon and general network pruning",
+      "author" : [ "B. Hassibi", "D.G. Stork", "G.J. Wolff" ],
+      "venue" : "ICNN,",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : null,
+      "year" : 1993
+    }, {
+      "title" : "Deep Residual Learning for Image Recognition",
+      "author" : [ "K. He", "X. Zhang", "S. Ren", "J. Sun" ],
+      "venue" : "CoRR, volume abs/1512.03385,",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Distilling the knowledge in a neural network",
+      "author" : [ "G.E.V.O. Hinton", "J. Dean" ],
+      "venue" : "In arXiv,",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : "24",
+      "year" : 2014
+    }, {
+      "title" : "Training cnns with low-rank filters for efficient image classification",
+      "author" : [ "Y. Ioannou", "D.P. Robertson", "J. Shotton", "R. Cipolla", "A. Criminisi" ],
+      "venue" : "CoRR, abs/1511.06744,",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Batch normalization: Accelerating deep network training by reducing internal covariate shift",
+      "author" : [ "S. Ioffe", "C. Szegedy" ],
+      "venue" : "CoRR,",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Deep features for text spotting",
+      "author" : [ "M. Jaderberg", "A. Vedaldi", "Zisserman" ],
+      "venue" : "In ECCV,",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : "27",
+      "year" : 2014
+    }, {
+      "title" : "Speeding up convolutional neural networks with low rank expansions",
+      "author" : [ "M. Jaderberg", "A. Vedaldi", "A. Zisserman" ],
+      "venue" : "British Machine Vision Conference,",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Generalizing smoothness constraints from discrete samples",
+      "author" : [ "C. Ji", "R.R. Snapp", "D. Psaltis" ],
+      "venue" : "Neural Computation, 2(2):188–197, June",
+      "citeRegEx" : "29",
+      "shortCiteRegEx" : null,
+      "year" : 1990
+    }, {
+      "title" : "Adam: A method for stochastic optimization",
+      "author" : [ "D.P. Kingma", "J. Ba" ],
+      "venue" : "CoRR, abs/1412.6980,",
+      "citeRegEx" : "30",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Imagenet classification with deep convolutional neural networks",
+      "author" : [ "A. Krizhevsky", "I. Sutskever", "G.E. Hinton" ],
+      "venue" : "NIPS,",
+      "citeRegEx" : "31",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Speeding-up convolutional neural networks using fine-tuned cp-decomposition",
+      "author" : [ "V. Lebedev", "Y. Ganin", "M. Rakhuba", "I.V. Oseledets", "V.S. Lempitsky" ],
+      "venue" : "CoRR, abs/1412.6553,",
+      "citeRegEx" : "32",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Optimal brain damage",
+      "author" : [ "Y. LeCun", "J.S. Denker", "S. Solla", "R.E. Howard", "L.D. Jackel" ],
+      "venue" : "NIPS,",
+      "citeRegEx" : "33",
+      "shortCiteRegEx" : null,
+      "year" : 1990
+    }, {
+      "title" : "Sparse convolutional neural networks",
+      "author" : [ "B. Liu", "M. Wang", "H. Foroosh", "M. Tappen", "M. Penksy" ],
+      "venue" : "CVPR,",
+      "citeRegEx" : "34",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Pruning convolutional neural networks for resource efficient transfer learning",
+      "author" : [ "P. Molchanov", "S. Tyree", "T. Karras", "T. Aila", "J. Kautz" ],
+      "venue" : "CoRR, abs/1611.06440,",
+      "citeRegEx" : "35",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Skeletonization: A technique for trimming the fat from a network via relevance assessment",
+      "author" : [ "M. Mozer", "P. Smolensky" ],
+      "venue" : "NIPS,",
+      "citeRegEx" : "36",
+      "shortCiteRegEx" : null,
+      "year" : 1988
+    }, {
+      "title" : "Learning convolutional neural networks using hybrid orthogonal projection and estimation",
+      "author" : [ "H. Pan", "H. Jiang" ],
+      "venue" : "CoRR, abs/1606.05929,",
+      "citeRegEx" : "37",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Pruning algorithms-a survey",
+      "author" : [ "R. Reed" ],
+      "venue" : "IEEE Transactions on Neural Networks, 4(5):740–747, Sep",
+      "citeRegEx" : "38",
+      "shortCiteRegEx" : null,
+      "year" : 1993
+    }, {
+      "title" : "Estimation of simultaneously sparse and low rank matrices",
+      "author" : [ "E. Richard", "P. andre Savalle", "N. Vayatis" ],
+      "venue" : "In ICML,",
+      "citeRegEx" : "39",
+      "shortCiteRegEx" : "39",
+      "year" : 2012
+    }, {
+      "title" : "Regularizing cnns with locally constrained decorrelations",
+      "author" : [ "P. Rodrıguez", "J. Gonzalez", "G. Cucurull", "J.M.G. andXavier Roca" ],
+      "venue" : "In ICLR,",
+      "citeRegEx" : "40",
+      "shortCiteRegEx" : "40",
+      "year" : 2017
+    }, {
+      "title" : "Imagenet large scale visual recognition challenge",
+      "author" : [ "O. Russakovsky", "J. Deng", "H. Su", "J. Krause", "S. Satheesh", "S. Ma", "Z. Huang", "A. Karpathy", "A. Khosla", "M.S. Bernstein", "A.C. Berg", "F.-F. Li" ],
+      "venue" : "CoRR, abs/1409.0575,",
+      "citeRegEx" : "41",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Weight normalization: A simple reparameterization to accelerate training of deep neural networks",
+      "author" : [ "T. Salimans", "D.P. Kingma" ],
+      "venue" : "CoRR, abs/1602.07868,",
+      "citeRegEx" : "42",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "A sparse-group lasso",
+      "author" : [ "N. Simon", "J. Friedman", "T. Hastie", "R. Tibshirani" ],
+      "venue" : "Journal of Computational and Graphical Statistics,",
+      "citeRegEx" : "43",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Very deep convolutional networks for large-scale image recognition",
+      "author" : [ "K. Simonyan", "A. Zisserman" ],
+      "venue" : "CoRR, abs/1409.1556,",
+      "citeRegEx" : "44",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Dropout: A simple way to prevent neural networks from overfitting",
+      "author" : [ "N. Srivastava", "G. Hinton", "A. Krizhevsky", "I. Sutskever", "R. Salakhutdinov" ],
+      "venue" : "Journal of Machine Learning Research, 15:1929–1958,",
+      "citeRegEx" : "45",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Going deeper with convolutions",
+      "author" : [ "C. Szegedy", "W. Liu", "Y. Jia", "P. Sermanet", "S. Reed", "D. Anguelov", "D. Erhan", "V. Vanhoucke", "A. Rabinovich" ],
+      "venue" : "CVPR,",
+      "citeRegEx" : "46",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Convolutional neural networks with low-rank regularization",
+      "author" : [ "C. Tai", "T. Xiao", "X. Wang", "W. E" ],
+      "venue" : "CoRR, abs/1511.06067,",
+      "citeRegEx" : "47",
+      "shortCiteRegEx" : "47",
+      "year" : 2015
+    }, {
+      "title" : "Soft weight-sharing for neural network compression",
+      "author" : [ "K. Ullrich", "E. Meeds", "M. Welling" ],
+      "venue" : "CoRR, abs/1702.04008,",
+      "citeRegEx" : "48",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Generalization by weight-elimination with application to forecasting",
+      "author" : [ "A.S. Weigend", "D.E. Rumelhart", "B.A. Huberman" ],
+      "venue" : "NIPS,",
+      "citeRegEx" : "49",
+      "shortCiteRegEx" : null,
+      "year" : 1991
+    }, {
+      "title" : "Learning structured sparsity in deep neural networks",
+      "author" : [ "W. Wen", "C. Wu", "Y. Wang", "Y. Chen", "H. Li" ],
+      "venue" : "NIPS,",
+      "citeRegEx" : "50",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Coordinating filters for faster deep neural networks",
+      "author" : [ "W. Wen", "C. Xu", "C. Wu", "Y. Wang", "Y. Chen", "H. Li" ],
+      "venue" : "CoRR, abs/1703.09746,",
+      "citeRegEx" : "51",
+      "shortCiteRegEx" : null,
+      "year" : 2017
+    }, {
+      "title" : "Regularizing deep convolutional neural networks with a structured decorrelation constraint",
+      "author" : [ "W. Xiong", "B. Du", "L. Zhang", "R. Hu", "D. Tao" ],
+      "venue" : "IEEE Int. Conf. on Data Mining (ICDM),",
+      "citeRegEx" : "52",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "ADADELTA: an adaptive learning rate method",
+      "author" : [ "M.D. Zeiler" ],
+      "venue" : "CoRR, abs/1212.5701,",
+      "citeRegEx" : "53",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Hybrid orthogonal projection and estimation (HOPE): A new framework to probe and learn neural networks",
+      "author" : [ "S. Zhang", "H. Jiang" ],
+      "venue" : "CoRR, abs/1502.00702,",
+      "citeRegEx" : "54",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Less is more: Towards compact cnns",
+      "author" : [ "H. Zhou", "J.M. Alvarez", "F. Porikli" ],
+      "venue" : "ECCV,",
+      "citeRegEx" : "55",
+      "shortCiteRegEx" : null,
+      "year" : 2006
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 14,
+      "context" : "Impressive progress has been made in a variety of application domains, such as speech, natural language and image processing, thanks to the development of new learning strategies [15, 53, 30, 45, 26, 3] and of new architectures [31, 44, 46, 23].",
+      "startOffset" : 179,
+      "endOffset" : 202
+    }, {
+      "referenceID" : 52,
+      "context" : "Impressive progress has been made in a variety of application domains, such as speech, natural language and image processing, thanks to the development of new learning strategies [15, 53, 30, 45, 26, 3] and of new architectures [31, 44, 46, 23].",
+      "startOffset" : 179,
+      "endOffset" : 202
+    }, {
+      "referenceID" : 29,
+      "context" : "Impressive progress has been made in a variety of application domains, such as speech, natural language and image processing, thanks to the development of new learning strategies [15, 53, 30, 45, 26, 3] and of new architectures [31, 44, 46, 23].",
+      "startOffset" : 179,
+      "endOffset" : 202
+    }, {
+      "referenceID" : 44,
+      "context" : "Impressive progress has been made in a variety of application domains, such as speech, natural language and image processing, thanks to the development of new learning strategies [15, 53, 30, 45, 26, 3] and of new architectures [31, 44, 46, 23].",
+      "startOffset" : 179,
+      "endOffset" : 202
+    }, {
+      "referenceID" : 25,
+      "context" : "Impressive progress has been made in a variety of application domains, such as speech, natural language and image processing, thanks to the development of new learning strategies [15, 53, 30, 45, 26, 3] and of new architectures [31, 44, 46, 23].",
+      "startOffset" : 179,
+      "endOffset" : 202
+    }, {
+      "referenceID" : 2,
+      "context" : "Impressive progress has been made in a variety of application domains, such as speech, natural language and image processing, thanks to the development of new learning strategies [15, 53, 30, 45, 26, 3] and of new architectures [31, 44, 46, 23].",
+      "startOffset" : 179,
+      "endOffset" : 202
+    }, {
+      "referenceID" : 30,
+      "context" : "Impressive progress has been made in a variety of application domains, such as speech, natural language and image processing, thanks to the development of new learning strategies [15, 53, 30, 45, 26, 3] and of new architectures [31, 44, 46, 23].",
+      "startOffset" : 228,
+      "endOffset" : 244
+    }, {
+      "referenceID" : 43,
+      "context" : "Impressive progress has been made in a variety of application domains, such as speech, natural language and image processing, thanks to the development of new learning strategies [15, 53, 30, 45, 26, 3] and of new architectures [31, 44, 46, 23].",
+      "startOffset" : 228,
+      "endOffset" : 244
+    }, {
+      "referenceID" : 45,
+      "context" : "Impressive progress has been made in a variety of application domains, such as speech, natural language and image processing, thanks to the development of new learning strategies [15, 53, 30, 45, 26, 3] and of new architectures [31, 44, 46, 23].",
+      "startOffset" : 228,
+      "endOffset" : 244
+    }, {
+      "referenceID" : 22,
+      "context" : "Impressive progress has been made in a variety of application domains, such as speech, natural language and image processing, thanks to the development of new learning strategies [15, 53, 30, 45, 26, 3] and of new architectures [31, 44, 46, 23].",
+      "startOffset" : 228,
+      "endOffset" : 244
+    }, {
+      "referenceID" : 23,
+      "context" : "While it has been shown that training such very deep architectures was typically easier than smaller ones [24], it is also well-known that they are highly over-parameterized.",
+      "startOffset" : 106,
+      "endOffset" : 110
+    }, {
+      "referenceID" : 32,
+      "context" : "An early trend for such compression consisted of removing individual parameters [33, 22] or entire units [36, 29, 38] according to their influence on the output.",
+      "startOffset" : 80,
+      "endOffset" : 88
+    }, {
+      "referenceID" : 21,
+      "context" : "An early trend for such compression consisted of removing individual parameters [33, 22] or entire units [36, 29, 38] according to their influence on the output.",
+      "startOffset" : 80,
+      "endOffset" : 88
+    }, {
+      "referenceID" : 35,
+      "context" : "An early trend for such compression consisted of removing individual parameters [33, 22] or entire units [36, 29, 38] according to their influence on the output.",
+      "startOffset" : 105,
+      "endOffset" : 117
+    }, {
+      "referenceID" : 28,
+      "context" : "An early trend for such compression consisted of removing individual parameters [33, 22] or entire units [36, 29, 38] according to their influence on the output.",
+      "startOffset" : 105,
+      "endOffset" : 117
+    }, {
+      "referenceID" : 37,
+      "context" : "An early trend for such compression consisted of removing individual parameters [33, 22] or entire units [36, 29, 38] according to their influence on the output.",
+      "startOffset" : 105,
+      "endOffset" : 117
+    }, {
+      "referenceID" : 27,
+      "context" : "Therefore, currently, one of the most popular compression approaches amounts to extracting low-rank approximations either of individual units [28] or of the parameter matrix/tensor of each layer [14].",
+      "startOffset" : 142,
+      "endOffset" : 146
+    }, {
+      "referenceID" : 13,
+      "context" : "Therefore, currently, one of the most popular compression approaches amounts to extracting low-rank approximations either of individual units [28] or of the parameter matrix/tensor of each layer [14].",
+      "startOffset" : 195,
+      "endOffset" : 199
+    }, {
+      "referenceID" : 4,
+      "context" : "In essence, and by contrast with methods that aim to learn uncorrelated units to prevent overfitting [5, 54, 40], we seek to learn correlated ones, which can then easily be pruned in a second phase.",
+      "startOffset" : 101,
+      "endOffset" : 112
+    }, {
+      "referenceID" : 53,
+      "context" : "In essence, and by contrast with methods that aim to learn uncorrelated units to prevent overfitting [5, 54, 40], we seek to learn correlated ones, which can then easily be pruned in a second phase.",
+      "startOffset" : 101,
+      "endOffset" : 112
+    }, {
+      "referenceID" : 39,
+      "context" : "In essence, and by contrast with methods that aim to learn uncorrelated units to prevent overfitting [5, 54, 40], we seek to learn correlated ones, which can then easily be pruned in a second phase.",
+      "startOffset" : 101,
+      "endOffset" : 112
+    }, {
+      "referenceID" : 3,
+      "context" : "In this context, the work of [4] has proposed to learn correlated units by making use of additional noise outputs.",
+      "startOffset" : 29,
+      "endOffset" : 32
+    }, {
+      "referenceID" : 50,
+      "context" : "In the contemporary work [51], units are coordinated via a regularizer acting on all pairs of filters within a layer.",
+      "startOffset" : 25,
+      "endOffset" : 29
+    }, {
+      "referenceID" : 1,
+      "context" : "Recently, group sparsity has also been employed to obtain compact networks [2, 50].",
+      "startOffset" : 75,
+      "endOffset" : 82
+    }, {
+      "referenceID" : 49,
+      "context" : "Recently, group sparsity has also been employed to obtain compact networks [2, 50].",
+      "startOffset" : 75,
+      "endOffset" : 82
+    }, {
+      "referenceID" : 0,
+      "context" : "We demonstrate the benefits of our approach on several deep architectures, including the 8-layers DecomposeMe network of [1] and the 50-layers ResNet of [23].",
+      "startOffset" : 121,
+      "endOffset" : 124
+    }, {
+      "referenceID" : 22,
+      "context" : "We demonstrate the benefits of our approach on several deep architectures, including the 8-layers DecomposeMe network of [1] and the 50-layers ResNet of [23].",
+      "startOffset" : 153,
+      "endOffset" : 157
+    }, {
+      "referenceID" : 12,
+      "context" : "It is well-known that deep neural networks are over-parametrized [13].",
+      "startOffset" : 65,
+      "endOffset" : 69
+    }, {
+      "referenceID" : 44,
+      "context" : "In particular, much progress has been made to reduce overfitting, for example by devising new optimization strategies, such as DropOut [45] or MaxOut [16].",
+      "startOffset" : 135,
+      "endOffset" : 139
+    }, {
+      "referenceID" : 15,
+      "context" : "In particular, much progress has been made to reduce overfitting, for example by devising new optimization strategies, such as DropOut [45] or MaxOut [16].",
+      "startOffset" : 150,
+      "endOffset" : 154
+    }, {
+      "referenceID" : 25,
+      "context" : "In this context, other works have advocated the use of different normalization strategies, such as Batch Normalization [26], Weight Normalization [42] and Layer Normalization [3].",
+      "startOffset" : 119,
+      "endOffset" : 123
+    }, {
+      "referenceID" : 41,
+      "context" : "In this context, other works have advocated the use of different normalization strategies, such as Batch Normalization [26], Weight Normalization [42] and Layer Normalization [3].",
+      "startOffset" : 146,
+      "endOffset" : 150
+    }, {
+      "referenceID" : 2,
+      "context" : "In this context, other works have advocated the use of different normalization strategies, such as Batch Normalization [26], Weight Normalization [42] and Layer Normalization [3].",
+      "startOffset" : 175,
+      "endOffset" : 178
+    }, {
+      "referenceID" : 4,
+      "context" : "This has been achieved by designing new activation functions [5], by explicitly considering the pairwise correlations of the units [54, 37, 40] or of the activations [9, 52], or by constraining the weight matrices of each layer to be orthonormal [21].",
+      "startOffset" : 61,
+      "endOffset" : 64
+    }, {
+      "referenceID" : 53,
+      "context" : "This has been achieved by designing new activation functions [5], by explicitly considering the pairwise correlations of the units [54, 37, 40] or of the activations [9, 52], or by constraining the weight matrices of each layer to be orthonormal [21].",
+      "startOffset" : 131,
+      "endOffset" : 143
+    }, {
+      "referenceID" : 36,
+      "context" : "This has been achieved by designing new activation functions [5], by explicitly considering the pairwise correlations of the units [54, 37, 40] or of the activations [9, 52], or by constraining the weight matrices of each layer to be orthonormal [21].",
+      "startOffset" : 131,
+      "endOffset" : 143
+    }, {
+      "referenceID" : 39,
+      "context" : "This has been achieved by designing new activation functions [5], by explicitly considering the pairwise correlations of the units [54, 37, 40] or of the activations [9, 52], or by constraining the weight matrices of each layer to be orthonormal [21].",
+      "startOffset" : 131,
+      "endOffset" : 143
+    }, {
+      "referenceID" : 8,
+      "context" : "This has been achieved by designing new activation functions [5], by explicitly considering the pairwise correlations of the units [54, 37, 40] or of the activations [9, 52], or by constraining the weight matrices of each layer to be orthonormal [21].",
+      "startOffset" : 166,
+      "endOffset" : 173
+    }, {
+      "referenceID" : 51,
+      "context" : "This has been achieved by designing new activation functions [5], by explicitly considering the pairwise correlations of the units [54, 37, 40] or of the activations [9, 52], or by constraining the weight matrices of each layer to be orthonormal [21].",
+      "startOffset" : 166,
+      "endOffset" : 173
+    }, {
+      "referenceID" : 20,
+      "context" : "This has been achieved by designing new activation functions [5], by explicitly considering the pairwise correlations of the units [54, 37, 40] or of the activations [9, 52], or by constraining the weight matrices of each layer to be orthonormal [21].",
+      "startOffset" : 246,
+      "endOffset" : 250
+    }, {
+      "referenceID" : 32,
+      "context" : "In this context, early works have proposed to analyze the saliency of individual parameters [33, 22] or units [36, 29, 38, 34], so as to measure their impact on the output.",
+      "startOffset" : 92,
+      "endOffset" : 100
+    }, {
+      "referenceID" : 21,
+      "context" : "In this context, early works have proposed to analyze the saliency of individual parameters [33, 22] or units [36, 29, 38, 34], so as to measure their impact on the output.",
+      "startOffset" : 92,
+      "endOffset" : 100
+    }, {
+      "referenceID" : 35,
+      "context" : "In this context, early works have proposed to analyze the saliency of individual parameters [33, 22] or units [36, 29, 38, 34], so as to measure their impact on the output.",
+      "startOffset" : 110,
+      "endOffset" : 126
+    }, {
+      "referenceID" : 28,
+      "context" : "In this context, early works have proposed to analyze the saliency of individual parameters [33, 22] or units [36, 29, 38, 34], so as to measure their impact on the output.",
+      "startOffset" : 110,
+      "endOffset" : 126
+    }, {
+      "referenceID" : 37,
+      "context" : "In this context, early works have proposed to analyze the saliency of individual parameters [33, 22] or units [36, 29, 38, 34], so as to measure their impact on the output.",
+      "startOffset" : 110,
+      "endOffset" : 126
+    }, {
+      "referenceID" : 33,
+      "context" : "In this context, early works have proposed to analyze the saliency of individual parameters [33, 22] or units [36, 29, 38, 34], so as to measure their impact on the output.",
+      "startOffset" : 110,
+      "endOffset" : 126
+    }, {
+      "referenceID" : 27,
+      "context" : "In particular, it has been shown that individual units can be replaced by rank 1 approximations, either via a post-processing step [28, 46] or directly during training [1, 25].",
+      "startOffset" : 131,
+      "endOffset" : 139
+    }, {
+      "referenceID" : 45,
+      "context" : "In particular, it has been shown that individual units can be replaced by rank 1 approximations, either via a post-processing step [28, 46] or directly during training [1, 25].",
+      "startOffset" : 131,
+      "endOffset" : 139
+    }, {
+      "referenceID" : 0,
+      "context" : "In particular, it has been shown that individual units can be replaced by rank 1 approximations, either via a post-processing step [28, 46] or directly during training [1, 25].",
+      "startOffset" : 168,
+      "endOffset" : 175
+    }, {
+      "referenceID" : 24,
+      "context" : "In particular, it has been shown that individual units can be replaced by rank 1 approximations, either via a post-processing step [28, 46] or directly during training [1, 25].",
+      "startOffset" : 168,
+      "endOffset" : 175
+    }, {
+      "referenceID" : 13,
+      "context" : "Furthermore, low-rank approximations of the complete parameter matrix/tensor of each layer were computed in [14], which has the benefit of reducing the number of units in each layer.",
+      "startOffset" : 108,
+      "endOffset" : 112
+    }, {
+      "referenceID" : 31,
+      "context" : "The resulting low-rank representation can then be fine-tuned [32], or potentially even learned from scratch [47], given the rank of each layer in the network.",
+      "startOffset" : 61,
+      "endOffset" : 65
+    }, {
+      "referenceID" : 46,
+      "context" : "The resulting low-rank representation can then be fine-tuned [32], or potentially even learned from scratch [47], given the rank of each layer in the network.",
+      "startOffset" : 108,
+      "endOffset" : 112
+    }, {
+      "referenceID" : 3,
+      "context" : "In [4], additional noise outputs were introduced in a network to similarly learn correlated filters.",
+      "startOffset" : 3,
+      "endOffset" : 6
+    }, {
+      "referenceID" : 50,
+      "context" : "The contemporary work [51] introduced a penalty during training to learn correlated units.",
+      "startOffset" : 22,
+      "endOffset" : 26
+    }, {
+      "referenceID" : 48,
+      "context" : "Other methods have proposed to make use of sparsity-inducing techniques to cancel out individual parameters [49, 10, 20, 19, 35] or units [2, 50, 55].",
+      "startOffset" : 108,
+      "endOffset" : 128
+    }, {
+      "referenceID" : 9,
+      "context" : "Other methods have proposed to make use of sparsity-inducing techniques to cancel out individual parameters [49, 10, 20, 19, 35] or units [2, 50, 55].",
+      "startOffset" : 108,
+      "endOffset" : 128
+    }, {
+      "referenceID" : 19,
+      "context" : "Other methods have proposed to make use of sparsity-inducing techniques to cancel out individual parameters [49, 10, 20, 19, 35] or units [2, 50, 55].",
+      "startOffset" : 108,
+      "endOffset" : 128
+    }, {
+      "referenceID" : 18,
+      "context" : "Other methods have proposed to make use of sparsity-inducing techniques to cancel out individual parameters [49, 10, 20, 19, 35] or units [2, 50, 55].",
+      "startOffset" : 108,
+      "endOffset" : 128
+    }, {
+      "referenceID" : 34,
+      "context" : "Other methods have proposed to make use of sparsity-inducing techniques to cancel out individual parameters [49, 10, 20, 19, 35] or units [2, 50, 55].",
+      "startOffset" : 108,
+      "endOffset" : 128
+    }, {
+      "referenceID" : 1,
+      "context" : "Other methods have proposed to make use of sparsity-inducing techniques to cancel out individual parameters [49, 10, 20, 19, 35] or units [2, 50, 55].",
+      "startOffset" : 138,
+      "endOffset" : 149
+    }, {
+      "referenceID" : 49,
+      "context" : "Other methods have proposed to make use of sparsity-inducing techniques to cancel out individual parameters [49, 10, 20, 19, 35] or units [2, 50, 55].",
+      "startOffset" : 138,
+      "endOffset" : 149
+    }, {
+      "referenceID" : 54,
+      "context" : "Other methods have proposed to make use of sparsity-inducing techniques to cancel out individual parameters [49, 10, 20, 19, 35] or units [2, 50, 55].",
+      "startOffset" : 138,
+      "endOffset" : 149
+    }, {
+      "referenceID" : 16,
+      "context" : "Variational inference [17] has also been used to explicitly compress the network.",
+      "startOffset" : 22,
+      "endOffset" : 26
+    }, {
+      "referenceID" : 47,
+      "context" : "Another line of research aims to quantize the weights of deep networks [48, 12, 18].",
+      "startOffset" : 71,
+      "endOffset" : 83
+    }, {
+      "referenceID" : 11,
+      "context" : "Another line of research aims to quantize the weights of deep networks [48, 12, 18].",
+      "startOffset" : 71,
+      "endOffset" : 83
+    }, {
+      "referenceID" : 17,
+      "context" : "Another line of research aims to quantize the weights of deep networks [48, 12, 18].",
+      "startOffset" : 71,
+      "endOffset" : 83
+    }, {
+      "referenceID" : 13,
+      "context" : "Following [14], a network can be compacted via a post-processing step performing a singular value decomposition of θ̂l and truncating the 0, or small, singular values.",
+      "startOffset" : 10,
+      "endOffset" : 14
+    }, {
+      "referenceID" : 6,
+      "context" : "Since explicitly minimizing the rank of a matrix is NP-hard, following the matrix completion literature [7, 6], we make use of a convex relaxation in the form of the nuclear norm.",
+      "startOffset" : 104,
+      "endOffset" : 110
+    }, {
+      "referenceID" : 5,
+      "context" : "Since explicitly minimizing the rank of a matrix is NP-hard, following the matrix completion literature [7, 6], we make use of a convex relaxation in the form of the nuclear norm.",
+      "startOffset" : 104,
+      "endOffset" : 110
+    }, {
+      "referenceID" : 5,
+      "context" : "As shown in [6], the solution to this problem can be obtained by soft-thresholding the singular values of θ̂l , which can be written as θ ∗ l =UlΣl(ρτ)V T l , where Σl(ρτ) = diag([(σ 1 l −ρτ)+, .",
+      "startOffset" : 12,
+      "endOffset" : 15
+    }, {
+      "referenceID" : 1,
+      "context" : "By contrast, the group-sparsity based methods [2, 50] discussed in Section 2 cancel out entire units, thus reducing these numbers, but do not consider the interactions between multiple units in the same layer, and would therefore typically not benefit from a post-processing step such as the one of [14].",
+      "startOffset" : 46,
+      "endOffset" : 53
+    }, {
+      "referenceID" : 49,
+      "context" : "By contrast, the group-sparsity based methods [2, 50] discussed in Section 2 cancel out entire units, thus reducing these numbers, but do not consider the interactions between multiple units in the same layer, and would therefore typically not benefit from a post-processing step such as the one of [14].",
+      "startOffset" : 46,
+      "endOffset" : 53
+    }, {
+      "referenceID" : 13,
+      "context" : "By contrast, the group-sparsity based methods [2, 50] discussed in Section 2 cancel out entire units, thus reducing these numbers, but do not consider the interactions between multiple units in the same layer, and would therefore typically not benefit from a post-processing step such as the one of [14].",
+      "startOffset" : 299,
+      "endOffset" : 303
+    }, {
+      "referenceID" : 1,
+      "context" : "To this end, we combine the sparse group Lasso regularizer used in [2] with the low-rank one described above.",
+      "startOffset" : 67,
+      "endOffset" : 70
+    }, {
+      "referenceID" : 1,
+      "context" : "In practice, following [2], we use only two different values of λl ; one for the first few layers and one for the remaining ones.",
+      "startOffset" : 23,
+      "endOffset" : 26
+    }, {
+      "referenceID" : 38,
+      "context" : "To learn our model with this new regularizer consisting of two main terms, we make use of the incremental proximal descent approach proposed in [39], which has the benefit of having a lower memory footprint than parallel proximal methods.",
+      "startOffset" : 144,
+      "endOffset" : 148
+    }, {
+      "referenceID" : 42,
+      "context" : "The proximity operator for the sparse group Lasso regularizer also has a closed form solution derived in [43] and provided in [2].",
+      "startOffset" : 105,
+      "endOffset" : 109
+    }, {
+      "referenceID" : 1,
+      "context" : "The proximity operator for the sparse group Lasso regularizer also has a closed form solution derived in [43] and provided in [2].",
+      "startOffset" : 126,
+      "endOffset" : 129
+    }, {
+      "referenceID" : 13,
+      "context" : "In particular, to account for the low rank of the parameter matrix of each layer, we make use of the SVD-based approach of [14].",
+      "startOffset" : 123,
+      "endOffset" : 127
+    }, {
+      "referenceID" : 40,
+      "context" : "Datasets: For our experiments, we used two image classification datasets: ImageNet [41] and ICDAR, the character recognition dataset introduced in [27].",
+      "startOffset" : 83,
+      "endOffset" : 87
+    }, {
+      "referenceID" : 26,
+      "context" : "Datasets: For our experiments, we used two image classification datasets: ImageNet [41] and ICDAR, the character recognition dataset introduced in [27].",
+      "startOffset" : 147,
+      "endOffset" : 151
+    }, {
+      "referenceID" : 40,
+      "context" : "We used the ILSVRC2012 [41] subset consisting of 1000 categories, with 1.",
+      "startOffset" : 23,
+      "endOffset" : 27
+    }, {
+      "referenceID" : 0,
+      "context" : "Network Architectures: In our experiments, we make use of architectures where each kernel in the convolutional layers has been decomposed into two 1D kernels [1], thus inherently having rank-1 kernels.",
+      "startOffset" : 158,
+      "endOffset" : 161
+    }, {
+      "referenceID" : 0,
+      "context" : "We report results with two different models using such decomposed layers: DecomposeMe [1] and ResNets [23].",
+      "startOffset" : 86,
+      "endOffset" : 89
+    }, {
+      "referenceID" : 22,
+      "context" : "We report results with two different models using such decomposed layers: DecomposeMe [1] and ResNets [23].",
+      "startOffset" : 102,
+      "endOffset" : 106
+    }, {
+      "referenceID" : 30,
+      "context" : "We rely on rectified linear units (ReLU) [31] as non-linearities, although some initial experiments suggest that slightly better performance can be obtained with exponential linear units [8].",
+      "startOffset" : 41,
+      "endOffset" : 45
+    }, {
+      "referenceID" : 7,
+      "context" : "We rely on rectified linear units (ReLU) [31] as non-linearities, although some initial experiments suggest that slightly better performance can be obtained with exponential linear units [8].",
+      "startOffset" : 187,
+      "endOffset" : 190
+    }, {
+      "referenceID" : 10,
+      "context" : "More specifically, we used the torch-7 multi-gpu framework [11].",
+      "startOffset" : 59,
+      "endOffset" : 63
+    }, {
+      "referenceID" : 1,
+      "context" : "The first five configurations correspond to using the same regularization penalty for all the layers, while the later ones define weaker penalties on the first two layers, as suggested in [2].",
+      "startOffset" : 188,
+      "endOffset" : 191
+    }, {
+      "referenceID" : 1,
+      "context" : "We follow the same experimental setting as in [2]: The initial learning rate was set to an initial value of 0.",
+      "startOffset" : 46,
+      "endOffset" : 49
+    }, {
+      "referenceID" : 22,
+      "context" : "For ResNets, we used the standard data augmentation advocated for in [23].",
+      "startOffset" : 69,
+      "endOffset" : 73
+    }, {
+      "referenceID" : 1,
+      "context" : "Then, in a second experiment, we followed the experimental set-up proposed in [2], where the first two decomposed layers have a lower penalty.",
+      "startOffset" : 78,
+      "endOffset" : 81
+    }, {
+      "referenceID" : 1,
+      "context" : "Note that using τ = λ = 0 corresponds to the standard model, and τ = 0 and λ 6= 0 to the method of [2].",
+      "startOffset" : 99,
+      "endOffset" : 102
+    }, {
+      "referenceID" : 13,
+      "context" : "Note that applying such a post-processing on the standard model corresponds to the compression technique of [14].",
+      "startOffset" : 108,
+      "endOffset" : 112
+    }, {
+      "referenceID" : 13,
+      "context" : "Baseline [14] [2] Ours Ours+[2] Ours+[2] hyper-params – el = 90% – τ = 15,el = 90% τ = 15,el = 90% τ = 15,el = 100% # Params 3.",
+      "startOffset" : 9,
+      "endOffset" : 13
+    }, {
+      "referenceID" : 1,
+      "context" : "Baseline [14] [2] Ours Ours+[2] Ours+[2] hyper-params – el = 90% – τ = 15,el = 90% τ = 15,el = 90% τ = 15,el = 100% # Params 3.",
+      "startOffset" : 14,
+      "endOffset" : 17
+    }, {
+      "referenceID" : 1,
+      "context" : "Baseline [14] [2] Ours Ours+[2] Ours+[2] hyper-params – el = 90% – τ = 15,el = 90% τ = 15,el = 90% τ = 15,el = 100% # Params 3.",
+      "startOffset" : 28,
+      "endOffset" : 31
+    }, {
+      "referenceID" : 1,
+      "context" : "Baseline [14] [2] Ours Ours+[2] Ours+[2] hyper-params – el = 90% – τ = 15,el = 90% τ = 15,el = 90% τ = 15,el = 100% # Params 3.",
+      "startOffset" : 37,
+      "endOffset" : 40
+    }, {
+      "referenceID" : 13,
+      "context" : "For comparison, we consider the post-processing approach in [14] with el = 90%, the group-sparsity regularization approach proposed in [2] and three different instances of our model.",
+      "startOffset" : 60,
+      "endOffset" : 64
+    }, {
+      "referenceID" : 1,
+      "context" : "For comparison, we consider the post-processing approach in [14] with el = 90%, the group-sparsity regularization approach proposed in [2] and three different instances of our model.",
+      "startOffset" : 135,
+      "endOffset" : 138
+    }, {
+      "referenceID" : 13,
+      "context" : "The comparison with [14] clearly evidences the benefits of our compression-aware training strategy.",
+      "startOffset" : 20,
+      "endOffset" : 24
+    }, {
+      "referenceID" : 1,
+      "context" : "Furthermore, these results show the benefits of further combining our low-rank regularizer with the groups-sparsity one of [2].",
+      "startOffset" : 123,
+      "endOffset" : 126
+    }, {
+      "referenceID" : 1,
+      "context" : "By comparison, applying [2] to the same model yields an accuracy of 74.",
+      "startOffset" : 24,
+      "endOffset" : 27
+    } ],
+    "year" : 2017,
+    "abstractText" : "In recent years, great progress has been made in a variety of application domains thanks to the development of increasingly deeper neural networks. Unfortunately, the huge number of units of these networks makes them expensive both computationally and memory-wise. To overcome this, exploiting the fact that deep networks are over-parametrized, several compression strategies have been proposed. These methods, however, typically start from a network that has been trained in a standard manner, without considering such a future compression. In this paper, we propose to explicitly account for compression in the training process. To this end, we introduce a regularizer that encourages the parameter matrix of each layer to have low rank during training. We show that accounting for compression during training allows us to learn much more compact, yet at least as effective, models than state-of-the-art compression techniques.",
+    "creator" : null
+  }
+}

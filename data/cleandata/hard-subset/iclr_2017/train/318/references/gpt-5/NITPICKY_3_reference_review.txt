@@ -1,0 +1,42 @@
+Summary and contributions
+The paper proposes Gated Graph Transformer Neural Networks (GGT-NNs), a framework that extends GG-NNs/GGS-NNs with differentiable graph transformations: adding nodes, updating node states (including a “direct reference” variant), updating edges, propagating messages, and aggregating graph features. The graph is parameterized with soft node types and strengths and soft edge-type strengths, enabling fully differentiable graph construction and manipulation from text. The model can be configured for question answering over text (bAbI) or to learn state-transition dynamics in structured domains (Rule 30 cellular automaton, 2-symbol/4-state Turing machines). Empirically, the paper reports strong bAbI results (notably on pathfinding and induction) with “strong supervision” (full graph supervision), and shows generalization of learned transition rules to longer rollouts in the synthetic tasks.
+
+Decision: Reject
+Key reasons:
+- Heavy reliance on strong supervision (full generator-level graph supervision, direct reference oracle, graph substitution during training) and task-specific dataset modifications make the empirical evaluation not comparable to prior work trained end-to-end and obscure the value of the proposed modeling innovations.
+- Numerous methodological gaps and presentation/formatting issues (lack of ablations, missing training details and hyperparameters, unclear and computationally suspect set-matching objective, teacher-forcing substitution mismatch, efficiency analysis absent) undermine reproducibility and confidence in the claims.
+
+Supporting arguments
+- Comparability and supervision: The bAbI results leverage privileged information not available to most baselines: (i) full access to the generator “knowledge object,” converted into target graphs and injected during training (even substituted into intermediate states), (ii) a “direct-reference” mechanism that uses exact string matches from words to node-type names, and (iii) task-specific reformatting (e.g., adding history linked lists to encode temporal information and collapsing multi-word entity names to single tokens). While MemNN with strong supervision is reported for comparison, the supervision is qualitatively different (relevant sentence indices vs. full-step graph targets + oracle references). The paper’s own analysis notes GGT-NN outperforms MemNN on some tasks and underperforms on others; however, given the supervision mismatch and dataset modifications, these comparisons are not conclusive.
+- Training/inference mismatch: Section 4.1 replaces predicted edges and new nodes with ground-truth values “for further processing,” essentially teacher forcing at the graph level. At test time, these ground-truth graphs are not available. The paper does not report the impact of this exposure bias nor present an alternative (e.g., scheduled sampling). This weakens claims that the system “learns to construct” graphs from text.
+- Missing ablations and diagnostics: The framework contains many moving parts (Tadd, Th, Th,direct, TC, Tprop, Trepr; per-sentence propagation; query-time propagation; aggregation choices). Only a single ablation (with vs without direct reference) is presented. There is no analysis of the contribution of (i) edge update vs message passing, (ii) node-addition counts and thresholds, (iii) supervision strength (full vs partial), (iv) replacing graph substitution with pure loss-based training, or (v) using the “graph-sequence” variant as the primary model for temporal tasks. Without these, it is hard to attribute the observed gains.
+- Set matching objective and computational tractability: The node loss uses a max over permutations to match predicted new nodes to target nodes. The paper cites Vinyals et al. (2016) but does not state how the maximization is implemented. Exact maximization is factorial; the Hungarian algorithm or a differentiable matching surrogate would be necessary. This is a critical missing detail for both correctness and runtime.
+- Efficiency and scaling: The paper states the method is quadratic in the number of nodes but provides no empirical scaling curves, memory footprints, or practical limits (e.g., max |V| per bAbI or per synthetic task). Given the added cost of all-pairs edge updates TC and message passing with multi-type edges, concrete complexity/memory reports are needed.
+- Synthetic tasks: The CA and TM tasks are promising, but crucial details are missing: exact graph sizes, thresholds for turning soft edges/nodes into discrete graphs at evaluation, failure modes, and how often generalization to 20/30 steps fails (Table 3 is referenced but not shown). The positive results would be stronger with comparisons to simpler baselines (e.g., hand-coded message passing rules, standard GNN with fixed structure).
+- Clarity, notation, and formatting: There are many issues that hinder readability and reproducibility:
+  - Notation inconsistencies in GRU equations (missing (t) on inputs, ambiguous W/U dimensions).
+  - Ambiguity on how constraints are enforced (sum-to-one for xv, [0,1] for sv and edges): are softmax/sigmoid used everywhere? At what layers?
+  - Algorithm 1 starts with an empty graph and immediately applies Th; is Th a no-op on empty graphs?
+  - The name “Transformer” is potentially confusing; the model does not use attention-only Transformer blocks, but “transformations” over graphs.
+  - References contain unresolved macro artifacts (e.g., “\Q2016\E”), inconsistent citation styles, and missing venues.
+  - Several figures/tables are referenced but not included here; reproducibility depends on precise architectural hyperparameters that are not specified in the main text.
+
+Additional feedback to improve the paper (not all decisive for this review)
+- Provide a clean end-to-end setting without direct reference and without graph substitution, and report results and training curves. If strong supervision is essential, quantify how much is needed (e.g., partial supervision on a subset of steps/edges).
+- Detail the set-matching computation (exact vs approximate), and provide complexity/runtime for typical training instances.
+- Add ablations isolating each transformation’s contribution; include variants that disable TC or Tadd, or swap propagation depths.
+- Report full training details (optimizer, LR schedule, batch size, initialization, gradient clipping, early stopping), model sizes (D, α, β, Y, T), and thresholds for converting soft graphs to discrete outputs.
+- Provide rigorous scaling experiments and memory usage profiles.
+- For bAbI, evaluate on the standard setting (10k) without knowledge-object supervision and without entity renaming. If you keep strong supervision, compare against baselines with equivalently rich supervision (e.g., models trained on gold triples/graphs).
+- Clarify how many new nodes can be added per step, how this is determined, and how sv thresholds are chosen at inference.
+- Clean up notation, grammar, and references; include all tables/figures; ensure the “Transformer” term does not mislead.
+
+Questions for the authors
+- How is the permutation max in Lnode computed in practice? Exact search, Hungarian matching, or a heuristic? What are typical numbers of new nodes per step?
+- Do you train and evaluate without graph substitution at any point? If so, what is the performance gap?
+- How are soft strengths (sv, Cv,v′,y) discretized at evaluation time? What thresholds are used, and how sensitive are results to them?
+- What are the exact dimensions (D, α, β), number of message-passing steps T, and the number/types of edges Y per task? Please include training hyperparameters.
+- What is the wall-clock training time and peak memory usage per task? How does it scale with |V| and |E|?
+- For bAbI Task 3 and 5, can you report results without adding history nodes and without the “graph-sequence” extension, to quantify the necessity of your graph preprocessing?
+- How robust is the “direct reference” mechanism to ambiguous or unseen entity names? Can it be replaced by learned attention over tokens/entities without oracle matches?
+- For the CA/TM tasks, please provide exact success rates at 20 and 30 steps, and failure case analyses. Could a standard GNN with fixed nodes/edges achieve similar performance?

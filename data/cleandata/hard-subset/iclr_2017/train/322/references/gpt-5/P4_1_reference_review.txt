@@ -1,0 +1,53 @@
+Summary of contributions
+- Problem: The paper addresses automatic selection of neural network width during training, avoiding expensive black-box hyperparameter search over sizes.
+- Method: It formalizes “nonparametric neural networks,” where layer widths are variable and optimized jointly with weights via fan-in or fan-out group regularization (ℓp, λ>0), with a constructive mechanism to add zero-units and remove units that are shrunk to zero. It introduces:
+  - A theoretical result (Theorem 1) showing the training objective attains a global minimum at finite dimensionality under fan-in/out regularization.
+  - CapNorm, a batch-normalization variant that avoids neutralizing the effect of the shrinkage regularizer.
+  - AdaRad, an optimizer decomposing gradients into radial (parallel to a unit’s fan-in) and angular (orthogonal) components, normalizing the angular component to help newly added units learn without being dominated by shrinkage. A momentum variant (AdaRad-M) is also provided.
+  - A proposition (self-similar nonlinearities) showing layer-wise regularization parameters can be consolidated to a single λ via rescaling when activations are self-similar (e.g., ReLU).
+- Experiments: Demonstrations on MNIST, rectangles-images, convex, and a large tabular dataset (Poker). On two datasets, the approach finds compact models and achieves accuracy competitive with or better than parametric networks found by grid/random search; on one dataset (convex) performance lags. Analyses of growth/shrink dynamics and per-unit trajectories are provided.
+
+Decision: Reject
+Key reasons: (1) Empirical evaluation is limited and confounded, with insufficient baselines and ablations to isolate where gains come from; (2) The core theoretical result is about existence of finite-width minimizers, not about the effectiveness of the proposed training procedure, and the experimental evidence does not robustly establish superiority across tasks.
+
+Supporting arguments
+- Clarity: The problem and high-level approach are clearly stated. Theorem and algorithm pseudocode are detailed. However, there are presentation issues (formatting, section numbering), and some components (CapNorm) are only heuristically justified. The experimental protocol is lengthy but makes several choices that complicate interpretation (e.g., selecting a “typical representative” model).
+- Technical soundness: 
+  - Theorem 1 appears mathematically sound: with group regularization on fan-in/out, the objective over the countable union of parameter spaces admits a global minimum at finite width. The proof is careful, with lemmas bounding activations/gradients and widths. This result is valuable, though it concerns the objective’s well-posedness rather than algorithm convergence.
+  - The self-similarity proposition is correct by rescaling arguments.
+  - AdaRad’s decomposition and update scheme are well-defined; separating angular (direction) and radial (length) updates is coherent with group shrinkage. However, no convergence or regret guarantees are provided, which is acceptable but limits theoretical support for the specific training dynamics.
+  - CapNorm’s rationale (preventing BN from nullifying the regularizer) is sensible, but the design choice (capping variance scaling at 1, no learned affine) is heuristic; there is no theoretical or empirical analysis of its effect beyond qualitative description.
+- Novelty and placement:
+  - Using group-lasso-style fan-in/out penalties to prune units is known (e.g., Alvarez & Salzmann). Dynamic addition of units has prior art. The paper’s combination—adding zero-units, removing units via group shrinkage, a dedicated optimizer (AdaRad), and the existence theorem for finite minimizers—is a novel package. The related work is reasonably surveyed, though comparisons to recent dynamic width methods and NAS are not executed experimentally.
+- Empirical support:
+  - Datasets: MNIST, rectangles-images, convex (toy/synthetic), and Poker (tabular). No evaluation on standard modern benchmarks with convolutional layers (e.g., CIFAR), despite claiming applicability and planning future extension.
+  - Baselines: For parametric networks, extensive grid/random search over optimizers and sizes is performed, but with specific choices: λ=0 with BN, on the grounds that ℓ2 and BN are “incompatible.” In practice, weight decay is commonly used with BN; disallowing it may disadvantage baselines. The nonparametric method uses CapNorm (no learned affine), while parametric baselines use BN (with/without learned affine), creating a normalization mismatch. On Poker, parametric baselines are limited to RMSprop.
+  - Ablations: Missing. There is no systematic ablation isolating the impact of (a) unit addition/removal vs fixed-width with the same regularizer, (b) AdaRad vs conventional optimizers under CapNorm, (c) CapNorm vs BN or other normalizations, (d) the unit addition schedule and initialization. AdaRad-M results are mentioned but omitted.
+  - Robustness: Results vary by dataset, with a negative result on convex and large sensitivity to λ (as acknowledged). The selection of a single “representative” model among runs introduces subjective choice; median and ranges are shown, but this weakens statistical conclusions.
+  - Claims: The claim that nonparametric networks can outperform equally sized parametric networks is supported on MNIST and rectangles-images, but not generally; the superior “global” performance claim relies on limited baselines on limited datasets. The scalability demonstration is encouraging but still lacks broader baselines and architecture diversity.
+
+Additional feedback to improve the paper (non-decisional)
+- Provide comprehensive ablations:
+  - Fixed-width networks with the same fan-in/out group regularizer (p=2) and CapNorm, trained with standard optimizers vs AdaRad/AdaRad-M.
+  - CapNorm vs BN (with/without affine), and vs alternative strategies (e.g., weight normalization, fixed-scale activations), to validate the necessity of CapNorm.
+  - Effect of unit addition rate ν, deletion dynamics (αr/λ), and initialization of new units.
+- Strengthen baselines:
+  - Include strong parametric baselines using BN plus weight decay (or other regularization compatible with BN) and early stopping; include cyclical learning rates or modern training tricks.
+  - Compare against existing pruning/growing methods that do not require pretrained large models if possible (or adapt them).
+  - Evaluate on convolutional architectures (e.g., CIFAR-10/100) to demonstrate applicability beyond MLPs.
+- Empirical methodology:
+  - Avoid choosing a “representative” run; report medians and confidence intervals across seeds and select by validation without manual intervention.
+  - Report wall-clock compute, number of epochs, and parameter counts over time to quantify the overhead of growing/shrinking and AdaRad relative to baselines.
+- Theory:
+  - Clarify the practical implications of Theorem 1 for training dynamics and generalization (e.g., whether typical λ lead to compact minima without overfitting).
+  - Discuss whether analogous existence results hold with modern components (e.g., convolution, residual connections) and non-self-similar activations.
+
+Questions for the authors
+1. Can you provide ablation studies separating the effects of (i) unit growth/shrinkage, (ii) AdaRad vs standard optimizers, and (iii) CapNorm vs BN/other normalizations?
+2. Why disallow weight decay with BN for parametric baselines? Can you include results with BN+weight decay to remove a potential confound?
+3. How sensitive are results to the unit addition schedule (ν, νfreq) and to the choice αr=150/λ? What guidance can you give to set these hyperparameters?
+4. What happens if you train fixed-width models (same final sizes) with the same fan-in group regularizer and CapNorm but without growth/shrinkage? Do nonparametric dynamics still yield an advantage?
+5. Can you extend experiments to convolutional networks (e.g., CIFAR) to demonstrate applicability and competitiveness on widely used benchmarks?
+6. For Poker, how many hyperparameter trials were run for parametric baselines relative to nonparametric settings, and why limit to RMSprop?
+7. Could CapNorm inadvertently harm representational capacity by capping σ<1? Do you have diagnostics showing its effect on activation distributions and gradient flow?
+8. Is code available to reproduce results and facilitate community adoption?

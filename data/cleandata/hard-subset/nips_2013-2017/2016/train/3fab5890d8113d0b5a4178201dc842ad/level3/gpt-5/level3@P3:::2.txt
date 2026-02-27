@@ -1,0 +1,52 @@
+Summary and relation to prior work
+The paper targets a well-known limitation of memory-augmented neural networks (MANNs) such as Neural Turing Machines (NTM) and Memory Networks: dense, smooth reads/writes scale linearly with memory size in both time and space, and backpropagation through time (BPTT) requires storing full memory states. The authors propose Sparse Access Memory (SAM), an end-to-end differentiable access scheme that restricts reads and writes to a constant K locations per step and uses approximate nearest neighbor (ANN) search (randomized k-d trees or LSH) for content-based addressing. They also introduce an efficient backprop scheme that logs sparse in-place updates and rolls them back during the backward pass. A simple memory management policy (write to previously read locations and to the least recently used slot) implements sparse writes. The paper claims asymptotically optimal complexity (O(log N) time per step for read/write addressing and O(1) space per step), ≈1000× training speedups and ≈3000× memory savings versus dense NTMs, while retaining representational power. Experiments span classic NTM algorithmic tasks, curriculum scaling to very long sequences, bAbI QA (including a sparse DNC variant), and Omniglot one-shot.
+
+This work sits within a line of research on content-addressable memory and differentiable controllers (NTM, Memory Networks, DNC), and relates to discrete/sparse addressing approaches via reinforcement learning (RL-NTM). The use of ANN for fast content-based lookup has a long history (e.g., FLANN, LSH), and LRU-style allocation has been explored in memory systems (DNC’s usage-based allocation is one example).
+
+Strengths
+- Clear problem focus (scaling MANNs) with a practical solution that substantially reduces training time and memory usage, enabling very large memories and long BPTT.
+- Straightforward and effective engineering: K-sparse reads/writes, ANN indices, and a reversible log for backprop. The implementation detail of rolling back sparse updates is neat and useful.
+- Empirically compelling: parity or better learning curves relative to dense baselines on NTM tasks; strong curriculum scaling (10k train, 200k test steps); competitive bAbI (especially the sparse DNC); solid Omniglot one-shot results.
+- The efficiency claims are supported by benchmarks over wide memory ranges; the sublinear behavior with ANN is demonstrated.
+
+Weaknesses
+- Limited technical novelty: the main pieces (top-K sparsification of soft attention, LRU-like allocation, approximate KNN for content lookup, and logging sparse diffs for BPTT) are well-known techniques; their combination, while valuable, feels like an implementation-oriented integration rather than a conceptual advance.
+- Asymptotic optimality and “retains representational power” are asserted but not convincingly analyzed. There is no formal characterization of approximation error introduced by K-sparse reads/writes (and by ANN recall) and how this affects gradient estimates or capacity relative to dense models.
+- The efficiency comparisons risk implementation confounds. It is unclear whether dense baselines were equally optimized (e.g., checkpointing/activation recomputation, efficient batched similarity on GPU, sparse kernels), and whether ANN maintenance costs (periodic rebuilds) are fully accounted for in wall-clock.
+- Lack of ablations analyzing sensitivity to K, ANN recall/precision, rebuild frequency, and the choice of write policy (previously-read vs LRU). It is hard to disentangle which ingredients are essential.
+- The sparse read drops almost all gradient signal each step (only K rows receive gradient). The paper does not quantify the impact on learning stability or convergence, beyond empirical success on selected tasks.
+
+Quality
+- The engineering is sound and the claims are largely supported empirically. The backprop rollback scheme is described clearly and seems correct.
+- The complexity claims hinge on assumptions (constant K, O(log N) ANN ops, amortized rebuilds). Please report amortized vs worst-case costs, and separate query, insert, delete, and rebuild time in the benchmarks.
+- For “retains representational power,” provide either a bound relating r̃ to r (e.g., top-K approximation error under softmax/temperature) or an empirical study showing negligible performance loss vs dense as K varies and as ANN recall is tuned.
+- Include ANN accuracy metrics during training (recall@K) and correlate with task performance.
+
+Clarity
+- Overall well written and organized, with helpful figures and supplement. Some suggestions: unify notation for sparse vs dense vectors early; explicitly define the gradient flow with sparse reads (only K rows receive gradient) and clarify that the ANN has no gradients; move key parts of Supplementary A (optimality assumptions, data structures for usage tracking) into the main text; state rebuild policy and its overhead prominently.
+
+Originality
+- The contribution is primarily an integration of straightforward components (sparse top-K, ANN search, LRU allocation, reversible logs) into an NTM-style architecture. Related ideas exist in RL-NTM (sparse discrete addressing), DNC (usage-based allocation), and ANN literature. As such, technical novelty is modest.
+
+Significance
+- If widely adopted, the engineering could materially expand the practicable scale of MANNs. The empirical results are strong and likely to influence practitioners. However, for NIPS, the limited conceptual novelty tempers the case for acceptance.
+
+Questions and requests for clarification
+- Provide ablations: effect of K on speed/accuracy; exact vs ANN; randomized k-d tree vs LSH; rebuild frequency; alternative write policies (pure content-based sparse write).
+- How fair are speedups vs optimized dense baselines (e.g., activation checkpointing, fused similarity kernels, GPU-accelerated KNN with FAISS-like libraries)?
+- Report ANN recall and its dynamics during training; does the network adapt queries to ANN peculiarities?
+- Memory management: what happens under heavy churn? Any fragmentation or pathological LRU behavior?
+- Can you quantify the bias introduced by dropping gradients to N−K locations? Any training instabilities observed?
+
+Pros for acceptance
+- Strong empirical evidence of massive efficiency gains with comparable accuracy.
+- Practical impact for scaling MANNs to real-world sizes.
+- Clear writing and open implementation details could benefit the community.
+
+Cons for acceptance
+- Technical contribution is incremental; main components are straightforward and previously known.
+- Theoretical claims (optimality, representational power retention) are not rigorously substantiated.
+- Missing ablations to isolate contributions and understand trade-offs.
+
+Recommendation
+Lean reject. While the paper presents a useful and well-executed engineering contribution with impressive experiments, the technical novelty is limited. Strengthening the theoretical analysis of approximation effects, adding thorough ablations, and ensuring fully fair/optimized baselines would substantially improve the case for acceptance.

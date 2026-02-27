@@ -1,0 +1,46 @@
+Summary and contributions
+- The paper tackles few-shot, N-way classification via meta-learning. It proposes an LSTM-based meta-optimizer whose cell state equals the learner’s parameters; per-step updates are produced by gates (input as a learned learning-rate, forget as weight decay), with parameter-sharing across coordinates and log-sign preprocessing of gradients/losses (as in Andrychowicz et al., 2016). The meta-learner is trained episodically to minimize test loss after a fixed small number of updates, and it also learns an initialization c0 for the learner. Careful handling of BatchNorm statistics is discussed to avoid cross-episode leakage. Experiments on a Mini-ImageNet variant show improvements over simple baselines and competitiveness with Matching Networks (better in 5-shot; parity in 1-shot, per the text).
+
+Decision: Reject
+Primary reasons: (1) Insufficient experimental rigor and missing/unclear quantitative evidence (numbers for Table 1 not provided here; key implementation/comparison details are inconsistent), and (2) technical/clarity issues that cast doubt on correctness and reproducibility (sign inconsistencies in the update rule, BatchNorm protocol ambiguities, architecture mismatch across methods, and numerous reference/formatting problems).
+
+Supporting arguments
+- Novelty and positioning: The approach is close in spirit and mechanics to Andrychowicz et al. (2016) (per-parameter LSTM optimizer with preprocessing and gradient-independence assumption), adapted to the episodic few-shot setting. The idea to learn c0 is sensible but has been explored in meta-learning; the paper’s unique aspect is the specific LSTM-gated parameter update for few-shot classification. The motivation is well articulated, but the distinct methodological advance over prior learned optimizers is incremental.
+
+- Technical correctness/clarity:
+  - Update rule sign inconsistency: In Eq. (2) mapping, c̃t = −∇θt−1Lt, but in the model you set c̃t = ∇θt−1Lt. With ct = ft ct−1 + it c̃t and it ∈ (0,1), this flips the descent direction unless it or preprocessing compensate. This must be clarified and/or corrected.
+  - Gate ranges: it and ft are sigmoids, so it ∈ (0,1). With log-sign preprocessing, this constrains effective step sizes and may preclude larger steps or sign reversals. An explanation/ablation (e.g., tanh or unconstrained step via softplus times sign) is needed.
+  - Gradient-independence assumption: You ignore second derivatives (as in Andrychowicz). There is no ablation quantifying the impact; since few steps are unrolled, full second-order may be feasible. This assumption directly affects claims about learned update quality.
+  - Parameter sharing: You say per-coordinate states with shared LSTM parameters. For CNNs with tens/hundreds of thousands of params, this induces large memory/time overhead. No analysis of scalability, memory footprint, or throughput is provided.
+  - BN protocol: The described train/test handling is hard to follow and seems inconsistent across phases. During meta-training you say you use batch stats on both train and test; at meta-test you compute running averages on the episode’s train and then use them at test. This still changes conditions. Details on the averaging (momentum, “higher preference to later values”), batch sizes (k is tiny), and whether any episode-level leakage occurs are missing.
+  - Architectural inconsistencies: The learner for your method uses 4 conv layers with 32 filters, while Matching Networks/baselines use 64 filters (and dropout only for Matching Nets). This invalidates a fair comparison unless controlled. Later you mention using 10 updates for 1-shot (Sec. 5.2) but earlier say 12 (Sec. 5.1).
+  - Dataset and reproducibility: You constructed a new Mini-ImageNet split; exact lists, preprocessing, and code are critical. A GitHub link is given, but the paper should specify splits and release them. Without standardized splits and with no numbers reported in the text provided, claims are unsubstantiated.
+  - Algorithm and notation issues: Algorithm 1 indices (Θd−1, Θd) and step numbering are confusing. Figures/Tables are referenced but not visible here. Multiple typos (“neutral networks”), inconsistent capitalization (Imagenet/Mini-Imagenet), and many malformed citations (e.g., “? \Q2016\E”) reduce clarity.
+
+- Empirical support:
+  - Missing quantitative results here: Table 1 is referenced but no numbers, standard deviations, or confidence intervals are shown in the manuscript excerpt. Without hard numbers, it is impossible to assess claims of being “competitive” or “much better” than baselines.
+  - Baseline fairness: Matching Nets not fine-tuned at test time (as allowed in Vinyals et al.), but you note your method could also be fine-tuned. This asymmetry likely hurts Matching Nets. Feature extractor sizes differ (32 vs 64 filters), and dropout is applied only to Matching Nets. No strong nearest-neighbor baseline with the same 32-filter backbone is given.
+  - Ablations: No ablations for ft fixed to 1, removing preprocessing, learning c0 vs random init, number of inner steps T, ignoring vs including second derivatives, or the contribution of the first LSTM layer. Visualization of gates is qualitative only.
+
+Answers to the three key questions
+1) Problem: Learning to rapidly adapt a classifier from few labeled examples (k-shot, N-way) via a meta-learner that learns both an initialization and an update rule.
+2) Motivation/placement: Generally well motivated and placed within meta-learning and learned optimizers; however, the distinction from Andrychowicz et al. and related meta-optimization work is not crisply delineated.
+3) Support for claims: As provided, insufficient. Quantitative results are missing; fairness and rigor of comparisons are questionable; key technical details are unclear or inconsistent.
+
+Suggestions to improve (helpful, not all decisive)
+- Fix the update sign inconsistency and clarify gate parameterizations; consider alternative parameterizations that allow signed or unbounded steps and report ablations.
+- Provide complete, standardized quantitative results (with 95% CIs) on established splits (release your splits) and compare with strong, matched baselines (identical backbones, with/without fine-tuning).
+- Add ablations: effect of c0 learning, preprocessing, ft=1 vs learned ft, number of steps T, ignoring vs including second derivatives, and size of the per-parameter LSTM.
+- Clarify BatchNorm handling with precise formulas and momentum values; verify no information leakage and that training/testing conditions are matched.
+- Report compute/memory overhead and wall-clock vs Matching Nets; discuss scalability.
+- Clean up typos, inconsistent notation, and fix the bibliography formatting.
+
+Questions for the authors
+- Please reconcile the c̃t sign mismatch between the mapping (−∇Lt) and the model description (∇Lt). Which is used in code?
+- What are the hidden sizes of the LSTMs? How are per-parameter inputs batched through the first LSTM and combined with the second?
+- Do you truly share the same optimizer across all coordinates including convolutional filters and biases? Any grouping or layer-wise conditioning?
+- Exact architecture for the learner in your method: 32 or 64 filters? If 32, can you rerun baselines with 32 filters and no dropout to ensure fairness?
+- Exact quantitative results for Table 1 (means, 95% CIs, number of episodes). How many evaluation episodes? How many random seeds?
+- BN details: momentum used; how running means/vars are initialized, updated per episode, and reset; any difference between meta-train and meta-test?
+- Impact of the gradient-independence assumption: can you report results with full higher-order derivatives for small T?
+- Memory footprint and runtime per episode for 1-shot/5-shot; parameter counts for meta-learner vs learner.

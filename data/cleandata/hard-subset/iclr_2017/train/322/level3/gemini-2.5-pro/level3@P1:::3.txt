@@ -1,0 +1,41 @@
+### Summary of Contributions
+
+This paper introduces a novel and elegant framework called "nonparametric neural networks" to address the challenging problem of automatically determining a suitable network size during a single training run. The core idea is to dynamically grow the network by periodically adding new units and simultaneously shrink it by removing redundant units. This is achieved through a principled combination of an `l2` fan-in (or fan-out) regularizer, which encourages group sparsity and drives the weights of unnecessary units to zero, and a scheme for adding new, randomly initialized units.
+
+The authors provide a key theoretical contribution by proving that, under this framework with an `l_p` penalty (where p < ∞), the regularized training objective is guaranteed to have a global minimum at a finite network size (Theorem 1). To operationalize this framework, the paper also proposes two technical innovations: "Capped Batch Normalization" (CapNorm), a modification of batch normalization that does not interfere with the regularizer's shrinking effect, and "Adaptive Radial-Angular Gradient Descent" (AdaRad), a new optimization algorithm designed to effectively train networks whose units have dynamically changing weight norms. The experimental results on three benchmark datasets are promising, showing that the proposed method can find compact networks that are competitive with, and sometimes superior to, fixed-size architectures found through random search.
+
+### Decision and Key Reasons
+
+**Decision:** Reject
+
+My recommendation is to reject the paper in its current form, primarily for two key reasons:
+
+1.  **The method replaces one difficult hyperparameter search (network architecture) with another equally, if not more, complex set of hyperparameters.** The paper's main motivation is to automate model selection, but the final network size is critically dependent on the regularization strength `λ`, the unit addition rate `ν`, and the radial step size `α_r`. Tuning these interconnected parameters appears to be no easier than searching for layer widths directly.
+2.  **The experimental evaluation is insufficient to demonstrate the practical advantages of the proposed method over established techniques.** Most notably, the paper fails to compare against standard and highly relevant network pruning and compression baselines, which also aim to find efficient network architectures.
+
+### Supporting Arguments
+
+**1. Hyperparameter Complexity:**
+The central claim of automating network size selection is undermined by the introduction of several new, highly sensitive hyperparameters. The experiments clearly show that the final network size is a direct function of the regularization parameter `λ` (Figure 2, Table 2). This effectively means `λ` is now a proxy hyperparameter for controlling model capacity, just like layer width was before. The user must still perform a search over `λ` to find a model with the desired trade-off between size and performance.
+
+Furthermore, the training dynamics and final architecture are also influenced by the unit addition rate `ν`, the addition frequency `ν_freq`, and the optimizer's parameters, especially the radial step size `α_r`. The paper sets `α_r = 150λ`, which tightly couples the optimization dynamics with the model selection process and introduces another magic constant. This complex interplay of hyperparameters seems to contradict the goal of simplifying model selection. It is not clear that searching this new hyperparameter space is any more efficient or effective than a standard random search over network widths.
+
+**2. Lack of Crucial Baselines and Limited Scope of Experiments:**
+The paper positions itself as an alternative to black-box hyperparameter optimization but fails to compare against the most relevant and competitive class of methods for finding compact networks: **pruning**. The introduction dismisses pruning by stating it requires a "high-performing network model as a starting point," but this is an oversimplification. Many state-of-the-art pruning techniques operate *during* training, starting from an over-parameterized model and removing connections or units. A direct comparison is essential: is it better to start small and grow (this work), or start large and prune? This comparison should evaluate not only final test error and model size but also total training time and computational cost. Without these baselines, the practical utility of the proposed framework is difficult to assess.
+
+The experiments, while well-analyzed, are conducted on relatively small-scale datasets (MNIST, convex, rectangles). While the poker dataset is large in the number of samples, it has a very small feature dimension (14). To convincingly demonstrate the method's scalability and utility for modern deep learning, evaluation on more complex tasks and architectures, such as deeper convolutional networks for image classification (e.g., on CIFAR-10/100), would be necessary. The current results are encouraging but remain speculative regarding their applicability to larger, more challenging problems.
+
+### Additional Feedback for Improvement
+
+These points are intended as constructive feedback and are not the primary basis for my decision.
+
+*   **Clarity on Generalization:** The theoretical proof (Theorem 1) is a nice contribution, but it concerns the existence of a global minimum for the *training* objective. It would be helpful to explicitly state that this theoretical result makes no claims about generalization or the avoidance of over/under-fitting, which remains an empirical question dependent on the choice of `λ`.
+*   **Ablation Study for AdaRad:** AdaRad is an interesting new optimizer. Its contribution could be better isolated with an ablation study. How does AdaRad perform on its own for training *fixed-size* parametric networks compared to Adam or RMSprop? This would help disentangle the benefits of the optimizer from the benefits of the dynamic network structure.
+*   **Adaptive Unit Addition:** The current unit addition schedule is fixed (e.g., one unit per layer per epoch). This seems suboptimal. A more adaptive scheme, where units are added only when the training loss plateaus, might be more efficient and could be an interesting direction for future work. This would be closer in spirit to older constructive methods like Cascade-Correlation but adapted for modern SGD-based training.
+*   **Quantifying Efficiency:** A major potential advantage of this method is producing smaller, more efficient models. The paper could strengthen its claims by reporting not just the number of parameters but also metrics like FLOPs and actual inference time to quantify the computational savings at test time.
+
+### Questions for the Authors
+
+1.  How sensitive is the final architecture and performance to the unit addition rate `ν` and its frequency? The paper fixes this to one unit per epoch for most experiments, but this seems like a critical hyperparameter that would affect the search trajectory.
+2.  Could you elaborate on why pruning methods were not included as a baseline? A common strategy for finding an efficient architecture is to train a moderately over-parameterized network and prune it during or after training. How do you see your method comparing to this paradigm in terms of final performance, model size, and total computational budget for training?
+3.  The paper argues against standard batch normalization because its learnable parameters would counteract the regularizer. However, a common practice is to apply weight decay to the gamma (scale) parameter of batch norm. Was this approach considered as an alternative to developing CapNorm?

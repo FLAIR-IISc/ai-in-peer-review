@@ -1,0 +1,41 @@
+Summary and relation to prior work:
+The paper proposes Cholesky-CMA-ES, a variant of CMA-ES that maintains and updates a triangular Cholesky factor A of the covariance matrix C = A A^T instead of computing the matrix square root C1/2 via eigendecomposition in each iteration. Sampling uses x = σ A y + m with y ∼ N(0, I), which is standard. The covariance update Ct+1 = (1 − c1 − cµ)Ct + c1 pc pc^T + cµ ∑i ωi (xi − m)(xi − m)^T is decomposed into rank-1 updates that are applied directly to the Cholesky factor via a quadratic-time routine (Algorithm 2), extending prior work that handled special cases (e.g., µ = 1) to the standard CMA-ES with rank-µ update. This yields O(µ d^2) time per iteration (as µ = O(log d) typically), and O(d^2) storage, which are asymptotically optimal for full covariance adaptation.
+
+A key technical challenge is the step-size update (CSA), which in standard CMA-ES uses st = C−1/2 (m_{t+1} − m_t)/σ_t. The proposed method approximates this by using ŝt = A^{-1} (m_{t+1} − m_t)/σ_t, omitting the orthogonal correction from the RQ decomposition of C1/2 = A E. The paper provides a lemma showing that if the normalized covariance shape C̄_t converges, then the sequence of rotations E_t stabilizes, so the norm used in CSA is asymptotically unaffected (error vanishes due to exponential averaging). The authors argue this error is small in practice as C_t changes slowly.
+
+Empirically, the method is compared against: (i) a reference CMA-ES implementation that recomputes the eigendecomposition at each iteration for the considered dimensions, (ii) a delayed decomposition baseline (CMA-ES/d), and (iii) a non-triangular Cholesky-update approach (Suttorp et al., 2009). On standard black-box benchmarks (including rotated versions) and dimensions up to d = 256, the proposed method requires essentially the same number of function evaluations as the reference CMA-ES but achieves large wall-clock speedups (e.g., ~20× at d = 64), with increasing gains as d grows.
+
+Quality:
+- Technical correctness: The rank-1 update on a triangular Cholesky factor and its quadratic complexity are standard and well-justified, and extending this to rank-µ is natural. The CSA approximation and its justification via stabilization of E_t are plausible but not a rigorous guarantee for CMA-ES (the lemma assumes convergence of normalized covariance, which is not proven for the full algorithm). Importantly, there is a substantive error: the claim that “the diagonal elements of a triangular Cholesky factor are the square roots of the eigenvalues of the factorized matrix” is false in general. Diagonal entries of the Cholesky factor are not the square roots of the eigenvalues of C unless C is diagonal in the canonical basis. Hence, monitoring conditioning or enforcing eigenvalue-based variance floors cannot rely on diag(A) without further computation.
+- Empirical methodology: Comparisons use standard benchmarks and random rotations; evaluation counts appear fair. However, wall-clock comparisons lack essential system details (CPU, BLAS threading, compiler flags), and Rosenbrock trials that did not converge were excluded without reporting success rates, which may bias evaluation statistics. The use of A^{-1} in CSA should be implemented as a triangular solve for stability; this is not explicitly stated.
+
+Clarity:
+The paper is generally well-organized and readable, with a clear description of the algorithm and rationale. The lemma and its proof are concise. There are some typographical/reference formatting issues (e.g., broken citations, residual template text) that should be corrected. The claim about eigenvalues needs correction. It would help to explicitly state that computing A^{-1} is not necessary; one can solve A ŝ = (m_{t+1} − m_t)/σ_t.
+
+Originality:
+The main novelty is to apply and generalize Cholesky rank-1 updates to the standard CMA-ES with rank-µ, and to propose a theoretically motivated approximation for CSA that avoids cubic-cost decompositions. Prior work updated non-triangular factors (Suttorp et al., 2009) or addressed special CMA variants (e.g., µ = 1; Krause & Igel, 2015). The paper’s contribution is incremental but meaningful: a practical, theoretically reasoned way to get O(µ d^2) per-iteration complexity within standard CMA-ES while preserving evaluation efficiency.
+
+Significance:
+For practitioners using full-covariance CMA-ES on non-separable, ill-conditioned problems, reducing the per-iteration cost without harming evaluation efficiency is valuable. The demonstrated speedups at moderate-to-large d are substantial. The work is relevant to ML applications of black-box optimization (policy search, hyperparameter tuning) and in scope for NIPS. The lack of rigorous guarantees for CSA’s approximation limits theoretical significance, but practical impact appears high.
+
+Pros (arguments for acceptance):
+- Clear, simple method with strong practical speedups and unchanged evaluation counts on standard benchmarks.
+- Extends prior Cholesky-update ideas to the mainstream CMA-ES setting with rank-µ updates.
+- Sound complexity analysis and practical implementation considerations (triangular storage, quadratic-time updates).
+- Empirical tests include rotated problems, supporting approximate rotation invariance in practice.
+
+Cons (arguments against acceptance):
+- Incorrect claim about Cholesky diagonals equaling eigenvalues; this affects claims about “getting eigenvalues for free.”
+- Theoretical justification for CSA approximation is heuristic for the full algorithm; no quantitative error bounds or guarantees.
+- Incomplete experimental reporting: no hardware/BLAS details; exclusion of failed runs without success rates; no noisy or constrained benchmarks.
+- Not compared against limited-memory CMA variants to contextualize when full covariance + speedup is preferable.
+- Some presentation and citation formatting issues.
+
+Suggestions for improvement:
+- Correct the eigenvalue claim and revise any conclusions relying on it; if conditioning monitoring is needed, clarify what can be inferred from A and what requires extra computation.
+- Emphasize that triangular solves should be used instead of forming A^{-1}, and report their cost in practice.
+- Provide system details for runtime comparisons and report success rates (especially on Rosenbrock); include noisy cases.
+- Add measurements of the CSA approximation error (e.g., norm differences vs. exact using occasional polar decomposition) and of E_t stabilization over iterations.
+- Optionally compare evaluation efficiency vs. limited-memory CMA-ES on non-separable problems to illustrate trade-offs.
+
+Overall, this is a solid, practically relevant contribution with one notable technical misstatement and some gaps in rigor/reporting that appear fixable.

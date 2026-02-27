@@ -1,0 +1,608 @@
+{
+  "name" : "2291d2ec3b3048d1a6f86c2c4591b7e0.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Reshaping Visual Datasets for Domain Adaptation",
+    "authors" : [ "Boqing Gong", "Kristen Grauman" ],
+    "emails" : [ "boqinggo@usc.edu", "grauman@cs.utexas.edu", "feisha@usc.edu" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "A domain refers to an underlying data distribution. Generally, there are two: the one with which classifiers are trained, and the other to which classifiers are applied. While many learning algorithms assume the two are the same, in real-world applications, the distributions are often mismatched, causing significant performance degradation when the classifiers are applied. Domain adaptation techniques are crucial in building robust classifiers to address mismatched new and unexpected target environments. As such, the subject has been intensively studied in computer vision [1, 2, 3, 4], speech and language processing [5, 6], and statistics and learning [7, 8, 9, 10].\nWhile domain adaptation research largely focuses on how adaptation should proceed, there are also vital questions concerning the domains themselves: what exactly is a domain composed of? and how are domains different from each other? For some applications, the answers come naturally. For example, in speech recognition, we can organize data into speaker-specific domains where each domain contains a single speaker’s utterances. In language processing, we can organize text data into language-specific domains. For those types of data, we can neatly categorize each instance with a discrete set of semantically meaningful properties; a domain is thus naturally composed of instances of the same (subset of) properties.\nFor visual recognition, however, the same is not possible. In addition to large intra-category appearance variations, images and video of objects (or scenes, attributes, activities, etc.) are also significantly affected by many extraneous factors such as pose, illumination, occlusion, camera resolution, and background. Many of these factors simply do not naturally lend themselves to deriving discrete domains. Furthermore, the factors overlap and interact in images in complex ways. In fact, even coming up with a comprehensive set of such properties is a daunting task in its own right—not to mention automatically detecting them in images!\nPartially due to these conceptual and practical constraints, datasets for visual recognition are not deliberately collected with clearly identifiable domains [11, 12, 13, 14, 15]. Instead, standard image/video collection is a product of trying to ensure coverage of the target category labels on one hand, and managing resource availability on the other. As a result, a troubling practice in visual domain adaptation research is to equate datasets with domains and study the problem of cross-dataset generalization or correcting dataset bias [16, 17, 18, 19].\nOne pitfall of this ad hoc practice is that a dataset could be an agglomeration of several distinctive domains. Thus, modeling the dataset as a single domain would necessarily blend the distinctions, potentially damaging visual discrimination. Consider the following human action recognition task, which is also studied empirically in this work. Suppose we have a training set containing videos of multiple subjects taken at view angles of 30◦ and 90◦, respectively. Unaware of the distinction of these two views of videos, a model for the training set as a single training domain needs to account for both inter-subject and inter-view variations. Presumably, applying the model to recognizing videos taken at view angle of 45◦ (i.e., from the test domain) would be less effective than applying models accounting for the two view angles separately, i.e., modeling inter-subject variations only.\nHow can we avoid such pitfalls? More specifically, how can we form characteristic domains, without resorting to the hopeless task of manually defining properties along which to organize them? We propose novel learning methods to automatically reshape datasets into domains. This is a challenging unsupervised learning problem. At the surface, we are not given any information about the domains that the datasets contain, such as the statistical properties of the domains, or even the number of domains. Furthermore, the challenge cannot be construed as a traditional clustering problem; simply clustering images by their appearance is prone to reshaping datasets into per-category domains, as observed in [20] and our own empirical studies. Moreover, there may be many complex factors behind the domains, making it difficult to model the domains with parametric mixture models on which traditional clustering algorithms (e.g., Kmeans or Gaussian mixtures) are based.\nOur key insights are two axiomatic properties that latent domains should possess: maximum distinctiveness and maximum learnability. By maximum distinctiveness, we identify domains that are maximally different in distribution from each other. This ensures domains are characteristic in terms of their large inter-domain variations. By maximum learnability, we identify domains from which we can derive strong discriminative models to apply to new testing data.\nIn section 2, we describe our learning methods for extracting domains with these desirable properties. We derive nonparametric approaches to measure domain discrepancies and show how to optimize them to arrive at maximum distinctiveness. We also show how to achieve maximum learnability by monitoring an extracted domain’s discriminative learning performance, and we use that property to automatically choose the number of latent domains. To our best knowledge, [20] is the first and only work addressing latent domain discovery. We postpone a detailed discussion and comparison to their method to section 3, after we have described our own.\nIn section 4, we demonstrate the effectiveness of our approach on several domain adaptation tasks for object recognition and human activity recognition. We show that we achieve far better classification results using adapted classifiers learned on the discovered domains. We conclude in section 5."
+    }, {
+      "heading" : "2 Proposed approach",
+      "text" : "We assume that we have access to one or more annotated datasets with a total of M data instances. The data instances are in the form of (xm, ym) where xm ∈ RD is the feature vector and ym ∈ [C] the corresponding label out of C categories. Moreover, we assume that each data instance comes from a latent domain zm ∈ [K] where K is the number of domains. In what follows, we start by describing our algorithm for inferring zm assuming K is known. Then we describe how to infer K from the data."
+    }, {
+      "heading" : "2.1 Maximally distinctive domains",
+      "text" : "Given K, we denote the distributions of unknown domains Dk by Pk(x, y) for k ∈ [K]. We do not impose any parametric form on Pk(·, ·). Instead, the marginal distribution Pk(x) is approximated\nby the empirical distribution P̂k(x)\nP̂k(x) = 1\nMk ∑ m δxmzmk,\nwhere Mk is the number of data instances to be assigned to the domain k and δxm is an atom at xm. zmk ∈ {0, 1} is a binary indicator variable and takes the value of 1 when zm = k. Note that Mk = ∑ m zmk and ∑ k Mk = M.\nWhat kind of properties do we expect from P̂k(x)? Intuitively, we would like any two different domains P̂k(x) and P̂k′(x) to be as distinctive as possible. In the context of modeling visual data, this implies that intra-class variations between domains are often far more pronounced than interclass variations within the same domain. As a concrete example, consider the task of differentiating commercial jetliners from fighter jets. While the two categories are easily distinguishable when viewed from the same pose (frontal view, side view, etc.), there is a significant change in appearance when either category undergoes a pose change. Clearly, defining domains by simply clustering the images by appearance is insufficient; the inter-category and inter-pose variations will both contribute to the clustering procedure and may lead to unreasonable clusters. Instead, to identify characteristic domains, we need to look for divisions of the data that yield maximally distinctive distributions.\nTo quantify this intuition, we need a way to measure the difference in distributions. To this end, we apply a kernel-based method to examine whether two samples are from the same distribution [21]. Concretely, let k(·, ·) denote a characteristic positive semidefinite kernel (such as the Gaussian kernel). We compute the the difference between the means of two empirical distributions in the reproducing kernel Hilbert space (RKHS)H induced by the kernel function,\nd(k, k′) = ∥∥∥∥∥ 1Mk ∑m k(·,xm)zmk − 1M′k ∑ m k(·,xm)zmk′ ∥∥∥∥∥ 2\nH\n(1)\nwhere k(·,xm) is the image (or kernel-induced feature) of xm under the kernel. The measure approaches zero as the number of samples tends to infinity, if and only if the two domains are the same, Pk = Pk′ . We define the total domain distinctiveness (TDD) as the sum of this quantity over all possible pairs of domains:\nTDD(K) = ∑ k 6=k′ d(k, k′), (2)\nand choose domain assignments for zm such that TDD is maximized. We first discuss this optimization problem in its native formulation of integer programming, followed by a more computationally convenient continuous optimization.\nOptimization In addition to the binary constraints on zmk, we also enforce\nK∑ k=1 zmk = 1, ∀m ∈ [M], and 1 Mk M∑ m=1 zmkymc = 1 M M∑ m=1 ymc, ∀ c ∈ [C], k ∈ [K] (3)\nwhere ymc is a binary indicator variable, taking the value of 1 if ym = c.\nThe first constraint stipulates that every instance will be assigned to one domain and one domain only. The second constraint, which we refer to as the label prior constraint (LPC), requires that within each domain, the class labels are distributed according to the prior distribution (of the labels), estimated empirically from the labeled data.\nLPC does not restrict the absolute numbers of instances of different labels in each domain. It only reflects the intuition that in the process of data collection, the relative percentages of different classes are approximately in accordance with a prior distribution that is independent of domains. For example, in action recognition, if the “walking” category occurs relatively frequently in a domain corresponding to brightly lit video, we also expect it to be frequent in the darker videos. Thus, when data instances are re-arranged into latent domains, the same percentages are likely to be preserved.\nThe optimization problem is NP-hard due to the integer constraints. In the following, we relax it into a continuous optimization, which is more accessible with off-the-shelf optimization packages.\nRelaxation We introduce new variables βmk = zmk/Mk, and relax them to live on the simplex\nβk = (β1k, · · · , βMk)T ∈ ∆ = { βk : βmk ≥ 0,\nM∑ m=1 βmk = 1 } for k = 1, · · · ,K. With the new variables, our optimization problem becomes\nmax β ∑ k 6=k′ TDD(K) = ∑ k 6=k′ (βk − βk′)TK(βk − βk′) (4)\ns.t. 1/M ≤ ∑ k βmk ≤ 1/C, m = 1, 2, · · · ,M, (5)\n(1− δ)/M ∑ m ymc ≤ ∑ m βmkymc ≤ (1 + δ)/M ∑ m ymc, c = 1, · · · ,C, k = 1, · · · ,K,\nwhereK is the M×M kernel matrix. The first constraint stems from the (default) requirement that every domain should have at least one instance per category, namely, Mk ≥ C and every domain should at most have M instances (Mk ≤ M). The second constraint is a relaxed version of the LPC, allowing a small deviation from the prior distribution by setting δ = 1%. We assign xm to the domain k for which βmk is the maximum of βm1, · · · , βmK. This relaxed optimization problem is a maximization of convex quadratic function subject to linear constraints. Though in general still NP-hard, this type of optimization problem has been studied extensively and we have found existing solvers are adequate in yielding satisfactory solutions."
+    }, {
+      "heading" : "2.2 Maximally learnable domains: determining the number of domains",
+      "text" : "Given M instances, how many domains hide inside? Note that the total domain distinctiveness TDD(K) increases as K increases — presumably, in the extreme case, each domain has only a few instances and their distributions would be maximally different from each other. However, such tiny domains would offer insufficient data to separate the categories of interest reliably.\nTo infer the optimal K, we appeal to maximum learnability, another desirable property we impose on the identified domains. Specifically, for any identified domain, we would like the data instances it contains to be adequate to build a strong classifier for labeled data — failing to do so would cripple the domain’s adaptability to new test data.\nFollowing this line of reasoning, we propose domain-wise cross-validation (DWCV) to identify the optimal K. DWCV consists of the following steps. First, starting from K = 2, we use the method described in the previous section to identify K domains. Second, for each identified domain, we build discriminative classifiers, using the label information and evaluate them with cross-validation. Denote the cross-validation accuracy for the k-th domain byAk. We then combine all the accuracies with a weighted sum\nA(K) = 1/M K∑\nk=1\nMkAk.\nFor very large K such that each domain contains only a few examples, A(K) approaches the classification accuracy using the class prior probability to classify. Thus, starting at K = 2 (and assuming A(2) is greater than the prior probability’s classification accuracy), we choose K∗ as the value that attains the highest cross-validation accuracy: K∗ = arg maxKA(K). For N-fold cross-validation, a practical bound for the largest K we need to examine is Kmax ≤ min{M/(NC),C}. Beyond this bound it does not quite make sense to do cross-validation."
+    }, {
+      "heading" : "3 Related work",
+      "text" : "Domain adaptation is a fundamental research subject in statistical machine learning [9, 22, 23, 10], and is also extensively studied in speech and language processing [5, 6, 8] and computer vision [1, 2, 3, 4, 24, 25]. Mostly these approaches are validated by adaptating between datasets, which, as discussed above, do not necessarily correspond to well-defined domains.\nIn our previous work, we proposed to identify some landmark data points in the source domain which are distributed similarly to the target domain [26]. While that approach also slices the training set, it differs in the objective. We discover the underlying domains of the training datasets, each of which will be adaptable, whereas the landmarks in [26] are intentionally biased towards the single given target domain. Hoffman et al.’s work [20] is the most relevant to ours. They also aim at discovering the latent domains from datasets, by modeling the data with a hierarchical distribution consisting of Gaussian mixtures. However, their explicit form of distribution may not be easily satisfiable in real data. In contrast, we appeal to nonparametric methods, overcoming this limitation without assuming any form of distribution. In addition, we examine the new scenario where the test set is also composed of heterogeneous domains.\nA generalized clustering approach by Jegelka et al. [27] shares the idea of maximum distinctiveness (or “discriminability” used in [27]) criterion with our approach. However, their focus is the setting of unsupervised clustering where ours is domain discovery. As such, they adopt a different regularization term from ours, which exploits labels in the datasets.\nMulti-domain adaptation methods suppose that multiple source domains are given as input, and the learner must adapt from (some of) them to do well in testing on a novel target domain [28, 29, 10]. In contrast, in the problem we tackle, the division of data into domains is not given—our algorithm must discover the latent domains. After our approach slices the training data into multiple domains, it is natural to apply multi-domain techniques to achieve good performance on a test domain. We will present some related experiments in the next section."
+    }, {
+      "heading" : "4 Experimental Results",
+      "text" : "We validate our approach on visual object recognition and human activity recognition tasks. We first describe our experimental settings, and then report the results of identifying latent domains and using the identified domains for adapting classifiers to a new mono-domain test set. After that, we present and report experimental results of reshaping heterogeneous test datasets into domains matching to the identified training domains. Finally, we give some qualitative analyses and details on choosing the number of domains."
+    }, {
+      "heading" : "4.1 Experimental setting",
+      "text" : "Data For object recognition, we use images from Caltech-256 (C) [14] and the image datasets of Amazon (A), DSLR (D), and Webcam (W) provided by Saenko et al. [2]. There are total 10 common categories among the 4 datasets. These images mainly differ in the data collection sources: Caltech256 was collected from webpages on the Internet, Amazon images from amazon.com, and DSLR and Webcam images from an office environment. We represent images with bag-of-visual-words descriptors following previous work on domain adaptation [2, 4]. In particular, we extract SURF [30] features from the images, use K-means to build a codebook of 800 clusters, and finally obtain an 800-bin histogram for each image.\nFor action recognition from video sequences, we use the IXMAS multi-view action dataset [15]. There are five views (Camera 0, 1, · · · , 4) of eleven actions in the dataset. Each action is performed three times by twelve actors and is captured by the five cameras. We keep the first five actions performed by alba, andreas, daniel, hedlena, julien, and nicolas such that the irregularly performed actions [15] are excluded. In each view, 20 sequences are randomly selected per actor per action. We use the shape-flow descriptors to characterize the motion of the actions [31].\nEvaluation strategy The four image datasets are commonly used as distinctive domains in research in visual domain adaptation [2, 3, 4, 32]. Likewise, each view in the IXMAS dataset is often taken as a domain in action recognition [33, 34, 35, 24]. Similarly, in our experiments, we use a subset of these datasets (views) as source domains for training classifiers and the rest of the datasets (views) as target domains for testing. However, the key difference is that we do not compare performance of different adaptation algorithms which assume domains are already given. Instead, we evaluate the effectiveness of our approach by investigating whether its automatically identified domains improve adaptation, that is, whether recognition accuracy on the target domains can be improved by reshaping the datasets into their latent source domains.\nWe use the geodesic flow kernel for adapting classifiers [4]. To use the kernel-based method for computing distribution difference, we use Gaussian kernels, cf. section 2. We set the kernel bandwidth to be twice the median distances of all pairwise data points. The number of latent domains K is determined by the DWCV procedure (cf. section 2.2)."
+    }, {
+      "heading" : "4.2 Identifying latent domains from training datasets",
+      "text" : "Notation Let S = {S1,S2, . . . ,SJ} denote the J datasets we will be using as training source datasets and let T = {T1, T2, . . . , TL} denote the L datasets we will be using as testing target datasets. Furthermore, let K denote the number of optimal domains discovered by our DWCV procedure and U = {U1,U2, . . . ,UK} the K hidden domains identified by our approach. Let r(A → B) denote the recognition accuracy on the target domain B with A as the source domain. Goodness of the identified domains We examine whether {Uk} is a set of good domains by computing the expected best possible accuracy of using the identified domains separately for adaptation\nGOURS = EB∈P max k\nr(Uk,B) ≈ 1\nL ∑ l max k r(Uk → Tl) (6)\nwhere B is a target domain drawn from a distribution on domains P . Since this distribution is not obtainable, we approximate the expectation with the empirical average over the observed testing datasets {Tl}. Likewise, we can define GORIG where we compute the best possible accuracy for the original domains {Sj}, and GOTHER where we compute the same quantity for a competing method for identifying latent domains, proposed in [20]. Note that the max operation requires that the target domains be annotated; thus the accuracies are the most optimistic estimate for all methods, and upper bounds of practical algorithms.\nTable 1 reports the three quantities on different pairs of sources and target domains. Clearly, our method yields a better set of identified domains, which are always better than the original datasets. We also experimented using Kmeans or random partition for clustering data instances into domains. Neither yields competitive performance and the results are omitted here for brevity.\nPractical utility of identified domains In practical applications of domain adaptation algorithms, however, the target domains are not annotated. The oracle accuracies reported in Table 1 are thus not achievable in general. In the following, we examine how closely the performance of the identified domains can approximate the oracle if we employ multi-source adaptation.\nTo this end, we consider several choices of multiple-source domain adaptation methods:\n• UNION The most naive way is to combine all the source domains into a single dataset and adapt from this “mega” domain to the target domains. We use this as a baseline. • ENSEMBLE A more sophisticated strategy is to adapt each source domain to the target do-\nmain and combine the adaptation results in the form of combining multiple classifiers [20].\nTable 2 reports the averaged recognition accuracies on the target domains, using either the original datasets/domains or the identified domains as the source domains. The latent domains identified by our method generally perform well, especially using MATCHING to select the single best source domain to match the target domain for adaptation. In fact, contrasting Table 2 to Table 1, the MATCHING strategy for adaptation is able to match the oracle accuracies, even though the matching process does not use label information from the target domains."
+    }, {
+      "heading" : "4.3 Reshaping the test datasets",
+      "text" : "So far we have been concentrating on reshaping multiple annotated datasets (for training classifiers) into domains for adapting to test datasets. However, test datasets can also be made of multiple latent domains. Hence, it is also instrumental to investigate whether we can reshape the test datasets into multiple domains to achieve better adaptation results.\nHowever, the reshaping process for test datasets has a critical difference from reshaping training datasets. Specifically, we should reshape test datasets, conditioning on the identified domains from the training datasets — the goal is to discover latent domains in the test datasets that match the domains in the training datasets as much as possible. We term this conditional reshaping.\nComputationally, conditional reshaping is more tractable than identifying latent domains from the training datasets. Concretely, we minimize the distribution differences between the latent domains in the test datasets and the domains in the training datasets, using the kernel-based measure explained in section 2. The optimization problem, however, can be relaxed into a convex quadratic programming problem. Details are in the Suppl. Material.\nTable 3 demonstrates the benefit of conditionally reshaping the test datasets, on cross-view action recognition. This problem inherently needs test set reshaping, since the person may be viewed from any direction at test time. (In contrast, test sets for the object recognition datasets above are less heterogeneous.) The first column shows five groups of training datasets, each being a different view, denoted by A,B and C. In each group, the remaining views D and E are merged into a new test dataset, denoted by F = D ⋃ E.\nTwo baselines are included: (1) adapting from the identified domains A′, B′ and C ′ to the merged dataset F ; (2) adapting from the merged dataset A ⋃ B ⋃ C to F . These are contrasted to adapting from the identified domains in the training datasets to the matched domains in F . In most groups, there is a significant improvement in recognition accuracies by conditional reshaping over no reshaping on either training or testing, and reshaping on training only."
+    }, {
+      "heading" : "4.4 Analysis of identified domains and the optimal number of domains",
+      "text" : "It is also interesting to see which factors are dominant in the identified domains. Object appearance, illumination, or background? Do they coincide with the factors controlled by the dataset collectors?\nSome exemplar images are shown in Figure 1, where each row corresponds to an original dataset, and each column is an identified domain across two datasets. On the left of Figure 1 we reshape Amazon and Caltech-256 into two domains. In Domain II all the “laptop” images 1) are taken from\nthe front view and 2) have colorful screens, while Domain I images are less colorful and have more diversified views. It looks like the domains in Amazon and Caltech-256 are mainly determined by the factors of object pose and appearance (color).\nThe figures on the right are from reshaping DSLR and Webcam, of which the “keyboard” images are taken in an office environment with various lighting, object poses, and background controlled by the dataset creators [2]. We can see that the images in Domain II have gray background, while in Domain I the background is either white or wooden. Besides, keyboards of the same model, characterized by color and shape, are almost perfectly assigned to the same domain. In sum, the main factors here are probably background and object appearance (color and shape).\nFigure 2 plots some intermediate results of the domain-wise cross-validation (DWCV) for determining the number of domains K to identify from the multiple training datasets. In addition to the DWCV accuracy A(K), the average classification accuracies on the target domain(s) are also included for reference. We set A(K) to 0 when some categories in a domain are assigned with only one or no data point (as a result of optimization). Generally, A(K) goes up and then drops at some point, before which is the optimal K? we use in the experiments. Interestingly, the number favored by DWCV coincides with the number of datasets we mix, even though, as our experiments above show, the ideal domain boundaries do not coincide with the dataset boundaries."
+    }, {
+      "heading" : "5 Conclusion",
+      "text" : "We introduced two domain properties, maximum distinctiveness and maximum learnability, to discover latent domains from datasets. Accordingly, we proposed nonparametric approaches encouraging the extracted domains to satisfy these properties. Since in each domain visual discrimination is more consistent than that in the heterogeneous datasets, better prediction performance can be achieved on the target domain. The proposed approach is extensively evaluated on visual object recognition and human activity recognition tasks. Our identified domains outperform not only the original datasets but also the domains discovered by [20], validating the effectiveness of our approach. It may also shed light on dataset construction in the future by examining the main factors of the domains discovered from the existing datasets.\nAcknowledgments K.G is supported by ONR ATL N00014-11-1-0105. B.G. and F.S. is supported by ARO Award# W911NF-12-1-0241 and DARPA Contract# D11AP00278 and the IARPA via DoD/ARL contract # W911NF-12-C-0012. The U.S. Government is authorized to reproduce and distribute reprints for Governmental purposes notwithstanding any copyright annotation thereon. The views and conclusions contained herein are those of the authors and should not be interpreted as necessarily representing the official policies or endorsements, either expressed or implied, of IARPA, DoD/ARL, or the U.S. Government."
+    } ],
+    "references" : [ {
+      "title" : "Visual event recognition in videos by learning from web data",
+      "author" : [ "L. Duan", "D. Xu", "I.W. Tsang", "J. Luo" ],
+      "venue" : "In CVPR,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : "1",
+      "year" : 2010
+    }, {
+      "title" : "Adapting visual category models to new domains",
+      "author" : [ "K. Saenko", "B. Kulis", "M. Fritz", "T. Darrell" ],
+      "venue" : "In ECCV,",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 2010
+    }, {
+      "title" : "Domain adaptation for object recognition: An unsupervised approach",
+      "author" : [ "R. Gopalan", "R. Li", "R. Chellappa" ],
+      "venue" : "In ICCV,",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 2011
+    }, {
+      "title" : "Geodesic flow kernel for unsupervised domain adaptation",
+      "author" : [ "B. Gong", "Y. Shi", "F. Sha", "K. Grauman" ],
+      "venue" : "In CVPR,",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : "4",
+      "year" : 2012
+    }, {
+      "title" : "Frustratingly easy domain adaptation",
+      "author" : [ "H. Daumé III" ],
+      "venue" : "In ACL,",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : "5",
+      "year" : 2007
+    }, {
+      "title" : "Domain adaptation with structural correspondence learning",
+      "author" : [ "J. Blitzer", "R. McDonald", "F. Pereira" ],
+      "venue" : "In EMNLP,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : "6",
+      "year" : 2006
+    }, {
+      "title" : "Correcting sample selection bias by unlabeled data",
+      "author" : [ "J. Huang", "A.J. Smola", "A. Gretton", "K.M. Borgwardt", "B. Scholkopf" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : "7",
+      "year" : 2007
+    }, {
+      "title" : "Domain adaptation via transfer component analysis",
+      "author" : [ "S.J. Pan", "I.W. Tsang", "J.T. Kwok", "Q. Yang" ],
+      "venue" : "IEEE Trans. NN,",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : "8",
+      "year" : 2009
+    }, {
+      "title" : "Dataset shift in machine learning",
+      "author" : [ "J. Quionero-Candela", "M. Sugiyama", "A. Schwaighofer", "N.D. Lawrence" ],
+      "venue" : null,
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 2009
+    }, {
+      "title" : "Domain adaptation with multiple sources",
+      "author" : [ "Y. Mansour", "M. Mohri", "A. Rostamizadeh" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : "10",
+      "year" : 2009
+    }, {
+      "title" : "ImageNet: A large-scale hierarchical image database",
+      "author" : [ "J. Deng", "W. Dong", "R. Socher", "L.J. Li", "K. Li", "L. Fei-Fei" ],
+      "venue" : "In CVPR,",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 2009
+    }, {
+      "title" : "The pascal visual object classes (voc) challenge",
+      "author" : [ "M. Everingham", "L. Van Gool", "C.K.I. Williams", "J. Winn", "A. Zisserman" ],
+      "venue" : "International Journal of Computer Vision,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 2010
+    }, {
+      "title" : "LabelMe: a database and web-based tool for image annotation",
+      "author" : [ "B.C. Russell", "A. Torralba", "K.P. Murphy", "W.T. Freeman" ],
+      "venue" : null,
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 2008
+    }, {
+      "title" : "Caltech-256 object category dataset",
+      "author" : [ "G. Griffin", "A. Holub", "P. Perona" ],
+      "venue" : "Technical report, California Institute of Technology,",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 2007
+    }, {
+      "title" : "Action recognition from arbitrary views using 3d exemplars",
+      "author" : [ "D. Weinland", "E. Boyer", "R. Ronfard" ],
+      "venue" : "In ICCV,",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : "15",
+      "year" : 2007
+    }, {
+      "title" : "Unbiased look at dataset bias",
+      "author" : [ "A. Torralba", "A.A. Efros" ],
+      "venue" : "In CVPR,",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : "16",
+      "year" : 2011
+    }, {
+      "title" : "Overcoming dataset bias: An unsupervised domain adaptation approach",
+      "author" : [ "B. Gong", "F. Sha", "K. Grauman" ],
+      "venue" : "In NIPS Workshop on Large Scale Visual Recognition and Retrieval,",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : "17",
+      "year" : 2012
+    }, {
+      "title" : "Cross-dataset action detection",
+      "author" : [ "L. Cao", "Z. Liu", "T. S Huang" ],
+      "venue" : "In CVPR,",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : "18",
+      "year" : 2010
+    }, {
+      "title" : "Beyond dataset bias: multi-task unaligned shared knowledge transfer",
+      "author" : [ "T. Tommasi", "N. Quadrianto", "B. Caputo", "C. Lampert" ],
+      "venue" : "In ACCV,",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : "19",
+      "year" : 2012
+    }, {
+      "title" : "Discovering latent domains for multisource domain adaptation",
+      "author" : [ "J. Hoffman", "B. Kulis", "T. Darrell", "K. Saenko" ],
+      "venue" : "In ECCV",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : "20",
+      "year" : 2012
+    }, {
+      "title" : "A kernel method for the two-sampleproblem",
+      "author" : [ "A. Gretton", "K. Borgwardt", "M. Rasch", "B. Schoelkopf", "A. Smola" ],
+      "venue" : "In NIPS",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : "21",
+      "year" : 2007
+    }, {
+      "title" : "Improving predictive inference under covariate shift by weighting the log-likelihood function",
+      "author" : [ "H. Shimodaira" ],
+      "venue" : "Journal of Statistical Planning and Inference,",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : "22",
+      "year" : 2000
+    }, {
+      "title" : "Analysis of representations for domain adaptation",
+      "author" : [ "S. Ben-David", "J. Blitzer", "K. Crammer", "F. Pereira" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : "23",
+      "year" : 2007
+    }, {
+      "title" : "Discriminative virtual views for cross-view action recognition",
+      "author" : [ "R. Li", "T. Zickler" ],
+      "venue" : "In CVPR,",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : "24",
+      "year" : 2012
+    }, {
+      "title" : "Shifting weights: Adapting object detectors from image to video",
+      "author" : [ "K. Tang", "V. Ramanathan", "L. Fei-Fei", "D. Koller" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : "25",
+      "year" : 2012
+    }, {
+      "title" : "Connecting the dots with landmarks: Discriminatively learning domain-invariant features for unsupervised domain adaptation",
+      "author" : [ "B. Gong", "K. Grauman", "F. Sha" ],
+      "venue" : "In ICML,",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : "26",
+      "year" : 2013
+    }, {
+      "title" : "Generalized clustering via kernel embeddings",
+      "author" : [ "S. Jegelka", "A. Gretton", "B. Schölkopf", "B. K Sriperumbudur", "U. Von Luxburg" ],
+      "venue" : "In Advances in Artificial Intelligence,",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : "27",
+      "year" : 2009
+    }, {
+      "title" : "A two-stage weighting framework for multi-source domain adaptation",
+      "author" : [ "Q. Sun", "R. Chattopadhyay", "S. Panchanathan", "J. Ye" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : "28",
+      "year" : 2011
+    }, {
+      "title" : "Domain adaptation from multiple sources via auxiliary classifiers",
+      "author" : [ "L. Duan", "I. W Tsang", "D. Xu", "T. Chua" ],
+      "venue" : "In ICML,",
+      "citeRegEx" : "29",
+      "shortCiteRegEx" : "29",
+      "year" : 2009
+    }, {
+      "title" : "SURF: Speeded up robust features",
+      "author" : [ "H. Bay", "T. Tuytelaars", "L. Van Gool" ],
+      "venue" : "In ECCV,",
+      "citeRegEx" : "30",
+      "shortCiteRegEx" : "30",
+      "year" : 2006
+    }, {
+      "title" : "Human activity recognition with metric learning",
+      "author" : [ "D. Tran", "A. Sorokin" ],
+      "venue" : "In ECCV",
+      "citeRegEx" : "31",
+      "shortCiteRegEx" : "31",
+      "year" : 2008
+    }, {
+      "title" : "Exploiting weakly-labeled web images to improve object classification: a domain adaptation approach",
+      "author" : [ "A. Bergamo", "L. Torresani" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "32",
+      "shortCiteRegEx" : "32",
+      "year" : 2010
+    }, {
+      "title" : "Learning to recognize activities from the wrong view point",
+      "author" : [ "A. Farhadi", "M. Tabrizi" ],
+      "venue" : "In ECCV,",
+      "citeRegEx" : "33",
+      "shortCiteRegEx" : "33",
+      "year" : 2008
+    }, {
+      "title" : "Recognizing actions across cameras by exploring the correlated subspace",
+      "author" : [ "C.-H. Huang", "Y.-R. Yeh", "Y.-C. Wang" ],
+      "venue" : "In ECCV,",
+      "citeRegEx" : "34",
+      "shortCiteRegEx" : "34",
+      "year" : 2012
+    }, {
+      "title" : "Cross-view action recognition via view knowledge transfer",
+      "author" : [ "J. Liu", "M. Shah", "B. Kuipers", "S. Savarese" ],
+      "venue" : "In CVPR,",
+      "citeRegEx" : "35",
+      "shortCiteRegEx" : "35",
+      "year" : 2011
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 0,
+      "context" : "As such, the subject has been intensively studied in computer vision [1, 2, 3, 4], speech and language processing [5, 6], and statistics and learning [7, 8, 9, 10].",
+      "startOffset" : 69,
+      "endOffset" : 81
+    }, {
+      "referenceID" : 1,
+      "context" : "As such, the subject has been intensively studied in computer vision [1, 2, 3, 4], speech and language processing [5, 6], and statistics and learning [7, 8, 9, 10].",
+      "startOffset" : 69,
+      "endOffset" : 81
+    }, {
+      "referenceID" : 2,
+      "context" : "As such, the subject has been intensively studied in computer vision [1, 2, 3, 4], speech and language processing [5, 6], and statistics and learning [7, 8, 9, 10].",
+      "startOffset" : 69,
+      "endOffset" : 81
+    }, {
+      "referenceID" : 3,
+      "context" : "As such, the subject has been intensively studied in computer vision [1, 2, 3, 4], speech and language processing [5, 6], and statistics and learning [7, 8, 9, 10].",
+      "startOffset" : 69,
+      "endOffset" : 81
+    }, {
+      "referenceID" : 4,
+      "context" : "As such, the subject has been intensively studied in computer vision [1, 2, 3, 4], speech and language processing [5, 6], and statistics and learning [7, 8, 9, 10].",
+      "startOffset" : 114,
+      "endOffset" : 120
+    }, {
+      "referenceID" : 5,
+      "context" : "As such, the subject has been intensively studied in computer vision [1, 2, 3, 4], speech and language processing [5, 6], and statistics and learning [7, 8, 9, 10].",
+      "startOffset" : 114,
+      "endOffset" : 120
+    }, {
+      "referenceID" : 6,
+      "context" : "As such, the subject has been intensively studied in computer vision [1, 2, 3, 4], speech and language processing [5, 6], and statistics and learning [7, 8, 9, 10].",
+      "startOffset" : 150,
+      "endOffset" : 163
+    }, {
+      "referenceID" : 7,
+      "context" : "As such, the subject has been intensively studied in computer vision [1, 2, 3, 4], speech and language processing [5, 6], and statistics and learning [7, 8, 9, 10].",
+      "startOffset" : 150,
+      "endOffset" : 163
+    }, {
+      "referenceID" : 8,
+      "context" : "As such, the subject has been intensively studied in computer vision [1, 2, 3, 4], speech and language processing [5, 6], and statistics and learning [7, 8, 9, 10].",
+      "startOffset" : 150,
+      "endOffset" : 163
+    }, {
+      "referenceID" : 9,
+      "context" : "As such, the subject has been intensively studied in computer vision [1, 2, 3, 4], speech and language processing [5, 6], and statistics and learning [7, 8, 9, 10].",
+      "startOffset" : 150,
+      "endOffset" : 163
+    }, {
+      "referenceID" : 10,
+      "context" : "Partially due to these conceptual and practical constraints, datasets for visual recognition are not deliberately collected with clearly identifiable domains [11, 12, 13, 14, 15].",
+      "startOffset" : 158,
+      "endOffset" : 178
+    }, {
+      "referenceID" : 11,
+      "context" : "Partially due to these conceptual and practical constraints, datasets for visual recognition are not deliberately collected with clearly identifiable domains [11, 12, 13, 14, 15].",
+      "startOffset" : 158,
+      "endOffset" : 178
+    }, {
+      "referenceID" : 12,
+      "context" : "Partially due to these conceptual and practical constraints, datasets for visual recognition are not deliberately collected with clearly identifiable domains [11, 12, 13, 14, 15].",
+      "startOffset" : 158,
+      "endOffset" : 178
+    }, {
+      "referenceID" : 13,
+      "context" : "Partially due to these conceptual and practical constraints, datasets for visual recognition are not deliberately collected with clearly identifiable domains [11, 12, 13, 14, 15].",
+      "startOffset" : 158,
+      "endOffset" : 178
+    }, {
+      "referenceID" : 14,
+      "context" : "Partially due to these conceptual and practical constraints, datasets for visual recognition are not deliberately collected with clearly identifiable domains [11, 12, 13, 14, 15].",
+      "startOffset" : 158,
+      "endOffset" : 178
+    }, {
+      "referenceID" : 15,
+      "context" : "As a result, a troubling practice in visual domain adaptation research is to equate datasets with domains and study the problem of cross-dataset generalization or correcting dataset bias [16, 17, 18, 19].",
+      "startOffset" : 187,
+      "endOffset" : 203
+    }, {
+      "referenceID" : 16,
+      "context" : "As a result, a troubling practice in visual domain adaptation research is to equate datasets with domains and study the problem of cross-dataset generalization or correcting dataset bias [16, 17, 18, 19].",
+      "startOffset" : 187,
+      "endOffset" : 203
+    }, {
+      "referenceID" : 17,
+      "context" : "As a result, a troubling practice in visual domain adaptation research is to equate datasets with domains and study the problem of cross-dataset generalization or correcting dataset bias [16, 17, 18, 19].",
+      "startOffset" : 187,
+      "endOffset" : 203
+    }, {
+      "referenceID" : 18,
+      "context" : "As a result, a troubling practice in visual domain adaptation research is to equate datasets with domains and study the problem of cross-dataset generalization or correcting dataset bias [16, 17, 18, 19].",
+      "startOffset" : 187,
+      "endOffset" : 203
+    }, {
+      "referenceID" : 19,
+      "context" : "Furthermore, the challenge cannot be construed as a traditional clustering problem; simply clustering images by their appearance is prone to reshaping datasets into per-category domains, as observed in [20] and our own empirical studies.",
+      "startOffset" : 202,
+      "endOffset" : 206
+    }, {
+      "referenceID" : 19,
+      "context" : "To our best knowledge, [20] is the first and only work addressing latent domain discovery.",
+      "startOffset" : 23,
+      "endOffset" : 27
+    }, {
+      "referenceID" : 20,
+      "context" : "To this end, we apply a kernel-based method to examine whether two samples are from the same distribution [21].",
+      "startOffset" : 106,
+      "endOffset" : 110
+    }, {
+      "referenceID" : 8,
+      "context" : "Domain adaptation is a fundamental research subject in statistical machine learning [9, 22, 23, 10], and is also extensively studied in speech and language processing [5, 6, 8] and computer vision [1, 2, 3, 4, 24, 25].",
+      "startOffset" : 84,
+      "endOffset" : 99
+    }, {
+      "referenceID" : 21,
+      "context" : "Domain adaptation is a fundamental research subject in statistical machine learning [9, 22, 23, 10], and is also extensively studied in speech and language processing [5, 6, 8] and computer vision [1, 2, 3, 4, 24, 25].",
+      "startOffset" : 84,
+      "endOffset" : 99
+    }, {
+      "referenceID" : 22,
+      "context" : "Domain adaptation is a fundamental research subject in statistical machine learning [9, 22, 23, 10], and is also extensively studied in speech and language processing [5, 6, 8] and computer vision [1, 2, 3, 4, 24, 25].",
+      "startOffset" : 84,
+      "endOffset" : 99
+    }, {
+      "referenceID" : 9,
+      "context" : "Domain adaptation is a fundamental research subject in statistical machine learning [9, 22, 23, 10], and is also extensively studied in speech and language processing [5, 6, 8] and computer vision [1, 2, 3, 4, 24, 25].",
+      "startOffset" : 84,
+      "endOffset" : 99
+    }, {
+      "referenceID" : 4,
+      "context" : "Domain adaptation is a fundamental research subject in statistical machine learning [9, 22, 23, 10], and is also extensively studied in speech and language processing [5, 6, 8] and computer vision [1, 2, 3, 4, 24, 25].",
+      "startOffset" : 167,
+      "endOffset" : 176
+    }, {
+      "referenceID" : 5,
+      "context" : "Domain adaptation is a fundamental research subject in statistical machine learning [9, 22, 23, 10], and is also extensively studied in speech and language processing [5, 6, 8] and computer vision [1, 2, 3, 4, 24, 25].",
+      "startOffset" : 167,
+      "endOffset" : 176
+    }, {
+      "referenceID" : 7,
+      "context" : "Domain adaptation is a fundamental research subject in statistical machine learning [9, 22, 23, 10], and is also extensively studied in speech and language processing [5, 6, 8] and computer vision [1, 2, 3, 4, 24, 25].",
+      "startOffset" : 167,
+      "endOffset" : 176
+    }, {
+      "referenceID" : 0,
+      "context" : "Domain adaptation is a fundamental research subject in statistical machine learning [9, 22, 23, 10], and is also extensively studied in speech and language processing [5, 6, 8] and computer vision [1, 2, 3, 4, 24, 25].",
+      "startOffset" : 197,
+      "endOffset" : 217
+    }, {
+      "referenceID" : 1,
+      "context" : "Domain adaptation is a fundamental research subject in statistical machine learning [9, 22, 23, 10], and is also extensively studied in speech and language processing [5, 6, 8] and computer vision [1, 2, 3, 4, 24, 25].",
+      "startOffset" : 197,
+      "endOffset" : 217
+    }, {
+      "referenceID" : 2,
+      "context" : "Domain adaptation is a fundamental research subject in statistical machine learning [9, 22, 23, 10], and is also extensively studied in speech and language processing [5, 6, 8] and computer vision [1, 2, 3, 4, 24, 25].",
+      "startOffset" : 197,
+      "endOffset" : 217
+    }, {
+      "referenceID" : 3,
+      "context" : "Domain adaptation is a fundamental research subject in statistical machine learning [9, 22, 23, 10], and is also extensively studied in speech and language processing [5, 6, 8] and computer vision [1, 2, 3, 4, 24, 25].",
+      "startOffset" : 197,
+      "endOffset" : 217
+    }, {
+      "referenceID" : 23,
+      "context" : "Domain adaptation is a fundamental research subject in statistical machine learning [9, 22, 23, 10], and is also extensively studied in speech and language processing [5, 6, 8] and computer vision [1, 2, 3, 4, 24, 25].",
+      "startOffset" : 197,
+      "endOffset" : 217
+    }, {
+      "referenceID" : 24,
+      "context" : "Domain adaptation is a fundamental research subject in statistical machine learning [9, 22, 23, 10], and is also extensively studied in speech and language processing [5, 6, 8] and computer vision [1, 2, 3, 4, 24, 25].",
+      "startOffset" : 197,
+      "endOffset" : 217
+    }, {
+      "referenceID" : 25,
+      "context" : "In our previous work, we proposed to identify some landmark data points in the source domain which are distributed similarly to the target domain [26].",
+      "startOffset" : 146,
+      "endOffset" : 150
+    }, {
+      "referenceID" : 25,
+      "context" : "We discover the underlying domains of the training datasets, each of which will be adaptable, whereas the landmarks in [26] are intentionally biased towards the single given target domain.",
+      "startOffset" : 119,
+      "endOffset" : 123
+    }, {
+      "referenceID" : 19,
+      "context" : "’s work [20] is the most relevant to ours.",
+      "startOffset" : 8,
+      "endOffset" : 12
+    }, {
+      "referenceID" : 26,
+      "context" : "[27] shares the idea of maximum distinctiveness (or “discriminability” used in [27]) criterion with our approach.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 26,
+      "context" : "[27] shares the idea of maximum distinctiveness (or “discriminability” used in [27]) criterion with our approach.",
+      "startOffset" : 79,
+      "endOffset" : 83
+    }, {
+      "referenceID" : 27,
+      "context" : "Multi-domain adaptation methods suppose that multiple source domains are given as input, and the learner must adapt from (some of) them to do well in testing on a novel target domain [28, 29, 10].",
+      "startOffset" : 183,
+      "endOffset" : 195
+    }, {
+      "referenceID" : 28,
+      "context" : "Multi-domain adaptation methods suppose that multiple source domains are given as input, and the learner must adapt from (some of) them to do well in testing on a novel target domain [28, 29, 10].",
+      "startOffset" : 183,
+      "endOffset" : 195
+    }, {
+      "referenceID" : 9,
+      "context" : "Multi-domain adaptation methods suppose that multiple source domains are given as input, and the learner must adapt from (some of) them to do well in testing on a novel target domain [28, 29, 10].",
+      "startOffset" : 183,
+      "endOffset" : 195
+    }, {
+      "referenceID" : 13,
+      "context" : "Data For object recognition, we use images from Caltech-256 (C) [14] and the image datasets of Amazon (A), DSLR (D), and Webcam (W) provided by Saenko et al.",
+      "startOffset" : 64,
+      "endOffset" : 68
+    }, {
+      "referenceID" : 1,
+      "context" : "We represent images with bag-of-visual-words descriptors following previous work on domain adaptation [2, 4].",
+      "startOffset" : 102,
+      "endOffset" : 108
+    }, {
+      "referenceID" : 3,
+      "context" : "We represent images with bag-of-visual-words descriptors following previous work on domain adaptation [2, 4].",
+      "startOffset" : 102,
+      "endOffset" : 108
+    }, {
+      "referenceID" : 29,
+      "context" : "In particular, we extract SURF [30] features from the images, use K-means to build a codebook of 800 clusters, and finally obtain an 800-bin histogram for each image.",
+      "startOffset" : 31,
+      "endOffset" : 35
+    }, {
+      "referenceID" : 14,
+      "context" : "For action recognition from video sequences, we use the IXMAS multi-view action dataset [15].",
+      "startOffset" : 88,
+      "endOffset" : 92
+    }, {
+      "referenceID" : 14,
+      "context" : "We keep the first five actions performed by alba, andreas, daniel, hedlena, julien, and nicolas such that the irregularly performed actions [15] are excluded.",
+      "startOffset" : 140,
+      "endOffset" : 144
+    }, {
+      "referenceID" : 30,
+      "context" : "We use the shape-flow descriptors to characterize the motion of the actions [31].",
+      "startOffset" : 76,
+      "endOffset" : 80
+    }, {
+      "referenceID" : 1,
+      "context" : "Evaluation strategy The four image datasets are commonly used as distinctive domains in research in visual domain adaptation [2, 3, 4, 32].",
+      "startOffset" : 125,
+      "endOffset" : 138
+    }, {
+      "referenceID" : 2,
+      "context" : "Evaluation strategy The four image datasets are commonly used as distinctive domains in research in visual domain adaptation [2, 3, 4, 32].",
+      "startOffset" : 125,
+      "endOffset" : 138
+    }, {
+      "referenceID" : 3,
+      "context" : "Evaluation strategy The four image datasets are commonly used as distinctive domains in research in visual domain adaptation [2, 3, 4, 32].",
+      "startOffset" : 125,
+      "endOffset" : 138
+    }, {
+      "referenceID" : 31,
+      "context" : "Evaluation strategy The four image datasets are commonly used as distinctive domains in research in visual domain adaptation [2, 3, 4, 32].",
+      "startOffset" : 125,
+      "endOffset" : 138
+    }, {
+      "referenceID" : 32,
+      "context" : "Likewise, each view in the IXMAS dataset is often taken as a domain in action recognition [33, 34, 35, 24].",
+      "startOffset" : 90,
+      "endOffset" : 106
+    }, {
+      "referenceID" : 33,
+      "context" : "Likewise, each view in the IXMAS dataset is often taken as a domain in action recognition [33, 34, 35, 24].",
+      "startOffset" : 90,
+      "endOffset" : 106
+    }, {
+      "referenceID" : 34,
+      "context" : "Likewise, each view in the IXMAS dataset is often taken as a domain in action recognition [33, 34, 35, 24].",
+      "startOffset" : 90,
+      "endOffset" : 106
+    }, {
+      "referenceID" : 23,
+      "context" : "Likewise, each view in the IXMAS dataset is often taken as a domain in action recognition [33, 34, 35, 24].",
+      "startOffset" : 90,
+      "endOffset" : 106
+    }, {
+      "referenceID" : 3,
+      "context" : "We use the geodesic flow kernel for adapting classifiers [4].",
+      "startOffset" : 57,
+      "endOffset" : 60
+    }, {
+      "referenceID" : 19,
+      "context" : "Likewise, we can define GORIG where we compute the best possible accuracy for the original domains {Sj}, and GOTHER where we compute the same quantity for a competing method for identifying latent domains, proposed in [20].",
+      "startOffset" : 218,
+      "endOffset" : 222
+    }, {
+      "referenceID" : 19,
+      "context" : "• ENSEMBLE A more sophisticated strategy is to adapt each source domain to the target domain and combine the adaptation results in the form of combining multiple classifiers [20].",
+      "startOffset" : 174,
+      "endOffset" : 178
+    }, {
+      "referenceID" : 1,
+      "context" : "The figures on the right are from reshaping DSLR and Webcam, of which the “keyboard” images are taken in an office environment with various lighting, object poses, and background controlled by the dataset creators [2].",
+      "startOffset" : 214,
+      "endOffset" : 217
+    }, {
+      "referenceID" : 19,
+      "context" : "Our identified domains outperform not only the original datasets but also the domains discovered by [20], validating the effectiveness of our approach.",
+      "startOffset" : 100,
+      "endOffset" : 104
+    } ],
+    "year" : 2013,
+    "abstractText" : "In visual recognition problems, the common data distribution mismatches between training and testing make domain adaptation essential. However, image data is difficult to manually divide into the discrete domains required by adaptation algorithms, and the standard practice of equating datasets with domains is a weak proxy for all the real conditions that alter the statistics in complex ways (lighting, pose, background, resolution, etc.) We propose an approach to automatically discover latent domains in image or video datasets. Our formulation imposes two key properties on domains: maximum distinctiveness and maximum learnability. By maximum distinctiveness, we require the underlying distributions of the identified domains to be different from each other to the maximum extent; by maximum learnability, we ensure that a strong discriminative model can be learned from the domain. We devise a nonparametric formulation and efficient optimization procedure that can successfully discover domains among both training and test data. We extensively evaluate our approach on object recognition and human activity recognition tasks.",
+    "creator" : null
+  }
+}

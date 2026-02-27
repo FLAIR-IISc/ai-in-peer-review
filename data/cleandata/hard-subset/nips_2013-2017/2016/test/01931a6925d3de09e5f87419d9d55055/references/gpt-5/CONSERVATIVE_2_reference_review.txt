@@ -1,0 +1,59 @@
+Summary
+The paper proposes a Locally Adaptive Normal Distribution (LAND) that replaces the Euclidean metric in the multivariate normal with a data-driven Riemannian metric intended to follow nonlinear structure. The metric is learned via a local (diagonal) covariance estimated by Gaussian kernel smoothing over the data, inducing a Riemannian manifold on RD. The resulting “Riemannian normal” (Pennec, 2006) uses the manifold Log/Exp maps to define its density. Since the normalization constant depends on the manifold geometry and the mean, the authors approximate it by Monte Carlo integration performed in the tangent space at the mean by sampling v ~ N(0, Σ) and evaluating m(µ, v) = √|M(Expµ(v))|. They derive gradients for MLE of µ and Σ (and extend to mixtures) using a block coordinate descent with gradients computed via Monte Carlo. Experiments on 2D synthetic data and 5D EEG features for sleep staging suggest advantages over a GMM and a variant with least-squares (intrinsic) estimators.
+
+Relation to prior work: Riemannian normals and intrinsic statistics are well established (Pennec). Mixtures of Riemannian normals on known manifolds have been considered (e.g., Simo-Serra et al., Straub et al.). The novelty here is to learn a metric from data (as in Hauberg et al.) and instantiate a probabilistic model over that learned manifold, with an approximate normalization.
+
+Strengths
+- Addresses a relevant question: how to build generative models that adapt to nonlinear structure without embedding/decoding issues.
+- Conceptual link between manifold learning and Riemannian statistics is interesting, and the paper gives an implementable algorithm based on MC estimation of the normalizer and gradients.
+- Clear exposition of geodesics, Log/Exp use, and a practical optimization scheme; mixture extension is straightforward.
+- Empirical illustrations show the model can produce locally adaptive contours and can improve clustering alignment on the EEG example.
+
+Weaknesses and concerns
+Technical correctness and normalization:
+- The key derivation of the normalization constant appears incomplete. Equation (9) rewrites the manifold integral over TµM as ∫ √|M(Expµ(v))| exp(-1/2 vT Σ^{-1} v) dv, i.e., the MC estimator uses only √|M(Expµ(v))| as a weight. A proper change of variables x = Expµ(v) requires the Jacobian determinant of the exponential map: dM(x) = √|M(x)| dx = √|M(Expµ(v))| |det d(Expµ)(v)| dv. In normal coordinates, the Riemannian volume element is √|g(v)| dv, where g = (dExp)T M(Exp) dExp is the pullback metric; hence √|g(v)| = √|M(Exp(v))| |det dExp(v)|. Dropping |det dExp| is only valid in flat manifolds (constant metric), not in the proposed learned, spatially varying metric. As written, the estimator of C(µ, Σ) is biased and the resulting density may not integrate to one with respect to dM. The paper does not justify conditions under which the omission is negligible nor quantify its impact. This is a major theoretical gap.
+- The paper also assumes integration over the entire tangent space (R^D); Expµ is not globally injective in general, which can cause over-counting unless one restricts to the injectivity radius or accounts for cut loci. This is not discussed.
+
+Modeling choices and invariances:
+- The learned metric uses only diagonal local covariances. This makes the metric highly sensitive to coordinate axes and not invariant to linear transformations. This is a strong limitation for any geometric model and may explain some of the observed gains by axis-alignment rather than genuine manifold adaptation.
+- The metric bandwidth σ is chosen ad hoc (“as small as possible while geodesics can be computed”) or tuned by best-case selection in the EEG experiments. There is no principled selection, no cross-validation protocol, and no assessment of sensitivity. This undermines claims of robustness.
+
+Optimization and scalability:
+- The proposed MLE requires repeated MC approximations of C and its gradients for each component, with S=3000 samples and ODE solves for Expµ(v). Complexity and runtime are not analyzed. The metric evaluation itself scales with N (kernel weights to all data), suggesting poor scalability to large N or high D. No comparison of training time vs. GMM (or other baselines) is reported.
+- Stability issues are acknowledged (steepest descent used instead of gradient), but no convergence guarantees or diagnostics are provided.
+
+Empirical evaluation:
+- Baselines are weak: comparisons are mostly to GMMs and a least-squares Riemannian estimator. Modern density estimators or manifold-aware clusterers (e.g., KDE, mixtures with local Gaussians, mixtures of PPCA, spectral clustering) are absent. On the EEG data, the LAND bandwidth is tuned per subject (reporting the best σ), whereas GMM has no analogous tuning, creating an unfair advantage. No held-out likelihoods, no ablations (e.g., effect of diagonal vs full local covariance), and no higher-dimensional validations are provided.
+- The synthetic evaluation protocol (“compute mean NLL of the true generative distribution using samples from the fitted model”) is unusual and not clearly explained; a standard evaluation would compute test log-likelihood under the fitted model or KL in the other direction via importance sampling/annealed AIS.
+
+Clarity and reproducibility:
+- The exposition is generally clear, but critical derivations and implementation details are deferred to the supplement (initialization, EM, Monte Carlo variance). The missing Jacobian term and issues around injectivity are not addressed.
+- Many references are incomplete or poorly formatted; some claims (e.g., maximum-entropy properties) are cited but not demonstrated in the learned-manifold setting.
+
+Quality: The core idea is appealing, but the current derivation of the normalization constant lacks essential terms, raising correctness concerns. Experimental evidence is limited and not benchmarked rigorously.
+
+Clarity: Writing is mostly clear, but key mathematical justifications are missing.
+
+Originality: Moderate. Using a learned metric with a Riemannian normal is a natural synthesis of existing ideas (Hauberg metric learning; Pennec’s Riemannian normals). The MC normalization approach could be novel if made correct.
+
+Significance: Potentially useful if theoretically sound and computationally practical; as is, limited by scalability, invariance, and validation.
+
+Pros
+- Interesting bridge between manifold learning and Riemannian statistics.
+- Practical algorithm with accessible components (Log/Exp, MC).
+- Promising qualitative results; mixture extension is straightforward.
+
+Cons
+- Likely incorrect normalization (missing Jacobian of Exp); no discussion of injectivity/cut loci.
+- Strong axis-dependence due to diagonal local covariances; no invariance.
+- Ad hoc hyperparameter choice; weak baselines; limited datasets; unclear evaluation protocol.
+- No complexity or runtime analysis; scalability questionable.
+
+Suggestions for improvement
+- Correct the normalization by incorporating |det dExpµ(v)| (equivalently, work in normal coordinates with the pullback metric) or justify an approximation and quantify its bias. Discuss injectivity radius and domain of integration.
+- Provide a principled selection of σ (e.g., cross-validation on held-out likelihood) and report sensitivity analyses. Consider learning σ or adopting mixtures of metrics.
+- Use stronger and fair baselines with proper hyperparameter tuning; report held-out log-likelihoods and runtime. Include higher-dimensional datasets and ablations.
+- Address invariance, e.g., by using local full covariances (with regularization) or by pre-whitening.
+- Clarify convergence behavior and provide variance analysis for the MC estimator.
+
+Recommendation: Reject (in current form). The idea is promising, but the apparent flaw in the normalization and the limited, unconvincing empirical validation prevent acceptance. Addressing the above issues could make this a solid contribution.

@@ -1,0 +1,47 @@
+Summary and contributions
+The paper tackles few-shot, N-way classification by casting learning as meta-learning: an LSTM-based “optimizer” is trained to rapidly adapt a base learner (CNN) to a new task using only a few gradient steps on its small training set. The LSTM’s cell state encodes the learner parameters; its gates produce per-parameter update dynamics, and the initial cell state is learned, yielding a task-common initialization. The approach emphasizes end-to-end training on episodes using the test loss to align meta-training with meta-testing. The paper further discusses parameter sharing across coordinates, gradient/loss preprocessing, a “gradient independence” simplification to avoid second derivatives, and careful handling of BatchNorm statistics to avoid leakage across episodes. Empirically, on Mini-ImageNet (custom split), the method is reported to outperform strong baselines and be competitive with Matching Networks for 1-shot and superior for 5-shot.
+
+Decision: Reject
+Key reasons: (1) The empirical section is incomplete and inconsistent (no reported numbers/CI, dataset mismatch, unfair or unclear baselines), preventing verification of the central claims. (2) Multiple technical inconsistencies and specification gaps (sign of updates, Algorithm 1 inputs, BN protocol mismatch), plus pervasive formatting/reference issues, undermine clarity and confidence.
+
+Supporting arguments
+- Missing quantitative results: The text references Table 1 and confidence intervals but provides no actual numbers. Without accuracies, CI widths, or episode counts, the main claims (competitive with Matching Nets in 1-shot; clearly better in 5-shot) cannot be evaluated.
+- Inconsistent architecture specs across methods:
+  - For the meta-learner’s base CNN, you state 4 conv layers with 32 filters; for baselines/Matching Nets you state 4 conv layers with 64 filters “to remain consistent with Vinyals et al. (2016).” This confounds capacity across methods and raises fairness concerns (either the baselines have more capacity than your learner, or the specs are inconsistent). Please clarify and align.
+  - You added dropout to Matching Networks to prevent overfitting but do not mention analogous regularization for your learner, further complicating fairness.
+- Update rule/sign inconsistency: In Sec. 3.1, you first note the LSTM update matches gradient descent if c̃t = −∇Lt and it = αt. You later “set the candidate cell state c̃t = ∇Lt.” With sigmoid-gated it ≥ 0, this would yield ascent unless the sign is handled elsewhere (not stated). This is a crucial contradiction.
+- Algorithm/model specification gaps:
+  - Algorithm 1 feeds R only (∇Lt, Lt) but the gates are defined as functions of [∇Lt, Lt, θt−1, prev gate]. How is θt−1 provided to R? The call and the gate definitions disagree.
+  - The 2-layer LSTM description (first layer “normal” LSTM over preprocessed inputs; second layer the parameter-state LSTM) is under-specified. What is the sequence axis for the first layer (time vs. parameter index)? If across coordinates, what ordering is used, and is it consistent across architectures? How does this generalize?
+  - Parameter sharing “across coordinates” assumes independence between parameter dimensions except for global signals (Lt). This design choice and its implications (e.g., no layer-wise/global couplings) are not analyzed.
+- BatchNorm protocol mismatch: You argue for matching meta-train and meta-test conditions, but then state: “during meta-training, we use batch statistics for both training and testing set,” while “during meta-testing, we use batch statistics for the training set (to compute running averages) but then use the running averages during testing.” This is not matched. Moreover, the text risks ambiguity about whether any test-set statistics are used to update running means (must be strictly avoided).
+- Gradient independence assumption: While following Andrychowicz et al., its impact here (few-shot, small-T unrolls) warrants ablation or justification. No sensitivity analysis is provided.
+- Experimental protocol incompleteness:
+  - No episode counts for meta-train/val/test; no CI computation details; no reporting of meta-batch size, number of unroll steps used for BPTT, truncation details, or early stopping criteria.
+  - Baseline-finetune: hyperparameter search space/ranges, schedule, number of steps (T), and whether validation-based early stopping/weight decay were used are not detailed. As written, the fine-tune baseline appears under-regularized and disadvantaged.
+  - Matching Nets: own reimplementation without verification against canonical results; different dataset split; added dropout; unclear whether FCE variant matches original settings. This weakens the comparative claims.
+- Typos/formatting:
+  - Numerous issues: “neutral networks,” “Imagenet,” “Intialize,” inconsistent spacing (“N -class”), and many broken references (escaped TeX artifacts \Q2016\E, duplicated authors, malformed titles).
+  - Equation numbering/notation inconsistencies (e.g., c̃t definition/sign).
+  - Missing figures/tables (Figure 1–3, Table 1).
+These collectively reduce readability and confidence.
+
+Additional feedback (to help improve the paper)
+- Provide complete, standardized quantitative results with 95% CIs over a large number of episodes; include exact splits, episode counts, and seeds. Report both 1-shot/5-shot, 5-way/20-way where applicable, and compare to published baselines on the standard Mini-ImageNet split if possible.
+- Ensure fair apples-to-apples comparisons: identical backbone capacity, same regularization, and matched data augmentation. Include additional baselines: MAML/Reptile, ProtoNets, and a tuned fine-tune baseline with weight decay, early stopping, and layer-wise LR.
+- Fix the update rule/sign inconsistency and align Algorithm 1 with the gate inputs. If c̃t = ∇Lt is intended, explain how descent is enforced (e.g., learned negative it or sign channel).
+- Clarify the two-layer LSTM architecture: sequence dimension, hidden sizes, parameter sharing scheme, and the role of the first layer (what information is passed to the second layer beyond the preprocessed signals?). Consider including ablations (with/without first layer; with/without loss input).
+- BN protocol: explicitly state that running means/vars are computed only on the episode’s training set and then frozen for that episode’s test set; match this in meta-training; avoid using test data to update BN. Provide an ablation showing the effect of different BN strategies.
+- Analyze sensitivity to T (unroll length), and whether a meta-learner trained at T generalizes to other T. Report wall-clock and memory costs.
+- Provide ablations on the gradient independence assumption (e.g., small-scale experiments with exact second-order) to justify the approximation.
+- Improve references, proofreading, and consistency of notation and equations.
+
+Questions for the authors
+- Please reconcile the sign inconsistency in Sec. 3.1: is c̃t = −∇Lt or ∇Lt? How is descent assured given it ∈ (0,1)?
+- In Algorithm 1, how is θt−1 provided to the gate networks, since the call to R lists only (∇Lt, Lt)? Similarly for ft−1 and it−1?
+- What is the exact backbone configuration (filters per layer) used for your method vs. baselines/Matching Nets? Are they identical? If not, please rerun with matched capacity.
+- How many episodes are used for meta-training/validation/test? What are the exact accuracy values and 95% CIs for all methods? How many random seeds?
+- Does the first-layer LSTM run over time steps or parameter indices? If across parameters, what ordering is used, and how do you ensure generalization across architectures?
+- Can you provide an ablation isolating the benefit of the learned initialization c0 vs. learned update gates? How does performance change if ft is fixed to 1 or if Lt is not provided to the gates?
+- How exactly are BN statistics handled at meta-train and meta-test? Are any test-set statistics used to update running means/vars?
+- What is the impact of the gradient independence assumption on performance? Any evidence that including second-order terms helps/hurts?

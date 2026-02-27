@@ -1,0 +1,66 @@
+1. Summary of claims and contributions
+The paper studies why large-batch (LB) training often yields worse test performance than small-batch (SB) training, despite achieving similar training loss. Across multiple architectures and datasets, the authors present empirical evidence that LB tends to converge to “sharp” minima while SB finds “flat” minima, and that sharpness correlates with poorer generalization. They support this with 1D and curvilinear loss landscape plots between LB/SB solutions and propose a computationally tractable sharpness proxy that measures local sensitivity via a constrained maximization around a solution (optionally on a random subspace). They further show a threshold effect in batch size beyond which generalization degrades and provide warm-start experiments suggesting SB’s gradient noise facilitates escape from basins of sharp minima, after which LB can refine toward flatter regions. The paper also reports preliminary attempts (data augmentation, conservative training, adversarial training) that reduce, but do not eliminate, the gap.
+
+2. Decision
+Reject. While the problem is important and the empirical observations are interesting, the paper’s central causal claim (LB → sharp minima → worse generalization) is insufficiently supported due to (i) confounding experimental factors and incomplete baselining/tuning for LB regimes, and (ii) a sharpness metric that is not invariant to common reparameterizations and is only loosely tied to curvature, making the main evidence fragile.
+
+3. Supporting arguments
+- Problem significance and motivation: Strong. The generalization gap with large batches is a practically important issue for scalable training. The paper is well-motivated and broadly positioned with related work on loss surfaces, SGD stability, and visualization.
+
+- Evidence quality and rigor:
+  - Confounding factors in comparisons:
+    - Optimizer choice: Most experiments use Adam for both SB and LB. Adam’s dynamics and implicit regularization differ from SGD+momentum (the de facto baseline in vision). It is unclear whether the observed gap is Adam-specific. The brief mention that “other optimizers led to similar results” lacks detail (hyperparameters, schedules, weight decay).
+    - Hyperparameter fairness: LB regimes typically require different learning-rate schedules (e.g., linear scaling with warmup, momentum tuning), and careful weight decay/label smoothing. The paper does not report such systematic tuning for LB. Stopping criteria (“until the loss ceased to improve”) may also favor one regime.
+    - Training budget: It is not explicit whether comparisons match compute, number of optimization steps, or number of seen examples. LB often performs worse if one matches epochs rather than optimization steps.
+    - Batch normalization: LB affects BN statistics substantially. The paper does not report BN momentum/affine parameter handling across regimes; this can confound both generalization and “sharpness” measurements.
+  - Sharpness metric and interpretation:
+    - The proposed proxy depends on a box defined via the pseudo-inverse of a random matrix and on a scale parameter; it is not invariant to layer-wise rescalings or reparameterizations (notably in networks with BN/ReLU), which can change the numeric sharpness without changing function behavior. This undermines cross-solution comparisons and the link to generalization.
+    - The maximization is inexact (10 L-BFGS-B iterations) and may capture different directions across runs; no ablation on sensitivity to the box size, choice of subspace dimension p, or random seeds is provided.
+    - The normalization in the formula is unclear in the text and appears possibly misprinted; the dependence on f(x) near low-loss minima could be unstable.
+    - The paper asserts that only a small subspace contributes to sharpness but does not quantify the Hessian spectrum. Modern, scalable Hessian-eigenvalue estimation (power/Lanczos, SLQ/trace) could more directly support claims.
+  - Causality vs correlation:
+    - The warm-start experiment is suggestive but still correlational: SB exploration then LB refinement improves generalization, but it does not establish that sharpness mediates the effect, versus, e.g., SB having better implicit regularization via noise, or differences in effective step noise vs curvature (noise scale).
+    - The 1D/curvilinear plots are illustrative but limited and can be misleading due to path choice and lack of reparameterization invariance.
+
+- Literature positioning: The paper cites relevant prior work on landscapes and SGD but does not engage with LB training practices (linear scaling, warmup) or with flatness measures that control for parameterization. The attempts to remedy (augmentation, adversarial, conservative training) are informative but not exhaustive.
+
+4. Additional feedback to help improve the paper (not all are decision-critical)
+- Strengthen baselines and fairness:
+  - Include SGD+momentum with tuned weight decay and standard LB recipes (linear scaling rule, warmup, momentum damping) and report per-regime hyperparameter sweeps.
+  - Match training budgets fairly (e.g., equal number of optimizer updates and/or equal number of examples seen), and report both training curves and final metrics.
+  - Carefully document BN settings (momentum, affine, ghost BN if used) and consider BN-free variants or normalization-invariant analyses.
+
+- Improve sharpness evaluation:
+  - Use Hessian spectral approximations: top-k eigenvalues via Lanczos/power iteration; trace via Hutchinson/SLQ; compare to your proxy.
+  - Adopt scale- and reparameterization-aware flatness measures (e.g., filter-normalized perturbations, path-normalized measures, PAC-Bayes–inspired local entropy) to mitigate rescaling artifacts.
+  - Ablate sensitivity to the box size, subspace dimension p, and optimization iterations in the sharpness maximization.
+
+- Deepen analysis of noise vs curvature:
+  - Quantify gradient noise scale across batch sizes and relate it to local curvature (e.g., ratio of noise variance to largest eigenvalue).
+  - Test whether adding calibrated artificial noise to LB or using dynamic sampling reproduces SB behavior (you mention dynamic sampling but do not test it).
+
+- Expand empirical scope:
+  - Report results on larger-scale settings (e.g., ImageNet) with accepted LB training protocols.
+  - Provide per-dataset details, effective batch sizes, and complete hyperparameters; release code to ensure reproducibility.
+
+Questions for the authors
+- Hyperparameters and fairness:
+  - How were learning rates, momentum/β parameters, weight decay, and schedules selected for SB vs LB? Did you try linear scaling with warmup for LB?
+  - Were the numbers of update steps and/or examples seen matched across regimes? If not, how might this affect the conclusions?
+
+- Batch normalization:
+  - What BN momentum/affine settings were used, and were they adjusted for LB? Could differences in BN statistics explain some of the generalization gap?
+
+- Sharpness metric:
+  - Please clarify the normalization in the sharpness formula (potential typesetting ambiguity). How sensitive are results to the box size, p, and number of L-BFGS-B steps? Do results persist under layer-wise rescaling or weight normalization?
+
+- Optimizer dependence:
+  - Do the conclusions hold with SGD+momentum under well-tuned LB settings? Can you provide full ablations across optimizers?
+
+- Spectrum evidence:
+  - Can you provide estimates of top Hessian eigenvalues or Hessian trace at SB vs LB solutions to corroborate the “many large positive eigenvalues” claim?
+
+- Warm-start:
+  - In the warm-start experiment, were BN statistics re-estimated during LB fine-tuning? How consistent is the “threshold epoch” across seeds and architectures?
+
+Overall, the paper tackles an important question with suggestive empirical evidence. With stronger baselines, invariance-aware sharpness measurements, and more rigorous controls, it could make a compelling and durable contribution.
