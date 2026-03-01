@@ -93,6 +93,19 @@ Set `PANGRAM_API_KEY` or `GPTZERO_API_KEY` depending on which detector you want 
 python <run_script> && python <analyse_script>
 ```
 
+### Log Likelihood, Binoculars and FastDetectGPT
+
+Set `HF_TOKEN`, then substitute `[PATHFILE]` and `[DESTINATION_JSON_FILE]` with appropriate paths and run the corresponding scripts:
+
+| Detector | Run Script | Required Args | Optional Args |
+|----------|-----|---------|---------|
+| Binoculars | `DetectorEval/Binoculars/run_binoculars.py` | NA | `--context` |
+| GPTZero | `DetectorEval/FastDetectGPT/run_fastdetect.py` | NA | `--context` |
+| LogLikelihood | `DetectorEval/FastDetectGPT/run_fastdetect.py` | `--sampling_model_name llama3-8b --scoring_model_name llama3-8b-instruct --only_log_likelihood` | `--context` |
+```bash
+python <run_script> <args>
+```
+
 ### Similarity to AI-generated references
 
 In this approach, we first generate several AI-generated reviews by prompting LLMs with the paper manuscript. We hypothesize that higher similarity with these references is an indicator of greater AI involvement.
