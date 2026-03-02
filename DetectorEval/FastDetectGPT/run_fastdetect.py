@@ -3,8 +3,8 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 # Modified 2026.
-import torch
 import os
+import torch
 import argparse
 import json
 from model import load_tokenizer, load_model
@@ -124,7 +124,7 @@ class FastDetectGPT:
         mu1 = self.classifier['mu1']
         sigma1 = self.classifier['sigma1']
         if only_log_likelihood:
-            return log_likelihood
+            return None, None, ntoken, log_likelihood
         prob = compute_prob_norm(crit, mu0, sigma0, mu1, sigma1)
         return prob, crit, ntoken, log_likelihood
     
@@ -170,22 +170,22 @@ def get_context_from_path(file_path):
             i += 1
             paper_number = parts[i]
         else:
-            conference = parts[1].lstrip("humanized_data")
+            conference = parts[1].removeprefix("humanized_data")
             i = 2
             if conference.startswith("nips"):
                 conference += "/" + parts[i]
                 i += 1
             set_name = parts[i]
             paper_number = parts[-1].strip(".txt").split("_")[0]
-        context_path = f"rawdata/{conference}/{set_name}/parsed_pdfs/{paper_number}.pdf.json"
+        context_path = f"data/rawdata/{conference}/{set_name}/parsed_pdfs/{paper_number}.pdf.json"
 
         with open(context_path, "r") as f:
             context_data = json.load(f)
         sections = context_data.get("metadata", {}).get("sections", [])
         for section in sections:
-            if "introduction" in section.get("heading", "").lower():
+            if "heading" in section and section["heading"] and "introduction" in section["heading"].lower():
                 intro_text = section.get("text", "")
-            elif "conclusion" in section.get("heading", "").lower():
+            elif "heading" in section and section["heading"] and "conclusion" in section["heading"].lower():
                 conclusion_text = section.get("text", "")
         context_text = intro_text + " " + conclusion_text
         return context_text
@@ -245,11 +245,17 @@ def main(args):
             else:
                 prob, crit, ntokens, log_likelihood = detector.compute_prob(
                     review=text, context=None, only_log_likelihood=args.only_log_likelihood)
-            new_results[file_path] = {
-                "prob": prob,
-                "crit": crit,
-                "ntokens": ntokens,
-                "log_likelihood": log_likelihood
+            if args.only_log_likelihood:
+                new_results[file_path] = {
+                    "ntokens": ntokens,
+                    "log_likelihood": log_likelihood
+                }
+            else:
+                new_results[file_path] = {
+                    "prob": prob,
+                    "crit": crit,
+                    "ntokens": ntokens,
+                    "log_likelihood": log_likelihood
             }
             processed_count += 1
             # Save intermediate results every 100 files

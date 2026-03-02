@@ -97,11 +97,11 @@ python <run_script> && python <analyse_script>
 
 Set `HF_TOKEN`, then substitute `[PATHFILE]` and `[DESTINATION_JSON_FILE]` with appropriate paths and run the corresponding scripts:
 
-| Detector | Run Script | Required Args | Optional Args |
+| Detector | Run Script | Optional Args |
 |----------|-----|---------|---------|
-| Binoculars | `DetectorEval/Binoculars/run_binoculars.py` | NA | `--context` |
-| GPTZero | `DetectorEval/FastDetectGPT/run_fastdetect.py` | NA | `--context` |
-| LogLikelihood | `DetectorEval/FastDetectGPT/run_fastdetect.py` | `--sampling_model_name llama3-8b --scoring_model_name llama3-8b-instruct --only_log_likelihood` | `--context` |
+| Binoculars | `DetectorEval/Binoculars/run_binoculars.py` | `--context` |
+| FastDetectGPT | `DetectorEval/FastDetectGPT/run_fastdetepy` |  `--context` |
+| LogLikelihood | `DetectorEval/FastDetectGPT/run_fastdetect.py --sampling_model_name llama3-8b --scoring_model_name llama3-8b-instruct --only_log_likelihood` | `--context` |
 ```bash
 python <run_script> <args>
 ```
