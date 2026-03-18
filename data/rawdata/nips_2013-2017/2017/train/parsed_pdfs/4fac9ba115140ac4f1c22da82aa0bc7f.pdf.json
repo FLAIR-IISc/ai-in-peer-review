@@ -1,0 +1,599 @@
+{
+  "name" : "4fac9ba115140ac4f1c22da82aa0bc7f.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Cost efficient gradient boosting",
+    "authors" : [ "Sven Peter", "Boaz Nadler" ],
+    "emails" : [ "sven.peter@iwr.uni-heidelberg.de", "ferran.diegoandilla@de.bosch.com", "fred.hamprecht@iwr.uni-heidelberg.de", "boaz.nadler@weizmann.ac.il" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Many applications need classifiers or regressors that are not only accurate, but also cheap to evaluate [33, 30]. Prediction cost usually consists of two different components: The acquisition or computation of the features used to predict the output, and the evaluation of the predictor itself. A common approach to construct an accurate predictor with low evaluation cost is to modify the classical empirical risk minimization objective, such that it includes a prediction cost penalty, and optimize this modified functional [33, 30, 23, 24].\nIn this work we also follow this general approach, and develop a budget-aware strategy based on deep boosted regression trees. Despite the recent re-emergence and popularity of neural networks, our choice of boosted regression trees is motivated by three observations:\n(i) Given ample training data and computational resources, deep neural networks often give the most accurate results. However, standard feed-forward architectures route a single input component (for example, a single coefficient in the case of vectorial input) through most network units. While the computational cost can be mitigated by network compression or quantization [14], in the extreme case to binary activations only [16], the computational graph is fundamentally dense. In a standard decision tree, on the other hand, each sample is routed along a single path from the root to a leaf, thus\n31st Conference on Neural Information Processing Systems (NIPS 2017), Long Beach, CA, USA.\nvisiting typically only a small subset of all split nodes, the \"units\" of a decision tree. In the extreme case of a balanced binary tree, each sample visits only log(N) out of a total of N nodes. (ii) Individual decision trees and their ensembles, such as Random Forest [4] and Gradient Boosting [12], are still among the most useful and highly competitive methods in machine learning, particularly in the regime of limited training data, little training time and little expertise for parameter tuning [11]. (iii) When features and/or decisions come at a premium, it is convenient but wasteful to assume that all instances in a data set are created equal (even when assumed i.i.d.). Some instances may be easy to classify based on reading a single measurement / feature, while others may require a full battery of tests before a decision can be reached with confidence [35]. Decision trees naturally lend themselves to such a \"sequential experimental design\" setup: after first using cheap features to split all instances into subsets, the subsequent decisions can be based on more expensive features which are, however, only elicited if truly needed. Importantly, the set of more expensive features is requested conditionally on the values of features used earlier in the tree.\nIn this work we address the challenge of constructing an ensemble of trees that is both accurate and yet cheap to evaluate. We first describe the problem setup in Section 2, and discuss related work in Section 3. Our key contribution appears in Section 4, where we propose an extension of gradient boosting [12] which takes prediction time penalties into account. In contrast to previous approaches to learning with cost penalties, our method can grow very deep trees that on average are nonetheless cheap to compute. Our algorithm is easy to implement and its learning time is comparable to that of the original gradient boosting. As illustrated in Section 5, on a number of datasets our method outperforms the current state of the art by a large margin."
+    }, {
+      "heading" : "2 Problem setup",
+      "text" : "Consider a regression problem where the response Y ∈ R and each instance X is represented by M features, X ∈ RM . Let L : R× R→ R be a loss function, and T be a set of admissible functions. In supervised learning, given a training set of N pairs (xi, yi) sampled i.i.d. from (X,Y ), a classical approach to learn a predictor T ∈ T is to minimize the empirical loss L on the training set,\nmin T∈T N∑ i=1 L(yi, T (xi)). (1)\nIn this paper we restrict ourselves to the set T that consists of an ensemble of trees, namely predictors of the form T (x) = ∑K k=1 tk(x). Each single decision tree tk can be represented as a collection of Lk leaf nodes with corresponding responses ωk = (ωk,1, . . . , ω1,Lk) ∈ RLk and a function qk : RM → {1, . . . , Lk} that encodes the tree structure and maps an input to its corresponding terminal leaf index. The output of the tree is tk(x) = ωk,qk(x).\nLearning even a single tree that exactly minimizes the functional in Eq. (1) is NP-hard under several aspects of optimality [15, 19, 25, 36]. Yet, single trees and ensemble of trees are some of the most successful predictors in machine learning and there are multiple greedy based methods to construct tree ensembles that approximately solve Eq. (1) [4, 12, 11].\nIn many practical applications, however, it is important that the predictor T is not only accurate but also fast to compute. Given a prediction cost function Ψ : T × RM → R+a standard approach is to add a penalty to the empirical risk minimization above [33, 30, 35, 23, 24]:\nmin T∈T ∑ i L(yi, T (xi)) + λΨ(T,xi). (2)\nThe parameter λ controls the tradeoff between accuracy and prediction cost.\nTypically, the prediction cost function Ψ consists of two components. The first is the cost of acquiring or computing relevant input features. For example, think of a patient at the emergency room where taking his temperature and blood oxygen levels are cheap, but a CT-scan is expensive. The second component is the cost of evaluating the function T , which in our case is the sum of the cost of evaluating the K individual trees tk.\nIn more detail, the first component of feature computation cost may also depend on the specific prediction problem. In some scenarios, test instances are independent of each other and the features\ncan be computed for each input instance on demand. But there are also others. In image processing, for example, where the input is an image which consists of many pixels and the task is to predict some function at all pixels. In such cases, even though specific features can be computed for each pixel independently, it may be cheaper or more efficient to compute the same feature, such as a separable convolution filter, at all pixels at once [1, 13]. The cost function Ψ may be dominated in these cases by the second component - the time it takes to evaluate the trees.\nAfter discussing related work in Section 3, in Section 4 we present a general adaptation of gradient boosting [12] to minimize Eq. (2), that takes into account both prediction cost components."
+    }, {
+      "heading" : "3 Related work",
+      "text" : "The problem of learning with prediction cost penalties has been extensively studied. One particular case is that of class imbalance, where one class is extremely rare and yet it is important to accurately annotate it. For example, the famous Viola-Jones cascades [31] use cheap features to discard examples belonging to the negative class. Later stages requiring expensive features are only used for the rare suspected positive class. While such an approach is very successful, due to its early exit strategy it cannot use expensive features for different inputs [20, 30, 9].\nTo overcome the limitations imposed by early exit strategies, various methods [34, 35, 18, 32] proposed single tree constructions but with more complicated decisions at the individual split nodes. The tree is first learned without taking prediction cost into account followed by an optimization step that includes this cost. Unfortunately, in practice these single-tree methods are inferior to current state-of-the-art algorithms that construct tree ensembles [23, 24].\nBUDGETRF [23] is based on Random Forests and modifies the impurity function that decides which split to make, to take feature costs into account. BUDGETRF has several limitations: First, it assumes that tree evaluation cost is negligible compared to feature acquisition, and hence is not suitable for problems where features are cheap to compute and the prediction cost is dominated by predictor evaluation or were both components contribute equally. Second, during its training phase, each usage of a feature incurs its acquisition cost so repeated feature usage is not modeled, and the probability for reaching a node is not taken into account. At test time, in contrast, they do allow \"free\" reuse of expensive features and do compute the precise cost of reaching various tree branches. BUDGETRF thus typically does not yield deep but expensive branches which are only seldomly reached.\nBUDGETPRUNE [24] is a pruning scheme for ensembles of decision trees. It aims to mitigate limitations of BUDGETRF by pruning expensive branches from the individual trees. An Integer Linear Program is formulated and efficiently solved to take repeated feature usage and probabilities for reaching different branches into account. This method results in a better tradeoff but still cannot create deep and expensive branches which are only seldomly reached if these were not present in the original ensemble. This method is considered to be state of the art when prediction cost is dominated by the feature acquisition cost [24]. We show in Section 5 that constructing deeper trees with our methods results in a significantly better performance.\nGREEDYMISER [33], which is most similar to our work, is a stage-wise gradient-boosting type algorithm that also aims to minimize Eq. (2) using an ensemble of regression trees. When both prediction cost components are assumed equally significant, GREEDYMISER is considered state of the art. Yet, GREEDYMISER also has few limitations: First, all trees are assumed to have the same prediction cost for all inputs. Second, by design it constructs shallow trees all having the same depth. We instead consider individual costs for each leaf and thus allow construction of deeper trees. Our experiments in Section 5 suggest that constructing deeper trees with our proposed method significantly outperforms GREEDYMISER."
+    }, {
+      "heading" : "4 Gradient boosting with cost penalties",
+      "text" : "We build on the gradient boosting framework [12] and adapt it to allow optimization with cost penalties. First we briefly review the original algorithm. We then present our cost penalty in Section 4.1, the step wise optimization in 4.2 and finally our tree growing algorithm that builds trees with deep branches but low expected depth and feature cost in Section 4.3 (such a tree is shown in Figure 1b and compared to a shallow tree that is more expensive and less accurate in Figure 1a).\nGradient boosting tries to minimize the empirical risk of Eq. (1), by constructing a linear combination of K weak predictors tk : RM → R from a set F of admissible functions (not necessarily decision trees). Starting with T0(x) = 0 each iteration k > 0 constructs a new weak function tk aiming to reduce the current loss. These boosting updates can be interpreted as approximations of the gradient descent direction in function space. We follow the notation of [8] who use gradient boosting with weak predictors tk from the set of regression trees T to minimize regularized empirical risk\nmin t1,...,tK∈T N∑ i=1\n[ L(yi,\nK∑ k=1 tk(xi))\n] +\nK∑ k=1 Ω(tk). (3)\nThe regularization term Ω(tk) penalizes the complexity of the regression tree functions. They assume that Ω(tk) only depends on the number of leaves Lk and leaf responses wk and derive a simple algorithm to directly learn these. We instead use a more complicated prediction cost penalty Ψ and use a different tree construction algorithm that allows optimization with cost penalties."
+    }, {
+      "heading" : "4.1 Prediction cost penalty",
+      "text" : "Recall that for each individual tree the prediction cost penalty Ψ consists of two components: (i) the feature acquisition cost Ψf and (ii) the tree evaluation cost Ψev. However, this prediction cost for the k-th tree, which is fitted to the residual of all previous iterations, depends on the earlier trees. Specifically, for any input x, features used in the trees of the previous iterations do not contribute to the cost penalty again. We thus use the indicator function C : N0≤K × N≤N × N≤M → {0, 1} with C(k, i,m) = 1 if and only if feature m was used to predict xi by any tree constructed prior to and including iteration k. Furthermore βm ≥ 0 is the cost for computing or acquiring feature m for a single input x. Then the feature cost contribution Ψf : N0≤K × N≤N → R+ of xi for the first k trees\nis calculated as\nΨf(k, i) = M∑ m=1 βmC(k, i,m) (4)\nFeatures computed for all inputs at once (e.g. separable convolution filters) contribute to the penalty independent of the instance x being evaluated. For those we use γm as their total computation cost and define the indicator function D : N0≤K ×N≤M → {0, 1} with D(k,m) = 1 if and only if feature m was used for any input x in any tree constructed prior to and including iteration k. Then\nΨc(k) = M∑ m=1 γmD(k,m) (5)\nThe evaluation cost Ψev,k : N≤Lk → R+ for a single input x passing through a tree is the number of split nodes between the root node and the input’s terminal leaf qk(x),multiplied by a suitable constant α ≥ 0 which captures the cost to evaluate a single split. The total cost Ψev : N0≤K ×N≤N → R+ for the first k trees is the sum of the costs of each tree\nΨev(k, i) = k∑ k̃=1 Ψev,k̃(qk̃(xi)). (6)"
+    }, {
+      "heading" : "4.2 Tree Boosting with Prediction Costs",
+      "text" : "We have now defined all components of Eq. (2). Simultaneous optimization of all trees tk is intractable. Instead, as in gradient boosting , we minimize the objective by starting with T0(x) = 0 and iteratively adding a new tree at each iteration.\nAt iteration k we construct the k-th regression tree tk by minimizing the following objective\nOk = N∑ i=1 [L(yi, Tk−1(xi) + tk(xi)) + λΨ(k,xi)] + λΨc(k) (7)\nwith Ψ(k,xi) = Ψev(k, i) + Ψf(k, i). Note that the penalty for features, which are computed for all inputs at once, Ψc(k) does not depend on x but only on the structure of the current and previous trees.\nDirectly optimizing the objective Ok w.r.t. the tree tk is difficult since the argument tk appears inside the loss function. Following [8] we use a second order Taylor expansion of the loss around Tk−1(xi). Removing constant terms from earlier iterations the objective function can be approximated by\nOk ≈ Õk = N∑ i=1 [ gitk(xi) + 1 2 hit 2 k(xi) + λ∆Ψ(xi) ] + λ∆Ψc (8)\nwhere gi = ∂ŷiL(yi, ŷi) ∣∣∣ ŷi=Tk−1(xi) , (9a) hi = ∂2ŷiL(yi, ŷi) ∣∣∣ ŷi=Tk−1(xi) , (9b)\n∆Ψ(xi) = Ψ(k,xi)−Ψ(k − 1,xi), (9c) ∆Ψc = Ψc(k)−Ψc(k − 1). (9d)\nAs in [8] we rewrite Eq. (8) for a decision tree tk(x) = ωk,qk(x) with a fixed structure qk,\nÕk = Lk∑ l [(∑ i∈Il gi ) ωk,l + 1 2 (∑ i∈Il hi ) ω2k,l + λ (∑ i∈Il ∆Ψ(xi) )] + λ∆Ψc (10)\nwith the set Il = {i|qk(xi) = l} containing inputs in leaf l. For this fixed structure the optimal weights and the corresponding best objective reduction can be calculated explicitly:\nω∗k,l = − ∑\ni∈Il gi∑ i∈Il hi , (11a) Õ∗k = − 1 2 L∑ l\n[ ( ∑\ni∈Il gi) 2∑\ni∈Il hi + λ (∑ i∈Il ∆Ψ(xi) )] +λ∆Ψc (11b)\nAs we shall see in the next section, our cost-aware impurity function depends on the difference of Eq. (10) which results by replacing a terminal leaf with a split node [8]. Let p be any leaf of the tree that can be converted to a split node and two new children r and l then the difference of Eq. (10) evaluated for the original and the modified tree is\n∆Õsplitk = 1\n2\n[ ( ∑\ni∈Ir gi) 2∑\ni∈Ir hi +\n( ∑\ni∈Il gi) 2∑\ni∈Il hi −\n( ∑\ni∈Ip gi) 2∑\ni∈Ip hi\n] − λ ∆Ψsplitk (12)\nLet m be the feature used by the node s that we are considering to split. Then\n∆Ψsplitk = |Ip|α︸ ︷︷ ︸ Ψsplitev,k + γm\nis feature m used for the first time?︷ ︸︸ ︷ (1−D(k,m)) + ∑ i∈Ip βm is feature m of instance xi used for the first time?︷ ︸︸ ︷ (1− C(k, i,m))\n︸ ︷︷ ︸ Ψsplitf,k\n(13)"
+    }, {
+      "heading" : "4.3 Learning a weak regressor with cost penalties",
+      "text" : "With these preparations we can now construct the regression trees. As mentioned above, this is a NP-hard problem. We use a greedy algorithm to grow a tree that approximately minimizes Eq. (10).\nStandard algorithms that grow trees start from a single leaf containing all inputs. The tree is then iteratively expanded by replacing a single leaf with a split node and two new child leaves [4]. Typically this expansion happens in a predefined leaf order (breadth- or depth-first). Splits are only evaluated locally at a single leaf to select the best feature. The expansion is stopped once leaves are pure or once a maximum depth has been reached. Here, in contrast, we adopt the approach of [29] and grow the tree in a best-first order. Splits are evaluated for all current leaves and the one with the best objection reduction according to Eq. (12) is chosen. The tree can thus grow at any location. This allows to compare splits across different leaves and features at the same time (figure 1b shows an example for a best-first tree while figure 1a shows a tree constructed in breadth-first order). Instead of limiting the depth we limit the number of leaves in each tree to prevent over fitting.\nThis procedure has an important advantage when optimizing with cost penalties: Growing in a predefined order usually leads to balanced trees - all branches are grown independent of the cost. Deep and expensive branches using only a tiny subset of inputs are not easily possible. In contrast, growing at the leaf that promises the best tradeoff as given by Eq. (12) encourages growth on branches that contain few instances or growth using cheap features. Growth on branches that contain many instances or growth that requires expensive features is penalized. This strategy results in deep trees that are nevertheless cheap to compute on average. Figure 1 compares an individual tree constructed by others methods to the deeper tree constructed by CEGB.\nWe briefly compare our proposed strategy to GREEDYMISER: When we limit Eq. (8) to first order terms only, use breadth-first instead of best-first growth, assume that features always have to be computed for all instances at once and limit the tree depth to four we minimize Eq. (18) from [33]. GreedyMiser can therefore be represented as a special case of our proposed algorithm."
+    }, {
+      "heading" : "5 Experiments",
+      "text" : "The Yahoo! Learning to Rank (Yahoo! LTR) challenge dataset [7] consists of 473134 training, 71083 validation and 165660 test document-query pairs with labels {0, 1, 2, 3, 4} where 0 means the document is irrelevant and 4 that it is highly relevant to the query. Computation cost for the 519 features used in the dataset are provided [33] and take the values {1, 5, 10, 20, 50, 100, 150, 200}. Prediction performance is evaluated using the Average Precision@5 metric which only considers the five most relevant documents returned for a query by the regressor [33, 23, 24]. We use the dataset provided by [7] and used in [23, 24].\nWe consider two different settings for our experiments, (i) feature acquisition and classifier evaluation time both contribute to prediction cost and (ii) classifier evaluation time is negligible w.r.t feature acquisition cost.\nThe first setting is used by GREEDYMISER. Regression trees with depth four are constructed and assumed to approximately cost as much as features with feature cost βm = 1. We therefore set the\nsplit cost α = 14 to allow a fair comparison with our trees which will contain deeper branches. We also use our algorithm to construct trees similar to GREEDYMISER by limiting the trees to 16 leaves with a maximum branch depth of four. Figure 2a shows that even the shallow trees are already always strictly better than GREEDYMISER. This happens because our algorithm correctly accounts for the different probabilities of reaching different leaves (see also figure 1). When we allow deep branches the proposed method gives significantly better results than GREEDYMISER and learns a predictor with better accuracy at a much lower cost.\nThe second setting is considered by BUDGETPRUNE. It assumes that feature computation is much more expensive than classifier evaluation. We set α = 0 to adapt our algorithm to this setting.\nThe dataset is additionally binarized by setting all targets y > 0 to y = 1. GREEDYMISER has a disadvantage in this setting since it works on the assumption that the cost of each tree is independent of the input x. We still include it in our comparison as a baseline. Figure 3b shows that our proposed method again performs significantly better than others. This confirms that we learn a classifier with very expected cheap prediction cost in terms of both feature acquisition and classifier evaluation time.\nThe MiniBooNE dataset [27, 21] consists of 45523 training, 19510 validation and 65031 test instances with labels {0, 1} and 50 features. The Forest Covertype dataset [3, 21] consists of 36603 training, 15688 validation and 58101 test instances with 54 features restricted to two classes as done in [24]. Feature costs are not available for either dataset and assumed to be uniform, i.e. βm = 1. Since no relation between classifier evaluation and feature cost is known we only compute the latter to allow a fair comparison, as in [24]. Figure 2c and 2d show that our proposed method again results in a significantly better predictor than both GREEDYMISER and BUDGETPRUNE.\nWe additionally use the HEPMASS-1000 and HEPMASS-not1000 datasets [2, 21]. Similar to MiniBooNE no feature costs are known and we again uniformly set them to one for all features, i.e. βm = 1. Both datasets contain over ten million instances which we split into 3.5 million training, 1.4 million validation and 5.6 million test instances. These datasets are much larger than the others and we did not manage to successfully run BUDGETPRUNE due to its RAM and CPU time requirements. We only report results on GREEDYMISER and our algorithm in Figure 2e and 2f. CEGB again results in a classifier with a better tradeoff than GREEDYMISER."
+    }, {
+      "heading" : "5.1 Influence of feature cost and tradeoff parameters",
+      "text" : "We use the Yahoo! LTR dataset to study the influence of the features costs β and the tradeoff parameter λ on the learned regressor. Figure 3a shows that regressors learned with a large λ reach similar accuracy as those with smaller λ at a much cheaper cost. Only λ = 0.001 converges to a lower accuracy while others approximately reach the same final accuracy. The tradeoff is shifted towards using cheap features too strongly. Such a regressor is nevertheless useful when the problems requires very cheap results and the final improvement in accuracy does not matter.\nNext, we set all βm = 1 during training time only and use the original cost during test time. The learned regressor behaves similar to one learned with λ = 0. This shows that the regressors save most of the cost by limiting usage of expensive features to a small subset of inputs.\nFinally we compare breadth-first to best-first training in Figure 3b. We use the same number of leaves and trees and try to build a classifier that is as cheap as possible. Best-first training always reaches a higher accuracy for a given prediction cost budget. This supports our observation that deep trees which are cheap to evaluate on average are important for constructing cheap and accurate predictors."
+    }, {
+      "heading" : "5.2 Multi-scale classification / tree structure optimization",
+      "text" : "In images processing, classification using multiple scales has been extensively studied and used to build fast or more more accurate classifiers [6, 31, 10, 26]. The basic idea of these schemes is\nthat a large image is downsampled to increasingly coarse resolutions. A multi-scale classifier first analyzes the coarsest resolution and decides whether a pixel on the coarse level represents a block of homogeneous pixels on the original resolution, or if analysis on a less coarse resolution is required. Efficiency results from the ability to label many pixels on the original resolution at once by labeling a single pixel on a coarser image.\nWe use this setting as an example to show how our algorithm is also capable of optimizing problems where feature cost is negligible compare to predictor evaluation cost. Inspired by average pooling layers in neural networks [28] and image pyramids [5] we first compute the average pixel values across non-overlapping 2x2, 4x4 and 8x8 blocks of the original image. We compute several commonly used and very fast convolutional filters on each of those resolutions. We then replicated these features values on the original resolution, e.g. the feature response of a single pixel on the 8x8-averaged image is used for all 64 pixels We modify Eq. (12) and set ∆Ψsplitk = |Ip|α m where m is the number of pixels that share this feature value, e.g. m = 64 when feature m was computed on the coarse 8x8-averaged image.\nWe use forty frames with a resolution of 1024x1024 pixels taken from a video studying fly ethology. Our goal here is to detect flies as quickly as possible, as preprocessing for subsequent tracking. A single frame is shown in Figure 4a. We use twenty of those for training and twenty for evaluation. Accuracy is evaluated using the SEGMeasure score as defined in [22]. Comparison is done against regular gradient boosting by setting Ψ = 0.\nFigure 4b shows that our algorithm constructs an ensemble that is able to reach similar accuracy with a significantly smaller evaluation cost. Figure 4c shows more clearly how the different available resolutions influence the learned ensemble. Coarser resolutions allow a very efficient prediction at the cost of accuracy. Overall these experiments show that our algorithm is also capable of learning predictors that are cheap while maintaining accuracy even when the evaluation cost of these dominates w.r.t the feature acquisition cost."
+    }, {
+      "heading" : "6 Conclusion",
+      "text" : "We presented an adaptation of gradient boosting that includes prediction cost penalties, and devised fast methods to learn an ensemble of deep regression trees. A key feature of our approach is its ability to construct deep trees that are nevertheless cheap to evaluate on average. In the experimental part we demonstrated that this approach is capable of handing various different settings of prediction cost penalties consisting of feature cost and tree evaluation cost. Specifically, our method significantly outperformed state of the art algorithms GREEDYMISER and BUDGETPRUNE when feature cost either dominates or contributes equally to the total cost.\nWe additionally showed an example where we are able to optimize the decision structure of the trees itself when evaluation of these is the limiting factor.\nOur algorithm can be easily implemented using any gradient boosting library and does not slow down training significantly. For these reasons we believe it will be highly valuable for many applications. Source code based on LightGBM [17] is available at http://github.com/svenpeter42/LightGBMCEGB."
+    } ],
+    "references" : [ {
+      "title" : "Accurate and efficient computation of Gabor features in real-time applications",
+      "author" : [ "Gholamreza Amayeh", "Alireza Tavakkoli", "George Bebis" ],
+      "venue" : "Advances in Visual Computing,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : "1",
+      "year" : 2009
+    }, {
+      "title" : "Parameterized machine learning for high-energy physics",
+      "author" : [ "Pierre Baldi", "Kyle Cranmer", "Taylor Faucett", "Peter Sadowski", "Daniel Whiteson" ],
+      "venue" : "arXiv preprint arXiv:1601.07913,",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 2016
+    }, {
+      "title" : "Comparative accuracies of artificial neural networks and discriminant analysis in predicting forest cover types from cartographic variables",
+      "author" : [ "Jock A. Blackard", "Denis J. Dean" ],
+      "venue" : "Computers and Electronics in Agriculture,",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 1999
+    }, {
+      "title" : "The Laplacian pyramid as a compact image code",
+      "author" : [ "Peter Burt", "Edward Adelson" ],
+      "venue" : "IEEE Transactions on communications,",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : "5",
+      "year" : 1983
+    }, {
+      "title" : "Progressive classification in the compressed domain for large EOS satellite databases",
+      "author" : [ "Vittorio Castelli", "Chung-Sheng Li", "John Turek", "Ioannis Kontoyiannis" ],
+      "venue" : "In Acoustics, Speech, and Signal Processing,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : "6",
+      "year" : 1996
+    }, {
+      "title" : "Yahoo! learning to rank challenge overview",
+      "author" : [ "Olivier Chapelle", "Yi Chang" ],
+      "venue" : "In Yahoo! Learning to Rank Challenge,",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : "7",
+      "year" : 2011
+    }, {
+      "title" : "XGBoost: A scalable tree boosting system",
+      "author" : [ "Tianqi Chen", "Carlos Guestrin" ],
+      "venue" : "In Proceedings of the 22nd ACM SIGKDD International Conference on Knowledge Discovery and Data Mining, KDD",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : "8",
+      "year" : 2016
+    }, {
+      "title" : "Learning with deep cascades",
+      "author" : [ "Giulia DeSalvo", "Mehryar Mohri", "Umar Syed" ],
+      "venue" : "In International Conference on Algorithmic Learning Theory,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 2015
+    }, {
+      "title" : "The fastest pedestrian detector in the west",
+      "author" : [ "Piotr Dollár", "Serge J Belongie", "Pietro Perona" ],
+      "venue" : "In BMVC,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : "10",
+      "year" : 2010
+    }, {
+      "title" : "Do we need hundreds of classifiers to solve real world classification problems",
+      "author" : [ "Manuel Fernández-Delgado", "Eva Cernadas", "Senén Barro", "Dinani Amorim" ],
+      "venue" : "J. Mach. Learn. Res,",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 2014
+    }, {
+      "title" : "Greedy function approximation: a gradient boosting machine",
+      "author" : [ "Jerome H Friedman" ],
+      "venue" : "Annals of statistics,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 2001
+    }, {
+      "title" : "A survey of Gaussian convolution algorithms",
+      "author" : [ "Pascal Getreuer" ],
+      "venue" : "Image Processing On Line,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 2013
+    }, {
+      "title" : "Deep compression: Compressing deep neural networks with pruning, trained quantization and huffman coding",
+      "author" : [ "Song Han", "Huizi Mao", "William J Dally" ],
+      "venue" : "International Conference on Learning Representations (ICLR),",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 2016
+    }, {
+      "title" : "Lower bounds on learning decision lists and trees",
+      "author" : [ "Thomas Hancock", "Tao Jiang", "Ming Li", "John Tromp" ],
+      "venue" : "Information and Computation,",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : "15",
+      "year" : 1996
+    }, {
+      "title" : "Binarized neural networks",
+      "author" : [ "Itay Hubara", "Matthieu Courbariaux", "Daniel Soudry", "Ran El-Yaniv", "Yoshua Bengio" ],
+      "venue" : "Advances in Neural Information Processing Systems",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : "16",
+      "year" : 2016
+    }, {
+      "title" : "Lightgbm: A highly efficient gradient boosting decision tree",
+      "author" : [ "Guolin Ke", "Qi Meng", "Thomas Finley", "Taifeng Wang", "Wei Chen", "Weidong Ma", "Qiwei Ye", "Tie-Yan Liu" ],
+      "venue" : "Advances in Neural Information Processing Systems",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : "17",
+      "year" : 2017
+    }, {
+      "title" : "Feature-cost sensitive learning with submodular trees of classifiers",
+      "author" : [ "Matt J Kusner", "Wenlin Chen", "Quan Zhou", "Zhixiang Eddie Xu", "Kilian Q Weinberger", "Yixin Chen" ],
+      "venue" : null,
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : "18",
+      "year" : 1939
+    }, {
+      "title" : "Constructing optimal binary decision trees is NP-complete",
+      "author" : [ "Hyafil Laurent", "Ronald L Rivest" ],
+      "venue" : "Information Processing Letters,",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : "19",
+      "year" : 1976
+    }, {
+      "title" : "Joint cascade optimization using a product of boosted classifiers",
+      "author" : [ "Leonidas Lefakis", "François Fleuret" ],
+      "venue" : "In Advances in neural information processing systems,",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : "20",
+      "year" : 2010
+    }, {
+      "title" : "A benchmark for comparison of cell tracking",
+      "author" : [ "Martin Maška", "Vladimír Ulman", "David Svoboda", "Pavel Matula", "Petr Matula", "Cristina Ederra", "Ainhoa Urbiola", "Tomás España", "Subramanian Venkatesan", "Deepak MW Balak" ],
+      "venue" : null,
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : "22",
+      "year" : 2014
+    }, {
+      "title" : "Feature-budgeted random forest",
+      "author" : [ "Feng Nan", "Joseph Wang", "Venkatesh Saligrama" ],
+      "venue" : "Proceedings of the 32nd International Conference on Machine Learning,",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : "23",
+      "year" : 2015
+    }, {
+      "title" : "Pruning random forests for prediction on a budget",
+      "author" : [ "Feng Nan", "Joseph Wang", "Venkatesh Saligrama" ],
+      "venue" : "Advances in Neural Information Processing Systems",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : "24",
+      "year" : 2016
+    }, {
+      "title" : "NP-completeness of problems of construction of optimal decision trees",
+      "author" : [ "GE Naumov" ],
+      "venue" : "In Soviet Physics Doklady,",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : "25",
+      "year" : 1991
+    }, {
+      "title" : "A coarse-to-fine approach for fast deformable object detection",
+      "author" : [ "Marco Pedersoli", "Andrea Vedaldi", "Jordi Gonzalez", "Xavier Roca" ],
+      "venue" : "Pattern Recognition,",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : "26",
+      "year" : 2015
+    }, {
+      "title" : "Boosted decision trees, an alternative to artificial neural networks",
+      "author" : [ "Byron P. Roe", "Hai-Jun Yang", "Ji Zhu", "Yong Liu", "Ion Stancu", "Gordon McGregor" ],
+      "venue" : "Nucl. Instrum. Meth.,",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : "27",
+      "year" : 2005
+    }, {
+      "title" : "Evaluation of pooling operations in convolutional architectures for object recognition",
+      "author" : [ "Dominik Scherer", "Andreas Müller", "Sven Behnke" ],
+      "venue" : "Artificial Neural Networks–ICANN",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : "28",
+      "year" : 2010
+    }, {
+      "title" : "Best-first decision tree learning",
+      "author" : [ "Haijian Shi" ],
+      "venue" : "PhD thesis, The University of Waikato,",
+      "citeRegEx" : "29",
+      "shortCiteRegEx" : "29",
+      "year" : 2007
+    }, {
+      "title" : "Supervised sequential classification under budget constraints",
+      "author" : [ "Kirill Trapeznikov", "Venkatesh Saligrama" ],
+      "venue" : "In AISTATS,",
+      "citeRegEx" : "30",
+      "shortCiteRegEx" : "30",
+      "year" : 2013
+    }, {
+      "title" : "Rapid object detection using a boosted cascade of simple features",
+      "author" : [ "Paul Viola", "Michael Jones" ],
+      "venue" : "In Computer Vision and Pattern Recognition,",
+      "citeRegEx" : "31",
+      "shortCiteRegEx" : "31",
+      "year" : 2001
+    }, {
+      "title" : "Efficient learning by directed acyclic graph for resource constrained prediction",
+      "author" : [ "Joseph Wang", "Kirill Trapeznikov", "Venkatesh Saligrama" ],
+      "venue" : "In Advances in Neural Information Processing Systems,",
+      "citeRegEx" : "32",
+      "shortCiteRegEx" : "32",
+      "year" : 2015
+    }, {
+      "title" : "The greedy miser: Learning under testtime budgets",
+      "author" : [ "Zhixiang Xu", "Kilian Weinberger", "Olivier Chapelle" ],
+      "venue" : "Proceedings of the 29th International Conference on Machine Learning (ICML-12),",
+      "citeRegEx" : "33",
+      "shortCiteRegEx" : "33",
+      "year" : 2012
+    }, {
+      "title" : "Classifier cascades and trees for minimizing feature evaluation cost",
+      "author" : [ "Zhixiang Eddie Xu", "Matt J Kusner", "Kilian Q Weinberger", "Minmin Chen", "Olivier Chapelle" ],
+      "venue" : "Journal of Machine Learning Research,",
+      "citeRegEx" : "35",
+      "shortCiteRegEx" : "35",
+      "year" : 2014
+    }, {
+      "title" : "Finding small equivalent decision trees is hard",
+      "author" : [ "Hans Zantema", "Hans L Bodlaender" ],
+      "venue" : "International Journal of Foundations of Computer Science,",
+      "citeRegEx" : "36",
+      "shortCiteRegEx" : "36",
+      "year" : 2000
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 30,
+      "context" : "Many applications need classifiers or regressors that are not only accurate, but also cheap to evaluate [33, 30].",
+      "startOffset" : 104,
+      "endOffset" : 112
+    }, {
+      "referenceID" : 27,
+      "context" : "Many applications need classifiers or regressors that are not only accurate, but also cheap to evaluate [33, 30].",
+      "startOffset" : 104,
+      "endOffset" : 112
+    }, {
+      "referenceID" : 30,
+      "context" : "A common approach to construct an accurate predictor with low evaluation cost is to modify the classical empirical risk minimization objective, such that it includes a prediction cost penalty, and optimize this modified functional [33, 30, 23, 24].",
+      "startOffset" : 231,
+      "endOffset" : 247
+    }, {
+      "referenceID" : 27,
+      "context" : "A common approach to construct an accurate predictor with low evaluation cost is to modify the classical empirical risk minimization objective, such that it includes a prediction cost penalty, and optimize this modified functional [33, 30, 23, 24].",
+      "startOffset" : 231,
+      "endOffset" : 247
+    }, {
+      "referenceID" : 20,
+      "context" : "A common approach to construct an accurate predictor with low evaluation cost is to modify the classical empirical risk minimization objective, such that it includes a prediction cost penalty, and optimize this modified functional [33, 30, 23, 24].",
+      "startOffset" : 231,
+      "endOffset" : 247
+    }, {
+      "referenceID" : 21,
+      "context" : "A common approach to construct an accurate predictor with low evaluation cost is to modify the classical empirical risk minimization objective, such that it includes a prediction cost penalty, and optimize this modified functional [33, 30, 23, 24].",
+      "startOffset" : 231,
+      "endOffset" : 247
+    }, {
+      "referenceID" : 12,
+      "context" : "While the computational cost can be mitigated by network compression or quantization [14], in the extreme case to binary activations only [16], the computational graph is fundamentally dense.",
+      "startOffset" : 85,
+      "endOffset" : 89
+    }, {
+      "referenceID" : 14,
+      "context" : "While the computational cost can be mitigated by network compression or quantization [14], in the extreme case to binary activations only [16], the computational graph is fundamentally dense.",
+      "startOffset" : 138,
+      "endOffset" : 142
+    }, {
+      "referenceID" : 10,
+      "context" : "(ii) Individual decision trees and their ensembles, such as Random Forest [4] and Gradient Boosting [12], are still among the most useful and highly competitive methods in machine learning, particularly in the regime of limited training data, little training time and little expertise for parameter tuning [11].",
+      "startOffset" : 100,
+      "endOffset" : 104
+    }, {
+      "referenceID" : 9,
+      "context" : "(ii) Individual decision trees and their ensembles, such as Random Forest [4] and Gradient Boosting [12], are still among the most useful and highly competitive methods in machine learning, particularly in the regime of limited training data, little training time and little expertise for parameter tuning [11].",
+      "startOffset" : 306,
+      "endOffset" : 310
+    }, {
+      "referenceID" : 31,
+      "context" : "Some instances may be easy to classify based on reading a single measurement / feature, while others may require a full battery of tests before a decision can be reached with confidence [35].",
+      "startOffset" : 186,
+      "endOffset" : 190
+    }, {
+      "referenceID" : 10,
+      "context" : "Our key contribution appears in Section 4, where we propose an extension of gradient boosting [12] which takes prediction time penalties into account.",
+      "startOffset" : 94,
+      "endOffset" : 98
+    }, {
+      "referenceID" : 13,
+      "context" : "(1) is NP-hard under several aspects of optimality [15, 19, 25, 36].",
+      "startOffset" : 51,
+      "endOffset" : 67
+    }, {
+      "referenceID" : 17,
+      "context" : "(1) is NP-hard under several aspects of optimality [15, 19, 25, 36].",
+      "startOffset" : 51,
+      "endOffset" : 67
+    }, {
+      "referenceID" : 22,
+      "context" : "(1) is NP-hard under several aspects of optimality [15, 19, 25, 36].",
+      "startOffset" : 51,
+      "endOffset" : 67
+    }, {
+      "referenceID" : 32,
+      "context" : "(1) is NP-hard under several aspects of optimality [15, 19, 25, 36].",
+      "startOffset" : 51,
+      "endOffset" : 67
+    }, {
+      "referenceID" : 30,
+      "context" : "Given a prediction cost function Ψ : T × R → Ra standard approach is to add a penalty to the empirical risk minimization above [33, 30, 35, 23, 24]:",
+      "startOffset" : 127,
+      "endOffset" : 147
+    }, {
+      "referenceID" : 27,
+      "context" : "Given a prediction cost function Ψ : T × R → Ra standard approach is to add a penalty to the empirical risk minimization above [33, 30, 35, 23, 24]:",
+      "startOffset" : 127,
+      "endOffset" : 147
+    }, {
+      "referenceID" : 31,
+      "context" : "Given a prediction cost function Ψ : T × R → Ra standard approach is to add a penalty to the empirical risk minimization above [33, 30, 35, 23, 24]:",
+      "startOffset" : 127,
+      "endOffset" : 147
+    }, {
+      "referenceID" : 20,
+      "context" : "Given a prediction cost function Ψ : T × R → Ra standard approach is to add a penalty to the empirical risk minimization above [33, 30, 35, 23, 24]:",
+      "startOffset" : 127,
+      "endOffset" : 147
+    }, {
+      "referenceID" : 21,
+      "context" : "Given a prediction cost function Ψ : T × R → Ra standard approach is to add a penalty to the empirical risk minimization above [33, 30, 35, 23, 24]:",
+      "startOffset" : 127,
+      "endOffset" : 147
+    }, {
+      "referenceID" : 0,
+      "context" : "In such cases, even though specific features can be computed for each pixel independently, it may be cheaper or more efficient to compute the same feature, such as a separable convolution filter, at all pixels at once [1, 13].",
+      "startOffset" : 218,
+      "endOffset" : 225
+    }, {
+      "referenceID" : 11,
+      "context" : "In such cases, even though specific features can be computed for each pixel independently, it may be cheaper or more efficient to compute the same feature, such as a separable convolution filter, at all pixels at once [1, 13].",
+      "startOffset" : 218,
+      "endOffset" : 225
+    }, {
+      "referenceID" : 10,
+      "context" : "After discussing related work in Section 3, in Section 4 we present a general adaptation of gradient boosting [12] to minimize Eq.",
+      "startOffset" : 110,
+      "endOffset" : 114
+    }, {
+      "referenceID" : 28,
+      "context" : "For example, the famous Viola-Jones cascades [31] use cheap features to discard examples belonging to the negative class.",
+      "startOffset" : 45,
+      "endOffset" : 49
+    }, {
+      "referenceID" : 18,
+      "context" : "While such an approach is very successful, due to its early exit strategy it cannot use expensive features for different inputs [20, 30, 9].",
+      "startOffset" : 128,
+      "endOffset" : 139
+    }, {
+      "referenceID" : 27,
+      "context" : "While such an approach is very successful, due to its early exit strategy it cannot use expensive features for different inputs [20, 30, 9].",
+      "startOffset" : 128,
+      "endOffset" : 139
+    }, {
+      "referenceID" : 7,
+      "context" : "While such an approach is very successful, due to its early exit strategy it cannot use expensive features for different inputs [20, 30, 9].",
+      "startOffset" : 128,
+      "endOffset" : 139
+    }, {
+      "referenceID" : 31,
+      "context" : "To overcome the limitations imposed by early exit strategies, various methods [34, 35, 18, 32] proposed single tree constructions but with more complicated decisions at the individual split nodes.",
+      "startOffset" : 78,
+      "endOffset" : 94
+    }, {
+      "referenceID" : 16,
+      "context" : "To overcome the limitations imposed by early exit strategies, various methods [34, 35, 18, 32] proposed single tree constructions but with more complicated decisions at the individual split nodes.",
+      "startOffset" : 78,
+      "endOffset" : 94
+    }, {
+      "referenceID" : 29,
+      "context" : "To overcome the limitations imposed by early exit strategies, various methods [34, 35, 18, 32] proposed single tree constructions but with more complicated decisions at the individual split nodes.",
+      "startOffset" : 78,
+      "endOffset" : 94
+    }, {
+      "referenceID" : 20,
+      "context" : "Unfortunately, in practice these single-tree methods are inferior to current state-of-the-art algorithms that construct tree ensembles [23, 24].",
+      "startOffset" : 135,
+      "endOffset" : 143
+    }, {
+      "referenceID" : 21,
+      "context" : "Unfortunately, in practice these single-tree methods are inferior to current state-of-the-art algorithms that construct tree ensembles [23, 24].",
+      "startOffset" : 135,
+      "endOffset" : 143
+    }, {
+      "referenceID" : 20,
+      "context" : "BUDGETRF [23] is based on Random Forests and modifies the impurity function that decides which split to make, to take feature costs into account.",
+      "startOffset" : 9,
+      "endOffset" : 13
+    }, {
+      "referenceID" : 21,
+      "context" : "BUDGETPRUNE [24] is a pruning scheme for ensembles of decision trees.",
+      "startOffset" : 12,
+      "endOffset" : 16
+    }, {
+      "referenceID" : 21,
+      "context" : "This method is considered to be state of the art when prediction cost is dominated by the feature acquisition cost [24].",
+      "startOffset" : 115,
+      "endOffset" : 119
+    }, {
+      "referenceID" : 30,
+      "context" : "GREEDYMISER [33], which is most similar to our work, is a stage-wise gradient-boosting type algorithm that also aims to minimize Eq.",
+      "startOffset" : 12,
+      "endOffset" : 16
+    }, {
+      "referenceID" : 10,
+      "context" : "We build on the gradient boosting framework [12] and adapt it to allow optimization with cost penalties.",
+      "startOffset" : 44,
+      "endOffset" : 48
+    }, {
+      "referenceID" : 6,
+      "context" : "We follow the notation of [8] who use gradient boosting with weak predictors tk from the set of regression trees T to minimize regularized empirical risk",
+      "startOffset" : 26,
+      "endOffset" : 29
+    }, {
+      "referenceID" : 6,
+      "context" : "Following [8] we use a second order Taylor expansion of the loss around Tk−1(xi).",
+      "startOffset" : 10,
+      "endOffset" : 13
+    }, {
+      "referenceID" : 6,
+      "context" : "(10) which results by replacing a terminal leaf with a split node [8].",
+      "startOffset" : 66,
+      "endOffset" : 69
+    }, {
+      "referenceID" : 26,
+      "context" : "Here, in contrast, we adopt the approach of [29] and grow the tree in a best-first order.",
+      "startOffset" : 44,
+      "endOffset" : 48
+    }, {
+      "referenceID" : 5,
+      "context" : "The Yahoo! Learning to Rank (Yahoo! LTR) challenge dataset [7] consists of 473134 training, 71083 validation and 165660 test document-query pairs with labels {0, 1, 2, 3, 4} where 0 means the document is irrelevant and 4 that it is highly relevant to the query.",
+      "startOffset" : 59,
+      "endOffset" : 62
+    }, {
+      "referenceID" : 30,
+      "context" : "Computation cost for the 519 features used in the dataset are provided [33] and take the values {1, 5, 10, 20, 50, 100, 150, 200}.",
+      "startOffset" : 71,
+      "endOffset" : 75
+    }, {
+      "referenceID" : 30,
+      "context" : "Prediction performance is evaluated using the Average Precision@5 metric which only considers the five most relevant documents returned for a query by the regressor [33, 23, 24].",
+      "startOffset" : 165,
+      "endOffset" : 177
+    }, {
+      "referenceID" : 20,
+      "context" : "Prediction performance is evaluated using the Average Precision@5 metric which only considers the five most relevant documents returned for a query by the regressor [33, 23, 24].",
+      "startOffset" : 165,
+      "endOffset" : 177
+    }, {
+      "referenceID" : 21,
+      "context" : "Prediction performance is evaluated using the Average Precision@5 metric which only considers the five most relevant documents returned for a query by the regressor [33, 23, 24].",
+      "startOffset" : 165,
+      "endOffset" : 177
+    }, {
+      "referenceID" : 5,
+      "context" : "We use the dataset provided by [7] and used in [23, 24].",
+      "startOffset" : 31,
+      "endOffset" : 34
+    }, {
+      "referenceID" : 20,
+      "context" : "We use the dataset provided by [7] and used in [23, 24].",
+      "startOffset" : 47,
+      "endOffset" : 55
+    }, {
+      "referenceID" : 21,
+      "context" : "We use the dataset provided by [7] and used in [23, 24].",
+      "startOffset" : 47,
+      "endOffset" : 55
+    }, {
+      "referenceID" : 21,
+      "context" : "GREEDYMISER and BUDGETPRUNE results for (2b), (2c) and (2d) from [24].",
+      "startOffset" : 65,
+      "endOffset" : 69
+    }, {
+      "referenceID" : 24,
+      "context" : "The MiniBooNE dataset [27, 21] consists of 45523 training, 19510 validation and 65031 test instances with labels {0, 1} and 50 features.",
+      "startOffset" : 22,
+      "endOffset" : 30
+    }, {
+      "referenceID" : 2,
+      "context" : "The Forest Covertype dataset [3, 21] consists of 36603 training, 15688 validation and 58101 test instances with 54 features restricted to two classes as done in [24].",
+      "startOffset" : 29,
+      "endOffset" : 36
+    }, {
+      "referenceID" : 21,
+      "context" : "The Forest Covertype dataset [3, 21] consists of 36603 training, 15688 validation and 58101 test instances with 54 features restricted to two classes as done in [24].",
+      "startOffset" : 161,
+      "endOffset" : 165
+    }, {
+      "referenceID" : 21,
+      "context" : "Since no relation between classifier evaluation and feature cost is known we only compute the latter to allow a fair comparison, as in [24].",
+      "startOffset" : 135,
+      "endOffset" : 139
+    }, {
+      "referenceID" : 1,
+      "context" : "We additionally use the HEPMASS-1000 and HEPMASS-not1000 datasets [2, 21].",
+      "startOffset" : 66,
+      "endOffset" : 73
+    }, {
+      "referenceID" : 4,
+      "context" : "In images processing, classification using multiple scales has been extensively studied and used to build fast or more more accurate classifiers [6, 31, 10, 26].",
+      "startOffset" : 145,
+      "endOffset" : 160
+    }, {
+      "referenceID" : 28,
+      "context" : "In images processing, classification using multiple scales has been extensively studied and used to build fast or more more accurate classifiers [6, 31, 10, 26].",
+      "startOffset" : 145,
+      "endOffset" : 160
+    }, {
+      "referenceID" : 8,
+      "context" : "In images processing, classification using multiple scales has been extensively studied and used to build fast or more more accurate classifiers [6, 31, 10, 26].",
+      "startOffset" : 145,
+      "endOffset" : 160
+    }, {
+      "referenceID" : 23,
+      "context" : "In images processing, classification using multiple scales has been extensively studied and used to build fast or more more accurate classifiers [6, 31, 10, 26].",
+      "startOffset" : 145,
+      "endOffset" : 160
+    }, {
+      "referenceID" : 25,
+      "context" : "Inspired by average pooling layers in neural networks [28] and image pyramids [5] we first compute the average pixel values across non-overlapping 2x2, 4x4 and 8x8 blocks of the original image.",
+      "startOffset" : 54,
+      "endOffset" : 58
+    }, {
+      "referenceID" : 3,
+      "context" : "Inspired by average pooling layers in neural networks [28] and image pyramids [5] we first compute the average pixel values across non-overlapping 2x2, 4x4 and 8x8 blocks of the original image.",
+      "startOffset" : 78,
+      "endOffset" : 81
+    }, {
+      "referenceID" : 19,
+      "context" : "Accuracy is evaluated using the SEGMeasure score as defined in [22].",
+      "startOffset" : 63,
+      "endOffset" : 67
+    }, {
+      "referenceID" : 15,
+      "context" : "Source code based on LightGBM [17] is available at http://github.",
+      "startOffset" : 30,
+      "endOffset" : 34
+    } ],
+    "year" : 2017,
+    "abstractText" : "Many applications require learning classifiers or regressors that are both accurate and cheap to evaluate. Prediction cost can be drastically reduced if the learned predictor is constructed such that on the majority of the inputs, it uses cheap features and fast evaluations. The main challenge is to do so with little loss in accuracy. In this work we propose a budget-aware strategy based on deep boosted regression trees. In contrast to previous approaches to learning with cost penalties, our method can grow very deep trees that on average are nonetheless cheap to compute. We evaluate our method on a number of datasets and find that it outperforms the current state of the art by a large margin. Our algorithm is easy to implement and its learning time is comparable to that of the original gradient boosting. Source code is made available at http://github.com/svenpeter42/LightGBM-CEGB.",
+    "creator" : null
+  }
+}

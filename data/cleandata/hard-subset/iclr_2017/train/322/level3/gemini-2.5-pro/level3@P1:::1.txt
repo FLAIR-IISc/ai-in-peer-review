@@ -1,0 +1,44 @@
+### Summary of Contributions
+
+This paper introduces a novel and ambitious framework called "nonparametric neural networks" to address the challenging problem of automatically determining a suitable network size during a single training run. Instead of performing expensive black-box hyperparameter optimization over different architectures, the proposed method dynamically grows and shrinks the network. The core mechanism involves periodically adding new, randomly initialized "zero units" to the network, while simultaneously applying a group-sparse (`l_2` fan-in) regularizer to eliminate redundant or useless units. This approach is supported by a theoretical proof (Theorem 1) demonstrating that under this regularization scheme, the training objective achieves a global minimum at a finite network size.
+
+To operationalize this framework, the authors introduce two key technical innovations:
+1.  **Capped Batch Normalization (CapNorm):** A modification of batch normalization designed to prevent interference with the length-shrinking effect of the fan-in regularizer.
+2.  **Adaptive Radial-Angular Gradient Descent (AdaRad):** A new optimization algorithm that decouples the learning of a unit's feature direction (angular component) from its magnitude (radial component). By normalizing only the angular gradient, AdaRad allows newly added units sufficient time to learn useful representations before being pruned by the regularizer.
+
+The empirical results on the MNIST and rectangles-images datasets are promising, showing that the proposed method can find networks that are competitive with or superior to those found by extensive random search, often while being more compact.
+
+### Decision and Key Reasons
+
+**Decision:** Reject
+
+While the paper tackles an important problem with a creative and theoretically-grounded approach, I am recommending rejection due to two primary concerns:
+
+1.  **Unquantified Computational Overhead:** The proposed AdaRad optimizer is significantly more complex than standard methods like Adam or RMSprop. The paper does not provide an adequate empirical analysis of the practical computational cost (e.g., wall-clock training time), which is a critical factor for a method intended to replace expensive but parallelizable search procedures.
+2.  **Inconsistent Empirical Performance:** The method's performance varies drastically across the tested datasets. Its significant failure on the `convex` dataset, where it converges to small, poorly-performing networks, raises serious questions about its robustness and general applicability without dataset-specific tuning.
+
+### Supporting Arguments
+
+**1. On the Computational Complexity of AdaRad:**
+The core of the proposed training algorithm is AdaRad. For every fan-in vector in the network, this optimizer performs a decomposition of the gradient into components parallel and orthogonal to the weight vector, followed by a normalization of the orthogonal component and an update in radial-angular coordinates. These operations are substantially more expensive than the simple element-wise operations used in standard optimizers like RMSprop or Adam.
+
+The authors provide a high-level complexity comparison in Table 1, suggesting AdaRad scales better by normalizing at the unit level rather than the weight level. However, this asymptotic analysis can be misleading. A concrete, empirical evaluation is necessary. The paper lacks experiments comparing the wall-clock time required to train a fixed-size network to convergence using AdaRad versus a standard optimizer like Adam. Without this comparison, it is impossible to judge whether the time saved by avoiding a global architecture search outweighs the potential per-iteration slowdown introduced by AdaRad. This is a crucial omission for a paper whose primary motivation is to reduce the overall cost of model selection.
+
+**2. On the Inconsistent Performance and Robustness:**
+A key claim of the paper is that it provides a method to "automatically" find a good network size. However, the results on the `convex` dataset directly challenge this claim. The nonparametric networks perform substantially worse than parametric networks of the same size and are far from the optimal architecture found by random search. The authors note that the method converges to "relatively small sizes" on this dataset, but offer no explanation for why this happens or how it might be remedied.
+
+This failure suggests that the interplay between unit addition, regularization (`λ`), and the radial learning rate (`α_r`) may be delicate and dataset-dependent. If the method requires careful tuning of these meta-parameters to avoid collapsing to a poor architectural solution, it undermines its value as an "automatic" procedure and begins to resemble another form of complex hyperparameter search. The strong performance on MNIST and rectangles is encouraging, but the failure on `convex` demonstrates a lack of robustness that is a major weakness.
+
+### Additional Feedback for Improvement
+
+The following points are meant as constructive feedback to strengthen a future version of this work.
+
+*   **Growth and Initialization Strategy:** The current strategy of adding one unit per layer per epoch is simple but perhaps too rigid. Have the authors considered alternative or adaptive schedules? For example, adding a batch of units when the validation error plateaus, or initializing new units more intelligently (e.g., by cloning and perturbing existing successful units, as in Net2Net). The current approach is akin to a slow, linear random search through the architecture space, and more sophisticated exploration could be beneficial.
+*   **Alternative to CapNorm:** CapNorm is a clever solution to the problem of batch normalization negating the regularizer. An alternative, perhaps simpler, approach could be to apply the group-sparse regularization to the effective weights *after* the batch normalization transformation. A brief discussion or experiment comparing these two approaches would strengthen the justification for introducing a new normalization scheme.
+*   **Clarifying the Role of `α_r`:** The paper sets `α_r = 150λ`, which directly ties the unit "survival time" to the regularization strength. This seems like a very important hyperparameter. A sensitivity analysis showing how performance changes as this relationship is varied would be highly informative. Is this ratio (`150`) a universal constant, or does it need to be tuned per dataset?
+
+### Questions for the Authors
+
+1.  Could you please provide empirical data (e.g., wall-clock training time on a specific hardware setup) comparing the time to convergence for a reasonably sized parametric network trained with AdaRad versus one trained with a standard optimizer like Adam or RMSprop?
+2.  Do you have a hypothesis for why the nonparametric training process failed on the `convex` dataset, converging to small and suboptimal networks? Did you experiment with different settings of `λ` or the unit addition rate `ν` to see if this outcome could be avoided?
+3.  How was the relationship `α_r = 150λ` determined? How sensitive are the final results to the constant factor (150) in this equation? This seems to be a critical hyperparameter governing the balance between unit exploration and pruning.

@@ -1,0 +1,471 @@
+{
+  "name" : "5751ec3e9a4feab575962e78e006250d.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "The Population Posterior and Bayesian Modeling on Streams",
+    "authors" : [ "James McInerney", "Rajesh Ranganath" ],
+    "emails" : [ "james@cs.columbia.edu", "rajeshr@cs.princeton.edu", "david.blei@columbia.edu" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Probabilistic modeling has emerged as a powerful tool for data analysis. It is an intuitive language for describing assumptions about data and provides efficient algorithms for analyzing real data under those assumptions. The main idea comes from Bayesian statistics. We encode our assumptions about the data in a structured probability model of hidden and observed variables; we condition on a data set to reveal the posterior distribution of the hidden variables; and we use the resulting posterior as needed, for example to form predictions through the posterior predictive distribution or to explore the data through the posterior expectations of the hidden variables.\nMany modern data analysis problems involve inferences from streaming data. Examples include exploring the content of massive social media streams (e.g., Twitter, Facebook), analyzing live video streams, estimating the preferences of users on an online platform for recommending new items, and predicting human mobility patterns for anticipatory computing. Such problems, however, cannot easily take advantage of the standard approach to probabilistic modeling, which requires that we condition on a finite data set.\nThis might be surprising to some readers; after all, one of the tenets of the Bayesian paradigm is that we can update our posterior when given new information. (“Yesterday’s posterior is today’s prior.”) But there are two problems with using Bayesian updating on data streams. The first problem is that Bayesian inference computes posterior uncertainty under the assumption that the model is correct. In theory this is sensible, but only in the impossible scenario where the data truly came from the proposed model. In practice, all models provide approximations to the data-generating distribution, and when the model is incorrect, the uncertainty that maximizes predictive likelihood may be larger or smaller than the Bayesian posterior variance. This problem is exacerbated in potentially never-ending streams; after seeing only a few data points, uncertainty is high, but eventually the model becomes overconfident.\nThe second problem is that the data stream might change over time. This is an issue because, frequently, our goal in applying probabilistic models to streams is not to characterize how they change, but rather to accommodate it. That is, we would like for our current estimate of the latent variables to be accurate to the current state of the stream and to adapt to how the stream might slowly\nchange. (This is in contrast, for example, to time series modeling.) Traditional Bayesian updating cannot handle this. Either we explicitly model the time series, and pay a heavy inferential cost, or we tacitly assume that the data are exchangeable, i.e., that the underlying distribution does not change.\nIn this paper we develop new ideas for analyzing data streams with probabilistic models. Our approach combines the frequentist notion of the population distribution with probabilistic models and Bayesian inference.\nMain idea: The population posterior. Consider a latent variable model of α data points. (This is unconventional notation; we will describe why we use it below.) Following [14], we define the model to have two kinds of hidden variables: global hidden variables β contain latent structure that potentially governs any data point; local hidden variables zi contain latent structure that only governs the ith data point. Such models are defined by the joint,\np(β ,z,x) = p(β ) α\n∏ i=1 p(xi,zi |β ), (1)\nwhere x = x1:α and z = z1:α . Traditional Bayesian statistics conditions on a fixed data set x to obtain the posterior distribution of the hidden variables p(β ,z |x). As we discussed, this framework cannot accommodate data streams. We need a different way to use the model.\nWe define a new distribution, the population posterior, which enables us to consider Bayesian modeling of streams. Suppose we observe α data points independently from the underlying population distribution, X ∼ Fα . This induces a posterior p(β ,z |X), which is a function of the random data. The population posterior is the expected value of this distribution,\nEFα [p(z,β |X)] = EFα [\np(β ,z,X) p(X)\n] . (2)\nNotice that this distribution is not a function of observed data; it is a function of the population distribution F and the data size α . The data size is a hyperparameter that can be set; it effectively controls the variance of the population posterior. How to best set it depends on how close the model is to the true data distribution.\nWe have defined a new problem. Given an endless stream of data points coming from F and a value for α , our goal is to approximate the corresponding population posterior. In this paper, we will approximate it through an algorithm based on variational inference and stochastic optimization. As we will show, our algorithm justifies applying a variant of stochastic variational inference [14] to a data stream. We used our method to analyze several data streams with two modern probabilistic models, latent Dirichlet allocation [5] and Dirichlet process mixtures [11]. With held-out likelihood as a measure of model fitness, we found our method to give better models of the data than approaches based on full Bayesian inference [14] or Bayesian updating [8].\nRelated work. Researchers have proposed several methods for inference on streams of data. Refs. [1, 9, 27] propose extending Markov chain Monte Carlo methods for streaming data. However, sampling-based approaches do not scale to massive datasets; the variational approximation enables more scalable inference. In variational inference, Ref. [15] propose online variational inference by exponentially forgetting the variational parameters associated with old data. Stochastic variational inference (SVI) [14] also decay parameters derived from old data, but interprets this in the context of stochastic optimization. Neither of these methods applies to streaming data; both implicitly rely on the data being of known size (even when subsampling data to obtain noisy gradients).\nTo apply the variational approximation to streaming data, Ref. [8] and Ref. [12] both propose Bayesian updating of the approximating family; Ref. [22] adapts this framework to nonparametric mixture models. Here we take a different approach, changing the variational objective to incorporate a population distribution and then following stochastic gradients of this new objective. In Section 3 we show that this generally performs better than Bayesian updating.\nIndependently, Ref. [23] applied SVI to streaming data by accumulating new data points into a growing window and then uniformly sampling from this window to update the variational parameters. Our method justifies that approach. Further, they propose updating parameters along a trust region, instead of following (natural) gradients, as a way of mitigating local optima. This innovation can be incorporated into our method."
+    }, {
+      "heading" : "2 Variational Inference for the Population Posterior",
+      "text" : "We develop population variational Bayes, a method for approximating the population posterior in Eq. 2. Our method is based on variational inference and stochastic optimization.\nThe F-ELBO. The idea behind variational inference is to approximate difficult-to-compute distributions through optimization [16, 25]. We introduce an approximating family of distributions over the latent variables q(β ,z) and try to find the member of q(·) that minimizes the Kullback-Leibler (KL) divergence to the target distribution.\nPopulation variational Bayes (VB) uses variational inference to approximate the population posterior in Eq. 2. It aims to minimize the KL divergence from an approximating family,\nq∗(β ,z) = argmin q KL(q(β ,z)||EFα [p(β ,z |X)]). (3)\nAs for the population posterior, this objective is a function of the population distribution of α data points Fα . Notice the difference to classical VB. In classical VB, we optimize the KL divergence between q(·) and a posterior, KL(q(β ,z)||p(β ,z |x); its objective is a function of a fixed data set x. In contrast, the objective in Eq. 3 is a function of the population distribution Fα .\nWe will use the mean-field variational family, where each latent variable is independent and governed by a free parameter,\nq(β ,z) = q(β |λ ) α\n∏ i=1 q(zi |φi). (4)\nThe free variational parameters are the global parameters λ and local parameters φi. Though we focus on the mean-field family, extensions could consider structured families [13, 20], where there is dependence between variables.\nIn classical VB, where we approximate the usual posterior, we cannot compute the KL. Thus, we optimize a proxy objective called the ELBO (evidence lower bound) that is equal to the negative KL up to an additive constant. Maximizing the ELBO is equivalent to minimizing the KL divergence to the posterior.\nIn population VB we also optimize a proxy objective, the F-ELBO. The F-ELBO is an expectation of the ELBO under the population distribution of the data,\nL (λ ,φ ;Fα) = EFα [ Eq [ log p(β )− logq(β |λ )+ α\n∑ i=1\nlog p(Xi,Zi |β )− logq(Zi)] ]] . (5)\nThe F-ELBO is a lower bound on the population evidence logEFα [p(X)] and a lower bound on the negative KL to the population posterior. (See Appendix A.) The inner expectation is over the latent variables β and Z, and is a function of the variational distribution q(·). The outer expectation is over the α random data points X, and is a function of the population distribution Fα(·). The F-ELBO is thus a function of both the variational distribution and the population distribution.\nAs we mentioned, classical VB maximizes the (classical) ELBO, which is equivalent to minimizing the KL. The F-ELBO, in contrast, is only a bound on the negative KL to the population posterior. Thus maximizing the F-ELBO is suggestive but is not guaranteed to minimize the KL. That said, our studies show that this is a good quantity to optimize, and in Appendix A we show that the F-ELBO does minimize EFα [KL(q(z||p(z,β |X))], the population KL. Conditionally conjugate models. In the next section we will develop a stochastic optimization algorithm to maximize Eq. 5. First, we describe the class of models that we will work with.\nFollowing [14] we focus on conditionally conjugate models. A conditionally conjugate model is one where each complete conditional—the conditional distribution of a latent variable given all the other latent variables and the observations—is in the exponential family. This class includes many models in modern machine learning, such as mixture models, topic models, many Bayesian nonparametric models, and some hierarchical regression models. Using conditionally conjugate models simplifies many calculations in variational inference.\nUnder the joint in Eq. 1, we can write a conditionally conjugate model with two exponential families: p(zi,xi |β ) = h(zi,xi)exp { β>t(zi,xi)−a(β ) } (6)\np(β |ζ ) = h(β )exp { ζ>t(β )−a(ζ ) } . (7)\nWe overload notation for base measures h(·), sufficient statistics t(·), and log normalizers a(·). Note that ζ is the hyperparameter and that t(β ) = [β ,−a(β )] [3]. In conditionally conjugate models each complete conditional is in an exponential family, and we use these families as the factors in the variational distribution in Eq. 4. Thus λ indexes the same family as p(β | z,x) and φi indexes the same family as p(zi | xi,β ). For example, in latent Dirichlet allocation [5], the complete conditional of the topics is a Dirichlet; the complete conditional of the per-document topic mixture is a Dirichlet; and the complete conditional of the per-word topic assignment is a categorical. (See [14] for details.)\nPopulation variational Bayes. We have described the ingredients of our problem. We are given a conditionally conjugate model, described in Eqs. 6 and 7, a parameterized variational family in Eq. 4, and a stream of data from an unknown population distribution F . Our goal is to optimize the F-ELBO in Eq. 5 with respect to the variational parameters.\nThe F-ELBO is a function of the population distribution, which is an unknown quantity. To overcome this hurdle, we will use the stream of data from F to form noisy gradients of the F-ELBO; we then update the variational parameters with stochastic optimization (a technique to find a local optimum by following noisy unbiased gradients [7]).\nBefore describing the algorithm, however, we acknowledge one technical detail. Mirroring [14], we optimize an F-ELBO that is only a function of the global variational parameters. The one-parameter population VI objective is LFα (λ ) = maxφ LFα (λ ,φ). This implicitly optimizes the local parameter as a function of the global parameter and allows us to convert the potentially infinite-dimensional optimization problem in Eq. 5 to a finite one. The resulting objective is identical to Eq. 5, but with φ replaced by φ(λ ). (Details are in Appendix B).\nThe next step is to form a noisy gradient of the F-ELBO so that we can use stochastic optimization to maximize it. Stochastic optimization maximizes an objective by following noisy and unbiased gradients [7, 19]. We will write the gradient of the F-ELBO as an expectation with respect to Fα , and then use Monte Carlo estimates to form noisy gradients.\nWe compute the gradient of the F-ELBO by bringing the gradient operator inside the expectations of Eq. 5.1 This results in a population expectation of the classical VB gradient with α data points.\nWe take the natural gradient [2], which has a simple form in completely conjugate models [14]. Specifically, the natural gradient of the F-ELBO is\n∇̂λ L (λ ;Fα) = ζ −λ +EFα\n[ α\n∑ i=1 Eφi(λ ) [t(xi,Zi)]\n] . (8)\nWe approximate this expression using Monte Carlo to compute noisy, unbiased natural gradients at λ . To form the Monte Carlo estimate, we collect α data points from F ; for each we compute the optimal local parameters φi(λ ), which is a function of the sampled data point and variational parameters; we then compute the quantity inside the brackets in Eq. 8. Averaging these results gives the Monte Carlo estimate of the natural gradient. We follow the noisy natural gradient and repeat.\nThe algorithm is summarized in Algorithm 1. Because Eq. 8 is a Monte Carlo estimate, we are free to draw B data points from Fα (where B << α) and rescale the sufficient statistics by α/B. This makes the natural gradient estimate noisier, but faster to calculate. As highlighted in [14], this strategy is more computationally efficient because early iterations of the algorithm have inaccurate values of λ . It is wasteful to pass through a lot of data before making updates to λ .\nDiscussion. Thus far, we have defined the population posterior and showed how to approximate it with population variational inference. Our derivation justifies using an algorithm like stochastic variational inference (SVI) [14] on a stream of data. It is nearly identical to SVI, but includes an additional parameter: the number of data points in the population posterior α .\n1For most models of interest, this is justified by the dominated convergence theorem.\nAlgorithm 1 Population Variational Bayes\nRandomly initialize global variational parameter λ (0) Set iteration t← 0 repeat\nDraw data minibatch x1:B ∼ Fα Optimize local variational parameters φ1(λ (t)), . . . ,φB(λ (t)) Calculate natural gradient ∇̂λ L (λ (t);Fα) [see Eq. 8] Update global variational parameter with learning rate ρ(t)\nλ (t+1) = λ (t)+ρ(t) αB ∇̂λ L (λ (t);Fα)\nUpdate iteration count t← t +1 until forever\nNote we can recover the original SVI algorithm as an instance of population VI, thus reinterpreting it as minimizing the KL divergence to the population posterior. We recover SVI by setting α equal to the number of data points in the data set and replacing the stream of data F with F̂x, the empirical distribution of the observations. The “stream” in this case comes from sampling with replacement from F̂x, which results in precisely the original SVI algorithm.2\nWe focused on the conditionally conjugate family for convenience, i.e., the simple gradient in Eq. 8. We emphasize, however, that by using recent tools for nonconjugate inference [17, 18, 24], we can adapt the new ideas described above—the population posterior and the F-ELBO—outside of conditionally conjugate models.\nFinally, we analyze the population posterior distribution under the assumption the only way the stream affects the model is through the data. Formally, this means the unobserved variables in the model and the stream Fα are independent given the data X. The population posterior without the local latent variables z (which can be marginalized out) is EFα [p(β | X)]. Expanding the expectation gives ∫ p(β | X)p(X | Fα)dX, showing that the population posterior distribution can be written as p(β | Fα). This can be depicted as a graphical model:\nF˛ X ˇ\nThis means first, that the population posterior is well defined even when the model does not specify the marginal distribution of the data and, second, rather than the classical Bayesian setting where the posterior is conditioned on a finite fixed dataset, the population posterior is a distributional posterior conditioned on the stream Fα ."
+    }, {
+      "heading" : "3 Empirical Evaluation",
+      "text" : "We study the performance of population variational Bayes (population VB) against SVI and streaming variational Bayes (SVB) [8]. With large real-world data we study two models, latent Dirichlet allocation [5] and Bayesian nonparametric mixture models, comparing the held-out predictive performance of the algorithms. All three methods share the same local variational update, which is the dominating computational cost. We study the data coming in a true ordered stream, and in a permuted stream (to better match the assumptions of SVI). Across data and models, population VB usually outperforms the existing approaches.\nModels. We study two models. The first is latent Dirichlet allocation (LDA) [5]. LDA is a mixed-membership model of text collections and is frequently used to find its latent topics. LDA assumes that there are K topics βk ∼ Dir(η), each of which is a multinomial distribution over a fixed vocabulary. Documents are drawn by first choosing a distribution over topics θd ∼ Dir(α) and then\n2This derivation of SVI is an application of Efron’s plug-in principle [10] applied to inference of the population posterior. The plug-in principle says that we can replace the population F with the empirical distribution of the data F̂ to make population inferences. In our empirical study, however, we found that population VI often outperforms stochastic VI. Treating the data in a true stream, and setting the number of data points different to the true number, can improve predictive accuracy.\ndrawing each word by choosing a topic assignment zdn ∼Mult(θd) and finally choosing a word from the corresponding topic wdn ∼ βzdn . The joint distribution is\np(β ,θ ,z,w|η ,γ) = p(β |η) α\n∏ d=1\np(θd |γ) N\n∏ i=1 p(zdi|θd)p(wdi|β ,zdi). (9)\nFixing hyperparameters, the inference problem is to estimate the conditional distribution of the topics given a large collection of documents.\nThe second model is a Dirichlet process (DP) mixture [11]. Loosely, DP mixtures are mixture models with a potentially infinite number of components; thus choosing the number of components is part of the posterior inference problem. When using variational inference for DP mixtures [4], we take advantage of the stick breaking representation to construct a truncated variational approximation [21]. The variables are mixture proportions π ∼ Stick(η), mixture components βk ∼ H(γ) (for infinite k), mixture assignments zi ∼Mult(π), and observations xi ∼ G(βzi). The joint is\np(β ,π,z,x|η ,γ) = p(π|η)p(β |γ) α\n∏ i=1 p(zi|π)p(xi|β ,xi). (10)\nThe likelihood and prior on the components are general to the observations at hand. In our study of real-valued data we use normal priors and normal likelihoods; in our study of text data we use Dirichlet priors and multinomial likelihoods.\nFor both models we vary α , usually fixed to the number of data points in traditional analysis.\nDatasets. With LDA we analyze three large-scale streamed corpora: 1.7M articles from the New York Times spanning 10 years, 130K Science articles written over 100 years, and 7.4M tweets collected from Twitter on Feb 2nd, 2014. We processed them all in a similar way, choosing a vocabulary based on the most frequent words in the corpus (with stop words removed): 8,000 for the New York Times, 5,855 for Science, and 13,996 for Twitter. On Twitter, each tweet is a document, and we removed duplicate tweets and tweets that did not contain at least 2 words in the vocabulary. For each data stream, all algorithms took a few hours to process all the examples we collected.\nWith DP mixtures, we analyze human location behavior data. These data allow us to build periodic models of human population mobility, with applications to disaster response and urban planning. Such models account for periodicity by including the hour of the week as one of the dimensions of the\ndata to be modeled. The Ivory Coast location data contains 18M discrete cell tower locations for 500K users recorded over 6 months [6]. The Microsoft Geolife dataset contains 35K latitude-longitude GPS locations for 182 users over 5 years. For both data sets, our observations reflect down-sampling the data to ensure that each individual is seen no more than once every 15 minutes.\nResults. We compare population VB with SVI [14] and SVB [8] for LDA [8] and DP mixtures [22]. SVB updates the variational approximation of the global parameter using density filtering with exponential families. The complexity of the approximation remains fixed as the expected sufficient statistics from minibatches observed in a stream are combined with those of the current approximation. (Here we give the final results. We include details of how we set and fit hyperparameters below.)\nWe measure model fitness by evaluating the average predictive log likelihood on held-out data. This involves splitting held-out observations (that were not involved in the posterior approximation of β ) into two equal halves, inferring the local component distribution based on the first half, and testing with the second half [14, 26]. For DP-mixtures, we condition on the observed hour of the week and predict the geographic location of the held-out data point.\nIn standard offline studies, the held-out set is randomly selected from the data. With streams, however, we test on the next 10K documents (for New York Times, Science), 500K tweets (for Twitter), or 25K locations (on Geo data). This is a valid held-out set because the data ahead of the current position in the stream have not yet been seen by the inference algorithms.\nFigure 1 shows the performance for LDA. We looked at two types of streams: one in which the data appear in order and the other in which they have been permuted (i.e., an exchangeable stream). The time permuted stream reveals performance when each data minibatch is safely assumed to be an i.i.d. sample from F ; this results in smoother improvements to predictive likelihood. On our data, we found that population VB outperformed SVI and SVB on two of the data sets and outperformed SVI on all of the data. SVB performed better than population VB on Twitter.\nFigure 2 shows a similar study for DP mixtures. We analyzed the human mobility data and the New York Times. (Ref. [22] also analyzed the New York Times.) On these data population VB outperformed SVB and SVI in all settings.3\nHyperparameters Unlike traditional Bayesian methods, the data set size α is a hyperparameter to population VB. It helps control the posterior variance of the population posterior. Figure 3 reports sensitivity to α for all studies (for the time-ordered stream). These plots indicate that the optimal setting of α is often different from the true number of data points; the best performing population posterior variance is not necessarily the one implied by the data. The other hyperparameters to our experiments are reported in Appendix C."
+    }, {
+      "heading" : "4 Conclusions and Future Work",
+      "text" : "We introduced the population posterior, a distribution over latent variables that combines traditional Bayesian inference with the frequentist idea of the population distribution. With this idea, we derived population variational Bayes, an efficient algorithm for probabilistic inference on streams. On two complex Bayesian models and several large data sets, we found that population variational Bayes usually performs better than existing approaches to streaming inference.\nIn this paper, we made no assumptions about the structure of the population distribution. Making assumptions, such as the ability to obtain streams conditional on queries, can lead to variants of our algorithm that learn which data points to see next during inference. Finally, understanding the theoretical properties of the population posterior is also an avenue of interest.\nAcknowledgments. We thank Allison Chaney, John Cunningham, Alp Kucukelbir, Stephan Mandt, Peter Orbanz, Theo Weber, Frank Wood, and the anonymous reviewers for their comments. This work is supported by NSF IIS-0745520, IIS-1247664, IIS-1009542, ONR N00014-11-1-0651, DARPA FA8750-14-2-0009, N66001-15-C-4032, NDSEG, Facebook, Adobe, Amazon, and the Siebel Scholar and John Templeton Foundations.\n3Though our purpose is to compare algorithms, we make one note about a specific data set. The predictive accuracy for the Ivory Coast data set plummets after 14M data points. This is because of the data collection policy. For privacy reasons the data set provides the cell tower locations of a randomly selected cohort of 50K users every 2 weeks [6]. The new cohort at 14M data points behaves differently to previous cohorts in a way that affects predictive performance. However, both algorithms steadily improve after this shock."
+    } ],
+    "references" : [ {
+      "title" : "Online inference for the infinite topic-cluster model: Storylines from streaming text",
+      "author" : [ "A. Ahmed", "Q. Ho", "C.H. Teo", "J. Eisenstein", "E.P. Xing", "A.J. Smola" ],
+      "venue" : "In International Conference on Artificial Intelligence and Statistics,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : "1",
+      "year" : 2011
+    }, {
+      "title" : "Natural gradient works efficiently in learning",
+      "author" : [ "S.I. Amari" ],
+      "venue" : "Neural Computation,",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 1998
+    }, {
+      "title" : "Bayesian Theory, volume 405",
+      "author" : [ "J.M. Bernardo", "A.F. Smith" ],
+      "venue" : null,
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 2009
+    }, {
+      "title" : "Variational inference for Dirichlet process mixtures",
+      "author" : [ "D.M. Blei", "M.I. Jordan" ],
+      "venue" : "Bayesian Analysis,",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : "4",
+      "year" : 2006
+    }, {
+      "title" : "Latent Dirichlet allocation",
+      "author" : [ "D.M. Blei", "A.Y. Ng", "M.I. Jordan" ],
+      "venue" : "The Journal of Machine Learning Research,",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : "5",
+      "year" : 2003
+    }, {
+      "title" : "Data for development: the D4D challenge on mobile phone data",
+      "author" : [ "V.D. Blondel", "M. Esch", "C. Chan", "F. Clérot", "P. Deville", "E. Huens", "F. Morlot", "Z. Smoreda", "C. Ziemlicki" ],
+      "venue" : "arXiv preprint arXiv:1210.0137,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : "6",
+      "year" : 2012
+    }, {
+      "title" : "Online learning and stochastic approximations",
+      "author" : [ "L. Bottou" ],
+      "venue" : "Online learning in Neural Networks,",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : "7",
+      "year" : 1998
+    }, {
+      "title" : "Streaming variational Bayes",
+      "author" : [ "T. Broderick", "N. Boyd", "A. Wibisono", "A.C. Wilson", "M. Jordan" ],
+      "venue" : "In Advances in Neural Information Processing Systems,",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : "8",
+      "year" : 2013
+    }, {
+      "title" : "On sequential Monte Carlo sampling methods for Bayesian filtering",
+      "author" : [ "A. Doucet", "S. Godsill", "C. Andrieu" ],
+      "venue" : "Statistics and Computing,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 2000
+    }, {
+      "title" : "An introduction to the bootstrap",
+      "author" : [ "B. Efron", "R.J. Tibshirani" ],
+      "venue" : "CRC press,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : "10",
+      "year" : 1994
+    }, {
+      "title" : "Bayesian density estimation and inference using mixtures",
+      "author" : [ "M.D. Escobar", "M. West" ],
+      "venue" : "Journal of the American Statistical Association,",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 1995
+    }, {
+      "title" : "Online variational Bayesian learning",
+      "author" : [ "Z. Ghahramani", "H. Attias" ],
+      "venue" : "In Slides from talk presented at NIPS 2000 Workshop on Online learning,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 2000
+    }, {
+      "title" : "Structured stochastic variational inference",
+      "author" : [ "M.D. Hoffman", "D.M. Blei" ],
+      "venue" : "In International Conference on Artificial Intelligence and Statistics,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 2015
+    }, {
+      "title" : "Stochastic variational inference",
+      "author" : [ "M.D. Hoffman", "D.M. Blei", "C. Wang", "J. Paisley" ],
+      "venue" : "The Journal of Machine Learning Research,",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 2013
+    }, {
+      "title" : "On-line variational Bayesian learning",
+      "author" : [ "A. Honkela", "H. Valpola" ],
+      "venue" : "In 4th International Symposium on Independent Component Analysis and Blind Signal Separation,",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : "15",
+      "year" : 2003
+    }, {
+      "title" : "An introduction to variational methods for graphical models",
+      "author" : [ "M.I. Jordan", "Z. Ghahramani", "T.S. Jaakkola", "L.K. Saul" ],
+      "venue" : "Machine learning,",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : "16",
+      "year" : 1999
+    }, {
+      "title" : "Auto-encoding variational Bayes",
+      "author" : [ "D.P. Kingma", "M. Welling" ],
+      "venue" : "arXiv preprint arXiv:1312.6114,",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : "17",
+      "year" : 2013
+    }, {
+      "title" : "Black box variational inference",
+      "author" : [ "R. Ranganath", "S. Gerrish", "D.M. Blei" ],
+      "venue" : "In Proceedings of the Seventeenth International Conference on Artificial Intelligence and Statistics,",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : "18",
+      "year" : 2014
+    }, {
+      "title" : "A stochastic approximation method",
+      "author" : [ "H. Robbins", "S. Monro" ],
+      "venue" : "The Annals of Mathematical Statistics,",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : "19",
+      "year" : 1951
+    }, {
+      "title" : "Exploiting tractable substructures in intractable networks",
+      "author" : [ "L.K. Saul", "M.I. Jordan" ],
+      "venue" : "Advances in Neural Information Processing Systems,",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : "20",
+      "year" : 1996
+    }, {
+      "title" : "A constructive definition of Dirichlet priors",
+      "author" : [ "J. Sethuraman" ],
+      "venue" : "Statistica Sinica,",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : "21",
+      "year" : 1994
+    }, {
+      "title" : "Streaming variational inference for Bayesian nonparametric mixture models",
+      "author" : [ "A. Tank", "N. Foti", "E. Fox" ],
+      "venue" : "In International Conference on Artificial Intelligence and Statistics,",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : "22",
+      "year" : 2015
+    }, {
+      "title" : "A trust-region method for stochastic variational inference with applications to streaming data",
+      "author" : [ "L. Theis", "M.D. Hoffman" ],
+      "venue" : "In International Conference on Machine Learning,",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : "23",
+      "year" : 2015
+    }, {
+      "title" : "Doubly stochastic variational Bayes for non-conjugate inference",
+      "author" : [ "M. Titsias", "M. Lázaro-Gredilla" ],
+      "venue" : "In Proceedings of the 31st International Conference on Machine Learning,",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : "24",
+      "year" : 2014
+    }, {
+      "title" : "Graphical models, exponential families, and variational inference",
+      "author" : [ "M.J. Wainwright", "M.I. Jordan" ],
+      "venue" : "Foundations and Trends in Machine Learning,",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : "25",
+      "year" : 2008
+    }, {
+      "title" : "Evaluation methods for topic models",
+      "author" : [ "H. Wallach", "I. Murray", "R. Salakhutdinov", "D. Mimno" ],
+      "venue" : "In International Conference on Machine Learning,",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : "26",
+      "year" : 2009
+    }, {
+      "title" : "Efficient methods for topic model inference on streaming document collections",
+      "author" : [ "L. Yao", "D. Mimno", "A. McCallum" ],
+      "venue" : "In Conference on Knowledge Discovery and Data Mining,",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : "27",
+      "year" : 2009
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 13,
+      "context" : ") Following [14], we define the model to have two kinds of hidden variables: global hidden variables β contain latent structure that potentially governs any data point; local hidden variables zi contain latent structure that only governs the ith data point.",
+      "startOffset" : 12,
+      "endOffset" : 16
+    }, {
+      "referenceID" : 13,
+      "context" : "As we will show, our algorithm justifies applying a variant of stochastic variational inference [14] to a data stream.",
+      "startOffset" : 96,
+      "endOffset" : 100
+    }, {
+      "referenceID" : 4,
+      "context" : "We used our method to analyze several data streams with two modern probabilistic models, latent Dirichlet allocation [5] and Dirichlet process mixtures [11].",
+      "startOffset" : 117,
+      "endOffset" : 120
+    }, {
+      "referenceID" : 10,
+      "context" : "We used our method to analyze several data streams with two modern probabilistic models, latent Dirichlet allocation [5] and Dirichlet process mixtures [11].",
+      "startOffset" : 152,
+      "endOffset" : 156
+    }, {
+      "referenceID" : 13,
+      "context" : "With held-out likelihood as a measure of model fitness, we found our method to give better models of the data than approaches based on full Bayesian inference [14] or Bayesian updating [8].",
+      "startOffset" : 159,
+      "endOffset" : 163
+    }, {
+      "referenceID" : 7,
+      "context" : "With held-out likelihood as a measure of model fitness, we found our method to give better models of the data than approaches based on full Bayesian inference [14] or Bayesian updating [8].",
+      "startOffset" : 185,
+      "endOffset" : 188
+    }, {
+      "referenceID" : 0,
+      "context" : "[1, 9, 27] propose extending Markov chain Monte Carlo methods for streaming data.",
+      "startOffset" : 0,
+      "endOffset" : 10
+    }, {
+      "referenceID" : 8,
+      "context" : "[1, 9, 27] propose extending Markov chain Monte Carlo methods for streaming data.",
+      "startOffset" : 0,
+      "endOffset" : 10
+    }, {
+      "referenceID" : 26,
+      "context" : "[1, 9, 27] propose extending Markov chain Monte Carlo methods for streaming data.",
+      "startOffset" : 0,
+      "endOffset" : 10
+    }, {
+      "referenceID" : 14,
+      "context" : "[15] propose online variational inference by exponentially forgetting the variational parameters associated with old data.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 13,
+      "context" : "Stochastic variational inference (SVI) [14] also decay parameters derived from old data, but interprets this in the context of stochastic optimization.",
+      "startOffset" : 39,
+      "endOffset" : 43
+    }, {
+      "referenceID" : 11,
+      "context" : "[12] both propose Bayesian updating of the approximating family; Ref.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 21,
+      "context" : "[22] adapts this framework to nonparametric mixture models.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 22,
+      "context" : "[23] applied SVI to streaming data by accumulating new data points into a growing window and then uniformly sampling from this window to update the variational parameters.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 15,
+      "context" : "The idea behind variational inference is to approximate difficult-to-compute distributions through optimization [16, 25].",
+      "startOffset" : 112,
+      "endOffset" : 120
+    }, {
+      "referenceID" : 24,
+      "context" : "The idea behind variational inference is to approximate difficult-to-compute distributions through optimization [16, 25].",
+      "startOffset" : 112,
+      "endOffset" : 120
+    }, {
+      "referenceID" : 12,
+      "context" : "Though we focus on the mean-field family, extensions could consider structured families [13, 20], where there is dependence between variables.",
+      "startOffset" : 88,
+      "endOffset" : 96
+    }, {
+      "referenceID" : 19,
+      "context" : "Though we focus on the mean-field family, extensions could consider structured families [13, 20], where there is dependence between variables.",
+      "startOffset" : 88,
+      "endOffset" : 96
+    }, {
+      "referenceID" : 13,
+      "context" : "Following [14] we focus on conditionally conjugate models.",
+      "startOffset" : 10,
+      "endOffset" : 14
+    }, {
+      "referenceID" : 2,
+      "context" : "Note that ζ is the hyperparameter and that t(β ) = [β ,−a(β )] [3].",
+      "startOffset" : 63,
+      "endOffset" : 66
+    }, {
+      "referenceID" : 4,
+      "context" : "For example, in latent Dirichlet allocation [5], the complete conditional of the topics is a Dirichlet; the complete conditional of the per-document topic mixture is a Dirichlet; and the complete conditional of the per-word topic assignment is a categorical.",
+      "startOffset" : 44,
+      "endOffset" : 47
+    }, {
+      "referenceID" : 6,
+      "context" : "To overcome this hurdle, we will use the stream of data from F to form noisy gradients of the F-ELBO; we then update the variational parameters with stochastic optimization (a technique to find a local optimum by following noisy unbiased gradients [7]).",
+      "startOffset" : 248,
+      "endOffset" : 251
+    }, {
+      "referenceID" : 13,
+      "context" : "Mirroring [14], we optimize an F-ELBO that is only a function of the global variational parameters.",
+      "startOffset" : 10,
+      "endOffset" : 14
+    }, {
+      "referenceID" : 6,
+      "context" : "Stochastic optimization maximizes an objective by following noisy and unbiased gradients [7, 19].",
+      "startOffset" : 89,
+      "endOffset" : 96
+    }, {
+      "referenceID" : 18,
+      "context" : "Stochastic optimization maximizes an objective by following noisy and unbiased gradients [7, 19].",
+      "startOffset" : 89,
+      "endOffset" : 96
+    }, {
+      "referenceID" : 1,
+      "context" : "We take the natural gradient [2], which has a simple form in completely conjugate models [14].",
+      "startOffset" : 29,
+      "endOffset" : 32
+    }, {
+      "referenceID" : 13,
+      "context" : "We take the natural gradient [2], which has a simple form in completely conjugate models [14].",
+      "startOffset" : 89,
+      "endOffset" : 93
+    }, {
+      "referenceID" : 13,
+      "context" : "As highlighted in [14], this strategy is more computationally efficient because early iterations of the algorithm have inaccurate values of λ .",
+      "startOffset" : 18,
+      "endOffset" : 22
+    }, {
+      "referenceID" : 13,
+      "context" : "Our derivation justifies using an algorithm like stochastic variational inference (SVI) [14] on a stream of data.",
+      "startOffset" : 88,
+      "endOffset" : 92
+    }, {
+      "referenceID" : 16,
+      "context" : "We emphasize, however, that by using recent tools for nonconjugate inference [17, 18, 24], we can adapt the new ideas described above—the population posterior and the F-ELBO—outside of conditionally conjugate models.",
+      "startOffset" : 77,
+      "endOffset" : 89
+    }, {
+      "referenceID" : 17,
+      "context" : "We emphasize, however, that by using recent tools for nonconjugate inference [17, 18, 24], we can adapt the new ideas described above—the population posterior and the F-ELBO—outside of conditionally conjugate models.",
+      "startOffset" : 77,
+      "endOffset" : 89
+    }, {
+      "referenceID" : 23,
+      "context" : "We emphasize, however, that by using recent tools for nonconjugate inference [17, 18, 24], we can adapt the new ideas described above—the population posterior and the F-ELBO—outside of conditionally conjugate models.",
+      "startOffset" : 77,
+      "endOffset" : 89
+    }, {
+      "referenceID" : 7,
+      "context" : "We study the performance of population variational Bayes (population VB) against SVI and streaming variational Bayes (SVB) [8].",
+      "startOffset" : 123,
+      "endOffset" : 126
+    }, {
+      "referenceID" : 4,
+      "context" : "With large real-world data we study two models, latent Dirichlet allocation [5] and Bayesian nonparametric mixture models, comparing the held-out predictive performance of the algorithms.",
+      "startOffset" : 76,
+      "endOffset" : 79
+    }, {
+      "referenceID" : 4,
+      "context" : "The first is latent Dirichlet allocation (LDA) [5].",
+      "startOffset" : 47,
+      "endOffset" : 50
+    }, {
+      "referenceID" : 9,
+      "context" : "Documents are drawn by first choosing a distribution over topics θd ∼ Dir(α) and then 2This derivation of SVI is an application of Efron’s plug-in principle [10] applied to inference of the population posterior.",
+      "startOffset" : 157,
+      "endOffset" : 161
+    }, {
+      "referenceID" : 7,
+      "context" : "Population-VB α=1M Streaming-VB [8] SVI [15]",
+      "startOffset" : 32,
+      "endOffset" : 35
+    }, {
+      "referenceID" : 14,
+      "context" : "Population-VB α=1M Streaming-VB [8] SVI [15]",
+      "startOffset" : 40,
+      "endOffset" : 44
+    }, {
+      "referenceID" : 10,
+      "context" : "The second model is a Dirichlet process (DP) mixture [11].",
+      "startOffset" : 53,
+      "endOffset" : 57
+    }, {
+      "referenceID" : 3,
+      "context" : "When using variational inference for DP mixtures [4], we take advantage of the stick breaking representation to construct a truncated variational approximation [21].",
+      "startOffset" : 49,
+      "endOffset" : 52
+    }, {
+      "referenceID" : 20,
+      "context" : "When using variational inference for DP mixtures [4], we take advantage of the stick breaking representation to construct a truncated variational approximation [21].",
+      "startOffset" : 160,
+      "endOffset" : 164
+    }, {
+      "referenceID" : 7,
+      "context" : "Population-VB α=best Streaming-VB [8] SVI [15]",
+      "startOffset" : 34,
+      "endOffset" : 37
+    }, {
+      "referenceID" : 14,
+      "context" : "Population-VB α=best Streaming-VB [8] SVI [15]",
+      "startOffset" : 42,
+      "endOffset" : 46
+    }, {
+      "referenceID" : 5,
+      "context" : "The Ivory Coast location data contains 18M discrete cell tower locations for 500K users recorded over 6 months [6].",
+      "startOffset" : 111,
+      "endOffset" : 114
+    }, {
+      "referenceID" : 13,
+      "context" : "We compare population VB with SVI [14] and SVB [8] for LDA [8] and DP mixtures [22].",
+      "startOffset" : 34,
+      "endOffset" : 38
+    }, {
+      "referenceID" : 7,
+      "context" : "We compare population VB with SVI [14] and SVB [8] for LDA [8] and DP mixtures [22].",
+      "startOffset" : 47,
+      "endOffset" : 50
+    }, {
+      "referenceID" : 7,
+      "context" : "We compare population VB with SVI [14] and SVB [8] for LDA [8] and DP mixtures [22].",
+      "startOffset" : 59,
+      "endOffset" : 62
+    }, {
+      "referenceID" : 21,
+      "context" : "We compare population VB with SVI [14] and SVB [8] for LDA [8] and DP mixtures [22].",
+      "startOffset" : 79,
+      "endOffset" : 83
+    }, {
+      "referenceID" : 13,
+      "context" : "This involves splitting held-out observations (that were not involved in the posterior approximation of β ) into two equal halves, inferring the local component distribution based on the first half, and testing with the second half [14, 26].",
+      "startOffset" : 232,
+      "endOffset" : 240
+    }, {
+      "referenceID" : 25,
+      "context" : "This involves splitting held-out observations (that were not involved in the posterior approximation of β ) into two equal halves, inferring the local component distribution based on the first half, and testing with the second half [14, 26].",
+      "startOffset" : 232,
+      "endOffset" : 240
+    }, {
+      "referenceID" : 5,
+      "context" : "For privacy reasons the data set provides the cell tower locations of a randomly selected cohort of 50K users every 2 weeks [6].",
+      "startOffset" : 124,
+      "endOffset" : 127
+    } ],
+    "year" : 2015,
+    "abstractText" : "Many modern data analysis problems involve inferences from streaming data. However, streaming data is not easily amenable to the standard probabilistic modeling approaches, which require conditioning on finite data. We develop population variational Bayes, a new approach for using Bayesian modeling to analyze streams of data. It approximates a new type of distribution, the population posterior, which combines the notion of a population distribution of the data with Bayesian inference in a probabilistic model. We develop the population posterior for latent Dirichlet allocation and Dirichlet process mixtures. We study our method with several large-scale data sets.",
+    "creator" : null
+  }
+}

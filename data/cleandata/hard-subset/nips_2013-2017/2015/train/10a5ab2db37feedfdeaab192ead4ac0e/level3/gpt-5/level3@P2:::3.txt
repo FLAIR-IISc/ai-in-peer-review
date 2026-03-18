@@ -1,0 +1,63 @@
+Summary and relation to prior work
+This paper proposes a hardware-aware training method that reconciles standard backpropagation with neuromorphic deployment constraints: spiking neurons, low-precision/binary synapses, and limited fan-in. The core idea is to treat spikes and discrete synapses as probabilities during training, enabling differentiability and the use of backprop. Specifically, synaptic connections are parameterized as Bernoulli probabilities c̃ij in [0,1], neuron outputs are modeled as firing probabilities via a Gaussian approximation to pre-activation sums, and gradients are propagated through the complementary error function. At deployment, the trained probabilities are sampled to yield one or more spiking networks with binary synapses, and an ensemble average across sampled instances improves accuracy. The method is demonstrated on IBM’s TrueNorth (TN) with two sparse multilayer topologies; on MNIST it reaches 99.42% accuracy with a 64-member ensemble at 108 μJ per image, and 92.7% at 0.268 μJ with a single 5-core network, classifying at 1 kHz.
+
+Relative to prior work, the paper positions itself against: (i) conversions that first train conventional nets then constrain/normalize thresholds and discretize weights for spiking deployment (e.g., [12]); (ii) methods that use spiking neurons with high-precision synapses [9–12]; (iii) probabilistic backprop for binary neurons/synapses under full connectivity [14,15]; and (iv) earlier spiking backprop rules such as SpikeProp (Bohte et al., 2002) that optimize spike timing under precise temporal codes. The contribution here is a “constrain-then-train” probabilistic formulation that directly matches TN’s binary synapses and sparse connectivity, with an explicit mapping from learned probabilities to deployable spiking networks.
+
+Strengths
+- Clear, timely problem: bridging successful backprop-based training with ultra-low-power neuromorphic deployment.
+- Conceptually simple, differentiable probabilistic relaxation that fits binary synapses and spiking outputs, with a direct, hardware-friendly mapping.
+- Strong empirical energy/accuracy trade-offs on real hardware, including real-time throughput and careful accounting of active plus proportional leakage power.
+- Sensible architectural choices (progressive mixing/sliding windows) that respect fan-in constraints.
+- Readable manuscript; derivations and training details are presented accessibly.
+
+Weaknesses and questions
+- Novelty claims in Section 1 are worded in a way that might suggest novelty of “spiking neurons + low-precision synapses” per se. This combination has appeared before; your novelty is in the specific probabilistic backprop formulation with constrained connectivity and mapping to TN. Please reword to avoid overclaiming.
+- Positioning w.r.t. “train-then-constrain” is a bit unfair to [12], which already enforces constraints (e.g., zero bias, threshold balancing) during training rather than purely post hoc. Please correct this and fix the “approach approach” typo.
+- Comparisons to spiking backprop variants (e.g., SpikeProp and other timing/surrogate-gradient methods) are missing. A brief discussion clarifying differences in coding assumptions (rate vs timing), gradient pathways, and deployment implications would help.
+- Ensemble reliance: the headline 99.42% requires a 64-member ensemble (1920 cores). This is a material resource/energy increase; please discuss the practicality for embedded settings and compare single-network accuracy fairly to prior single-model spiking results (e.g., [12]).
+- Unexpected performance trend: the single-member 30-core network appears to perform worse than the 5-core network (as implied by your results). Please explain why capacity does not translate to accuracy without ensembling. Is this due to sampling variance, under-regularization, or mismatch between c̃ and sampled c?
+- Similar ensembles of the 5-core network yield similar results. Why is ensemble gain limited there? Does the small model saturate or do samples collapse due to limited degrees of freedom?
+- Training overhead: the probabilistic forward (Gaussian CDF) and gradient terms are more expensive than ReLU MLPs. Please report wall-clock training time relative to a comparable baseline and quantify the approximation (dropping the σ^−3 term) via an ablation to show it does not materially affect accuracy.
+- “0.15 bits per synapse” needs clarification. As I understand, the 4×9-bit axon-type lookup table amortizes across the 256×256 crossbar, yielding ~0.14–0.15 bits/synapse on top of the 1-bit crosspoint. Please state explicitly that this is an amortized overhead and show the arithmetic.
+- Network topology is scattered. Collect all topology parameters (R, F, S per layer; neuron counts; fan-in; axon-type assignments) in one consolidated figure/table for reproducibility. Explicitly define how features are subselected, whether feature exclusivity holds across target cores, and how many times an input element can be reused.
+- Input encoding details: During testing you use a single 1 ms step with independent Bernoulli sampling per input line. Please report the per-pixel spike probability/rate, confirm whether inputs are treated as one-timestep spike trains or Poisson processes over multiple ticks, and discuss sensitivity to tick duration.
+- Generality: While the method is claimed to generalize, several elements (four axon types, block weight sharing, 256 fan-in) are TN-specific. Please articulate how the approach would adapt to other neuromorphic substrates with different synapse quantization and routing constraints.
+- Reproducibility: training schedule is given, but please add number of epochs, initialization seeds, and code availability (if possible), and report variance across multiple training runs.
+
+Quality
+Technically sound overall: the probabilistic relaxation, Gaussian approximation, and gradient derivation are reasonable under independence and large fan-in. The approximation that drops the σ^−3 term is plausible but would benefit from empirical justification. Energy measurement methodology is described, though more detail on leakage scaling across active cores would strengthen the claims. The experimental scope is limited to MNIST but includes a useful energy–accuracy sweep.
+
+Clarity
+Generally well written and easy to follow. Consolidating network topology, clarifying the 0.15 bits/synapse statement, correcting minor typos, and expanding the discussion of ensembles would improve clarity and reproducibility.
+
+Originality
+Moderate to high. While probabilistic/backprop treatments of binary neurons/synapses and spiking conversions exist, combining: (i) probabilistic training of binary connectivity; (ii) constrained sparse fan-in; and (iii) a direct, low-precision mapping to TN with competitive accuracy is a novel and useful synthesis.
+
+Significance
+High practical significance for neuromorphic deployment: energy numbers are impressive and the method provides a clean path from training to hardware. However, reliance on ensembling for top accuracy and TN-specific constraints somewhat limit generality. Still, the approach is likely to influence hardware-aware training for spiking systems.
+
+Specific suggestions
+- Rephrase novelty claims and correct the description of [12].
+- Add a brief comparison to SpikeProp and related spiking backprop methods.
+- Provide training-time and ablation on the gradient approximation.
+- Consolidate topology details and explain feature selection/exclusivity.
+- Clarify input spike encoding and report spike rates.
+- Explain performance anomalies (30-core single vs 5-core; ensemble gains).
+- Clarify and show the calculation behind “0.15 bits per synapse.”
+- Discuss generalization to other neuromorphic platforms.
+
+Arguments for acceptance
+- Clear, elegant method that directly addresses an important gap.
+- Strong, real-hardware validation with excellent energy efficiency.
+- Solid writing and derivations; likely to be of broad interest to the community.
+
+Arguments against acceptance
+- Heavy reliance on large ensembles for SOTA accuracy; single-network results are less compelling.
+- Limited dataset scope (MNIST) and TN-specific details limit perceived generality.
+- Missing comparisons/discussion with established spiking backprop methods; some claims slightly overstate novelty.
+
+Recommendation
+Lean accept. The paper advances hardware-aware learning for neuromorphic computing and presents convincing energy–accuracy trade-offs on real silicon. Addressing the clarity and comparison issues above would strengthen it further.
+
+Reviewer confidence
+High on machine learning and hardware-aware training; moderate on TN-specific architectural details.

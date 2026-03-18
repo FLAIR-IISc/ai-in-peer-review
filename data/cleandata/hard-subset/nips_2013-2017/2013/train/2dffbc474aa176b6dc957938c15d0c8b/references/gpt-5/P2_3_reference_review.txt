@@ -1,0 +1,43 @@
+Summary and relation to prior work
+The paper addresses Bayesian learning and inference in nonlinear Gaussian Process State-Space Models (GP-SSMs). The key idea is to place a GP prior over the unknown dynamics f, assume a known (possibly parametric) observation model g, and perform fully Bayesian inference over latent states x0:T and hyperparameters θ while analytically marginalizing f. Collapsing f induces non-Markovian dependencies in the latent trajectory prior; the authors derive the marginal prior over x1:T conditional on x0 (Eq. 3–4) as a product of GP one-step predictive Gaussians. For posterior inference, they employ Particle MCMC, specifically Particle Gibbs with Ancestor Sampling (PGAS), to sample x0:T from p(x0:T | θ, y0:T) and alternate with sampling θ given x0:T. They further develop efficient implementations via Cholesky rank-1 updates and a sparse GP prior (FIC) that reduces per-iteration cost from O(T^3) to O(M^2 T) with M inducing points. After obtaining smoothing samples, the posterior over f is standard GP regression conditioned on sampled state transitions, yielding a mixture of Gaussians for predictive distributions over f(x*).
+
+This contributes a fully Bayesian, nonparametric approach to learning GP-SSMs that differs from prior work that either: (i) fixes a parametric representation of f and uses EM/MAP (e.g., Ghahramani & Roweis; Turner et al.; Wang et al.’s GPDM), or (ii) performs filtering/smoothing with a learned GP dynamics model (Deisenroth et al.) but does not address fully Bayesian learning of f given latent states. Using PGAS to sample trajectories in a collapsed GP-SSM appears novel and well-matched to the non-Markovian structure.
+
+Quality
+- Technical soundness: The marginalization of f and the resulting form of p(x1:T | x0) (Eq. 3–4) are standard consequences of GP conditioning; the observation that the joint is not Gaussian because the mean and covariance depend on the argument is correct. The use of PGAS and the ancestor sampling weights (Eq. 6) for non-Markovian models is consistent with the literature and leverages invariance properties of CPF-AS. The hyperparameter sampling strategy—conditioning on x0:T yields GP regression with likelihood covariance Q, enabling slice sampling—is sound.
+- Algorithmic details: The complexity analysis and implementation details are valuable. Maintaining per-particle Cholesky factors and updating them with rank-1 up/downdates to achieve O(T^3) total complexity for the dense case (and O(M^2 T) for FIC) is plausible but depends critically on reuse across time and careful bookkeeping. One point needing clarification is whether the stated O(T^3) total cost is per PGAS sweep or per particle; as written, the text suggests per time step O(T^2) with N particles, implying O(N T^3) unless factors are shared cleverly across particles. Similarly, ancestor sampling weight computations using the collapsed prior could become expensive unless the stated factorizations are reused efficiently.
+- Empirical support: The nonlinear benchmark experiment demonstrates multimodal smoothing and predictive performance; the cart-pole example shows sensible uncertainty quantification and one-step prediction. However, the empirical section is relatively light: only two datasets, few baselines, modest PGAS settings (50 iterations, N=20), and no mixing/ESS diagnostics or runtime/memory comparisons. The FIC variant is evaluated with 40 inducing points but details on inducing input selection and sensitivity are sparse.
+- Honesty about limitations: The paper acknowledges computational challenges, proposes FIC, and notes approximation resides in the sampling algorithm. It would benefit from a more explicit discussion of scalability with state dimension and horizon length, sensitivity to the choice of mean function, and the impact of known vs. unknown g on identifiability.
+
+Clarity
+- The paper is generally well-written and organized. The derivations for the collapsed prior, the PGAS steps, and the sparse GP/FIC construction are clear. Implementation guidance (rank-1 updates; reuse of factorizations; P matrix in FIC) is appreciated.
+- Suggestions: Provide a concise complexity and memory table summarizing per-iteration costs for dense vs. FIC and how they scale with N, T, nx, and M. Clarify whether Q is full or diagonal in experiments, and the priors over θ. Include mixing diagnostics (ACF/ESS) for PGAS and sensitivity to N and number of iterations. Briefly describe the proposal distribution used in the SMC step (beyond default predictive) and whether any adaptation was used.
+
+Originality
+- The core novelty is the collapsed treatment of f in a GP-SSM combined with PGAS for smoothing, enabling fully Bayesian learning of nonparametric dynamics without resorting to finite parameterizations or variational approximations. To my knowledge, prior GP-SSM works used EM/MAP or assumed learned GPs for filtering/smoothing; this paper fills the missing piece by enabling Bayesian learning with strong theoretical underpinnings. The careful treatment of sparse priors within this framework and implementation details further add value.
+
+Significance
+- Conceptual significance is high: marginalizing the dynamics and sampling latent trajectories with PGAS is a principled and potentially general approach that others can build upon, especially for settings where dynamics are hard to parametrize. The mixture-of-Gaussians predictive distribution over f(x*) is a compelling output for downstream tasks.
+- Practical impact is limited by computational cost and by the assumption that g is known. The FIC path mitigates cost but empirical evidence of scalability (e.g., higher-dimensional states, longer sequences, ablation vs. variational GP-SSM methods) is limited. Additional comparative baselines (e.g., GPDM, variational GP-SSMs, SMC-EM) would strengthen claims of state-of-the-art performance.
+
+Pros
+- Clear, principled Bayesian formulation; exact marginalization of f preserves nonparametric expressivity.
+- Appropriate and theoretically justified use of PGAS for non-Markovian latent models.
+- Solid implementation insights (rank-1 updates; FIC integration) that make the approach practical.
+- Demonstrates handling of multimodal smoothing and uncertainty-aware predictions.
+
+Cons
+- Empirical evaluation is limited in scope, baselines, and diagnostics; scalability claims are not thoroughly validated.
+- Some complexity statements could be clarified regarding dependence on N and T per PGAS sweep.
+- Assumes known observation model g; discussion of identifiability and extension to unknown g is brief.
+- Hyperparameter priors and slice sampling details (tuning, convergence) are sparse.
+
+Questions for the authors
+- What is the precise per-sweep computational and memory complexity as a function of N, T, nx, and M? Is O(T^3) total or per particle?
+- How sensitive is performance to the choice of mean function, and can the method recover when the mean function is severely misspecified?
+- Can you report ESS/mixing diagnostics for PGAS, and how they scale with N? Any guidance for choosing N and iterations?
+- How are inducing inputs selected for FIC, and how sensitive are results to M and selection strategy?
+- Any results with unknown g (e.g., simple parametric g with priors) to assess identifiability and robustness?
+
+Recommendation
+Borderline accept. The methodological contribution is novel, technically sound, and relevant to NIPS. The paper would be strengthened by more comprehensive experiments and clearer complexity reporting, but the core idea—collapsed GP-SSM inference with PGAS—advances the state of the art and is likely to be of interest to the community.

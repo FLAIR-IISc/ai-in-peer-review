@@ -1,0 +1,290 @@
+{
+  "name" : "9a49a25d845a483fae4be7e341368e36.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Optimized Pre-Processing for Discrimination Prevention",
+    "authors" : [ "Flavio P. Calmon", "Dennis Wei", "Bhanukiran Vinzamuri", "Kush R. Varshney" ],
+    "emails" : [ "flavio@seas.harvard.edu", "dwei@us.ibm.com", "bhanu.vinzamuri@ibm.com", "knatesa@us.ibm.com", "krvarshn@us.ibm.com" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Discrimination is the prejudicial treatment of an individual based on membership in a legally protected group such as a race or gender. Direct discrimination occurs when protected attributes are used explicitly in making decisions, also known as disparate treatment. More pervasive nowadays is indirect discrimination, in which protected attributes are not used but reliance on variables correlated with them leads to significantly different outcomes for different groups. The latter phenomenon is termed disparate impact. Indirect discrimination may be intentional, as in the historical practice of “redlining” in the U.S. in which home mortgages were denied in zip codes populated primarily by minorities. However, the doctrine of disparate impact applies regardless of actual intent.\nSupervised learning algorithms, increasingly used for decision making in applications of consequence, may at first be presumed to be fair and devoid of inherent bias, but in fact, inherit any bias or discrimination present in the data on which they are trained [Calders and Žliobaitė, 2013]. Furthermore, simply removing protected variables from the data is not enough since it does nothing to address indirect discrimination and may in fact conceal it. The need for more sophisticated tools has made discrimination discovery and prevention an important research area [Pedreschi et al., 2008].\nAlgorithmic discrimination prevention involves modifying one or more of the following to ensure that decisions made by supervised learning methods are less biased: (a) the training data, (b) the learning algorithm, and (c) the ensuing decisions themselves. These are respectively classified as pre-processing [Hajian, 2013], in-processing [Fish et al., 2016, Zafar et al., 2016, Kamishima et al., 2011] and post-processing approaches [Hardt et al., 2016]. In this paper, we focus on pre-processing since it is the most flexible in terms of the data science pipeline: it is independent of the modeling algorithm and can be integrated with data release and publishing mechanisms.\nResearchers have also studied several notions of discrimination and fairness. Disparate impact is addressed by the principles of statistical parity and group fairness [Feldman et al., 2015], which seek similar outcomes for all groups. In contrast, individual fairness [Dwork et al., 2012] mandates that similar individuals be treated similarly irrespective of group membership. For classifiers and other\n31st Conference on Neural Information Processing Systems (NIPS 2017), Long Beach, CA, USA.\npredictive models, equal error rates for different groups are a desirable property [Hardt et al., 2016], as is calibration or lack of predictive bias in the predictions [Zhang and Neill, 2016]. The tension between the last two notions is described by Kleinberg et al. [2017] and Chouldechova [2016]; the work of Friedler et al. [2016] is in a similar vein. Corbett-Davies et al. [2017] discuss the trade-offs in satisfying prevailing notions of algorithmic fairness from a public safety standpoint. Since the present work pertains to pre-processing and not modeling, balanced error rates and predictive bias are less relevant criteria. Instead we focus primarily on achieving group fairness while also accounting for individual fairness through a distortion constraint.\nExisting pre-processing approaches include sampling or re-weighting the data to neutralize discriminatory effects [Kamiran and Calders, 2012], changing the individual data records [Hajian and Domingo-Ferrer, 2013], and using t-closeness [Li et al., 2007] for discrimination control [Ruggieri, 2014]. A common theme is the importance of balancing discrimination control against utility of the processed data. However, this prior work neither presents general and principled optimization frameworks for trading off these two criteria, nor allows connections to be made to the broader statistical learning and information theory literature via probabilistic descriptions. Another shortcoming is that individual distortion or fairness is not made explicit.\nIn this work, we (i) introduce a probabilistic framework for discrimination-preventing preprocessing in supervised learning, (ii) formulate an optimization problem for producing preprocessing transformations that trade off discrimination control, data utility, and individual distortion, (iii) characterize theoretical properties of the optimization approach (e.g. convexity, robustness to limited samples), and (iv) benchmark the ensuing pre-processing transformations on real-word datasets. Our aim in part is to work toward a more unified view of existing\npre-processing concepts and methods, which may help to suggest refinements. While discrimination and utility are defined at the level of probability distributions, distortion is controlled on a per-sample basis, thereby limiting the effect of the transformation on individuals and ensuring a degree of individual fairness. Figure 1 illustrates the supervised learning pipeline that includes our proposed discrimination-preventing pre-processing.\nThe work of Zemel et al. [2013] is closest to ours in also presenting a framework with three criteria related to discrimination control (group fairness), individual fairness, and utility. However, the criteria are manifested less directly than in our proposal. Discrimination control is posed in terms of intermediate features rather than outcomes, individual distortion does not take outcomes into account (being an `2-norm between original and transformed features), and utility is specific to a particular classifier. Our formulation more naturally and generally encodes these fairness and utility desiderata.\nGiven the novelty of our formulation, we devote more effort than usual to discussing its motivations and potential variations. We state conditions under which the proposed optimization problem is convex. The optimization assumes as input an estimate of the distribution of the data which, in practice, can be imprecise due to limited sample size. Accordingly, we characterize the possible degradation in discrimination and utility guarantees at test time in terms of the training sample size. To demonstrate our framework, we apply specific instances of it to a prison recidivism dataset [ProPublica, 2017] and the UCI Adult dataset [Lichman, 2013]. We show that discrimination, distortion, and utility loss can be controlled simultaneously with real data. We also show that the preprocessed data reduces discrimination when training standard classifiers, particularly when compared to the original data with and without removing protected variables. In the Supplementary Material (SM), we describe in more detail the resulting transformations and the demographic patterns that they reveal."
+    }, {
+      "heading" : "2 General Formulation",
+      "text" : "We are given a dataset consisting of n i.i.d. samples {(Di, Xi, Yi)}ni=1 from a joint distribution pD,X,Y with domain D ×X × Y . Here D denotes one or more protected (discriminatory) variables such as gender and race, X denotes other non-protected variables used for decision making, and Y is an outcome random variable. We use the term ‘discriminatory’ interchangeably with ‘protected,’\nand not in the usual statistical sense. For instance, Yi could represent a loan approval decision for individual i based on demographic information Di and credit score Xi. We focus in this paper on discrete (or discretized) and finite domains D and X and binary outcomes, i.e. Y = {0, 1}. There is no restriction on the dimensions of D and X .\nOur goal is to determine a randomized mapping pX̂,Ŷ |X,Y,D that (i) transforms the given dataset into a new dataset {(Di, X̂i, Ŷi)}ni=1 which may be used to train a model, and (ii) similarly transforms data to which the model is applied, i.e. test data. Each (X̂i, Ŷi) is drawn independently from the same domain X × Y as X,Y by applying pX̂,Ŷ |X,Y,D to the corresponding triplet (Di, Xi, Yi). Since Di is retained as-is, we do not include it in the mapping to be determined. Motivation for retaining D is discussed later in Section 3. For test samples, Yi is not available at the input while Ŷi may not be needed at the output. In this case, a reduced mapping pX̂|X,D is used as given later in (9).\nIt is assumed that pD,X,Y is known along with its marginals and conditionals. This assumption is often satisfied using the empirical distribution of {(Di, Xi, Yi)}ni=1. In Section 3, we state a result ensuring that discrimination and utility loss continue to be controlled if the distribution used to determine pX̂,Ŷ |X,Y,D differs from the distribution of test samples.\nWe propose that the mapping pX̂,Ŷ |X,Y,D satisfy the three following properties.\nI. Discrimination Control. The first objective is to limit the dependence of the transformed outcome Ŷ on the protected variables D. We propose two alternative formulations. The first requires the conditional distribution pŶ |D to be close to a target distribution pYT for all values of D,\nJ ( pŶ |D(y|d), pYT (y) ) ≤ y,d ∀ d ∈ D, y ∈ {0, 1}, (1)\nwhere J(·, ·) denotes some distance function. In the second formulation, we constrain the conditional probability pŶ |D to be similar for any two values of D:\nJ ( pŶ |D(y|d1), pŶ |D(y|d2) ) ≤ y,d1,d2 ∀ d1, d2 ∈ D, y ∈ {0, 1}. (2)\nNote that the number of such constraints is O(|D|2) as opposed to O(|D|) constraints in (1). The choice of pYT in (1), and J and in (1) and (2) should be informed by societal aspects, consultations with domain experts and stakeholders, and legal considerations such as the “80% rule” [EEOC, 1979].\nFor this work, we choose J to be the following probability ratio measure:\nJ(p, q) = ∣∣∣∣pq − 1 ∣∣∣∣ . (3)\nThis metric is motivated by the “80% rule.” The combination of (3) and (1) generalizes the extended lift criterion proposed in the literature [Pedreschi et al., 2012], while the combination of (3) and (2) generalizes selective and contrastive lift. The latter combination (2), (3) is used in the numerical results in Section 4. We note that the selection of a ‘fair’ target distribution pYT in (1) is not straightforward; see Žliobaitė et al. [2011] for one such proposal. Despite its practical motivation, we alert the reader that (3) may be unnecessarily restrictive when q is low.\nIn (1) and (2), discrimination control is imposed jointly with respect to all protected variables, e.g. all combinations of gender and race if D consists of those two variables. An alternative is to take the protected variables one at a time, and impose univariate discrimination control. In this work, we opt for the more stringent joint discrimination control, although legal formulations tend to be of the univariate type.\nFormulations (1) and (2) control discrimination at the level of the overall population in the dataset. It is also possible to control discrimination within segments of the population by conditioning on additional variables B, where B is a subset of X and X is a collection of features. Constraint (1) would then generalize to J ( pŶ |D,B(y|d, b), pYT |B(y|b) ) ≤ y,d,b for all d ∈ D, y ∈ {0, 1}, and b ∈ B. Similar conditioning or ‘context’ for discrimination has been explored before in Hajian and Domingo-Ferrer [2013] in the setting of association rule mining. For example, B could represent the fraction of a pool of applicants that applied to a certain department, which enables the metric to avoid statistical traps such as the Simpson’s paradox [Pearl, 2014]. One may wish to control for such\nvariables in determining the presence of discrimination, while ensuring that population segments created by conditioning are large enough to derive statistically valid inferences. Moreover, we note that there may exist inaccessible latent variables that drive discrimination, and the metrics used here are inherently limited by the available data. Recent definitions of fairness that seek to mitigate this issue include [Johnson et al., 2016] and [Kusner et al., 2017]. We defer further investigation of causality and conditional discrimination to future work.\nII. Distortion Control. The mapping pX̂,Ŷ |X,Y,D should satisfy distortion constraints with respect to the domain X × Y . These constraints restrict the mapping to reduce or avoid altogether certain large changes (e.g. a very low credit score being mapped to a very high credit score). Given a distortion metric δ : (X × Y)2 → R+, we constrain the conditional expectation of the distortion as,\nE [ δ((x, y), (X̂, Ŷ )) | D = d,X = x, Y = y ] ≤ cd,x,y ∀ (d, x, y) ∈ D × X × Y. (4)\nWe assume that δ(x, y, x, y) = 0 for all (x, y) ∈ X × Y . Constraint (4) is formulated with pointwise conditioning on (D,X, Y ) = (d, x, y) in order to promote individual fairness. It ensures that distortion is controlled for every combination of (d, x, y), i.e. every individual in the original dataset, and more importantly, every individual to which a model is later applied. By way of contrast, an average-case measure in which an expectation is also taken overD,X, Y may result in high distortion for certain (d, x, y), likely those with low probability. Equation (4) also allows the level of control cd,x,y to depend on (d, x, y) if desired. We also note that (4) is a property of the mapping pX̂,Ŷ |D,X,Y , and does not depend on the assumed distribution pD,X,Y .\nThe expectation over X̂, Ŷ in (4) encompasses several cases depending on the choices of the metric δ and thresholds cd,x,y. If cd,x,y = 0, then no mappings with nonzero distortion are allowed for individuals with original values (d, x, y). If cd,x,y > 0, then certain mappings may still be disallowed by assigning them infinite distortion. Mappings with finite distortion are permissible subject to the budget cd,x,y . Lastly, if δ is binary-valued (perhaps achieved by thresholding a multi-valued distortion function), it can be seen as classifying mappings into desirable (δ = 0) and undesirable ones (δ = 1). Here, (4) reduces to a bound on the conditional probability of an undesirable mapping, i.e.,\nPr ( δ((x, y), (X̂, Ŷ )) = 1 | D = d,X = x, Y = y ) ≤ cd,x,y. (5)\nIII. Utility Preservation. In addition to constraints on individual distortions, we also require that the distribution of (X̂, Ŷ ) be statistically close to the distribution of (X,Y ). This is to ensure that a model learned from the transformed dataset (when averaged over the protected variables D) is not too different from one learned from the original dataset, e.g. a bank’s existing policy for approving loans. For a given dissimilarity measure ∆ between probability distributions (e.g. KL-divergence), we require that ∆ ( pX̂,Ŷ , pX,Y ) be small.\nOptimization Formulation. Putting together the considerations from the three previous subsections, we arrive at the optimization problem below for determining a randomized transformation pX̂,Ŷ |X,Y,D mapping each sample (Di, Xi, Yi) to (X̂i, Ŷi):\nmin pX̂,Ŷ |X,Y,D\n∆ ( pX̂,Ŷ , pX,Y ) s.t. J ( pŶ |D(y|d), pYT (y) ) ≤ y,d and\nE [ δ((x, y), (X̂, Ŷ )) | D = d,X = x, Y = y ] ≤ cd,x,y ∀ (d, x, y) ∈ D × X × Y,\npX̂,Ŷ |X,Y,D is a valid distribution. (6)\nWe choose to minimize the utility loss ∆ subject to constraints on individual distortion (4) and discrimination (we use (1) for concreteness, but (2) can be used instead), since it is more natural to place bounds on the latter two.\nThe distortion constraints (4) are an essential component of the problem formulation (6). Without (4) and assuming that pYT = pY , it is possible to achieve perfect utility and non-discrimination simply by sampling (X̂i, Ŷi) from the original distribution pX,Y independently of any inputs, i.e.\npX̂,Ŷ |X,Y,D(x̂, ŷ|x, y, d) = pX̂,Ŷ (x̂, ŷ) = pX,Y (x̂, ŷ). Then ∆(pX̂,Ŷ , pX,Y ) = 0, and pŶ |D(y|d) = pŶ (y) = pY (y) = pYT (y) for all d ∈ D. Clearly, this solution is objectionable from the viewpoint of individual fairness, especially for individuals to whom a subsequent model is applied since it amounts to discarding an individual’s data and replacing it with a random sample from the population pX,Y . Constraint (4) seeks to prevent such gross deviations from occurring. The distortion constraints may, however, render the optimization infeasible, as illustrated in the SM."
+    }, {
+      "heading" : "3 Theoretical Properties",
+      "text" : "I. Convexity. We show conditions under which (6) is a convex or quasiconvex optimization problem, and can thus be solved to optimality. The proof is presented in the SM.\nProposition 1. Problem (6) is a (quasi)convex optimization if ∆(·, ·) is (quasi)convex and J(·, ·) is quasiconvex in their respective first arguments (with the second arguments fixed). If discrimination constraint (2) is used in place of (1), then the condition on J is that it be jointly quasiconvex in both arguments.\nII. Generalizability of Discrimination Control. We now discuss the generalizability of discrimination guarantees (1) and (2) to unseen individuals, i.e. those to whom a model is applied. Recall from Section 2 that the proposed transformation retains the protected variables D. We first consider the case where models trained on the transformed data to predict Ŷ are allowed to depend on D. While such models may qualify as disparate treatment, the intent and effect is to better mitigate disparate impact resulting from the model. In this respect our proposal shares the same spirit with ‘fair’ affirmative action in Dwork et al. [2012] (fairer on account of distortion constraint (4)).\nAssuming that predictive models for Ŷ can depend on D, let Ỹ be the output of such a model based on D and X̂ . To remove the separate issue of model accuracy, suppose for simplicity that the model provides a good approximation to the conditional distribution of Ŷ , i.e. pỸ |X̂,D(ỹ|x̂, d) ≈ pŶ |X̂,D(ỹ|x̂, d). Then for individuals in a protected group D = d, the conditional distribution of Ỹ is given by\npỸ |D(ỹ|d) = ∑ x̂ pỸ |X̂,D(ỹ|x̂, d)pX̂|D(x̂|d) ≈ ∑ x̂ pŶ |X̂,D(ỹ|x̂, d)pX̂|D(x̂|d) = pŶ |D(ỹ|d). (7)\nHence the model output pỸ |D can also be controlled by (1) or (2).\nOn the other hand, if D must be suppressed from the transformed data, perhaps to comply with legal requirements regarding its non-use, then a predictive model can depend only on X̂ and approximate pŶ |X̂ , i.e. pỸ |X̂,D(ỹ|x̂, d) = pỸ |X̂(ỹ|x̂) ≈ pŶ |X̂(ỹ|x̂). In this case we have\npỸ |D(ỹ|d) ≈ ∑ x̂ pŶ |X̂(ỹ|x̂)pX̂|D(x̂|d), (8)\nwhich in general is not equal to pŶ |D(ỹ|d) in (7). The quantity on the right-hand side of (8) is less straightforward to control. We address this question in the SM.\nIII. Training and Application Considerations. The proposed optimization framework has two modes of operation (Fig. 1): train and apply. In train mode, the optimization problem (6) is solved in order to determine a mapping pX̂,Ŷ |X,Y,D for randomizing the training set. The randomized training\nset, in turn, is used to fit a classification model fθ(X̂,D) that approximates pŶ |X̂,D, where θ are the parameters of the model. At apply time, a new data point (X,D) is received and transformed into (X̂,D) through a randomized mapping pX̂|X,D. The mapping pX̂|D,X is given by marginalizing\nover Y, Ŷ :\npX̂|D,X(x̂|d, x) = ∑ y,ŷ pX̂,Ŷ |X,Y,D(x̂, ŷ|x, y, d)pY |X,D(y|x, d). (9)\nAssuming that the variable D is not suppressed, and that the marginals are known, then the utility and discrimination guarantees set during train time still hold during apply time, as discussed above.\nHowever, the distortion control will inevitably change, since the mapping has been marginalized over Y . More specifically, the bound on the expected distortion for each sample becomes\nE [ E [ δ((x, Y ), (X̂, Ŷ )) | D = d,X = x, Y ] | D = d,X = x ] ≤ ∑ y∈Y pY |X,D(y|x, d)cx,y,d , cx,d . (10) If the distortion control values cx,y,d are independent of y, then the upper-bound on distortion set during training time still holds during apply time. Otherwise, (10) provides a bound on individual distortion at apply time. The same guarantee holds for the case when D is suppressed.\nIV. Robustness to Mismatched Prior Distribution Estimation. We may also consider the case where the distribution pD,X,Y used to determine the transformation differs from the distribution qD,X,Y of test samples. This occurs, for example, when pD,X,Y is the empirical distribution computed from n i.i.d. samples from an unknown distribution qD,X,Y . In this situation, discrimination control and utility are still guaranteed for samples drawn from qD,X,Y that are transformed using pŶ ,X̂|X,Y,D, where the latter is obtained by solving (6) with pD,X,Y . In particular, denoting by qŶ |D and qX̂,Ŷ the corresponding distributions for Ŷ , X̂ and D when qD,X,Y is transformed using pŶ ,X̂|X,Y,D, we\nhave J ( pŶ |D(y|d), pYT (y) ) → J ( qŶ |D(y|d), pYT (y) ) and ∆ ( pX,Y , pX̂,Ŷ ) → ∆ ( qX,Y , qX̂,Ŷ ) for n sufficiently large (the distortion control constraints (4) only depend on pŶ ,X̂|X,Y,D). The next proposition provides an estimate of the rate of this convergence in terms of n and assuming pY,D(y, d) is fixed and bounded away from zero. Its proof can be found in the SM.\nProposition 2. Let pD,X,Y be the empirical distribution obtained from n i.i.d. samples that is used to determine the mapping pŶ ,X̂|X,Y,D, and qD,X,Y be the true distribution of the data, with support size m , |X ×Y ×D|. In addition, denote by qD,X̂,Ŷ the joint distribution after applying pŶ ,X̂|X,Y,D to samples from qD,X,Y . If for all y ∈ Y , d ∈ D we have pY,D(y, d) > 0, J ( pŶ |D(y|d), pYT (y) ) ≤ , where J is given in (3), and\n∆ ( pX,Y , pX̂,Ŷ ) = ∑ x,y ∣∣∣pX,Y (x, y)− pX̂,Ŷ (x, y)∣∣∣ ≤ µ, with probability 1− β,\nmax { J ( qŶ |D(y|d), pYT (y) ) − ,∆ ( qX,Y , qX̂,Ŷ ) − µ } . √ m n log ( 1 + n m ) − log β n . (11) Proposition 2 guarantees that, as long as n is sufficiently large, the utility and discrimination control guarantees will approximately hold when pX̂,Ŷ |Y,X,D is applied to fresh samples drawn from qD,X,Y . In particular, the utility and discrimination guarantees will converge to the ones used as parameters in\nthe optimization at a rate that is at least √\n1 n log n. The distortion control guarantees (4) are a property\nof the mapping pX̂,Ŷ |Y,X,D, and do not depend on the distribution of the data. The convergence rate is tied to the support size, and for large m a dimensionality reduction step may be required to assuage generalization issues. The same upper bound on convergence rate holds for discrimination constraints of the form (2)."
+    }, {
+      "heading" : "4 Experimental Results",
+      "text" : "This section provides a numerical demonstration of running the data processing pipeline in Fig. 1. Our focus here is on the discrimination-accuracy trade-off obtained when the pre-processed data is used to train standard prediction algorithms. The SM presents additional results on the trade-off between discrimination control and utility ∆ as well as an analysis of the optimized data transformations.\nWe apply the pipeline to ProPublica’s COMPAS recidivism data [ProPublica, 2017] and the UCI Adult dataset [Lichman, 2013]. From the COMPAS dataset (7214 instances), we select severity of charge, number of prior crimes, and age category to be the decision variables (X). The outcome variable (Y ) is a binary indicator of whether the individual recidivated (re-offended), and race is set to be the protected variable (D). The encoding of categorical variables is described in the SM. For the Adult dataset (32561 instances), the features were categorized as protected variables (D):\ngender (male, female); decision variables (X): age (quantized to decades) and education (quantized to years); and response variable (Y ): income (binary).\nOur proposed approach is benchmarked against two baselines, leaving the dataset as-is and suppressing the protected variable D during training and testing. We also compare against the learning fair representations (LFR) algorithm from Zemel et al. [2013]. As discussed in the introduction, LFR has fundamental differences from the proposed framework. In particular, LFR only considers binary-valued D, and consequently, we restrict D to be binary in the experiments presented here. However, our method is not restricted to D being binary or univariate. Illustrations of our method on non-binary D are provided in the SM.\nThe details of applying our method to the datasets are as follows. For each train/test split, we approximate pD,X,Y using the empirical distribution of (D,X, Y ) in the training set and solve (6) using a standard convex solver [Diamond and Boyd, 2016]. For both datasets the utility metric ∆ is the total variation distance, i.e. ∆ ( pX,Y , pX̂,Ŷ ) = 12 ∑ x,y\n∣∣∣pX,Y (x, y)− pX̂,Ŷ (x, y)∣∣∣, the distortion constraint is the combination of (2) and (3), and two levels of discrimination control are used, = {0.05, 0.1}. The distortion function δ is chosen differently for the two datasets as described below, based on the differing semantics of the variables in the two applications. The specific values were chosen for demonstration purposes to be reasonable to our judgment and can easily be tuned according to the desires of a practitioner. We emphasize that the distortion values were not selected to optimize the results presented here. All experiments run in minutes on a standard laptop.\nDistortion function for COMPAS: We use the expected distortion constraint in (4) with cd,x,y = 0.4, 0.3 for d being respectively African-American and Caucasian. The distortion function δ has the following behavior. Jumps of more than one category in age and prior counts are heavily discouraged by a high distortion penalty (104) for such transformations. We impose the same penalty on increases in recidivism (change of Y from 0 to 1). Both these choices are made in the interest of individual fairness. Furthermore, for every jump to an adjacent category for age and prior counts, a penalty of 1 is assessed, and a similar jump in charge degree incurs a penalty of 2. Reduction in recidivism (1 to 0) has a penalty of 2. The total distortion for each individual is the sum of squares of distortions for each attribute of X .\nDistortion function for Adult: We use three conditional probability constraints of the form in (5). In constraint i, the distortion function returns 1 in case (i) and 0 otherwise: (1) if income is decreased, age is not changed and education is increased by at most 1 year, (2) if age is changed by a decade and education is increased by at most 1 year regardless of the change of income, (3) if age is changed by more than a decade or education is lowered by any amount or increased by more than 1 year. The corresponding probability bounds cd,x,y are 0.1, 0.05, 0 (no dependence on d, x, y). As a consequence, and in the same broad spirit as for COMPAS, decreases in income, small changes in age, and small increases in education (events (1), (2)) are permitted with small probabilities, while larger changes in age and education (event (3)) are not allowed at all.\nOnce the optimized randomized mapping pX̂,Ŷ |D,X,Y is determined, we apply it to the training set to obtain a new perturbed training set, which is then used to fit two classifiers: logistic regression (LR) and random forest (RF). For the test set, we first compute the test-time mapping pX̂|D,X in (9) using pX̂,Ŷ |D,X,Y and pD,X,Y estimated from the training set. We then independently randomize each test sample (di, xi) using pX̂|D,X , preserving the protected variable D, i.e. (di, xi) pX̂|D,X−−−−−→ (di, x̂i). Each trained classifier f is applied to the transformed test samples, obtaining an estimate ỹi = f(di, x̂i) which is evaluated against yi. These estimates induce an empirical posterior distribution given by pỸ |D(1|d) = 1nd ∑ {x̂i,di}:di=d f(di, x̂i), where nd is the number of samples with di = d.\nFor the two baselines, the above procedure is repeated without data transformation except for dropping D throughout for the second baseline (D is still used to compute the discrimination of the resulting classifier). Due to the lack of available code, we implemented LFR ourselves in Python and solved the associated optimization problem using the SciPy package. The parameters for LFR were set as recommended in Zemel et al. [2013]: Az = 50 (group fairness), Ax = 0.01 (individual fairness), and Ay = 1 (prediction accuracy). The results did not significantly change within a reasonable variation of these three parameters.\nResults. We report the trade-off between two metrics: (i) the empirical discrimination of the classifier on the test set, given by maxd,d′∈D J(pỸ |D(1|d), pỸ |D(1|d′)), and (ii) the empirical accuracy, measured by the Area under ROC (AUC) of ỹi = f(di, x̂i) compared to yi, using 5-fold cross validation. Fig. 2 presents the operating points achieved by each procedure in the discrimination-accuracy space as measured by these metrics. For the COMPAS dataset, there is significant discrimination in the original dataset, which is reflected by both LR and RF when the data is not transformed. Dropping the D variable reduces discrimination with a negligible impact on classification. However discrimination is far from removed since the features X are correlated with D, i.e. there is indirect discrimination. LFR with the recommended parameters is successful in further reducing discrimination while still achieving high prediction performance for the task.\nOur proposed optimized pre-processing approach successfully decreases the empirical discrimination close to the target values (x-axis). Deviations are expected due to the approximation of Ŷ , the output of the transformation, by Ỹ , the output of each classifier, and also due to the randomized nature of the method. The decreased discrimination comes at an accuracy cost, which is greater in this case than for LFR. A possible explanation is that LFR is free to search across different representations whereas our method is restricted by the chosen distortion metric and having to preserve the domain of the original variables. For example, for COMPAS we heavily penalize increases in recidivism from 0 to 1 as well as large changes in prior counts and age. When combined with the other constraints in the optimization, this may alter the joint distribution after perturbation and by extension the classifier output. Increased accuracy could be obtained by relaxing the distortion constraint, as long as this is acceptable to the practitioner. We highlight again that our distortion metric was not chosen to explicitly optimize performance on this task, and should be guided by the practitioner. Nevertheless, we do successfully obtain a controlled reduction of discrimination while avoiding unwanted deviations in the randomized mapping.\nFor the Adult dataset, dropping the protected variable does significantly reduce discrimination, in contrast with COMPAS. Our method further reduces discrimination towards the target values. The loss of prediction performance is again due to satisfying the distortion and discrimination constraints. On the other hand, LFR with the recommended parameters provides only a small reduction in discrimination. We note that this does not contradict the results in Zemel et al. [2013], since here we have adopted a multiplicative discrimination metric (3) whereas Zemel et al. [2013] used an additive metric. Moreover, we reduced the Adult dataset to 31 binary features which is different from Zemel et al. [2013] where they additionally considered the test dataset for Adult (12661 instances) also and created 103 binary features. By varying the LFR parameters, it is possible to attain low empirical discrimination but with a large loss in prediction performance (below the plotted range). Thus, we do not claim that our method outperforms LFR since different operating points can be achieved by\nadjusting parameters in either approach. In our approach however, individual fairness is explicitly maintained through the design of the distortion metric and discrimination is controlled directly by a single parameter , whereas the relationship is less clear with LFR."
+    }, {
+      "heading" : "5 Conclusions",
+      "text" : "We proposed a flexible, data-driven optimization framework for probabilistically transforming data in order to reduce algorithmic discrimination, and applied it to two datasets. When used to train standard classifiers, the transformed dataset led to a fairer classification when compared to the original dataset. The reduction in discrimination comes at an accuracy penalty due to the restrictions imposed on the randomized mapping. Moreover, our method is competitive with others in the literature, with the added benefit of enabling an explicit control of individual fairness and the possibility of multivariate, non-binary protected variables. The flexibility of the approach allows numerous extensions using different measures and constraints for utility preservation, discrimination, and individual distortion control. Investigating such extensions, developing theoretical characterizations based on the proposed framework, and quantifying the impact of the transformations on additional supervised learning tasks will be pursued in future work."
+    } ],
+    "references" : [ {
+      "title" : "Why unbiased computational processes can lead to discriminative decision procedures",
+      "author" : [ "T. Calders", "I. Žliobaitė" ],
+      "venue" : "In Discrimination and Privacy in the Information Society,",
+      "citeRegEx" : "Calders and Žliobaitė.,? \\Q2013\\E",
+      "shortCiteRegEx" : "Calders and Žliobaitė.",
+      "year" : 2013
+    }, {
+      "title" : "Fair prediction with disparate impact: A study of bias in recidivism prediction instruments",
+      "author" : [ "A. Chouldechova" ],
+      "venue" : "arXiv preprint arXiv:1610.07524,",
+      "citeRegEx" : "Chouldechova.,? \\Q2016\\E",
+      "shortCiteRegEx" : "Chouldechova.",
+      "year" : 2016
+    }, {
+      "title" : "Algorithmic decision making and the cost of fairness",
+      "author" : [ "S. Corbett-Davies", "E. Pierson", "A. Feller", "S. Goel", "A. Huq" ],
+      "venue" : "arXiv preprint arXiv:1701.08230,",
+      "citeRegEx" : "Corbett.Davies et al\\.,? \\Q2017\\E",
+      "shortCiteRegEx" : "Corbett.Davies et al\\.",
+      "year" : 2017
+    }, {
+      "title" : "CVXPY: A Python-embedded modeling language for convex optimization",
+      "author" : [ "S. Diamond", "S. Boyd" ],
+      "venue" : "Journal of Machine Learning Research,",
+      "citeRegEx" : "Diamond and Boyd.,? \\Q2016\\E",
+      "shortCiteRegEx" : "Diamond and Boyd.",
+      "year" : 2016
+    }, {
+      "title" : "Fairness through awareness",
+      "author" : [ "C. Dwork", "M. Hardt", "T. Pitassi", "O. Reingold", "R. Zemel" ],
+      "venue" : "In Proceedings of the 3rd Innovations in Theoretical Computer Science Conference,",
+      "citeRegEx" : "Dwork et al\\.,? \\Q2012\\E",
+      "shortCiteRegEx" : "Dwork et al\\.",
+      "year" : 2012
+    }, {
+      "title" : "Uniform guidelines on employee selection procedures",
+      "author" : [ "T.U. EEOC" ],
+      "venue" : "https://www.eeoc.gov/ policy/docs/qanda_clarify_procedures.html,",
+      "citeRegEx" : "EEOC.,? \\Q1979\\E",
+      "shortCiteRegEx" : "EEOC.",
+      "year" : 1979
+    }, {
+      "title" : "Certifying and removing disparate impact",
+      "author" : [ "M. Feldman", "S.A. Friedler", "J. Moeller", "C. Scheidegger", "S. Venkatasubramanian" ],
+      "venue" : "In Proc. ACM SIGKDD Int. Conf. Knowl. Disc. Data Min.,",
+      "citeRegEx" : "Feldman et al\\.,? \\Q2015\\E",
+      "shortCiteRegEx" : "Feldman et al\\.",
+      "year" : 2015
+    }, {
+      "title" : "A confidence-based approach for balancing fairness and accuracy",
+      "author" : [ "B. Fish", "J. Kun", "Á.D. Lelkes" ],
+      "venue" : "In Proceedings of the SIAM International Conference on Data Mining,",
+      "citeRegEx" : "Fish et al\\.,? \\Q2016\\E",
+      "shortCiteRegEx" : "Fish et al\\.",
+      "year" : 2016
+    }, {
+      "title" : "On the (im) possibility of fairness",
+      "author" : [ "S.A. Friedler", "C. Scheidegger", "S. Venkatasubramanian" ],
+      "venue" : "arXiv preprint arXiv:1609.07236,",
+      "citeRegEx" : "Friedler et al\\.,? \\Q2016\\E",
+      "shortCiteRegEx" : "Friedler et al\\.",
+      "year" : 2016
+    }, {
+      "title" : "Simultaneous Discrimination Prevention and Privacy Protection in Data Publishing and Mining",
+      "author" : [ "S. Hajian" ],
+      "venue" : "PhD thesis, Universitat Rovira i Virgili,",
+      "citeRegEx" : "Hajian.,? \\Q2013\\E",
+      "shortCiteRegEx" : "Hajian.",
+      "year" : 2013
+    }, {
+      "title" : "A methodology for direct and indirect discrimination prevention in data mining",
+      "author" : [ "S. Hajian", "J. Domingo-Ferrer" ],
+      "venue" : "IEEE Trans. Knowl. Data Eng.,",
+      "citeRegEx" : "Hajian and Domingo.Ferrer.,? \\Q2013\\E",
+      "shortCiteRegEx" : "Hajian and Domingo.Ferrer.",
+      "year" : 2013
+    }, {
+      "title" : "Equality of opportunity in supervised learning",
+      "author" : [ "M. Hardt", "E. Price", "N. Srebro" ],
+      "venue" : "In Adv. Neur. Inf. Process. Syst",
+      "citeRegEx" : "Hardt et al\\.,? \\Q2016\\E",
+      "shortCiteRegEx" : "Hardt et al\\.",
+      "year" : 2016
+    }, {
+      "title" : "Impartial predictive modeling: Ensuring fairness in arbitrary models",
+      "author" : [ "K.D. Johnson", "D.P. Foster", "R.A. Stine" ],
+      "venue" : "arXiv preprint arXiv:1608.00528,",
+      "citeRegEx" : "Johnson et al\\.,? \\Q2016\\E",
+      "shortCiteRegEx" : "Johnson et al\\.",
+      "year" : 2016
+    }, {
+      "title" : "Data preprocessing techniques for classification without discrimination",
+      "author" : [ "F. Kamiran", "T. Calders" ],
+      "venue" : "Knowledge and Information Systems,",
+      "citeRegEx" : "Kamiran and Calders.,? \\Q2012\\E",
+      "shortCiteRegEx" : "Kamiran and Calders.",
+      "year" : 2012
+    }, {
+      "title" : "Fairness-aware learning through regularization approach",
+      "author" : [ "T. Kamishima", "S. Akaho", "J. Sakuma" ],
+      "venue" : "In Data Mining Workshops (ICDMW), IEEE 11th International Conference on,",
+      "citeRegEx" : "Kamishima et al\\.,? \\Q2011\\E",
+      "shortCiteRegEx" : "Kamishima et al\\.",
+      "year" : 2011
+    }, {
+      "title" : "Inherent trade-offs in the fair determination of risk scores",
+      "author" : [ "J. Kleinberg", "S. Mullainathan", "M. Raghavan" ],
+      "venue" : "In Proc. Innov. Theoret. Comp. Sci.,",
+      "citeRegEx" : "Kleinberg et al\\.,? \\Q2017\\E",
+      "shortCiteRegEx" : "Kleinberg et al\\.",
+      "year" : 2017
+    }, {
+      "title" : "t-closeness: Privacy beyond k-anonymity and l-diversity",
+      "author" : [ "N. Li", "T. Li", "S. Venkatasubramanian" ],
+      "venue" : "In IEEE 23rd International Conference on Data Engineering,",
+      "citeRegEx" : "Li et al\\.,? \\Q2007\\E",
+      "shortCiteRegEx" : "Li et al\\.",
+      "year" : 2007
+    }, {
+      "title" : "Comment: understanding simpson’s paradox",
+      "author" : [ "J. Pearl" ],
+      "venue" : "The American Statistician,",
+      "citeRegEx" : "Pearl.,? \\Q2014\\E",
+      "shortCiteRegEx" : "Pearl.",
+      "year" : 2014
+    }, {
+      "title" : "Discrimination-aware data mining",
+      "author" : [ "D. Pedreschi", "S. Ruggieri", "F. Turini" ],
+      "venue" : "In Proc. ACM SIGKDD Int. Conf. Knowl. Disc. Data Min.,",
+      "citeRegEx" : "Pedreschi et al\\.,? \\Q2008\\E",
+      "shortCiteRegEx" : "Pedreschi et al\\.",
+      "year" : 2008
+    }, {
+      "title" : "A study of top-k measures for discrimination discovery",
+      "author" : [ "D. Pedreschi", "S. Ruggieri", "F. Turini" ],
+      "venue" : "In Proc. ACM Symp. Applied Comput.,",
+      "citeRegEx" : "Pedreschi et al\\.,? \\Q2012\\E",
+      "shortCiteRegEx" : "Pedreschi et al\\.",
+      "year" : 2012
+    }, {
+      "title" : "Using t-closeness anonymity to control for non-discrimination",
+      "author" : [ "S. Ruggieri" ],
+      "venue" : "Trans. Data Privacy,",
+      "citeRegEx" : "Ruggieri.,? \\Q2014\\E",
+      "shortCiteRegEx" : "Ruggieri.",
+      "year" : 2014
+    }, {
+      "title" : "Fairness beyond disparate treatment & disparate impact: Learning classification without disparate mistreatment",
+      "author" : [ "M.B. Zafar", "I. Valera", "M.G. Rodriguez", "K.P. Gummadi" ],
+      "venue" : "arXiv preprint arXiv:1610.08452,",
+      "citeRegEx" : "Zafar et al\\.,? \\Q2016\\E",
+      "shortCiteRegEx" : "Zafar et al\\.",
+      "year" : 2016
+    }, {
+      "title" : "Learning fair representations",
+      "author" : [ "R. Zemel", "Y.L. Wu", "K. Swersky", "T. Pitassi", "C. Dwork" ],
+      "venue" : "In Proc. Int. Conf. Mach. Learn.,",
+      "citeRegEx" : "Zemel et al\\.,? \\Q2013\\E",
+      "shortCiteRegEx" : "Zemel et al\\.",
+      "year" : 2013
+    }, {
+      "title" : "Identifying significant predictive bias in classifiers",
+      "author" : [ "Z. Zhang", "D.B. Neill" ],
+      "venue" : "In Proceedings of the NIPS Workshop on Interpretable Machine Learning in Complex Systems,",
+      "citeRegEx" : "Zhang and Neill.,? \\Q2016\\E",
+      "shortCiteRegEx" : "Zhang and Neill.",
+      "year" : 2016
+    }, {
+      "title" : "Handling conditional discrimination",
+      "author" : [ "I. Žliobaitė", "F. Kamiran", "T. Calders" ],
+      "venue" : "In Proc. IEEE Int. Conf. Data Mining,",
+      "citeRegEx" : "Žliobaitė et al\\.,? \\Q2011\\E",
+      "shortCiteRegEx" : "Žliobaitė et al\\.",
+      "year" : 2011
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 0,
+      "context" : "Supervised learning algorithms, increasingly used for decision making in applications of consequence, may at first be presumed to be fair and devoid of inherent bias, but in fact, inherit any bias or discrimination present in the data on which they are trained [Calders and Žliobaitė, 2013].",
+      "startOffset" : 261,
+      "endOffset" : 290
+    }, {
+      "referenceID" : 18,
+      "context" : "The need for more sophisticated tools has made discrimination discovery and prevention an important research area [Pedreschi et al., 2008].",
+      "startOffset" : 114,
+      "endOffset" : 138
+    }, {
+      "referenceID" : 9,
+      "context" : "These are respectively classified as pre-processing [Hajian, 2013], in-processing [Fish et al.",
+      "startOffset" : 52,
+      "endOffset" : 66
+    }, {
+      "referenceID" : 11,
+      "context" : ", 2011] and post-processing approaches [Hardt et al., 2016].",
+      "startOffset" : 39,
+      "endOffset" : 59
+    }, {
+      "referenceID" : 6,
+      "context" : "Disparate impact is addressed by the principles of statistical parity and group fairness [Feldman et al., 2015], which seek similar outcomes for all groups.",
+      "startOffset" : 89,
+      "endOffset" : 111
+    }, {
+      "referenceID" : 4,
+      "context" : "In contrast, individual fairness [Dwork et al., 2012] mandates that similar individuals be treated similarly irrespective of group membership.",
+      "startOffset" : 33,
+      "endOffset" : 53
+    }, {
+      "referenceID" : 11,
+      "context" : "predictive models, equal error rates for different groups are a desirable property [Hardt et al., 2016], as is calibration or lack of predictive bias in the predictions [Zhang and Neill, 2016].",
+      "startOffset" : 83,
+      "endOffset" : 103
+    }, {
+      "referenceID" : 23,
+      "context" : ", 2016], as is calibration or lack of predictive bias in the predictions [Zhang and Neill, 2016].",
+      "startOffset" : 73,
+      "endOffset" : 96
+    }, {
+      "referenceID" : 13,
+      "context" : "Existing pre-processing approaches include sampling or re-weighting the data to neutralize discriminatory effects [Kamiran and Calders, 2012], changing the individual data records [Hajian and Domingo-Ferrer, 2013], and using t-closeness [Li et al.",
+      "startOffset" : 114,
+      "endOffset" : 141
+    }, {
+      "referenceID" : 10,
+      "context" : "Existing pre-processing approaches include sampling or re-weighting the data to neutralize discriminatory effects [Kamiran and Calders, 2012], changing the individual data records [Hajian and Domingo-Ferrer, 2013], and using t-closeness [Li et al.",
+      "startOffset" : 180,
+      "endOffset" : 213
+    }, {
+      "referenceID" : 16,
+      "context" : "Existing pre-processing approaches include sampling or re-weighting the data to neutralize discriminatory effects [Kamiran and Calders, 2012], changing the individual data records [Hajian and Domingo-Ferrer, 2013], and using t-closeness [Li et al., 2007] for discrimination control [Ruggieri, 2014].",
+      "startOffset" : 237,
+      "endOffset" : 254
+    }, {
+      "referenceID" : 20,
+      "context" : ", 2007] for discrimination control [Ruggieri, 2014].",
+      "startOffset" : 35,
+      "endOffset" : 51
+    }, {
+      "referenceID" : 5,
+      "context" : "The choice of pYT in (1), and J and in (1) and (2) should be informed by societal aspects, consultations with domain experts and stakeholders, and legal considerations such as the “80% rule” [EEOC, 1979].",
+      "startOffset" : 191,
+      "endOffset" : 203
+    }, {
+      "referenceID" : 19,
+      "context" : "” The combination of (3) and (1) generalizes the extended lift criterion proposed in the literature [Pedreschi et al., 2012], while the combination of (3) and (2) generalizes selective and contrastive lift.",
+      "startOffset" : 100,
+      "endOffset" : 124
+    }, {
+      "referenceID" : 17,
+      "context" : "For example, B could represent the fraction of a pool of applicants that applied to a certain department, which enables the metric to avoid statistical traps such as the Simpson’s paradox [Pearl, 2014].",
+      "startOffset" : 188,
+      "endOffset" : 201
+    }, {
+      "referenceID" : 12,
+      "context" : "Recent definitions of fairness that seek to mitigate this issue include [Johnson et al., 2016] and [Kusner et al.",
+      "startOffset" : 72,
+      "endOffset" : 94
+    }, {
+      "referenceID" : 3,
+      "context" : "For each train/test split, we approximate pD,X,Y using the empirical distribution of (D,X, Y ) in the training set and solve (6) using a standard convex solver [Diamond and Boyd, 2016].",
+      "startOffset" : 160,
+      "endOffset" : 184
+    } ],
+    "year" : 2017,
+    "abstractText" : "Non-discrimination is a recognized objective in algorithmic decision making. In this paper, we introduce a novel probabilistic formulation of data pre-processing for reducing discrimination. We propose a convex optimization for learning a data transformation with three goals: controlling discrimination, limiting distortion in individual data samples, and preserving utility. We characterize the impact of limited sample size in accomplishing this objective. Two instances of the proposed optimization are applied to datasets, including one on real-world criminal recidivism. Results show that discrimination can be greatly reduced at a small cost in classification accuracy.",
+    "creator" : null
+  }
+}

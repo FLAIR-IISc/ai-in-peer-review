@@ -1,0 +1,397 @@
+{
+  "name" : "f337d999d9ad116a7b4f3d409fcc6480.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "High resolution neural connectivity from incomplete tracing data using nonnegative spline regression",
+    "authors" : [ "Kameron Decker", "Stefan Mihalas" ],
+    "emails" : [ "kamdh@uw.edu", "stefanm@alleninstitute.org", "etsb@uw.edu" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Although the study of neural connectivity is over a century old, starting with pioneering neuroscientists who identified the importance of networks for determining brain function, most knowledge of anatomical neural network structure is limited to either detailed description of small subsystems [2, 9, 14, 26] or to averaged connectivity between larger regions [7, 21]. We focus our attention on spatial, structural connectivity at the mesoscale: a coarser scale than that of single neurons or cortical columns but finer than whole brain regions. Thanks to the development of new tracing techniques, image processing algorithms, and high-throughput methods, data at this resolution are now accessible in animals such as the fly [12, 19] and mouse [15, 18]. We present a novel regression technique tailored to the challenges of learning spatially refined mesoscale connectivity from neural tracing experiments. We have designed this technique with neural data in mind and will use this\n30th Conference on Neural Information Processing Systems (NIPS 2016), Barcelona, Spain.\nlanguage to describe our method, but it is a general technique to assimilate spatial network data or infer smooth kernels of integral equations. Obtaining a spatially-resolved mesoscale connectome will reveal detailed features of connectivity, for example unlocking cell-type specific connectivity and microcircuit organization throughout the brain [13].\nIn mesoscale anterograde tracing experiments, a tracer virus is first injected into the brain. This infects neurons primarily at their cell bodies and dendrites and causes them to express a fluorescent protein in their cytoplasm, including in their axons. Neurons originating in the source injection site are then imaged to reveal their axonal projections throughout the brain. Combining many experiments with different sources then reveals the pathways that connect those sources throughout the brain. This requires combining data across multiple animals, which appears justified at the mesoscale [18].\nWe assume there exists some underlying nonnegative, weighted adjacency matrix W 0 that is common across animals. Each experiment can be thought of as an injection x, and its projections y, so that y ≈ Wx as in Fig. 1A. Uncovering the unknown W from multiple experiments (xi,yi) for i = 1, . . . , ninj is then a multivariate regression problem: Each xi is an image of the brain which represents the strength of the signal within the injection site. Likewise, every yi is an image of the strength of signal elsewhere, which arises due to the axonal projections of neurons with cell bodies in the injection site. The unknown matrix W is a linear operator which takes images of the brain (injections) and returns images of the brain (projections).\nIn a previous paper, Oh et al. [18] were able to obtain a 213 × 213 regional weight matrix using 469 experiments with mice (Fig. 1B). They used nonnegative least squares to find the unknown regional weights in an overdetermined regression problem. Our aim is to obtain a much higher-resolution connectivity map on the scale of voxels, and this introduces many more challenges.\nFirst, the number of voxels in the brain is much larger than the number of injection experiments we can expect to perform; for mouse with 100 µm voxels this isO(105) versusO(103) [15, 18]. Also, the injections that are performed will inevitably leave gaps in their coverage of the brain. Thus specifying W is underdetermined. Second, there is no way to separately image the injections and projections. In order to construct them, experimenters image the brain once by serial tomography and fluorescence\nmicroscopy. The injection sites can be annotated by finding infected cell bodies, but there is no way to disambiguate fluorescence from the cell bodies and dendrites from that of local injections. Projection strength is thus unknown within the injection sites and the neighborhood occupied by dendrites. Third, fitting full-brain voxel-wise connectivity is challenging since the number of elements in W is the square of the number of voxels in the brain. Thus we need compressed representations of W as well as efficient algorithms to perform inference. The paper proceeds as follows.\nIn Section 2, we describe our assumption that the mesoscale connectivity W is smoothly-varying in space, as could be expected from to the presence of topographic maps across much of cortex. Later, we show that using this assumption as a prior yields connectivity maps with improved cross-validation performance.\nIn Section 3, we present an inference algorithm designed to tackle the difficulties of underdetermination, missing data, and size of the unknown W . To deal with the gaps and ill-conditioning, we use smoothness as a regularization on W . We take an agnostic approach, similar to matrix completion [5], to the missing projection data and use a regression loss function that ignores residuals within the injection site. Finally, we present a low rank version of the estimator that will allow us to scale to large matrices.\nIn Section 4, we test our method on synthetic data and show that it performs well for sparse data that is consistent with the regression priors. This provides evidence that it is a consistent estimator. We demonstrate the necessity of both the matrix completion and smoothing terms for good reconstruction.\nIn Section 5, we then apply the spline-smoothing method to recently available Allen Institute for Brain Science (Allen Institute) connectivity data from mouse visual cortex [15, 18]. We find that our method is able to outperform current spatially uniform regional models, with significantly reduced cross-validation errors. We also find that a low rank version is able to achieve approximately 23× compression of the original data, with the optimal solution very close to the full rank optimum. Our method is a superior predictor to the existing regional model for visual system data, and the success of the low rank version suggests that this approach will be able to reveal whole-brain structural connectivity at unprecedented scale.\nAll of our supplemental material and data processing and optimization code is available for download from: https://github.com/kharris/high-res-connectivity-nips-2016."
+    }, {
+      "heading" : "2 Spatial smoothness of mesoscale connectivity",
+      "text" : "The visual cortex is a collection of relatively large cortical areas in the posterior part of the mammalian brain. Visual stimuli sensed in the retina are relayed through the thalamus into primary visual cortex (VISp), which projects to higher visual areas. We know this partly due to tracing projections between these areas, but also because neurons in the early visual areas respond to visual stimuli in a localized region of the visual field called their receptive fields [11].\nAn interesting and important feature of visual cortex is the presence of topographic maps of the visual field called the retinotopy [6, 8, 10, 20, 25]. Each eye sees a 2-D image of the world, where two coordinates, such as azimuth and altitude, define a point in the visual field (Fig. 1C). Retinotopy refers to the fact that cells are organized in cortical space by the position of their receptive fields; nearby cells have similar receptive field positions. Furthermore, these retinotopic maps reoccur in multiple visual areas, albeit with varying orientation and magnification.\nRetinotopy in other areas downstream from VISp, which do not receive many projections directly from thalamus, are likely a function of projections from VISp. It is reasonable to assume that areas which code for similar visual locations are most strongly connected. Then, because retinotopy is smoothly varying in cortical space and similar retinotopic coordinates are the most strongly connected between visual areas, the connections between those areas should be smooth in cortical space (Fig. 1C and D).\nRetinotopy is a specific example of topography, which extends to other sensory systems such as auditory and somatosensory cortex [22]. For this reason, connectivity may be spatially smooth throughout the brain, at least at the mesoscale. This idea can be evaluated via the methods we introduce below: if a smooth model is more predictive of held-out data than another model, then this supports the assumption."
+    }, {
+      "heading" : "3 Nonnegative spline regression with incomplete tracing data",
+      "text" : "We consider the problem of fitting an adjacency operatorW : T × S → R+ to data arising from ninj injections into a source space S which projects to a target space T . Here S and T are compact subsets of the brain, itself a compact subset of R3. In this mathematical setting, S and T could be arbitrary sets, but typically S = T for the ipsilateral data we present here.1 The source S and target T are discretized into nx and ny cubic voxels, respectively. The discretization ofW is then an adjacency matrix W ∈ Rny×nx+ . Mathematically, we define the tracing data as a set of pairs xi ∈ R nx + and yi ∈ R ny + , the source and target tracer signals at each voxel for experiments i = 1, . . . , ninj. We would like to fit a linear model, a matrix W such that yi ≈Wxi. We assume an observation model yi = Wxi + ηi\nwith ηi iid∼ N (0, σ2I) multivariate Gaussian random variables with zero mean and covariance matrix σ2I ∈ Rny×ny . The true data are not entirely linear, due to saturation effects of the fluorescence signal, but the linear model provides a tractable way of “credit assignment” of individual source voxels’ contributions to the target signal [18].\nFinally, we assume that the target projections are unknown within the injection site. In other words, we only know yj outside the support of xj , which we denote suppxj , and we wish to only evaluate error for the observable voxels. Let Ω ∈ Rny×ninj , where the jth column Ωj = 1− 1suppxj , the indicator of the complement of the support. We define the orthogonal projector PΩ : Rny×ninj → Rny×ninj as PΩ(A) = A ◦ Ω, the entrywise product of A and Ω. This operator zeros elements of A which correspond to the voxels within each experiment’s injection site. The operator PΩ is similar to what is used in matrix completion [5], here in the context of regression rather than recovery.\nThese assumptions lead to a loss function which is the familiar `2-loss applied to the projected residuals:\n1\nσ2ninj ‖PΩ(WX − Y )‖2F (1)\nwhere Y = [ y1, . . . ,yninj ] and X = [ x1, . . . ,xninj ] are data matrices. Here ‖ · ‖F is the Frobenius norm, i.e. the `2-norm of the matrix as a vector: ‖A‖F = ‖vec(A)‖2, where vec(A) takes a matrix and converts it to a vector by stacking consecutive columns.\nWe next construct a regularization penalty. The matrix W represents the spatial discretization of a two-point kernel W . An important assumption for W is that it is spatially smooth. Function space norms of the derivatives ofW , viewed as a real-valued function on T × S, are a natural way to measure the roughness of this function. For this study, we chose the squared L2-norm of the Laplacian ∫\nT×S |∆W|2 dydx,\nwhich is called the thin plate spline bending energy [24]. In the discrete setting, this becomes the squared `2-norm of a discrete Laplacian applied to W :\n‖L vec(W )‖22 = ∥∥LyW +WLTx ∥∥2F . (2)\nThe operator L : Rnynx → Rnynx is the discrete Laplacian operator or second finite difference matrix on T × S. The equality in Eqn. (2) results from the fact that the Laplacian on the product space T ×S can be decomposed as L = Lx⊗ Iny + Inx ⊗Ly [17]. Using the well-known Kronecker product identity for linear matrix equations(\nBT ⊗A )\nvec(X) = vec(Y ) ⇐⇒ AXB = Y (3) gives the result in Eqn. (2) [23], which allows us to efficiently evaluate the Laplacian action. As for boundary conditions, we do not want to impose any particular values at the boundary, so we choose the finite difference matrix corresponding to a homogeneous Neumann (zero derivative) boundary condition. 2\n1Ipsilateral refers to connections within the same cerebral hemisphere. For contralateral (opposite hemisphere) connectivity, S and T are disjoint subsets of the brain corresponding to the two hemispheres.\n2It is straightforward to avoid smoothing across region boundaries by imposing Neumann boundary conditions at the boundaries; this is an option in our code available online.\nCombining the loss and penalty terms, Eqn. (1) and (2), gives a convex optimization problem for inferring the connectivity:\nW ∗ = arg min W 0 ‖PΩ(WX − Y )‖2F + λ ninj nx ∥∥LyW +WLTx ∥∥2F . (P1) In the final form, we absorb the noise variance σ2 into the regularization hyperparameter λ and rescale the penalty so that it has the same dependence on the problem size nx, ny, and ninj as the loss. We solve the optimization (P1) using the L-BFGS-B projected quasi-Newton method, implemented in C++ [3, 4]. The gradient is efficiently computed using matrix algebra.\nNote that (P1) is a type of nonnegative least squares problem, since we can use Eqn. (3) to convert it into\nw∗ = arg min w 0 ‖Aw − y‖22 + λ ninj nx ‖Lw‖22 ,\nwhereA = diag (vec(Ω)) ( XT ⊗ Iny ) , y = diag (vec(Ω)) vec(Y ), and w = vec(W ). Furthermore, without the nonnegativity constraint the estimator is linear and has an explicit solution. However, the design matrix A will have dimension (nyninj) × (nynx), with O(ny3ninj) entries if nx = O(ny). The dimensionality of the problem prevents us from working directly in the tensor product space. And since the model is a structured matrix regression problem [1], the usual representer theorems [24], which reduce the dimensionality of the estimator to effectively the number of data points, do not immediately apply. However, we hope to elucidate the connection to reproducing kernel Hilbert spaces in future work."
+    }, {
+      "heading" : "3.1 Low rank version",
+      "text" : "The largest object in our problem is the unknown connectivity W , since in the underconstrained setting ninj nx, ny . In order to improve the scaling of our problem with the number of voxels, we reformulate it with a compressed version of W :\n(U∗, V ∗) = arg min U,V 0 ‖PΩ(UV TX − Y )‖2F + λ ninj nx ∥∥LyUV T + UV TLTx ∥∥2F . (P2) Here, U ∈ Rny×r+ and V ∈ R nx×r + for some fixed rank r, so that the optimal connectivity W ∗ = U∗V ∗T is given in low rank, factored form. Note that we use nonnegative factors rather than constrain UV T 0, since this is a nonlinear constraint. This has the advantage of automatically computing a nonnegative matrix factorization (NMF) of W . The NMF is of separate scientific interest, to be pursued in future work, since it decomposes the connectivity into a relatively small number of projection patterns, which has interpretations as a clustering of the connectivity itself.\nIn going from the full rank problem (P1) to the low rank version (P2), we lose convexity. So the usual optimization methods are not guaranteed to find a global optimimum, and the clustering just mentioned is not unique. However, we have also reduced the size of the unknowns to the potentially much smaller matrices U and V , if r ny, nx. If nx = O(ny), we have only O(nyr) unknowns instead of O(ny2). Evaluating the penalty term still requires computation of nynx terms, but this can be performed without storing them in memory.\nWe use a simple projected gradient method with Nesterov acceleration in Matlab to find a local optimum for (P2) [3], and will present and compare these results to the solution of (P1) below. As before, computing the gradients is efficient using matrix algebra. This method has been used before for NMF [16]."
+    }, {
+      "heading" : "4 Test problem",
+      "text" : "We next apply our algorithms to a test problem consisting of a one-dimensional “brain,” where the source and target space S = T = [0, 1]. The true connectivity kernel corresponds to a Gaussian profile about the diagonal plus a bump:\nWtrue(x, y) = exp { − ( x− y 0.4 )2} + 0.9 exp { − (x− 0.8) 2 + (y − 0.1)2 (0.2)2 } .\nSee the left panel of Fig. 2. The input and output spaces were discretized using nx = ny = 200 points. Injections are delivered at random locations within S, with a width of 0.12 + 0.1 where ∼ Uniform(0, 1). The values of x are set to 1 within the injection region and 0 elsewhere, y is set to 0 within the injection region, and we take noise level σ = 0.1. The matrices Lx = Ly are the 5-point finite difference Laplacians for the rectangular lattice.\nExample output of (P1) and (P2) is given for 5 injections in Fig. 2. Unless stated otherwise, λ = 100. The injections, depicted as black bars in the bottom of each sub-figure, do not cover the whole space S but do provide good coverage of the bump, otherwise there is no information about that feature. We depict the result of the full rank algorithm (P1) without the matrix completion term PΩ, the result including PΩ but without smoothing (λ = 0), and the result of (P2) with rank r = 20. The full rank solution is not shown, but is similar to the low rank one.\nFigure 2 shows the necessity of each term within the algorithm. Leaving out the matrix completion PΩ leads to dramatically biased output since the algorithm uses incorrect values ysupp(x) = 0. If we include PΩ but neglect the smoothing term by setting λ = 0, we also get incorrect output: without smoothing, the algorithm cannot fill in the injection site holes nor can it interpolate between injections. However, the low rank result accurately approximates the true connectivity Wtrue, including the diagonal profile and bump, achieving 9.6% relative error measured as ‖W ∗ −Wtrue‖F /‖Wtrue‖F . The full rank version is similar, but in fact has slightly higher 11.1% relative error."
+    }, {
+      "heading" : "5 Finding a voxel-scale connectivity map for mouse cortex",
+      "text" : "We next apply our method to the latest data from the Allen Institute Mouse Brain Connectivity Atlas, obtained with the API at http://connectivity.brain-map.org. Briefly, in each experiment mice were injected with adeno-associated virus expressing a fluorescent protein. The virus infects neurons in the injection site, causing them to produce the protein, which is transported throughout the axonal and dendritic processes. The mouse brains for each experiment were then sliced, imaged, and aligned onto the common coordinates in the Allen Reference Atlas version 3 [15, 18]. These coordinates divide the brain volume into 100 µm × 100 µm × 100 µm voxels, with approximately 5 × 105 voxels in the whole brain. The fluorescent pixels in each aligned image were segmented from the background, and we use the fraction of segmented versus total pixels in a voxel to build the vectors x and y. Since cortical dendrites project locally, the signal outside the injection site is mostly axonal, and so the method reveals anterograde axonal projections from the injection site.\nFrom this dataset, we selected 28 experiments which have 95% of their injection volumes contained within the visual cortex (atlas regions VISal, VISam, VISl, VISp, VISpl, VISpm, VISli, VISpor, VISrl, and VISa) and injection volume less than 0.7 mm3. For this study, we present only the results for ipsilateral connectivity, where S = T and nx = ny = 7497. To compute the smoothing penalty, we used the 7-point finite-difference Laplacian on the cubic voxel lattice.\nIn order to evaluate the performance of the estimator, we employ nested cross-validation with 5 inner and outer folds. The full rank estimator (P1) was fit for λ = 103, 104, . . . , 1012 on the training data. Using the validation data, we then selected the λopt that minimized the mean square error relative to the average squared norm of the prediction WX and truth Y , evaluating errors outside the injection sites:\nMSErel = 2‖PΩ(WX − Y )‖2F\n‖PΩ(WX)‖2F + ‖PΩ(Y )‖2F . (4)\nThis choice of normalization prevents experiments with small ‖Y ‖ from dominating the error. This error metric as well as the `2-loss adopted in Eqn. (P1) both more heavily weight the experiments with larger signal. After selection of λopt, the model was refit to the combined training and validation data. In our dataset, λopt = 105 was selected for all outer folds. The final errors were computed with the test datasets in each outer fold. For comparison, we also fit a regional model within the cross-validation framework, using nonnegative least squares. To do this, similar to the study by Oh et al. [18], we constrained the connectivity Wkl = WRiRj to be constant for all voxels k in region Ri and l in region Rj .\nThe results are shown in Table 1. Errors were computed according to both voxels and regions. For the latter, we integrated the residual over voxels within the regions before computing the error. The voxel model is more predictive of held-out data than the regional model, reducing the voxel and regional MSErel by 69% and 67%, respectively. The regional model is designed for inter-region connectivity. To allow an easier comparison with the voxel model, we here include within region connections. We find that the regional model is a poor predictor of voxel scale projections, with over 100% relative voxel error, but it performs okay at the regional scale. The training errors, which reflect goodness of fit, were also reduced significantly with the voxel model. We conclude that the more flexible voxel model is a better estimator for these Allen Institute data, since it improves both the fits to training data as well as cross-validation skill.\nThe inferred visual connectivity also exhibits a number of features that we expect. There are strong local projections (similar to the diagonal in the test problem, Fig. 2) along with spatially organized projections to higher visual areas. See Fig. 3, which shows example projections from source voxels within VISp. These are just two of 7497 voxels in the full matrix, and we depict only a 2-D projection of 3-D images. The connectivity exhibits strong local projections, which must be filled in by the smoothing since within the injection sites the projection data are unknown; it is surprising how well the algorithm does at capturing short-range connectivity that is translationally invariant. There are also long-range bumps in the higher visual areas, medial and lateral, which move with the source voxel. This is a result of retinotopic maps between VISp and downstream areas. The supplementary material presents a view of this high-dimensional matrix in movie form, allowing one to see the varying projections as the seed voxel moves. We encourage the reader to view the supplemental movies, where movement of bumps in downstream regions hints at the underlying retinotopy: https://github.com/kharris/high-res-connectivity-nips-2016."
+    }, {
+      "heading" : "5.1 Low rank inference successfully approximates full rank solution for visual system",
+      "text" : "We next use these visual system data, for which the full rank solution was computed, to test whether the low rank approximation can be applied. This is an important stepping stone to an eventual inference of spatial connectivity for the full brain.\nFirst, we note that the singular value spectrum of the fitted W ∗full (now using all 28 injections and λ = 105) is heavily skewed: 95% of the energy can be captured with 21 of 7497 components, and 99% with 67 components. However, this does not directly imply that a nonnegative factorization will\nperform as well. To test this, we fit a low rank decomposition directly to all 28 visual injection data using (P2) with rank r = 160 and λ = 105. The output of the optimization procedure yields U∗ and V ∗, and we find that the low rank output is very similar to the full result W ∗full fit to the same data (see also Fig. 3, which visualizes the residuals):\n‖U∗V ∗T −W ∗full‖F ‖W ∗full‖F = 13%.\nThis close approximation is despite the fact that the low rank solution achieves a roughly 23× compression of the 7497× 7497 matrix. Assuming similar compressibility for the whole brain, where the number of voxels is 5× 105, would mean a rank of approximately 104. This is still a problem in O(109) unknowns, but these bring the memory requirements of storing one matrix iterate in double precision from approximately 1.9 TB to 75 GB, which is within reach of commonly available large memory machines."
+    }, {
+      "heading" : "6 Conclusions",
+      "text" : "We have developed and implemented a new inference algorithm that uses modern machine learning ideas—matrix completion loss, a smoothing penalty, and low rank factorization—to assimilate sparse connectivity data into complete, spatially explicit connectivity maps. We have shown that this method can be applied to the latest Allen Institute data from multiple visual cortical areas, and that it significantly improves cross-validated predictions over the current state of the art and unveils spatial patterning of connectivity. Finally, we show that a low rank version of the algorithm produces very similar results on these data while compressing the connectivity map, potentially opening the door to the inference of whole brain connectivity from viral tracer data at the voxel scale."
+    }, {
+      "heading" : "Acknowledgements",
+      "text" : "We acknowledge the support of the UW NIH Training Grant in Big Data for Neuroscience and Genetics (KDH), Boeing Scholarship (KDH), NSF Grant DMS-1122106 and 1514743 (ESB & KDH), and a Simons Fellowship in Mathematics (ESB). We thank Liam Paninski for helpful insights at the outset of this project. We wish to thank the Allen Institute founders, Paul G. Allen and Jody Allen, for their vision, encouragement, and support. This work was facilitated though the use of advanced computational, storage, and networking infrastructure provided by the Hyak supercomputer system at the University of Washington."
+    } ],
+    "references" : [ {
+      "title" : "When Is There a Representer Theorem? Vector Versus Matrix Regularizers",
+      "author" : [ "A. Argyriou", "C.A. Micchelli", "M. Pontil" ],
+      "venue" : "J. Mach. Learn. Res.,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : "1",
+      "year" : 2009
+    }, {
+      "title" : "Network anatomy and in vivo physiology",
+      "author" : [ "D.D. Bock", "Lee", "W.-C. A", "A.M. Kerlin", "M.L. Andermann", "G. Hood", "A.W. Wetzel", "S. Yurgenson", "E.R. Soucy", "H.S. Kim", "R.C. Reid" ],
+      "venue" : null,
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 2011
+    }, {
+      "title" : "Convex Optimization",
+      "author" : [ "S. Boyd", "L. Vandenberghe" ],
+      "venue" : null,
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 2004
+    }, {
+      "title" : "A Limited Memory Algorithm for Bound Constrained Optimization",
+      "author" : [ "R. Byrd", "P. Lu", "J. Nocedal", "C. Zhu" ],
+      "venue" : "SIAM Journal on Scientific Computing,",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : "4",
+      "year" : 1995
+    }, {
+      "title" : "The Power of Convex Relaxation: Near-Optimal Matrix Completion",
+      "author" : [ "E. Candes", "T. Tao" ],
+      "venue" : "IEEE Transactions on Information Theory,",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : "5",
+      "year" : 2010
+    }, {
+      "title" : "Representation of the visual field in the primary visual area of the marmoset monkey: Magnification factors, point-image size, and proportionality to retinal ganglion cell density",
+      "author" : [ "T.A. Chaplin", "Yu", "H.-H", "M.G. Rosa" ],
+      "venue" : "Journal of Comparative Neurology,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : "6",
+      "year" : 2013
+    }, {
+      "title" : "Distributed Hierarchical Processing in the Primate",
+      "author" : [ "D.J. Felleman", "D.C. Van Essen" ],
+      "venue" : "Cerebral Cortex,",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : "7",
+      "year" : 1991
+    }, {
+      "title" : "Topography and Areal Organization of Mouse Visual Cortex",
+      "author" : [ "M.E. Garrett", "I. Nauhaus", "J.H. Marshel", "E.M. Callaway" ],
+      "venue" : "Journal of Neuroscience,",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : "8",
+      "year" : 2014
+    }, {
+      "title" : "Cortico-cortical projections in mouse visual cortex are functionally target specific",
+      "author" : [ "L.L. Glickfeld", "M.L. Andermann", "V. Bonin", "R.C. Reid" ],
+      "venue" : "Nature Neuroscience,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 2013
+    }, {
+      "title" : "Developmental mechanisms that generate precise patterns of neuronal",
+      "author" : [ "C.S. Goodman", "C.J. Shatz" ],
+      "venue" : "connectivity. Cell,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : "10",
+      "year" : 1993
+    }, {
+      "title" : "Receptive fields, binocular interaction and functional architecture in the cat’s visual cortex",
+      "author" : [ "D.H. Hubel", "T.N. Wiesel" ],
+      "venue" : "The Journal of Physiology,",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 1962
+    }, {
+      "title" : "A GAL4-Driver Line Resource for Drosophila Neurobiology",
+      "author" : [ "A. Jenett", "G.M. Rubin", "Ngo", "T.-T. B", "D. Shepherd", "C. Murphy", "H. Dionne", "B.D. Pfeiffer", "A. Cavallaro", "D. Hall", "J. Jeter", "N. Iyer", "D. Fetter", "J.H. Hausenfluck", "H. Peng", "E.T. Trautman", "R.R. Svirskas", "E.W. Myers", "Z.R. Iwinski", "Y. Aso", "G.M. DePasquale", "A. Enos", "P. Hulamm", "S.C.B. Lam", "Li", "H.-H", "T.R. Laverty", "F. Long", "L. Qu", "S.D. Murphy", "K. Rokicki", "T. Safford", "K. Shaw", "J.H. Simpson", "A. Sowell", "S. Tae", "Y. Yu", "C.T. Zugates" ],
+      "venue" : "Cell Reports,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 2012
+    }, {
+      "title" : "Automatic discovery of cell types and microcircuitry from neural connectomics. eLife, 4:e04250",
+      "author" : [ "E. Jonas", "K. Kording" ],
+      "venue" : null,
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 2015
+    }, {
+      "title" : "Large-Scale Automated Histology in the Pursuit of Connectomes",
+      "author" : [ "D. Kleinfeld", "A. Bharioke", "P. Blinder", "D.D. Bock", "K.L. Briggman", "D.B. Chklovskii", "W. Denk", "M. Helmstaedter", "J.P. Kaufhold", "Lee", "W.-C. A", "H.S. Meyer", "K.D. Micheva", "M. Oberlaender", "S. Prohaska", "R.C. Reid", "S.J. Smith", "S. Takemura", "P.S. Tsai", "B. Sakmann" ],
+      "venue" : "The Journal of Neuroscience,",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 2011
+    }, {
+      "title" : "Projected Gradient Methods for Nonnegative Matrix Factorization",
+      "author" : [ "Lin", "C.-J" ],
+      "venue" : "Neural Computation,",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : "16",
+      "year" : 2007
+    }, {
+      "title" : "Tensor product analysis of partial difference equations",
+      "author" : [ "R.E. Lynch", "J.R. Rice", "D.H. Thomas" ],
+      "venue" : "Bulletin of the American Mathematical Society,",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : "17",
+      "year" : 1964
+    }, {
+      "title" : "A mesoscale connectome of the mouse brain",
+      "author" : [ "S.W. Oh", "J.A. Harris", "L. Ng", "B. Winslow", "N. Cain", "S. Mihalas", "Q. Wang", "C. Lau", "L. Kuan", "A.M. Henry", "M.T. Mortrud", "B. Ouellette", "T.N. Nguyen", "S.A. Sorensen", "C.R. Slaughterbeck", "W. Wakeman", "Y. Li", "D. Feng", "A. Ho", "E. Nicholas", "K.E. Hirokawa", "P. Bohn", "K.M. Joines", "H. Peng", "M.J. Hawrylycz", "J.W. Phillips", "J.G. Hohmann", "P. Wohnoutka", "C.R. Gerfen", "C. Koch", "A. Bernard", "C. Dang", "A.R. Jones", "H. Zeng" ],
+      "venue" : null,
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : "18",
+      "year" : 2014
+    }, {
+      "title" : "Virtual finger boosts three-dimensional imaging and microsurgery as well as terabyte volume image visualization and analysis",
+      "author" : [ "H. Peng", "J. Tang", "H. Xiao", "A. Bria", "J. Zhou", "V. Butler", "Z. Zhou", "P.T. Gonzalez-Bellido", "S.W. Oh", "J. Chen", "A. Mitra", "R.W. Tsien", "H. Zeng", "G.A. Ascoli", "G. Iannello", "M. Hawrylycz", "E. Myers", "F. Long" ],
+      "venue" : "Nature Communications,",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : "19",
+      "year" : 2014
+    }, {
+      "title" : "Brain maps, great and small: Lessons from comparative studies of primate visual cortical organization",
+      "author" : [ "M.G. Rosa", "R. Tweedale" ],
+      "venue" : "Philosophical Transactions of the Royal Society B: Biological Sciences,",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : "20",
+      "year" : 2005
+    }, {
+      "title" : "Networks of the Brain. The MIT Press, 1st edition",
+      "author" : [ "O. Sporns" ],
+      "venue" : null,
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : "21",
+      "year" : 2010
+    }, {
+      "title" : "Formation of Topographic Maps",
+      "author" : [ "S.B. Udin", "J.W. Fawcett" ],
+      "venue" : "Annual Review of Neuroscience,",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : "22",
+      "year" : 1988
+    }, {
+      "title" : "The ubiquitous Kronecker product",
+      "author" : [ "C.F. Van Loan" ],
+      "venue" : "Journal of Computational and Applied Mathematics,",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : "23",
+      "year" : 2000
+    }, {
+      "title" : "Spline Models for Observational Data",
+      "author" : [ "G. Wahba" ],
+      "venue" : null,
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : "24",
+      "year" : 1990
+    }, {
+      "title" : "Area map of mouse visual cortex",
+      "author" : [ "Q. Wang", "A. Burkhalter" ],
+      "venue" : "The Journal of Comparative Neurology,",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : "25",
+      "year" : 2007
+    }, {
+      "title" : "The Structure of the Nervous System of the Nematode Caenorhabditis elegans",
+      "author" : [ "J.G. White", "E. Southgate", "J.N. Thomson", "S. Brenner" ],
+      "venue" : "Philosophical Transactions of the Royal Society of London B: Biological Sciences,",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : "26",
+      "year" : 1986
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 1,
+      "context" : "Although the study of neural connectivity is over a century old, starting with pioneering neuroscientists who identified the importance of networks for determining brain function, most knowledge of anatomical neural network structure is limited to either detailed description of small subsystems [2, 9, 14, 26] or to averaged connectivity between larger regions [7, 21].",
+      "startOffset" : 296,
+      "endOffset" : 310
+    }, {
+      "referenceID" : 8,
+      "context" : "Although the study of neural connectivity is over a century old, starting with pioneering neuroscientists who identified the importance of networks for determining brain function, most knowledge of anatomical neural network structure is limited to either detailed description of small subsystems [2, 9, 14, 26] or to averaged connectivity between larger regions [7, 21].",
+      "startOffset" : 296,
+      "endOffset" : 310
+    }, {
+      "referenceID" : 13,
+      "context" : "Although the study of neural connectivity is over a century old, starting with pioneering neuroscientists who identified the importance of networks for determining brain function, most knowledge of anatomical neural network structure is limited to either detailed description of small subsystems [2, 9, 14, 26] or to averaged connectivity between larger regions [7, 21].",
+      "startOffset" : 296,
+      "endOffset" : 310
+    }, {
+      "referenceID" : 24,
+      "context" : "Although the study of neural connectivity is over a century old, starting with pioneering neuroscientists who identified the importance of networks for determining brain function, most knowledge of anatomical neural network structure is limited to either detailed description of small subsystems [2, 9, 14, 26] or to averaged connectivity between larger regions [7, 21].",
+      "startOffset" : 296,
+      "endOffset" : 310
+    }, {
+      "referenceID" : 6,
+      "context" : "Although the study of neural connectivity is over a century old, starting with pioneering neuroscientists who identified the importance of networks for determining brain function, most knowledge of anatomical neural network structure is limited to either detailed description of small subsystems [2, 9, 14, 26] or to averaged connectivity between larger regions [7, 21].",
+      "startOffset" : 362,
+      "endOffset" : 369
+    }, {
+      "referenceID" : 19,
+      "context" : "Although the study of neural connectivity is over a century old, starting with pioneering neuroscientists who identified the importance of networks for determining brain function, most knowledge of anatomical neural network structure is limited to either detailed description of small subsystems [2, 9, 14, 26] or to averaged connectivity between larger regions [7, 21].",
+      "startOffset" : 362,
+      "endOffset" : 369
+    }, {
+      "referenceID" : 11,
+      "context" : "Thanks to the development of new tracing techniques, image processing algorithms, and high-throughput methods, data at this resolution are now accessible in animals such as the fly [12, 19] and mouse [15, 18].",
+      "startOffset" : 181,
+      "endOffset" : 189
+    }, {
+      "referenceID" : 17,
+      "context" : "Thanks to the development of new tracing techniques, image processing algorithms, and high-throughput methods, data at this resolution are now accessible in animals such as the fly [12, 19] and mouse [15, 18].",
+      "startOffset" : 181,
+      "endOffset" : 189
+    }, {
+      "referenceID" : 16,
+      "context" : "Thanks to the development of new tracing techniques, image processing algorithms, and high-throughput methods, data at this resolution are now accessible in animals such as the fly [12, 19] and mouse [15, 18].",
+      "startOffset" : 200,
+      "endOffset" : 208
+    }, {
+      "referenceID" : 16,
+      "context" : "[18], a regionally homogeneous connectivity matrix was fit using a predefined regional parcellation to constrain the problem.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 12,
+      "context" : "Obtaining a spatially-resolved mesoscale connectome will reveal detailed features of connectivity, for example unlocking cell-type specific connectivity and microcircuit organization throughout the brain [13].",
+      "startOffset" : 204,
+      "endOffset" : 208
+    }, {
+      "referenceID" : 16,
+      "context" : "This requires combining data across multiple animals, which appears justified at the mesoscale [18].",
+      "startOffset" : 95,
+      "endOffset" : 99
+    }, {
+      "referenceID" : 16,
+      "context" : "[18] were able to obtain a 213 × 213 regional weight matrix using 469 experiments with mice (Fig.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 16,
+      "context" : "First, the number of voxels in the brain is much larger than the number of injection experiments we can expect to perform; for mouse with 100 μm voxels this isO(10(5)) versusO(10(3)) [15, 18].",
+      "startOffset" : 183,
+      "endOffset" : 191
+    }, {
+      "referenceID" : 4,
+      "context" : "We take an agnostic approach, similar to matrix completion [5], to the missing projection data and use a regression loss function that ignores residuals within the injection site.",
+      "startOffset" : 59,
+      "endOffset" : 62
+    }, {
+      "referenceID" : 16,
+      "context" : "In Section 5, we then apply the spline-smoothing method to recently available Allen Institute for Brain Science (Allen Institute) connectivity data from mouse visual cortex [15, 18].",
+      "startOffset" : 173,
+      "endOffset" : 181
+    }, {
+      "referenceID" : 10,
+      "context" : "We know this partly due to tracing projections between these areas, but also because neurons in the early visual areas respond to visual stimuli in a localized region of the visual field called their receptive fields [11].",
+      "startOffset" : 217,
+      "endOffset" : 221
+    }, {
+      "referenceID" : 5,
+      "context" : "An interesting and important feature of visual cortex is the presence of topographic maps of the visual field called the retinotopy [6, 8, 10, 20, 25].",
+      "startOffset" : 132,
+      "endOffset" : 150
+    }, {
+      "referenceID" : 7,
+      "context" : "An interesting and important feature of visual cortex is the presence of topographic maps of the visual field called the retinotopy [6, 8, 10, 20, 25].",
+      "startOffset" : 132,
+      "endOffset" : 150
+    }, {
+      "referenceID" : 9,
+      "context" : "An interesting and important feature of visual cortex is the presence of topographic maps of the visual field called the retinotopy [6, 8, 10, 20, 25].",
+      "startOffset" : 132,
+      "endOffset" : 150
+    }, {
+      "referenceID" : 18,
+      "context" : "An interesting and important feature of visual cortex is the presence of topographic maps of the visual field called the retinotopy [6, 8, 10, 20, 25].",
+      "startOffset" : 132,
+      "endOffset" : 150
+    }, {
+      "referenceID" : 23,
+      "context" : "An interesting and important feature of visual cortex is the presence of topographic maps of the visual field called the retinotopy [6, 8, 10, 20, 25].",
+      "startOffset" : 132,
+      "endOffset" : 150
+    }, {
+      "referenceID" : 20,
+      "context" : "Retinotopy is a specific example of topography, which extends to other sensory systems such as auditory and somatosensory cortex [22].",
+      "startOffset" : 129,
+      "endOffset" : 133
+    }, {
+      "referenceID" : 16,
+      "context" : "The true data are not entirely linear, due to saturation effects of the fluorescence signal, but the linear model provides a tractable way of “credit assignment” of individual source voxels’ contributions to the target signal [18].",
+      "startOffset" : 226,
+      "endOffset" : 230
+    }, {
+      "referenceID" : 4,
+      "context" : "The operator PΩ is similar to what is used in matrix completion [5], here in the context of regression rather than recovery.",
+      "startOffset" : 64,
+      "endOffset" : 67
+    }, {
+      "referenceID" : 22,
+      "context" : "which is called the thin plate spline bending energy [24].",
+      "startOffset" : 53,
+      "endOffset" : 57
+    }, {
+      "referenceID" : 15,
+      "context" : "(2) results from the fact that the Laplacian on the product space T ×S can be decomposed as L = Lx⊗ Iny + Inx ⊗Ly [17].",
+      "startOffset" : 114,
+      "endOffset" : 118
+    }, {
+      "referenceID" : 21,
+      "context" : "(2) [23], which allows us to efficiently evaluate the Laplacian action.",
+      "startOffset" : 4,
+      "endOffset" : 8
+    }, {
+      "referenceID" : 2,
+      "context" : "We solve the optimization (P1) using the L-BFGS-B projected quasi-Newton method, implemented in C++ [3, 4].",
+      "startOffset" : 100,
+      "endOffset" : 106
+    }, {
+      "referenceID" : 3,
+      "context" : "We solve the optimization (P1) using the L-BFGS-B projected quasi-Newton method, implemented in C++ [3, 4].",
+      "startOffset" : 100,
+      "endOffset" : 106
+    }, {
+      "referenceID" : 0,
+      "context" : "And since the model is a structured matrix regression problem [1], the usual representer theorems [24], which reduce the dimensionality of the estimator to effectively the number of data points, do not immediately apply.",
+      "startOffset" : 62,
+      "endOffset" : 65
+    }, {
+      "referenceID" : 22,
+      "context" : "And since the model is a structured matrix regression problem [1], the usual representer theorems [24], which reduce the dimensionality of the estimator to effectively the number of data points, do not immediately apply.",
+      "startOffset" : 98,
+      "endOffset" : 102
+    }, {
+      "referenceID" : 2,
+      "context" : "We use a simple projected gradient method with Nesterov acceleration in Matlab to find a local optimum for (P2) [3], and will present and compare these results to the solution of (P1) below.",
+      "startOffset" : 112,
+      "endOffset" : 115
+    }, {
+      "referenceID" : 14,
+      "context" : "This method has been used before for NMF [16].",
+      "startOffset" : 41,
+      "endOffset" : 45
+    }, {
+      "referenceID" : 16,
+      "context" : "The mouse brains for each experiment were then sliced, imaged, and aligned onto the common coordinates in the Allen Reference Atlas version 3 [15, 18].",
+      "startOffset" : 142,
+      "endOffset" : 150
+    }, {
+      "referenceID" : 16,
+      "context" : "[18], we constrained the connectivity Wkl = WRiRj to be constant for all voxels k in region Ri and l in region Rj .",
+      "startOffset" : 0,
+      "endOffset" : 4
+    } ],
+    "year" : 2016,
+    "abstractText" : "Whole-brain neural connectivity data are now available from viral tracing experiments, which reveal the connections between a source injection site and elsewhere in the brain. These hold the promise of revealing spatial patterns of connectivity throughout the mammalian brain. To achieve this goal, we seek to fit a weighted, nonnegative adjacency matrix among 100 μm brain “voxels” using viral tracer data. Despite a multi-year experimental effort, injections provide incomplete coverage, and the number of voxels in our data is orders of magnitude larger than the number of injections, making the problem severely underdetermined. Furthermore, projection data are missing within the injection site because local connections there are not separable from the injection signal. We use a novel machine-learning algorithm to meet these challenges and develop a spatially explicit, voxel-scale connectivity map of the mouse visual system. Our method combines three features: a matrix completion loss for missing data, a smoothing spline penalty to regularize the problem, and (optionally) a low rank factorization. We demonstrate the consistency of our estimator using synthetic data and then apply it to newly available Allen Mouse Brain Connectivity Atlas data for the visual system. Our algorithm is significantly more predictive than current state of the art approaches which assume regions to be homogeneous. We demonstrate the efficacy of a low rank version on visual cortex data and discuss the possibility of extending this to a whole-brain connectivity matrix at the voxel scale.",
+    "creator" : null
+  }
+}

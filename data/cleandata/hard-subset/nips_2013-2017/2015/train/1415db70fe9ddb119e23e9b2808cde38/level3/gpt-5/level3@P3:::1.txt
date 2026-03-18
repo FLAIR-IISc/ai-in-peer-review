@@ -1,0 +1,55 @@
+Summary and relation to prior work
+This paper proposes a truncated high-dimensional EM algorithm (two M-step variants: exact maximization and one-step gradient ascent) for sparse latent-variable models. With an initializer in a local basin, the algorithm contracts geometrically and achieves near-minimax estimation error of order √(s* log d / n). Building on this estimator, the authors construct a decorrelated score/Wald test for low-dimensional components that attains the semiparametric efficiency bound. The framework is instantiated for two models: sparse two-component Gaussian mixtures and sparse mixtures of regressions. The work extends population-to-sample EM analyses in the low-dimensional regime (e.g., Balakrishnan et al., 2017) to high dimensions via a truncation step, and connects to debiasing/desparsification literature (Zhang & Zhang, 2014; van de Geer et al., 2014). The hypothesis testing method is essentially the decorrelated score of Ning & Liu (2017, Annals of Statistics), adapted to the EM/Q-function setting.
+
+Strengths
+- Clear decomposition of optimization vs statistical error with explicit contraction factors for both M-step implementations.
+- Truncation (hard-thresholding) integrated into EM is conceptually simple and effective, and its support-evolution analysis is technically nontrivial.
+- Asymptotic inference is established with semiparametric efficiency.
+- Concrete verifications for GMM and mixture of regressions with high-dimensional rates.
+
+Weaknesses and requested clarifications
+1) Initialization (line 60, p.2): conditions and practical construction of βinit
+- Condition: βinit must lie in the basin B = {β: ||β − β*||2 ≤ R}, with R = κ||β*||2 for some κ ∈ (0,1) (the paper uses R/2 margin). In practice, κ is model-dependent; for the two examples, κ can be achieved under standard signal-to-noise/separation.
+- Practical initializers:
+  • Sparse two-component symmetric GMM (Yi = Zi β* + Vi, Zi ∈ {±1}): Use the top eigenvector v1 of the centered sample covariance S; since Cov(Y) ≈ σ2 I + β*β*⊤, v1 aligns with β*/||β*|| under SNR r = ||β*||2/σ large. Set β̂dir = v1, magnitude via Rayleigh quotient: τ̂ = (λ̂1 − σ̂2)+1/2, e.g., σ̂2 from median eigenvalue. Then hard-threshold β̂dir to ŝ coordinates and scale: βinit = τ̂ · thr_ŝ(β̂dir). This requires separation r ≥ C; with n ≳ s* log d the initializer typically satisfies ||βinit − β*||2 ≤ c||β*||2 with high probability.
+  • Sparse mixture of regressions: Use spectral experts/moment methods (Chaganty & Liang, 2013) to estimate directions, then solve weighted Lasso regressions on pseudo-labels to get sparsity and scale; or run a few (5–10) iterations of standard EM to get responsibilities, fit a weighted Lasso M-step, then hard-threshold to ŝ. Multiple random restarts with selection by held-out log-likelihood improve basin entry; theory requires SNR and sub-Gaussian design conditions.
+  • Generic recipe: (i) compute a low-variance direction estimator (PCA/moments), (ii) obtain magnitudes via model-implied eigenvalue/moment identities, (iii) hard-threshold to ŝ. Use sample-splitting to avoid bias.
+
+2) When to use each M-step algorithm
+- Exact maximization M-step: Prefer when Q(·;βt) leads to a closed-form or a simple convex weighted least-squares/Lasso subproblem (e.g., GMM means, mixture of regressions with weighted Lasso). Pros: larger contraction (ρ1), fewer iterations. Cons: may be costly if Q is complex.
+- Gradient-ascent M-step: Prefer for complex/non-closed-form Q, large n/streaming (enables mini-batch/stochastic updates), or when memory is constrained. Pros: easy implementation, compatible with stochastic variants; Cons: smaller contraction (ρ2), requires stepsize tuning (use η = 2/(ν+μ) from curvature estimates).
+- Practical rule: If each exact M-step is no more than ~5–10× the cost of a gradient step and Q is well-conditioned, use exact; otherwise use gradient with line search or Barzilai–Borwein, possibly mini-batches. Early stopping when support stabilizes or validation log-likelihood plateaus.
+
+3) Choosing ŝ and λ; sensitivity and data-dependent selection
+- ŝ (bs in the paper): Needs to be ≥ C·s* but not much larger. Practical procedures:
+  • Pilot penalized M-step (weighted Lasso) with λβ = cσ̂√(2 log d / n); set ŝ to 1.5× the number of nonzeros (conservative), or pick the smallest s for which held-out Q or observed log-likelihood plateaus (one-standard-error rule).
+  • Stability selection across EM iterations/restarts; choose ŝ as the number of features with selection frequency above a threshold (e.g., 0.6).
+  • Upper-bound guardrail: ŝ ≤ c·n/log d to avoid overfitting.
+  Sensitivity: Estimation and inference are robust if ŝ is not smaller than s* and not too large; too-small ŝ biases; too-large ŝ slows rates and can hurt finite-sample inference variance.
+- λ in the Dantzig selector for w (eq. 2.6): Set λ = C·(‖Tn(β̂) − E[Tn(β*)]‖∞ + Lip · ‖β̂ − β*‖1), which in practice scales as C·√(log d / n) with a variance proxy estimated from the sample (nodewise residuals or bootstrap of Tn entries). Use sample-splitting to choose C via maintaining nominal size on a small null-resampling set. Sensitivity: Under-penalization inflates type I error; over-penalization slightly reduces power. Default C in [1,3] tends to be stable.
+
+4) Relation to Ning & Liu and what is new here
+- The proposed decorrelated score test coincides with Ning & Liu (2017, Ann. Stat.; 2014 arXiv) in form: constructing Sn via projecting the score with a Dantzig-estimated nuisance direction w and using the plug-in variance Tn(·). The novelty here is not the testing machinery itself, but (i) proving Theorem 2.1 to link EM-Q derivatives to the true score/Fisher information in latent-variable settings, (ii) verifying high-dimensional conditions (gradient concentration, Lipschitz and Fisher sparsity) when the primary estimator is a nonconvex EM iterate rather than a convex optimum, and (iii) showing semiparametric efficiency within these models. The paper should explicitly cite Ning & Liu and state that no new testing construction is needed beyond model-specific verification; the new work is in adaptation and theory for latent-variable likelihoods.
+
+5) Do the assumptions hold?
+- For the two demonstrated models, the paper verifies: strong concavity/smoothness of Q(·;β*) in a local ball; Lipschitz-gradient conditions; entrywise concentration for sample M-steps; sparsity of β* and of w*; bounded Fisher spectrum; and sufficient SNR/separation and sub-Gaussian design. These are standard but somewhat restrictive (e.g., balanced mixtures, sufficiently large SNR, Gaussian noise, sparsity of w* = I−1_{−α,−α} I_{−α,α}). Extensions to unbalanced mixtures, heavier tails, or model misspecification are not covered; the main text should discuss robustness and the empirical regimes where constants are reasonable.
+
+6) Novel contributions vs existing work
+- Beyond Ning & Liu, this paper’s key novelty is the truncated EM scheme with a sharp entrywise statistical error analysis and support evolution control, yielding near-minimax rates; and the first inference theory for EM-based estimators in high dimensions. Applying these tools is nontrivial due to nonconvexity, coupling through latent responsibilities, and the need to control the T-step’s effect on contraction and statistical error.
+
+Suggestions to improve clarity
+- Move statements of main conditions (3.1–3.3; 4.1–4.4), their high-level implications, and a proof sketch of Theorems 3.4 and 4.6 into the main paper, including explicit constants for the two models.
+- Add a practical section: how to build βinit (with pseudo-code), default choices for ŝ, λ, η, early stopping, and when to use each M-step. Report sensitivity studies.
+- Explicitly cite Ning & Liu (2017) and clarify what is reused vs. what is new.
+
+Pros
+- Solid theory with sharp rates and efficiency.
+- Simple, implementable algorithm with clear guidance potential.
+- Bridges a gap for high-dimensional latent-variable inference.
+
+Cons
+- Heavy technical assumptions; practical tuning guidance currently sparse.
+- Main novelty in testing is limited; relies on known decorrelated score.
+- Many essential details are relegated to the supplement.
+
+Overall: High-quality and significant. With added practical guidance, explicit Ning & Liu attribution, and more main-text technical detail, this is a strong NeurIPS paper. I lean toward acceptance.

@@ -1,0 +1,53 @@
+Summary
+The paper proposes a scalable distributed algorithm for sparse precision matrix estimation using the CLIME estimator. The core idea is an inexact ADMM variant tailored to CLIME that (i) linearizes the quadratic term to enable a closed-form soft-thresholding update for X, (ii) uses a splitting variable Z that turns the ∞-norm constraint into an element-wise box projection, and (iii) operates on column blocks (k columns at a time) to leverage matrix–matrix multiplications (BLAS-3) and cache locality. The authors establish O(1/T) rates for objective suboptimality and constraint residuals under η ≥ ρ λ_max(C)^2. They also discuss exploiting structure: iterate sparsity, safe perturbations/thresholding of the sample covariance (Theorem 3), and low-rank multiplication via C = A A^T to reduce O(p^2 k) to O(n p k). A parallel framework is presented for both shared-memory (OpenMP) and distributed-memory (MPI/ScaLAPACK) with block cyclic distribution for load balance. Experiments compare against CLIME (interior-point/ADMM in flare), TIGER, and DC-QUIC, and demonstrate scalability to p = 10^6 (with 400 cores, finishing in ~11 hours).
+
+Relation to prior work
+The work builds on CLIME [Cai et al.], ADMM-based solvers for constrained sparsity problems (Boyd et al.; Yang & Zhang), distributed optimization frameworks (Parikh & Boyd GPBS; GraphLab; parameter-server approaches), and scalable matrix multiplication/blocking techniques (ScaLAPACK, BLAS-3, cache-aware blocking). While ADMM for CLIME and column-wise decompositions have been explored, the paper’s contributions lie in the inexact/linearized ADMM tailored to CLIME with block updates, and a practical distributed implementation with load-balanced block cyclic data distribution. The safe perturbation/truncation idea is related to covariance thresholding and block-diagonal decompositions used in large-scale graphical lasso (Mazumder & Hastie) and DC-QUIC.
+
+Strengths
+- Practical scalability: The column-block ADMM with BLAS-3 multiplications and block cyclic distribution is well-motivated and likely to deliver substantial speedups over column-by-column approaches, especially on distributed-memory systems.
+- Theoretical guarantees: O(1/T) convergence of objectives and residuals for the inexact ADMM variant under explicit conditions; the spectral condition η ≥ ρ λ_max(C)^2 is clear and reasonable.
+- Structural exploitation: Sensible use of low-rank structure via A A^T; iterate sparsity; and a justification (Theorem 3) for safe covariance truncation while retaining CLIME’s statistical guarantees.
+- Engineering: Implementation details for both shared- and distributed-memory settings are concrete; load balance rationale is sound; linear scaling trends are demonstrated; a million-dimensional run is impressive.
+
+Weaknesses and questions
+- Potential scaling inconsistency in the inexact ADMM update: The paper defines V_t and the X-update as X^{t+1} = soft(X^t − V_t, 1/η), with V_t = ρ η C(2Y^t − Y^{t−1}) (and similarly V-update uses ρ η). In standard linearized ADMM/prox-gradient, one expects a step of the form X^{t+1} = S_{1/η}(X^t − (ρ/η) C^T(C X^t − Z^t + Y^t)), implying factors of ρ/η, not ρ η. Please check and correct the scaling; as written, the units and stability conditions seem inconsistent. This is important for reproducibility and to justify the step size condition η ≥ ρ λ_max(C)^2 used in Theorem 2.
+- Notational inconsistencies: A is sometimes p×n and elsewhere n×p; clarify and keep consistent. Also, clarify norm notation (you define ||·||_2 as element-wise Frobenius but use inner products and residual norms—be explicit throughout).
+- Experimental evaluation lacks some details: stopping criteria, values of (λ, ρ, η), and tolerance settings are not reported. Fairness of comparisons: parameters for different methods are tuned to match sparsity, but accuracy metrics on real data are absent; for synthetic, precision-recall is shown, but wall-clock vs accuracy trade-offs are not deeply analyzed.
+- Storage and output feasibility at p = 10^6: A dense precision has 10^12 entries; how is the final solution stored/written? What were the resulting sparsity levels and memory footprint? Clarify whether the method outputs only nonzeros and how I/O is handled at this scale.
+- Theorem 3 utility and assumptions: While the deviation-preserving perturbation argument is plausible, adding independent sub-exponential noise can destroy PSD and (more importantly) cannot be realized through the A A^T low-rank multiplication used by the implementation. The practical recommendation seems to be hard-thresholding small entries of C; this could be stated more directly with explicit constants and citations to covariance thresholding literature.
+- Missing baselines and references: Given the focus on scale, it would help to compare with other distributed/parallel precision estimation approaches (if any), and to discuss why MapReduce-style frameworks are inadequate quantitatively. Also clarify the relation to prior ADMM-based CLIME solvers (beyond flare) and to DC-QUIC’s block decomposition (and whether similar block decomposition can be integrated into your BLAS-3 pipeline).
+
+Quality
+The algorithm is sound in spirit; the O(1/T) results are standard for (linearized) ADMM and useful here. However, the scaling/tuning discrepancy noted above needs correction. Experimental evidence supports scalability claims, but additional specifics (parameters, stopping, memory) would improve rigor. The million-dimensional demonstration is a strong point.
+
+Clarity
+Generally well-organized, but the notational/scaling issues and a few typos hinder readability. Adding a concise pseudo-code with correct dimensions and factors, and a table summarizing computational/memory costs per step (dense vs low-rank vs sparse) would help.
+
+Originality
+Moderate. The main novelty is an effective engineering of a CLIME solver using inexact ADMM with column-block updates and a well-executed distributed implementation. The theoretical pieces are largely in line with known ADMM analyses; the perturbation theorem adds a useful but modest statistical point.
+
+Significance
+High practical significance for large-scale precision estimation. The ability to leverage thousands of cores and process p in the millions is valuable, and the approach (BLAS-3, block cyclic) is likely to be reusable in other constrained optimization problems.
+
+Pros for acceptance
+- Strong and convincing scalability with a distributed implementation
+- Clear algorithmic design choices that leverage hardware efficiently
+- Theoretical convergence guarantees and structural exploitation
+- Addresses an important large-scale problem with practical impact
+
+Cons for acceptance
+- Possible error/typo in the X-update scaling; needs correction
+- Some clarity issues and missing experimental details
+- Limited novelty in theory; engineering-centric contribution
+- Limited accuracy-focused evaluation on real data; storage/I/O at extreme scale not fully addressed
+
+Suggestions for improvement
+- Fix and clarify the inexact ADMM update scaling and provide a short derivation.
+- Unify dimensions and notation for A, C, and norms; add stopping criteria and parameter settings.
+- Report sparsity and memory footprint, and how output is stored for large p.
+- Provide ablation on block size k, communication cost, and sensitivity to η and ρ.
+- Include accuracy metrics (e.g., support recovery/AUC) vs run-time trade-offs for synthetic and, where possible, surrogate metrics for real data.
+
+Recommendation
+Borderline accept leaning accept for its significant engineering contribution and demonstrated scale; acceptance should be contingent on clarifying the ADMM update scaling and improving experimental/reproducibility details.

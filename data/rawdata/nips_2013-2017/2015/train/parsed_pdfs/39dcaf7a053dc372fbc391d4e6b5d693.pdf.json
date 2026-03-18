@@ -1,0 +1,545 @@
+{
+  "name" : "39dcaf7a053dc372fbc391d4e6b5d693.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Recursive Training of 2D-3D Convolutional Networks for Neuronal Boundary Prediction",
+    "authors" : [ "Kisuk Lee", "Aleksandar Zlateski", "Ashwin Vishwanathan", "H. Sebastian Seung" ],
+    "emails" : [ "kisuklee@mit.edu", "zlateski@mit.edu", "ashwinv@princeton.edu", "sseung@princeton.edu" ],
+    "sections" : [ {
+      "heading" : null,
+      "text" : "Efforts to automate the reconstruction of neural circuits from 3D electron microscopic (EM) brain images are critical for the field of connectomics. An important computation for reconstruction is the detection of neuronal boundaries. Images acquired by serial section EM, a leading 3D EM technique, are highly anisotropic, with inferior quality along the third dimension. For such images, the 2D maxpooling convolutional network has set the standard for performance at boundary detection. Here we achieve a substantial gain in accuracy through three innovations. Following the trend towards deeper networks for object recognition, we use a much deeper network than previously employed for boundary detection. Second, we incorporate 3D as well as 2D filters, to enable computations that use 3D context. Finally, we adopt a recursively trained architecture in which a first network generates a preliminary boundary map that is provided as input along with the original image to a second network that generates a final boundary map. Backpropagation training is accelerated by ZNN, a new implementation of 3D convolutional networks that uses multicore CPU parallelism for speed. Our hybrid 2D3D architecture could be more generally applicable to other types of anisotropic 3D images, including video, and our recursive framework for any image labeling problem."
+    }, {
+      "heading" : "1 Introduction",
+      "text" : "Neural circuits can be reconstructed by analyzing 3D brain images from electron microscopy (EM). Image analysis has been accelerated by semiautomated systems that use computer vision to reduce the amount of human labor required [1, 2, 3]. However, analysis of large image datasets is still laborious [4], so it is critical to increase automation by improving the accuracy of computer vision algorithms.\nA variety of machine learning approaches have been explored for the 3D reconstruction of neurons, a problem that can be formulated as image segmentation or boundary detection [5, 6]. This paper focuses on neuronal boundary detection in images from serial section EM, the most widespread kind of 3D EM [7]. The technique starts by cutting and collecting ultrathin (30 to 100 nm) sections of brain tissue. A 2D image is acquired from each section, and then the 2D images are aligned. The spatial resolution of the resulting 3D image stack along the z direction (perpendicular to the cutting plane) is set by the thickness of the sections. This is generally much worse than the resolution that EM yields in the xy plane. In addition, alignment errors may corrupt the image along the z direction.\nDue to these issues with the z direction of the image stack [6, 8], most existing analysis pipelines begin with 2D processing and only later transition to 3D. The stages are: (1) neuronal boundary detection within each 2D image, (2) segmentation of neuron cross sections within each 2D image, and (3) 3D reconstruction of individual neurons by linking across multiple 2D images [1, 9].\nBoundary detection in serial section EM images is done by a variety of algorithms. Many algorithms were compared in the ISBI’12 2D EM segmentation challenge, a publicly available dataset and benchmark [10]. The winning submission was an ensemble of max-pooling convolutional networks (ConvNets) created by IDSIA [11]. One of the ConvNet architectures shown in Figure 1 (N4) is the largest architecture from [11], and serves as a performance baseline for the research reported here.\nWe improve upon N4 by adding several new elements (Fig. 1):\nIncreased depth Our VD2D architecture is deeper than N4 (Figure 1), and borrows other nowstandard practices from the literature, such as rectified linear units (ReLUs), small filter sizes, and multiple convolution layers between pooling layers. VD2D already outperforms N4, without any use of 3D context. VD2D is motivated by the principle “the deeper, the better,” which has become popular for ConvNets applied to object recognition [12, 13]. 3D as well as 2D When human experts detect boundaries in EM images, they use 3D context to disambiguate certain locations. VD2D3D is also able to use 3D context, because it contains 3D filters in its later layers. ConvNets with 3D filters were previously applied to block face EM images [2, 3, 14]. Block face EM is another class of 3D EM techniques, and produces nearly isotropic images, unlike serial section EM. VD2D3D also contains 2D filters in its earlier layers. This novel hybrid use of 2D and 3D filters is suited for the highly anisotropic nature of serial section EM images. Recursive training of ConvNets VD2D and VD2D3D are concatenated to create an extremely deep network. The output of VD2D is a preliminary boundary map, which is provided as input to VD2D3D in addition to the original image (Fig. 1). Based on these two inputs, VD2D3D is trained to compute the final boundary map. Such “recursive” training has previously been applied to neural networks for boundary detection [8, 15, 16], but not to ConvNets. ZNN for 3D deep learning Very deep ConvNets with 3D filters are computationally expensive, so an efficient software implementation is critical. We trained our networks with ZNN (https: //github.com/seung-lab/znn-release, [17]), which uses multicore CPU parallelism for speed. ZNN is one of the few deep learning implementations that is well-optimized for 3D.\nWhile we have applied the above elements to serial section EM images, they are likely to be generally useful for other types of images. The hybrid use of 2D and 3D filters may be useful for video, which can also be viewed as an anisotropic 3D image. Previous 3D ConvNets applied to video processing [18, 19] have used 3D filters exclusively.\nRecursively trained ConvNets are potentially useful for any image labeling problem. The approach is very similar to recurrent ConvNets [20], which iterate the same ConvNet. The recursive approach uses different ConvNets for the successive iterations. The recursive approach has been justified in several ways. In MRF/CRF image labeling, it is viewed as the sequential refinement of the posterior probability of a pixel being assigned a label, given both an input image and recursive input from the previous step [21]. Another viewpoint on recursive training is that statistical dependencies in label (category) space can be directly modeled from the recursive input [15]. From the neurobiological viewpoint, using a preliminary boundary map for an image to guide the computation of a better boundary map for the image can be interpreted as employing a top-down or attentional mechanism.\nWe expect ZNN to have applications far beyond the one considered in this paper. ZNN can train very large networks, because CPUs can access more memory than GPUs. Task parallelism, rather than the SIMD parallelism of GPUs, allows for efficient training of ConvNets with arbitrary topology. A self-tuning capability automatically optimizes each layer by choosing between direct and FFT-based convolution. FFT convolution may be more efficient for wider layers or larger filter size [22, 23]. Finally, ZNN may incur less software development cost, owing to the relative ease of the generalpurpose CPU programming model.\nFinally, we applied our ConvNets to images from a new serial section EM dataset from the mouse piriform cortex. This dataset is important to us, because we are interested in conducting neuroscience research concerning this brain region. Even to those with no interest in piriform cortex, the dataset could be useful for research on image segmentation algorithms. Therefore we make the annotated dataset publicly available (http://seunglab.org/data/)."
+    }, {
+      "heading" : "2 Dataset and evaluation",
+      "text" : "Images of mouse piriform cortex The datasets described here were acquired from the piriform cortex of an adult mouse prepared with aldehyde fixation and reduced osmium staining [24]. The tissue was sectioned using the automatic tape collecting ultramicrotome (ATUM) [25] and sections were imaged on a Zeiss field emission scanning electron microscope [26]. The 2D images were assembled into 3D stacks using custom MATLAB routines and TrakEM2, and each stack was manually annotated using VAST (https://software.rc.fas.harvard.edu/ lichtman/vast/, [25]) (Figure 2). Then each stack was checked and corrected by another annotator.\nThe properties of the four image stacks are detailed in Table 1. It should be noted that image quality varies across the stacks, due to aging of the field emission source in the microscope. In all experiments we used stack1 for testing, stack2 and stack3 for training, and stack4 as an additional training data for recursive training.\nPixel error We use softmax activation in the output layer of our networks to produce per-pixel real-valued outputs between 0 and 1, each of which is interpreted as the probability of an output pixel being boundary, or vice versa. This real-valued “boundary map” can be thresholded to generate a binary boundary map, from which the pixel-wise classification error is computed. We report the best classification error obtained by optimizing the binarization threshold with line search.\nRand score We evaluate 2D segmentation performance with the Rand scoring system [27, 28]. Let nij denote the number of pixels simultaneously in the ith segment of the proposal segmentation and the jth segment of the ground truth segmentation. The Rand merge score and the Rand split score\nV Randmerge =\n∑ ij n\n2 ij∑ i( ∑ j nij) 2 , V Randsplit =\n∑ ij n\n2 ij∑ j( ∑ i nij) 2 .\nare closer to one when there are fewer merge and split errors, respectively. The Rand F-score is the harmonic mean of V Randmerge and V Rand split .\nTo compute the Rand scores, we need to first obtain 2D neuronal segmentation based on the realvalued boundary map. To this end, we apply two segmentation algorithms with different levels of sophistication: (1) simple thresholding followed by computing 2D connected components, and (2) modified graph-based watershed algorithm [29]. We report the best Rand F-score obtained by optimizing parameters for each algorithm with line search, as well as the precision-recall curve for the Rand scores."
+    }, {
+      "heading" : "3 Training with ZNN",
+      "text" : "ZNN [17] was built for 3D ConvNets. 2D convolution is regarded as a special case of 3D convolution, in which one of the three filter dimensions has size 1. For the details on how ZNN implements task parallelism on multicore CPUs, we refer interested readers to [17]. Here we describe only aspects of ZNN that are helpful for understanding how it was used to implement the ConvNets of this paper.\nDense output with maximum filtering In object recognition, a ConvNet is commonly applied to produce a single output value for an entire input image. However, there are many applications in which “dense output” is required, i.e., the ConvNet should produce an output image with the same resolution as the original input image. Such applications include boundary detection [11], image labeling [30], and object localization [31].\nZNN was built from the ground up for dense output and also for dense feature maps.1 ZNN employs max-filtering, which slides a window across the image and applies the maximum operation to the window (Figure 3). Max-filtering is the dense variant of max-pooling. Consequently all feature maps remain intact as dense 3D volumes during both forward and backward passes, making them straightforward for visualization and manipulation.\nOn the other hand, all filtering operations are sparse, in the sense that the sliding window samples sparsely from a regularly spaced set of voxels in the image (Figure 3). ZNN can control the spacing/sparsity of any filtering operation, either convolution or max-filtering.\nZNN can efficiently compute the dense output of a sliding window max-pooling ConvNet by making filter sparsity depend on the number of prior max-filterings. More specifically, each max-filtering\n1Feature maps with the same resolution as the original input image. See Figure 5 for example. Note that the feature maps shown in Figure 5 keep the original resolution even after a couple of max-pooling layers.\nincreases the sparsity of all subsequent filterings by a factor equal to the size of the max-pooling window. This approach, which we employ for the paper, is also called “skip-kernels” [31] or “filter rarefaction” [30], and is equivalent in its results to “max-fragmentation-pooling” [32, 33]. Note however that ZNN is more general, as the sparsity of filters need not depend on max-filtering, but can be controlled independently.\nOutput patch training Training in ZNN is based on loss computed over a dense output patch of arbitrary size. The patch can be arbitrarily large, limited only by memory. This includes the case of a patch that spans the entire image [30, 33]. Although large patch sizes reduce the computational cost per output pixel, neighboring pixels in the patch may provide redundant information. In practice, we choose an intermediate output patch size."
+    }, {
+      "heading" : "4 Network architecture",
+      "text" : "N4 As a baseline for performance comparisons, we adopted the largest 2D ConvNet architecture (named N4) from Cireşan et al. [11] (Figure 1).\nVD2D The architecture of VD2D (“Very Deep 2D”) is shown in Figure 1. Multiple convolution layers are between each max-pooling layer. All convolution filters are 3×3×1, except that Conv1c uses a 2× 2× 1 filter to make the “field of view” or “receptive field” for a single output pixel have an odd-numbered size and therefore centerable around the output pixel. Due to the use of smaller filters, the number of trainable parameters in VD2D (230K) is roughly the same as in the shallower N4 (220K).\nVD2D3D The architecture of VD2D3D (“Very Deep 2D-3D”) is initially identical to VD2D (Figure 1), except that later convolution layers switch to 3 × 3 × 2 filters. This causes the number of trainable parameters to increase, so we compensate by trimming the size of Conv4c to just 100 feature maps. The 3D filters in the later layers should enable the network to use 3D context to detect neuronal boundaries. The use of 2D filters in the initial layers makes the network faster to run and train.\nRecursive training It is possible to apply VD2D3D by itself to boundary detection, giving the raw image as the only input. However, we use a recursive approach in which VD2D3D receives an extra input, the output of VD2D. As we will see below, this produces a significant improvement in performance. It should be noted that instead of providing the recursive input directly to VD2D3D, we added new layers 2 dedicated to processing it. This separate, parallel processing stream for recursive input joins the main stream at Conv1c, allowing for more complex, highly nonlinear interaction between the low-level features and the contextual information in the recursive input.\n2These layers are identical to Conv1a, Conv1b, and Conv1c."
+    }, {
+      "heading" : "5 Training procedures",
+      "text" : "Networks were trained using backpropagation with the cross-entropy loss function. We first trained VD2D, and then trained VD2D3D. The 2D layers of VD2D3D were initialized using trained weights from VD2D. This initialization meant that our recursive approach bore some similarity to recurrent ConvNets, in which the first and second stage networks are constrained to be identical [20]. However, we did not enforce exact weight sharing, but fine-tuned the weights of VD2D3D.\nOutput patch As mentioned earlier, training with ZNN is done by dense output patch-based gradient update with per-pixel loss. During training, an output patch of specified size is randomly drawn from the training stacks at the beginning of each forward pass.\nClass rebalancing In dense output patch-based training, imbalance between the number of training samples in different classes (e.g. boundary/non-boundary) can be handled by either sampling a balanced number of pixels from an output patch, or by differentially weighting the per-pixel loss [30]. In our experiment, we adopted the latter approach (loss weighting) to deal with the high imbalance between boundary and non-boundary pixels.\nData augmentation We used the same data augmentation method used in [11], randomly rotating and flipping 2D image patches.\nHyperparameter We always used the fixed learning rate of 0.01 with the momentum of 0.9. When updating weights we divided the gradient by the total number of pixels in an output patch, similar to the typical minibatch averaging.\nWe first trained N4 with an output patch of size 200× 200× 1 for 90K gradient updates. Next, we trained VD2D with 150×150×1 output patches, reflecting the increased size of model compared to N4. After 60K updates, we evaluated the trained VD2D on the training stacks to obtain preliminary boundary maps, and started training VD2D3D with 100×100×1 output patches, again reflecting the increased model complexity. We trained VD2D3D for 90K updates. In this recursive training stage we additionally used stack4 to prevent VD2D3D from being overly dependent on the good-quality boundary maps for training stacks. It should be noted that stack4 has slightly lower xy-resolution than other stacks (Table 1), which we think is helpful in terms of learning multi-scale representation.\nOur proposed recursive framework is different from the training of recurrent ConvNets [20] in that recursive input is not dynamically produced by the first ConvNet during training, but evaluated before and being fixed throughout the recursive training stage. However, it is also possible to further train the first ConvNet even after evaluating its preliminary output as recursive input to the second ConvNet. We further trained VD2D for another 30K updates while VD2D3D is being trained. We report the final performance of VD2D after a total of 90K updates. We also replaced the initial VD2D boundary map with the final one when evaluating VD2D3D results. With ZNN, it took two days to train both N4 and VD2D for 90K updates, and three days to train VD2D3D for 90K updates."
+    }, {
+      "heading" : "6 Results",
+      "text" : "In this section, we show both quantitative and qualitative results obtained by the three architectures shown in Figure 1, namely N4, VD2D, and VD2D3D. The pixel-wise classification error of each model on test set was 10.63% (N4), 9.77% (VD2D), and 8.76% (VD2D3D).\nQuantitative comparison Figure 4 compares the result of each architecture on test set (stack1), both quantitatively and qualitatively. The leftmost bar graph shows the best 2D Rand F-score of each model obtained by 2D segmentation with (1) simpler connected component clustering and (2) more sophisticated watershed-based segmentation. The middle and rightmost graphs show the precision-recall curve of each model for the Rand scores obtained with the connected component and watershed-based segmentation, respectively. We observe that VD2D performs significantly better than N4, and also VD2D3D outperforms VD2D by a significant margin in terms of both best Rand F-score and overall precision-recall curve.\nQualitative comparison Figure 2 shows the visualization of boundary detection results of each model on test set, along with the original EM images and ground truth boundary map. We observe that false detection of boundary on intracellular regions was significantly reduced in VD2D3D,\nwhich demonstrates the effectiveness of the proposed 2D-3D ConvNet combined with recursive approach. The middle and bottom rows in Figure 4 show some example locations in test set where both 2D models (N4 and VD2D) failed to correctly detect the boundary, or erroneously detected false boundaries, whereas VD2D3D correctly predicted on those ambiguous locations. Visual analysis on the boundary detection results of each model again demonstrates the superior performance of the proposed recursively trained 2D-3D ConvNet over 2D models."
+    }, {
+      "heading" : "7 Discussion",
+      "text" : "Biologically-inspired recursive framework Our proposed recursive framework is greatly inspired by the work of Chen et al. [34]. In this work, they examined the close interplay between neurons in the primary and higher visual cortical areas (V1 and V4, respectively) of monkeys performing contour detection tasks. In this task, monkeys were trained to detect a global contour pattern that consists of multiple collinearly aligned bars in a cluttered background.\nThe main discovery of their work is as follows: initially, V4 neurons responded to the global contour pattern. After a short time delay (∼40 ms), the activity of V1 neurons responding to each bar composing the global contour pattern was greatly enhanced, whereas those responding to the background was largely suppressed, despite the fact that those “foreground” and “background” V1 neurons have similar response properties. They referred to it as “push-pull response mode” of V1 neurons between foreground and background, which is attributable to the top-down influence from the higher level V4 neurons. This process is also referred to as “countercurrent disambiguating process” [34].\nThis experimental result readily suggests a mechanistic interpretation on the recursive training of deep ConvNets for neuronal boundary detection. We can roughly think of V1 responses as lower level feature maps in a deep ConvNet, and V4 responses as higher level feature maps or output activations. Once the overall ‘contour’ of neuonal boundaries is detected by the feedforward processing of VD2D, this preliminary boundary map can then be recursively fed to VD2D3D. This process\ncan be thought of as corresponding to the initial detection of global contour patterns by V4 and its top-down influence on V1.\nDuring recursive training, VD2D3D will learn how to integrate the pixel-level contextual information in the recursive input with the low-level features, presumably in such a way that feature activations on the boundary location are enhanced, whereas activations unrelated to the neuronal boundary (intracellular space, mitochondria, etc.) are suppressed. Here the recursive input can also be viewed as the modulatory ‘gate’ through which only the signals relevant to the given task of neuronal boundary detection can pass. This is convincingly demonstrated by visualizing and comparing the feature maps of VD2D and VD2D3D.\nIn Figure 5, the noisy representations of oriented boundary segments in VD2D (first and third volumes) are greatly enhanced in VD2D3D (second and fourth volumes), with signals near boundary being preserved or amplified, and noises in the background being largely suppressed. This is exactly what we expected from the proposed interpretation of our recursive framework.\nPotential of ZNN We have shown that ZNN can serve as a viable alternative to the mainstream GPU-based deep learning frameworks, especially when processing 3D volume data with 3D ConvNets. ZNN’s unique features including the large output patch-based training and the dense computation of feature maps can be further utilized for additional computations to better perform the given task. In theory, we can perform any kind of computation on the dense output prediction between each forward and backward passes. For instance, objective functions that consider topological constraints (e.g. MALIS [35]) or sampling of topologically relevant locations (e.g. LED weighting [15]) can be applied to the dense output patch, in addition to loss computation, before each backward pass.\nDense feature maps also enable the straighforward implementation of multi-level feature integration for fine-grained segmentation. Long et al. [30] resorted to upsampling of the higher level features with lower resolution in order to integrate them with the lower level features with higher resolution. Since ZNN maintains every feature map at the original resolution of input, it is straighforward enough to combine feature maps from any level, removing the need for upsampling."
+    }, {
+      "heading" : "Acknowledgments",
+      "text" : "We thank Juan C. Tapia, Gloria Choi and Dan Stettler for initial help with tissue handling and Jeff Lichtman and Richard Schalek with help in setting up tape collection. Kisuk Lee was supported by a Samsung Scholarship. The recursive approach proposed in this paper was partially motivated by Matthew J. Greene’s preliminary experiments. We are grateful for funding from the Mathers Foundation, Keating Fund for Innovation, Simons Center for the Social Brain, DARPA (HR001114-2-0004), and ARO (W911NF-12-1-0594)."
+    } ],
+    "references" : [ {
+      "title" : "A visual motion detection circuit suggested by Drosophila",
+      "author" : [ "S. Takemura" ],
+      "venue" : "connectomics. Nature,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : "1",
+      "year" : 2013
+    }, {
+      "title" : "Connectomic reconstruction of the inner plexiform layer in the mouse",
+      "author" : [ "M. Helmstaedter", "K.L. Briggman", "S.C. Turaga", "V. Jain", "H.S. Seung", "W. Denk" ],
+      "venue" : "retina. Nature,",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 2013
+    }, {
+      "title" : "Space-time wiring specificity supports direction selectivity in the retina",
+      "author" : [ "J.S. Kim" ],
+      "venue" : null,
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 2014
+    }, {
+      "title" : "Cellular-resolution connectomics: challenges of dense neural circuit reconstruction",
+      "author" : [ "M. Helmstaedter" ],
+      "venue" : "Nature Methods,",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : "4",
+      "year" : 2013
+    }, {
+      "title" : "Machines that learn to segment images: a crucial technology for connectomics",
+      "author" : [ "V. Jain", "H.S. Seung", "S.C. Turaga" ],
+      "venue" : "Current Opinion in Neurobiology,",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : "5",
+      "year" : 2010
+    }, {
+      "title" : "Image segmentation for connectomics using machine learning",
+      "author" : [ "T. Tasdizen" ],
+      "venue" : "In Computational Intelligence in Biomedical Imaging,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : "6",
+      "year" : 2014
+    }, {
+      "title" : "Volume electron microscopy for neuronal circuit reconstruction",
+      "author" : [ "K.L. Briggman", "D.D. Bock" ],
+      "venue" : "Current Opinion in Neurobiology,",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : "7",
+      "year" : 2012
+    }, {
+      "title" : "Detection of neuron membranes in electron microscopy images using a serial neural network architecture",
+      "author" : [ "E. Jurrus" ],
+      "venue" : "Medical Image Analysis,",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : "8",
+      "year" : 2010
+    }, {
+      "title" : "A modular hierarchical approach to 3D electron microscopy image segmentation",
+      "author" : [ "T. Liu", "C. Jones", "M. Seyedhosseini", "T. Tasdizen" ],
+      "venue" : "Journal of Neuroscience Methods,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 2014
+    }, {
+      "title" : "Deep neural networks segment neuronal membranes in electron microscopy",
+      "author" : [ "D.C. Cireşan", "A. Giusti", "L.M. Gambardella", "J. Schmidhuber" ],
+      "venue" : null,
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 2012
+    }, {
+      "title" : "Imagenet classification with deep convolutional neural networks",
+      "author" : [ "A. Krizhevsky", "I. Sutskever", "G. Hinton" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 2012
+    }, {
+      "title" : "Very deep convolutional networks for large-scale image recognition",
+      "author" : [ "K. Simonyan", "A. Zisserman" ],
+      "venue" : "In ICLR,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 2015
+    }, {
+      "title" : "Convolutional networks can learn to generate affinity graphs for image segmentation",
+      "author" : [ "S.C. Turaga" ],
+      "venue" : "Neural Computation,",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 2010
+    }, {
+      "title" : "Deep and wide multiscale recursive networks for robust image labeling",
+      "author" : [ "G.B. Huang", "V. Jain" ],
+      "venue" : "In ICLR,",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : "15",
+      "year" : 2014
+    }, {
+      "title" : "Multi-class multi-scale series contextual model for image segmentation",
+      "author" : [ "M. Seyedhosseini", "T. Tasdizen" ],
+      "venue" : "Image Processing, IEEE Transactions on,",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : "16",
+      "year" : 2013
+    }, {
+      "title" : "ZNN - A fast and scalable algorithm for training 3D convolutional networks on multi-core and many-core shared memory machines",
+      "author" : [ "A. Zlateski", "K. Lee", "H.S. Seung" ],
+      "venue" : null,
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : "17",
+      "year" : 2015
+    }, {
+      "title" : "Learning Spatiotemporal Features with 3D Convolutional Networks",
+      "author" : [ "D. Tran", "L. Bourdev", "R. Fergus", "L. Torresani", "M. Paluri" ],
+      "venue" : null,
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : "18",
+      "year" : 2014
+    }, {
+      "title" : "Describing Videos by Exploiting Temporal Structure",
+      "author" : [ "L. Yao", "A. Torabi", "K. Cho", "N. Ballas", "C. Pal", "H. Larochelle", "A. Courville" ],
+      "venue" : null,
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : "19",
+      "year" : 2015
+    }, {
+      "title" : "Recurrent convolutional neural networks for scene labeling",
+      "author" : [ "P.O. Pinheiro", "R. Collobert" ],
+      "venue" : "In ICML,",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : "20",
+      "year" : 2014
+    }, {
+      "title" : "Auto-context and its application to high-level vision tasks",
+      "author" : [ "Z. Tu" ],
+      "venue" : "In CVPR,",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : "21",
+      "year" : 2008
+    }, {
+      "title" : "Fast training of convolutional networks through FFTs",
+      "author" : [ "M. Mathieu", "M. Henaff", "Y. LeCun" ],
+      "venue" : "In ICLR,",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : "22",
+      "year" : 2014
+    }, {
+      "title" : "Fast convolutional nets with fbfft: a GPU performance evaluation",
+      "author" : [ "N. Vasilache", "J. Johnson", "M. Mathieu", "S. Chintala", "S. Piantino", "Y. LeCun" ],
+      "venue" : "In ICLR,",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : "23",
+      "year" : 2015
+    }, {
+      "title" : "High-contrast en bloc staining of neuronal tissue for field emission scanning electron microscopy",
+      "author" : [ "J.C. Tapia" ],
+      "venue" : "Nature Protocols,",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : "24",
+      "year" : 2012
+    }, {
+      "title" : "Saturated reconstruction of a volume of neocortex",
+      "author" : [ "N. Kasthuri" ],
+      "venue" : "Cell 162,",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : "25",
+      "year" : 2015
+    }, {
+      "title" : "Imaging ATUM ultrathin section libraries with WaferMapper: a multi-scale approach to EM reconstruction of neural circuits",
+      "author" : [ "K.J. Hayworth" ],
+      "venue" : "Frontiers in Neural Circuits,",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : "26",
+      "year" : 2014
+    }, {
+      "title" : "Objective criteria for the evaluation of clustering methods",
+      "author" : [ "W.M. Rand" ],
+      "venue" : "Journal of the American Statistical Association,",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : "27",
+      "year" : 1971
+    }, {
+      "title" : "Toward objective evaluation of image segmentation algorithms",
+      "author" : [ "R. Unnikrishnan", "C. Pantofaru", "M. Hebert" ],
+      "venue" : "Pattern Analysis and Machine Intelligence, IEEE Transactions on,",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : "28",
+      "year" : 2007
+    }, {
+      "title" : "Image segmentation by size-dependent single linkage clustering of a watershed basin graph",
+      "author" : [ "A. Zlateski", "H.S. Seung" ],
+      "venue" : null,
+      "citeRegEx" : "29",
+      "shortCiteRegEx" : "29",
+      "year" : 2015
+    }, {
+      "title" : "Fully convolutional networks for semantic segmentation",
+      "author" : [ "J. Long", "E. Shelhamer", "T. Darrell" ],
+      "venue" : "In CVPR,",
+      "citeRegEx" : "30",
+      "shortCiteRegEx" : "30",
+      "year" : 2015
+    }, {
+      "title" : "OverFeat: Integrated recognition, localization and detection using convolutional networks",
+      "author" : [ "P. Sermanet", "D. Eigen", "X. Zhang", "M. Mathieu", "R. Fergus", "Y. LeCun" ],
+      "venue" : "In ICLR,",
+      "citeRegEx" : "31",
+      "shortCiteRegEx" : "31",
+      "year" : 2014
+    }, {
+      "title" : "Fast image scanning with deep max-pooling convolutional neural networks",
+      "author" : [ "A. Giusti", "D.C. Cireşan", "J. Masci", "L.M. Gambardella", "J. Schmidhuber" ],
+      "venue" : "In ICIP,",
+      "citeRegEx" : "32",
+      "shortCiteRegEx" : "32",
+      "year" : 2013
+    }, {
+      "title" : "A fast learning algorithm for image segmentation with max-pooling convolutional networks",
+      "author" : [ "J. Masci", "A. Giusti", "D.C. Cireşan", "G. Fricout", "J. Schmidhuber" ],
+      "venue" : "In ICIP,",
+      "citeRegEx" : "33",
+      "shortCiteRegEx" : "33",
+      "year" : 2013
+    }, {
+      "title" : "Incremental integration of global contours through interplay between visual cortical",
+      "author" : [ "M. Chen", "Y. Yan", "X. Gong", "C.D. Gilbert", "H. Liang", "W. Li" ],
+      "venue" : "areas. Neuron,",
+      "citeRegEx" : "34",
+      "shortCiteRegEx" : "34",
+      "year" : 2014
+    }, {
+      "title" : "Maximin affinity learning of image segmentation",
+      "author" : [ "S.C. Turaga" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "35",
+      "shortCiteRegEx" : "35",
+      "year" : 2009
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 0,
+      "context" : "Image analysis has been accelerated by semiautomated systems that use computer vision to reduce the amount of human labor required [1, 2, 3].",
+      "startOffset" : 131,
+      "endOffset" : 140
+    }, {
+      "referenceID" : 1,
+      "context" : "Image analysis has been accelerated by semiautomated systems that use computer vision to reduce the amount of human labor required [1, 2, 3].",
+      "startOffset" : 131,
+      "endOffset" : 140
+    }, {
+      "referenceID" : 2,
+      "context" : "Image analysis has been accelerated by semiautomated systems that use computer vision to reduce the amount of human labor required [1, 2, 3].",
+      "startOffset" : 131,
+      "endOffset" : 140
+    }, {
+      "referenceID" : 3,
+      "context" : "However, analysis of large image datasets is still laborious [4], so it is critical to increase automation by improving the accuracy of computer vision algorithms.",
+      "startOffset" : 61,
+      "endOffset" : 64
+    }, {
+      "referenceID" : 4,
+      "context" : "A variety of machine learning approaches have been explored for the 3D reconstruction of neurons, a problem that can be formulated as image segmentation or boundary detection [5, 6].",
+      "startOffset" : 175,
+      "endOffset" : 181
+    }, {
+      "referenceID" : 5,
+      "context" : "A variety of machine learning approaches have been explored for the 3D reconstruction of neurons, a problem that can be formulated as image segmentation or boundary detection [5, 6].",
+      "startOffset" : 175,
+      "endOffset" : 181
+    }, {
+      "referenceID" : 6,
+      "context" : "This paper focuses on neuronal boundary detection in images from serial section EM, the most widespread kind of 3D EM [7].",
+      "startOffset" : 118,
+      "endOffset" : 121
+    }, {
+      "referenceID" : 5,
+      "context" : "Due to these issues with the z direction of the image stack [6, 8], most existing analysis pipelines begin with 2D processing and only later transition to 3D.",
+      "startOffset" : 60,
+      "endOffset" : 66
+    }, {
+      "referenceID" : 7,
+      "context" : "Due to these issues with the z direction of the image stack [6, 8], most existing analysis pipelines begin with 2D processing and only later transition to 3D.",
+      "startOffset" : 60,
+      "endOffset" : 66
+    }, {
+      "referenceID" : 0,
+      "context" : "The stages are: (1) neuronal boundary detection within each 2D image, (2) segmentation of neuron cross sections within each 2D image, and (3) 3D reconstruction of individual neurons by linking across multiple 2D images [1, 9].",
+      "startOffset" : 219,
+      "endOffset" : 225
+    }, {
+      "referenceID" : 8,
+      "context" : "The stages are: (1) neuronal boundary detection within each 2D image, (2) segmentation of neuron cross sections within each 2D image, and (3) 3D reconstruction of individual neurons by linking across multiple 2D images [1, 9].",
+      "startOffset" : 219,
+      "endOffset" : 225
+    }, {
+      "referenceID" : 9,
+      "context" : "The winning submission was an ensemble of max-pooling convolutional networks (ConvNets) created by IDSIA [11].",
+      "startOffset" : 105,
+      "endOffset" : 109
+    }, {
+      "referenceID" : 9,
+      "context" : "One of the ConvNet architectures shown in Figure 1 (N4) is the largest architecture from [11], and serves as a performance baseline for the research reported here.",
+      "startOffset" : 89,
+      "endOffset" : 93
+    }, {
+      "referenceID" : 10,
+      "context" : "VD2D is motivated by the principle “the deeper, the better,” which has become popular for ConvNets applied to object recognition [12, 13].",
+      "startOffset" : 129,
+      "endOffset" : 137
+    }, {
+      "referenceID" : 11,
+      "context" : "VD2D is motivated by the principle “the deeper, the better,” which has become popular for ConvNets applied to object recognition [12, 13].",
+      "startOffset" : 129,
+      "endOffset" : 137
+    }, {
+      "referenceID" : 1,
+      "context" : "ConvNets with 3D filters were previously applied to block face EM images [2, 3, 14].",
+      "startOffset" : 73,
+      "endOffset" : 83
+    }, {
+      "referenceID" : 2,
+      "context" : "ConvNets with 3D filters were previously applied to block face EM images [2, 3, 14].",
+      "startOffset" : 73,
+      "endOffset" : 83
+    }, {
+      "referenceID" : 12,
+      "context" : "ConvNets with 3D filters were previously applied to block face EM images [2, 3, 14].",
+      "startOffset" : 73,
+      "endOffset" : 83
+    }, {
+      "referenceID" : 7,
+      "context" : "Such “recursive” training has previously been applied to neural networks for boundary detection [8, 15, 16], but not to ConvNets.",
+      "startOffset" : 96,
+      "endOffset" : 107
+    }, {
+      "referenceID" : 13,
+      "context" : "Such “recursive” training has previously been applied to neural networks for boundary detection [8, 15, 16], but not to ConvNets.",
+      "startOffset" : 96,
+      "endOffset" : 107
+    }, {
+      "referenceID" : 14,
+      "context" : "Such “recursive” training has previously been applied to neural networks for boundary detection [8, 15, 16], but not to ConvNets.",
+      "startOffset" : 96,
+      "endOffset" : 107
+    }, {
+      "referenceID" : 15,
+      "context" : "com/seung-lab/znn-release, [17]), which uses multicore CPU parallelism for speed.",
+      "startOffset" : 27,
+      "endOffset" : 31
+    }, {
+      "referenceID" : 16,
+      "context" : "Previous 3D ConvNets applied to video processing [18, 19] have used 3D filters exclusively.",
+      "startOffset" : 49,
+      "endOffset" : 57
+    }, {
+      "referenceID" : 17,
+      "context" : "Previous 3D ConvNets applied to video processing [18, 19] have used 3D filters exclusively.",
+      "startOffset" : 49,
+      "endOffset" : 57
+    }, {
+      "referenceID" : 18,
+      "context" : "The approach is very similar to recurrent ConvNets [20], which iterate the same ConvNet.",
+      "startOffset" : 51,
+      "endOffset" : 55
+    }, {
+      "referenceID" : 19,
+      "context" : "In MRF/CRF image labeling, it is viewed as the sequential refinement of the posterior probability of a pixel being assigned a label, given both an input image and recursive input from the previous step [21].",
+      "startOffset" : 202,
+      "endOffset" : 206
+    }, {
+      "referenceID" : 13,
+      "context" : "Another viewpoint on recursive training is that statistical dependencies in label (category) space can be directly modeled from the recursive input [15].",
+      "startOffset" : 148,
+      "endOffset" : 152
+    }, {
+      "referenceID" : 20,
+      "context" : "FFT convolution may be more efficient for wider layers or larger filter size [22, 23].",
+      "startOffset" : 77,
+      "endOffset" : 85
+    }, {
+      "referenceID" : 21,
+      "context" : "FFT convolution may be more efficient for wider layers or larger filter size [22, 23].",
+      "startOffset" : 77,
+      "endOffset" : 85
+    }, {
+      "referenceID" : 22,
+      "context" : "Images of mouse piriform cortex The datasets described here were acquired from the piriform cortex of an adult mouse prepared with aldehyde fixation and reduced osmium staining [24].",
+      "startOffset" : 177,
+      "endOffset" : 181
+    }, {
+      "referenceID" : 23,
+      "context" : "The tissue was sectioned using the automatic tape collecting ultramicrotome (ATUM) [25] and sections were imaged on a Zeiss field emission scanning electron microscope [26].",
+      "startOffset" : 83,
+      "endOffset" : 87
+    }, {
+      "referenceID" : 24,
+      "context" : "The tissue was sectioned using the automatic tape collecting ultramicrotome (ATUM) [25] and sections were imaged on a Zeiss field emission scanning electron microscope [26].",
+      "startOffset" : 168,
+      "endOffset" : 172
+    }, {
+      "referenceID" : 25,
+      "context" : "Rand score We evaluate 2D segmentation performance with the Rand scoring system [27, 28].",
+      "startOffset" : 80,
+      "endOffset" : 88
+    }, {
+      "referenceID" : 26,
+      "context" : "Rand score We evaluate 2D segmentation performance with the Rand scoring system [27, 28].",
+      "startOffset" : 80,
+      "endOffset" : 88
+    }, {
+      "referenceID" : 27,
+      "context" : "To this end, we apply two segmentation algorithms with different levels of sophistication: (1) simple thresholding followed by computing 2D connected components, and (2) modified graph-based watershed algorithm [29].",
+      "startOffset" : 211,
+      "endOffset" : 215
+    }, {
+      "referenceID" : 15,
+      "context" : "For the details on how ZNN implements task parallelism on multicore CPUs, we refer interested readers to [17].",
+      "startOffset" : 105,
+      "endOffset" : 109
+    }, {
+      "referenceID" : 9,
+      "context" : "Such applications include boundary detection [11], image labeling [30], and object localization [31].",
+      "startOffset" : 45,
+      "endOffset" : 49
+    }, {
+      "referenceID" : 28,
+      "context" : "Such applications include boundary detection [11], image labeling [30], and object localization [31].",
+      "startOffset" : 66,
+      "endOffset" : 70
+    }, {
+      "referenceID" : 29,
+      "context" : "Such applications include boundary detection [11], image labeling [30], and object localization [31].",
+      "startOffset" : 96,
+      "endOffset" : 100
+    }, {
+      "referenceID" : 29,
+      "context" : "This approach, which we employ for the paper, is also called “skip-kernels” [31] or “filter rarefaction” [30], and is equivalent in its results to “max-fragmentation-pooling” [32, 33].",
+      "startOffset" : 76,
+      "endOffset" : 80
+    }, {
+      "referenceID" : 28,
+      "context" : "This approach, which we employ for the paper, is also called “skip-kernels” [31] or “filter rarefaction” [30], and is equivalent in its results to “max-fragmentation-pooling” [32, 33].",
+      "startOffset" : 105,
+      "endOffset" : 109
+    }, {
+      "referenceID" : 30,
+      "context" : "This approach, which we employ for the paper, is also called “skip-kernels” [31] or “filter rarefaction” [30], and is equivalent in its results to “max-fragmentation-pooling” [32, 33].",
+      "startOffset" : 175,
+      "endOffset" : 183
+    }, {
+      "referenceID" : 31,
+      "context" : "This approach, which we employ for the paper, is also called “skip-kernels” [31] or “filter rarefaction” [30], and is equivalent in its results to “max-fragmentation-pooling” [32, 33].",
+      "startOffset" : 175,
+      "endOffset" : 183
+    }, {
+      "referenceID" : 28,
+      "context" : "This includes the case of a patch that spans the entire image [30, 33].",
+      "startOffset" : 62,
+      "endOffset" : 70
+    }, {
+      "referenceID" : 31,
+      "context" : "This includes the case of a patch that spans the entire image [30, 33].",
+      "startOffset" : 62,
+      "endOffset" : 70
+    }, {
+      "referenceID" : 18,
+      "context" : "This initialization meant that our recursive approach bore some similarity to recurrent ConvNets, in which the first and second stage networks are constrained to be identical [20].",
+      "startOffset" : 175,
+      "endOffset" : 179
+    }, {
+      "referenceID" : 28,
+      "context" : "boundary/non-boundary) can be handled by either sampling a balanced number of pixels from an output patch, or by differentially weighting the per-pixel loss [30].",
+      "startOffset" : 157,
+      "endOffset" : 161
+    }, {
+      "referenceID" : 9,
+      "context" : "Data augmentation We used the same data augmentation method used in [11], randomly rotating and flipping 2D image patches.",
+      "startOffset" : 68,
+      "endOffset" : 72
+    }, {
+      "referenceID" : 18,
+      "context" : "Our proposed recursive framework is different from the training of recurrent ConvNets [20] in that recursive input is not dynamically produced by the first ConvNet during training, but evaluated before and being fixed throughout the recursive training stage.",
+      "startOffset" : 86,
+      "endOffset" : 90
+    }, {
+      "referenceID" : 32,
+      "context" : "This process is also referred to as “countercurrent disambiguating process” [34].",
+      "startOffset" : 76,
+      "endOffset" : 80
+    }, {
+      "referenceID" : 33,
+      "context" : "MALIS [35]) or sampling of topologically relevant locations (e.",
+      "startOffset" : 6,
+      "endOffset" : 10
+    }, {
+      "referenceID" : 13,
+      "context" : "LED weighting [15]) can be applied to the dense output patch, in addition to loss computation, before each backward pass.",
+      "startOffset" : 14,
+      "endOffset" : 18
+    }, {
+      "referenceID" : 28,
+      "context" : "[30] resorted to upsampling of the higher level features with lower resolution in order to integrate them with the lower level features with higher resolution.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    } ],
+    "year" : 2015,
+    "abstractText" : "Efforts to automate the reconstruction of neural circuits from 3D electron microscopic (EM) brain images are critical for the field of connectomics. An important computation for reconstruction is the detection of neuronal boundaries. Images acquired by serial section EM, a leading 3D EM technique, are highly anisotropic, with inferior quality along the third dimension. For such images, the 2D maxpooling convolutional network has set the standard for performance at boundary detection. Here we achieve a substantial gain in accuracy through three innovations. Following the trend towards deeper networks for object recognition, we use a much deeper network than previously employed for boundary detection. Second, we incorporate 3D as well as 2D filters, to enable computations that use 3D context. Finally, we adopt a recursively trained architecture in which a first network generates a preliminary boundary map that is provided as input along with the original image to a second network that generates a final boundary map. Backpropagation training is accelerated by ZNN, a new implementation of 3D convolutional networks that uses multicore CPU parallelism for speed. Our hybrid 2D3D architecture could be more generally applicable to other types of anisotropic 3D images, including video, and our recursive framework for any image labeling problem.",
+    "creator" : null
+  }
+}

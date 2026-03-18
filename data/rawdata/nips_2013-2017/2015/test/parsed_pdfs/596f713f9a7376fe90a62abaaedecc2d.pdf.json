@@ -1,0 +1,343 @@
+{
+  "name" : "596f713f9a7376fe90a62abaaedecc2d.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "The Return of the Gating Network: Combining Generative Models and Discriminative Training in Natural Image Priors",
+    "authors" : [ "Dan Rosenbaum" ],
+    "emails" : [ ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Figure 1 shows an example of an image restoration problem. We are given a degraded image (in this case degraded with Gaussian noise) and seek to estimate the clean image. Image restoration is an extremely well studied problem and successful systems for specific scenarios have been built without any explicit use of machine learning. For example, approaches based on “coring” can be used to successfully remove noise from an image by transforming to a wavelet basis and zeroing out coefficients that are close to zero [7]. More recently the very successful BM3D method removes noise from patches by finding similar patches in the noisy image and combining all similar patches in a nonlinear way [4].\nIn recent years, machine learning based approaches are starting to outperform the hand engineered systems for image restoration. As in other areas of machine learning, these approaches can be divided into generative approaches which seek to learn probabilistic models of clean images versus discriminative approaches which seek to learn models that map noisy images to clean images while minimizing the training loss between the predicted clean image and the true one.\nTwo influential generative approaches are the fields of experts (FOE) approach [16] and KSVD [5] which assume that filter responses to natural images should be sparse and learn a set of filters under this assumption. While very good performance can be obtained using these methods, when they are trained generatively they do not give performance that is as good as BM3D. Perhaps the most successful generative approach to image restoration is based on Gaussian Mixture Models (GMMs) [22]. In this approach 8x8 image patches are modeled as 64 dimensional vectors and a\nsimple GMM with 200 components is used to model the density in this space. Despite its simplicity, this model remains among the top performing models in terms of likelihood given to left out patches and also gives excellent performance in image restoration [23, 20]. In particular, it outperforms BM3D on image denoising and has been successfully used for other image restoration problems such as deblurring [19]. The performance of generative models in denoising can be much improved by using an “empirical Bayes” approach where the parameters are estimated from the noisy image [13, 21, 14, 5].\nDiscriminative approaches for image restoration typically assume a particular feed forward structure and use training to optimize the parameters of the structure. Hel-Or and Shaked used discriminative training to optimize the parameters of coring [7]. Chen et al. [3] discriminatively learn the parameters of a generative model to minimize its denoising error. They show that even though the model was trained for a specific noise level, it acheives similar results as the GMM for different noise levels. Jain and Seung trained a convolutional deep neural network to perform image denoising. Using the same training set as was used by the FOE and GMM papers, they obtained better results than FOE but not as good as BM3D or GMM [9]. Burger et al. [2] trained a deep (nonconvolutional) multi layer perceptron to perform denoising. By increasing the size of the training set by two orders of magnitude relative to previous approaches, they obtained what is perhaps the\nbest stand-alone method for image denoising. Fanello et al. [6] trained a random forest architecture to optimize denoising performance. They obtained results similar to the GMM but at a much smaller computational cost.\nWhich approach is better, discriminative or generative? First it should be said that the best performing methods in both categories give excellent performance. Indeed, even the BM3D approach (which can be outperformed by both types of methods) has been said to be close to optimal for image denoising [12]. The primary advantage of the discriminative approach is its efficiency at run-time. By defining a particular feed-forward architecture we are effectively constraining the computational cost at run-time and during learning we seek the best performing parameters for a fixed computational cost. The primary advantage of the generative approach, on the other hand, is its modularity. Learning only requires access to clean images, and after learning a density model for clean images, Bayes’ rule can be used to peform restoration on any image degradation and can support different loss functions at test time. In contrast, discriminative training requires separate training (and usually separate architectures) for every possible image degradation. Given that there are literally an infinite number of ways to degrade images (not just Gaussian noise with different noise levels but also compression artifacts, blur etc.), one would like to have a method that maintains the modularity of generative models but with the computational cost of discriminative models.\nIn this paper we propose such an approach. Our method is based on the observation that the most costly part of inference with many generative models for natural images is in estimating latent variables. These latent variables can be abstract representations of local image covariance (e.g. [10]) or simply a discrete variable that indicates which Gaussian most likely generated the data in a GMM. We therefore discriminatively train a feed-forward architecture, or a “gating network” to predict these latent variables using far less computation. The gating network need only be trained on “clean” images and we show how to combine it during inference with Bayes’ rule to perform image restoration for any type of image degradation. Our results show that we can maintain the accuracy and the modularity of generative models but with a speedup of two orders of magnitude in run time.\nIn the rest of the paper we focus on the Gaussian mixture model although this approach can be used for other generative models with latent variables like the one proposed by Karklin and Lewicki [10]. Code implementing our proposed algorithms for the GMM prior and Karklin and Lewicki’s prior is available online at www.cs.huji.ac.il/˜danrsm."
+    }, {
+      "heading" : "2 Image restoration with Gaussian mixture priors",
+      "text" : "Modeling image patches with Gaussian mixtures has proven to be very effective for image restoration [22]. In this model, the prior probability of an image patch x is modeled by: Pr(x) =∑\nh πhN (x;µh,Σh). During image restoration, this prior is combined with a likelihood function Pr(y|x) and restoration is based on the posterior probability Pr(x|y) which is computed using Bayes’ rule. Typically, MAP estimators are used [22] although for some problems the more expensive BLS estimator has been shown to give an advantage [17].\nIn order to maximize the posterior probability different numerical optimizations can be used. Typically they require computing the assignment probabilities:\nPr(h|x) = πhN (x;µh,Σh)∑ k πkN (x;µk,Σk)\n(1)\nThese assignment probabilities play a central role in optimizing the posterior. For example, it is easy to see that the gradient of the log of the posterior involves a weighted sum of gradients where the assignment probabilities give the weights:\n∂ log Pr(x|y) ∂x = ∂ [log Pr(x) + log Pr(y|x)− log Pr(y)] ∂x\n= − ∑ h Pr(h|x)(x− µh)>Σ−1h + ∂ log Pr(y|x) ∂x (2)\nSimilarly, one can use a version of the EM algorithm to iteratively maximize the posterior probability by solving a sequence of reweighted least squares problems. Here the assignment probabilities define the weights for the least squares problems [11]. Finally, in auxiliary samplers for performing\nBLS estimation, each iteration requires sampling the hidden variables according to the current guess of the image [17].\nFor reasons of computational efficiency, the assignment probabilities are often used to calculate a hard assignment of a patch to a component:\nĥ(x) = arg max h\nPr(h|x) (3)\nFollowing the literature on “mixtures of experts” [8] we call this process gating. As we now show, this process is often the most expensive part of performing image restoration with a GMM prior."
+    }, {
+      "heading" : "2.1 Running time of inference",
+      "text" : "The successful EPLL algorithm [22] for image restoration with patch priors defines a cost function based on the simplifying assumption that the patches of an image are independent:\nJ(x) = − ∑ i log Pr(xi)− λ log Pr(y|x) (4)\nwhere {xi} are the image patches, x is the full image and λ is a parameter that compensates for the simplifying assumption. Minimizing this cost when the prior is a GMM, is done by alternating between three steps. We give here only a short representation of each step but the full algorithm is given in the supplementary material. The three steps are:\n• Gating. For each patch, the current guess xi is assigned to one of the components ĥ(xi)\n• Filtering. For each patch, depending on the assignments ĥ(xi), a least squares problem is solved.\n• Mixing. Overlapping patches are averaged together with the noisy image y.\nIt can be shown that after each iteration of the three steps, the EPLL splitting cost function (a relaxation of equation 4) is decreased.\nIn terms of computation time, the gating step is by far the most expensive one. The filtering step multiplies each d dimensional patch by a single d×dmatrix which is equivalent to d dot-products or d2 flops per patch. Assuming a local noise model, the mixing step involves summing up all patches back to the image and solving a local cost on the image (equivalent to 1 dot-product or d flops per patch).1 In the gating step however, we compute the probability of all the Gaussian components for every patch. Each computation performs d dot-products, and so for K components we get a total of d×K dot-products or d2 ×K flops per patch. For a GMM with 200 components like the one used in [22], this results in a gating step which is 200 times slower than the filtering and mixing steps."
+    }, {
+      "heading" : "3 The gating network",
+      "text" : "1For non-local noise models like in image deblurring there is an additional factor of the square of the kernel dimension. If the kernel dimension is in the order of d, the mixing step performs d dot-products or d2 flops.\nThe left side of figure 2 shows the computation involved in a naive computing of the gating. In the GMM used in [22], the Gaussians are zero mean so computing the most likely component involves multiplying each patch with all the eigenvectors of the covariance matrix and squaring the results:\nlogPr(x|h) = −x>Σ−1h x+ consth = − ∑ i 1 σhi (vhi x) 2 + consth (5)\nwhere σhi and v h i are the eigenvalues and eigenvectors of the covariance matrix. The eigenvectors can be viewed as templates, and therefore, the gating is performed according to weighted sums of dotproducts with different templates. Every component has a different set of templates and a different weighting of their importance (the eigenvalues). Framing this process as a feed-forward network starting with a patch of dimension d and using K Gaussian components, the first layer computes d×K dot-products (followed by squaring), and the second layer performs K dot-products. Viewed this way, it is clear that the naive computation of the gating is inefficient. There is no “sharing” of dot-products between different components and the number of dot-products that are required for deciding about the appropriate component, may be much smaller than is done with this naive computation."
+    }, {
+      "heading" : "3.1 Discriminative training of the gating network",
+      "text" : "In order to obtain a more efficient gating network we use discriminative training. We rewrite equation 5 as: log Pr(x|h) ≈ − ∑ i whi (v T i x) 2 + consth (6)\nNote that the vectors vi are required to be shared and do not depend on h. Only the weights whi depend on h.\nGiven a set of vectors vi and the weights w the posterior probability of a patch assignment is approximated by:\nPr(h|x) ≈ exp(−\n∑ i w h i (v T i x)\n2 + consth)∑ k exp(− ∑ i w k i (v T i x) 2 + constk) (7)\nWe minimize the cross entropy between the approximate posterior probability and the exact posterior probability given by equation 1. The training is done on 500 mini-batches of 10K clean image patches each, taken randomly from the 200 images in the BSDS training set. We minimize the training loss for each mini-batch using 100 iterations of minimize.m [15] before moving to the next mini-batch.\nResults of the training are shown in figure 3. Unlike the eigenvectors of the GMM covariance matrices which are often global Fourier patterns or edge filters, the learned vectors are more localized in space and resemble Gabor filters.\nFigure 1 compares the gating performed by the full network and the discriminatively trained one. Each pixel shows the predicted component for a patch centered around that pixel. Components are color coded so that dark pixels correspond to components with low variance and bright pixels to high variance. The colors denote the preferred orientation of the covariance. Although the gating network requires far less dot-products it gives similar (although not identical) gating.\nFigure 4 shows sample patches arranged according to the gating with either the full model (top) or the gating network (bottom). We classify a set of patches by their assignment probabilities. For 60 of the 200 components we display 10 patches that are classified to that component. It can be seen that when the classification is done using the gating network or the full posterior, the results are visually similar.\nThe right side of figure 3 compares between two different ways to reduce computation time. The green curve shows gating networks with different sizes (containing 25 to 100 vectors) trained on top of the 200 component GMM. The blue curve shows GMMs with a different number of components (from 2 to 200). Each of the models is used to perform patch denoising (using MAP inference) with noise level of 25. It is clearly shown that in terms of the number of dot-products versus the resulting PSNR, discriminatively training a small gating network on top of a GMM with 200 components is much better than a pure generative training of smaller GMMs."
+    }, {
+      "heading" : "4 Results",
+      "text" : "We compare the image restoration performance of our proposed method to several other methods proposed in the literature. The first class of methods used for denoising are “internal” methods that do not require any learning but are specific to image denoising. A prime example is BM3D. The second class of methods are generative models which are only trained on clean images. The original EPLL algorithm is in this class. Finally, the third class of models are discriminative which are trained “end-to-end”. These typically have the best performance but need to be trained in advance for any image restoration problem.\nIn the right hand side of table 1 we show the denoising results of our implementation of EPLL with a GMM of 200 components. It can be seen that the difference between doing the full inference and using a learned gating network (with 100 vectors) is about 0.1dB to 0.3dB which is comparable to the difference between different published values of performance for a single algorithm. Even with the learned gating network the EPLL’s performance is among the top performing methods for all noise levels. The fully discriminative MLP method is the best performing method for each noise level but it is trained explicitly and separately for each noise level.\nThe right hand side of table 1 also shows the run times of our Matlab implementation of EPLL on a standard CPU. Although the number of dot-products in the gating has been decreased by a factor of\n128, the effect on the actual run times is more complex. Still, by only switching to the new gating network, we obtain a speedup factor of more than 15 on small images. We also show that further speedup can be achieved by simply working with less overlapping patches (“stride”). The results show that using a stride of 3 (i.e. working on every 9’th patch) leads to almost no loss in PSNR. Although the “stride” speedup can be achieved by any patch based method, it emphasizes another important trade-off between accuracy and running-time. In total, we see that a speedup factor of more than 100, lead to very similar results than the full inference. We expect even more dramatic speedups are possible with more optimized and parallel code.\nFigures 5 gives a visual comparison of denoised images. As can be expected from the PSNR values, the results with full EPLL and the gating network EPLL are visually indistinguishable.\nTo highlight the modularity advantage of generative models, figure 6 shows results of image deblurring using the same prior. Even though all the training of the EPLL and the gating was done on clean sharp images, the prior can be combined with a likelihood for deblurring to obtain state-of-the-art deblurring results. Again, the full and the gating results are visually indistinguishable.\nFinally, figure 7 shows the result of performing resotration on an 18 mega-pixel image. EPLL with a gating network achieves comparable results to a discriminatively trained method (CSF) [18] but is even more efficient while maintaining the modularity of the generative approach."
+    }, {
+      "heading" : "5 Discussion",
+      "text" : "Image restoration is a widely studied problem with immediate practical applications. In recent years, approaches based on machine learning have started to outperform handcrafted methods. This is true both for generative approaches and discriminative approaches. While discriminative approaches often give the best performance for a fixed computational budget, the generative approaches have the advantage of modularity. They are only trained on clean images and can be used to perform one of an infinite number of possible resotration tasks by using Bayes’ rule. In this paper we have shown how to combine the best aspects of both approaches. We discriminatively train a feed-forward architecture to perform the most expensive part of inference using generative models. Our results indicate that we can still obtain state-of-the-art performance with two orders of magnitude improvement in run times while maintaining the modularity advantage of generative models."
+    }, {
+      "heading" : "Acknowledgements",
+      "text" : "Support by the ISF, Intel ICRI-CI and the Gatsby Foundation is greatfully acknowledged."
+    } ],
+    "references" : [ {
+      "title" : "Learning how to combine internal and external denoising methods",
+      "author" : [ "Harold Christopher Burger", "Christian Schuler", "Stefan Harmeling" ],
+      "venue" : "In Pattern Recognition,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : "1",
+      "year" : 2013
+    }, {
+      "title" : "Image denoising with multilayer perceptrons, part 1: comparison with existing algorithms and with bounds",
+      "author" : [ "Harold Christopher Burger", "Christian J Schuler", "Stefan Harmeling" ],
+      "venue" : "arXiv preprint arXiv:1211.1544,",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 2012
+    }, {
+      "title" : "Revisiting loss-specific training of filterbased mrfs for image restoration",
+      "author" : [ "Yunjin Chen", "Thomas Pock", "René Ranftl", "Horst Bischof" ],
+      "venue" : "In Pattern Recognition,",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 2013
+    }, {
+      "title" : "Image denoising by sparse 3-d transform-domain collaborative filtering",
+      "author" : [ "Kostadin Dabov", "Alessandro Foi", "Vladimir Katkovnik", "Karen Egiazarian" ],
+      "venue" : "Image Processing, IEEE Transactions on,",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : "4",
+      "year" : 2007
+    }, {
+      "title" : "Image denoising via sparse and redundant representations over learned dictionaries",
+      "author" : [ "Michael Elad", "Michal Aharon" ],
+      "venue" : "Image Processing, IEEE Transactions on,",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : "5",
+      "year" : 2006
+    }, {
+      "title" : "Filter forests for learning data-dependent convolutional kernels",
+      "author" : [ "Sean Ryan Fanello", "Cem Keskin", "Pushmeet Kohli", "Shahram Izadi", "Jamie Shotton", "Antonio Criminisi", "Ugo Pattacini", "Tim Paek" ],
+      "venue" : "In Computer Vision and Pattern Recognition (CVPR),",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : "6",
+      "year" : 2014
+    }, {
+      "title" : "A discriminative approach for wavelet denoising",
+      "author" : [ "Yacov Hel-Or", "Doron Shaked" ],
+      "venue" : "Image Processing, IEEE Transactions on,",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : "7",
+      "year" : 2008
+    }, {
+      "title" : "Adaptive mixtures of local experts",
+      "author" : [ "Robert A Jacobs", "Michael I Jordan", "Steven J Nowlan", "Geoffrey E Hinton" ],
+      "venue" : "Neural computation,",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : "8",
+      "year" : 1991
+    }, {
+      "title" : "Natural image denoising with convolutional networks",
+      "author" : [ "Viren Jain", "Sebastian Seung" ],
+      "venue" : "In Advances in Neural Information Processing Systems,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 2009
+    }, {
+      "title" : "Emergence of complex cell properties by learning to generalize in natural scenes",
+      "author" : [ "Yan Karklin", "Michael S Lewicki" ],
+      "venue" : "Nature, 457(7225):83–86,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : "10",
+      "year" : 2009
+    }, {
+      "title" : "Using natural image priors-maximizing or sampling",
+      "author" : [ "Effi Levi" ],
+      "venue" : "PhD thesis, The Hebrew University of Jerusalem,",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 2009
+    }, {
+      "title" : "Natural image denoising: Optimality and inherent bounds",
+      "author" : [ "Anat Levin", "Boaz Nadler" ],
+      "venue" : "In Computer Vision and Pattern Recognition (CVPR),",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 2011
+    }, {
+      "title" : "Statistical modeling of images with fields of gaussian scale mixtures",
+      "author" : [ "Siwei Lyu", "Eero P Simoncelli" ],
+      "venue" : "In Advances in Neural Information Processing Systems,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 2006
+    }, {
+      "title" : "Non-local sparse models for image restoration",
+      "author" : [ "Julien Mairal", "Francis Bach", "Jean Ponce", "Guillermo Sapiro", "Andrew Zisserman" ],
+      "venue" : "In Computer Vision,",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 2009
+    }, {
+      "title" : "Fields of experts: A framework for learning image priors",
+      "author" : [ "Stefan Roth", "Michael J Black" ],
+      "venue" : "In Computer Vision and Pattern Recognition,",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : "16",
+      "year" : 2005
+    }, {
+      "title" : "A generative perspective on mrfs in low-level vision",
+      "author" : [ "Uwe Schmidt", "Qi Gao", "Stefan Roth" ],
+      "venue" : "In Computer Vision and Pattern Recognition (CVPR),",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : "17",
+      "year" : 2010
+    }, {
+      "title" : "Shrinkage fields for effective image restoration",
+      "author" : [ "Uwe Schmidt", "Stefan Roth" ],
+      "venue" : "In Computer Vision and Pattern Recognition (CVPR),",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : "18",
+      "year" : 2014
+    }, {
+      "title" : "Edge-based blur kernel estimation using patch priors",
+      "author" : [ "Libin Sun", "Sunghyun Cho", "Jue Wang", "James Hays" ],
+      "venue" : "In Computational Photography (ICCP),",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : "19",
+      "year" : 2013
+    }, {
+      "title" : "Rnade: The real-valued neural autoregressive densityestimator",
+      "author" : [ "Benigno Uria", "Iain Murray", "Hugo Larochelle" ],
+      "venue" : "In Advances in Neural Information Processing Systems,",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : "20",
+      "year" : 2013
+    }, {
+      "title" : "Solving inverse problems with piecewise linear estimators: From gaussian mixture models to structured sparsity",
+      "author" : [ "Guoshen Yu", "Guillermo Sapiro", "Stéphane Mallat" ],
+      "venue" : "Image Processing, IEEE Transactions on,",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : "21",
+      "year" : 2012
+    }, {
+      "title" : "From learning models of natural image patches to whole image restoration",
+      "author" : [ "Daniel Zoran", "Yair Weiss" ],
+      "venue" : "In Computer Vision (ICCV),",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : "22",
+      "year" : 2011
+    }, {
+      "title" : "Natural images, gaussian mixtures and dead leaves",
+      "author" : [ "Daniel Zoran", "Yair Weiss" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : "23",
+      "year" : 2012
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 6,
+      "context" : "For example, approaches based on “coring” can be used to successfully remove noise from an image by transforming to a wavelet basis and zeroing out coefficients that are close to zero [7].",
+      "startOffset" : 184,
+      "endOffset" : 187
+    }, {
+      "referenceID" : 3,
+      "context" : "More recently the very successful BM3D method removes noise from patches by finding similar patches in the noisy image and combining all similar patches in a nonlinear way [4].",
+      "startOffset" : 172,
+      "endOffset" : 175
+    }, {
+      "referenceID" : 14,
+      "context" : "Two influential generative approaches are the fields of experts (FOE) approach [16] and KSVD [5] which assume that filter responses to natural images should be sparse and learn a set of filters under this assumption.",
+      "startOffset" : 79,
+      "endOffset" : 83
+    }, {
+      "referenceID" : 4,
+      "context" : "Two influential generative approaches are the fields of experts (FOE) approach [16] and KSVD [5] which assume that filter responses to natural images should be sparse and learn a set of filters under this assumption.",
+      "startOffset" : 93,
+      "endOffset" : 96
+    }, {
+      "referenceID" : 20,
+      "context" : "Perhaps the most successful generative approach to image restoration is based on Gaussian Mixture Models (GMMs) [22].",
+      "startOffset" : 112,
+      "endOffset" : 116
+    }, {
+      "referenceID" : 21,
+      "context" : "Despite its simplicity, this model remains among the top performing models in terms of likelihood given to left out patches and also gives excellent performance in image restoration [23, 20].",
+      "startOffset" : 182,
+      "endOffset" : 190
+    }, {
+      "referenceID" : 18,
+      "context" : "Despite its simplicity, this model remains among the top performing models in terms of likelihood given to left out patches and also gives excellent performance in image restoration [23, 20].",
+      "startOffset" : 182,
+      "endOffset" : 190
+    }, {
+      "referenceID" : 17,
+      "context" : "In particular, it outperforms BM3D on image denoising and has been successfully used for other image restoration problems such as deblurring [19].",
+      "startOffset" : 141,
+      "endOffset" : 145
+    }, {
+      "referenceID" : 12,
+      "context" : "The performance of generative models in denoising can be much improved by using an “empirical Bayes” approach where the parameters are estimated from the noisy image [13, 21, 14, 5].",
+      "startOffset" : 166,
+      "endOffset" : 181
+    }, {
+      "referenceID" : 19,
+      "context" : "The performance of generative models in denoising can be much improved by using an “empirical Bayes” approach where the parameters are estimated from the noisy image [13, 21, 14, 5].",
+      "startOffset" : 166,
+      "endOffset" : 181
+    }, {
+      "referenceID" : 13,
+      "context" : "The performance of generative models in denoising can be much improved by using an “empirical Bayes” approach where the parameters are estimated from the noisy image [13, 21, 14, 5].",
+      "startOffset" : 166,
+      "endOffset" : 181
+    }, {
+      "referenceID" : 4,
+      "context" : "The performance of generative models in denoising can be much improved by using an “empirical Bayes” approach where the parameters are estimated from the noisy image [13, 21, 14, 5].",
+      "startOffset" : 166,
+      "endOffset" : 181
+    }, {
+      "referenceID" : 6,
+      "context" : "Hel-Or and Shaked used discriminative training to optimize the parameters of coring [7].",
+      "startOffset" : 84,
+      "endOffset" : 87
+    }, {
+      "referenceID" : 2,
+      "context" : "[3] discriminatively learn the parameters of a generative model to minimize its denoising error.",
+      "startOffset" : 0,
+      "endOffset" : 3
+    }, {
+      "referenceID" : 8,
+      "context" : "Using the same training set as was used by the FOE and GMM papers, they obtained better results than FOE but not as good as BM3D or GMM [9].",
+      "startOffset" : 136,
+      "endOffset" : 139
+    }, {
+      "referenceID" : 1,
+      "context" : "[2] trained a deep (nonconvolutional) multi layer perceptron to perform denoising.",
+      "startOffset" : 0,
+      "endOffset" : 3
+    }, {
+      "referenceID" : 5,
+      "context" : "[6] trained a random forest architecture to optimize denoising performance.",
+      "startOffset" : 0,
+      "endOffset" : 3
+    }, {
+      "referenceID" : 11,
+      "context" : "Indeed, even the BM3D approach (which can be outperformed by both types of methods) has been said to be close to optimal for image denoising [12].",
+      "startOffset" : 141,
+      "endOffset" : 145
+    }, {
+      "referenceID" : 9,
+      "context" : "[10]) or simply a discrete variable that indicates which Gaussian most likely generated the data in a GMM.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 9,
+      "context" : "In the rest of the paper we focus on the Gaussian mixture model although this approach can be used for other generative models with latent variables like the one proposed by Karklin and Lewicki [10].",
+      "startOffset" : 194,
+      "endOffset" : 198
+    }, {
+      "referenceID" : 20,
+      "context" : "Modeling image patches with Gaussian mixtures has proven to be very effective for image restoration [22].",
+      "startOffset" : 100,
+      "endOffset" : 104
+    }, {
+      "referenceID" : 20,
+      "context" : "Typically, MAP estimators are used [22] although for some problems the more expensive BLS estimator has been shown to give an advantage [17].",
+      "startOffset" : 35,
+      "endOffset" : 39
+    }, {
+      "referenceID" : 15,
+      "context" : "Typically, MAP estimators are used [22] although for some problems the more expensive BLS estimator has been shown to give an advantage [17].",
+      "startOffset" : 136,
+      "endOffset" : 140
+    }, {
+      "referenceID" : 10,
+      "context" : "Here the assignment probabilities define the weights for the least squares problems [11].",
+      "startOffset" : 84,
+      "endOffset" : 88
+    }, {
+      "referenceID" : 15,
+      "context" : "BLS estimation, each iteration requires sampling the hidden variables according to the current guess of the image [17].",
+      "startOffset" : 114,
+      "endOffset" : 118
+    }, {
+      "referenceID" : 7,
+      "context" : "Following the literature on “mixtures of experts” [8] we call this process gating.",
+      "startOffset" : 50,
+      "endOffset" : 53
+    }, {
+      "referenceID" : 20,
+      "context" : "The successful EPLL algorithm [22] for image restoration with patch priors defines a cost function based on the simplifying assumption that the patches of an image are independent:",
+      "startOffset" : 30,
+      "endOffset" : 34
+    }, {
+      "referenceID" : 20,
+      "context" : "For a GMM with 200 components like the one used in [22], this results in a gating step which is 200 times slower than the filtering and mixing steps.",
+      "startOffset" : 51,
+      "endOffset" : 55
+    }, {
+      "referenceID" : 20,
+      "context" : "In the GMM used in [22], the Gaussians are zero mean so computing the most likely component involves multiplying each patch with all the eigenvectors of the covariance matrix and squaring the results:",
+      "startOffset" : 19,
+      "endOffset" : 23
+    }, {
+      "referenceID" : 16,
+      "context" : "EPLL with a gating network achieves comparable results to a discriminatively trained method (CSF) [18] but is even more efficient while maintaining the modularity of the generative approach.",
+      "startOffset" : 98,
+      "endOffset" : 102
+    } ],
+    "year" : 2015,
+    "abstractText" : "In recent years, approaches based on machine learning have achieved state-of-theart performance on image restoration problems. Successful approaches include both generative models of natural images as well as discriminative training of deep neural networks. Discriminative training of feed forward architectures allows explicit control over the computational cost of performing restoration and therefore often leads to better performance at the same cost at run time. In contrast, generative models have the advantage that they can be trained once and then adapted to any image restoration task by a simple use of Bayes’ rule. In this paper we show how to combine the strengths of both approaches by training a discriminative, feed-forward architecture to predict the state of latent variables in a generative model of natural images. We apply this idea to the very successful Gaussian Mixture Model (GMM) of natural images. We show that it is possible to achieve comparable performance as the original GMM but with two orders of magnitude improvement in run time while maintaining the advantage of generative models.",
+    "creator" : null
+  }
+}

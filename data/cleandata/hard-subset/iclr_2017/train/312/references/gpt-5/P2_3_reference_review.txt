@@ -1,0 +1,50 @@
+1) Summary and contributions
+The paper tackles the problem of automatically designing neural network architectures by learning a policy that generates architectures and optimizes it with reinforcement learning based on the validation performance of the corresponding “child” models. The controller is an autoregressive RNN that outputs variable-length architecture descriptions, enabling flexible search spaces including convolutions with skip connections and novel recurrent cell structures. The training signal is the child’s validation accuracy (or a function of perplexity), optimized via REINFORCE with an EMA baseline, combined with large-scale parallel and asynchronous training.
+
+Empirically, the approach finds:
+- Competitive to state-of-the-art convolutional architectures on CIFAR-10 (down to 3.65% error after scaling filters), with qualitative insights (rectangular filters, many short skip connections).
+- A novel RNN cell on PTB that improves perplexity over strong LSTM and RHN baselines and transfers to character-level LM and GNMT with gains, demonstrating generality.
+- Ablations/controls including comparison to random search and expansion of the search space (adding max and sin), as well as analyses of skip-connection density.
+
+Overall, the paper claims a general, flexible, gradient-based framework for architecture search with strong SOTA-level empirical results in both vision and language.
+
+2) Decision: Accept
+Key reasons:
+- Novel and well-motivated method that generalizes prior hyperparameter/Bayesian optimization and neuro-evolution approaches to variable-length architecture spaces via an RL controller.
+- Strong empirical support across two domains, with state-of-the-art or near-SOTA performance and evidence of transferability.
+
+3) Supporting arguments
+- Problem and motivation: Clear articulation that manual architecture design is costly and limited, and existing HPO/BO methods are constrained in variable-length discrete spaces. The controller-RNN + REINFORCE formulation is a natural and well-placed idea in the context of sequence models, policy gradient for non-differentiable metrics, and meta-learning.
+- Technical soundness: The core REINFORCE derivation is standard; using an EMA baseline for variance reduction and asynchronous distributed training is reasonable. The mechanism for skip-connection prediction via content-based sigmoids is sensible and integrates cleanly into the policy framework. The recurrent-cell search space is carefully parameterized via a tree with combination/activation choices plus memory injection.
+- Empirical support: Results on CIFAR-10 are competitive with contemporaneous human-designed architectures and improve with modest scaling; the PTB results surpass strong baselines and show speed benefits versus RHN. Transfer experiments (char-LM and GNMT) support the generality claim. The random-search control demonstrates that learning improves search quality, not just compute brute force.
+- Scope and significance: The paper opens a general approach to learn architectures, not just tune hyperparameters, and demonstrates breadth (CNNs and RNNs), which is impactful.
+
+Caveats and weaknesses:
+- Compute intensity and accessibility: The approach relies on extremely large-scale parallelization (e.g., 800 GPUs, 400 CPUs), evaluating 10k–15k models. This raises concerns about practicality for most groups and the degree to which results reflect method quality vs compute budget.
+- Fairness and rigor of comparisons: Child models are trained for a fixed, relatively short budget (e.g., 50 epochs) and top models are later tuned; comparisons to baselines may involve different training recipes. The 3.65% CIFAR result requires post-hoc scaling and tuning; speed comparisons to DenseNet are not strictly apples-to-apples (no 1x1 bottlenecks). Statistical variability (seeds) and confidence intervals are not reported.
+- Search-space engineering: Some choices (fixed pooling positions in one experiment, concatenation/padding heuristics to avoid invalid graphs) are pragmatic but may bias the search and make the “design space” less neutral. It would be helpful to more systematically characterize how the design of the space (and heuristics) affects outcomes.
+- Methodological details: Reward shaping (accuracy^3 or c·perplexity^2) is ad hoc; no ablation on its effect. Controller training stability (entropy regularization, gradient clipping, learning-rate schedules) is not deeply discussed. Asynchronous replicated controllers can introduce staleness—no analysis of its impact.
+- Reproducibility: While code for running discovered models is promised, full search code and exact compute costs (GPU-days/CPU-days) are not quantified, limiting reproducibility and fair assessment of efficiency.
+
+Despite these, the novelty, breadth, and empirical strength merit acceptance.
+
+4) Suggestions for improvement (non-blocking)
+- Report compute budgets precisely (e.g., total GPU/CPU days, average time per child, wall-clock for full search), and provide efficiency metrics (best-found reward vs number of evaluations).
+- Add variance analyses: multiple runs of the controller, confidence intervals for final metrics, and sensitivity to random seeds.
+- Provide ablations on: reward shaping (with/without cubing/squaring), baseline choice, entropy regularization, controller size, and asynchronous update accumulation (e.g., 10 gradients vs other values).
+- Clarify fairness: unify training protocols across baselines where possible, or provide adjusted comparisons; standardize data augmentation and learning-rate schedules.
+- Characterize the search space: quantify how constraints/heuristics (e.g., forced inputs, padding rules, fixed pooling locations) influence validity rate and performance; report the fraction of invalid/dominated architectures encountered.
+- Release, if possible, a smaller-scale, reproducible setup and code for the search process, including logging of sampled architectures and rewards.
+- Provide more architectural analysis: which design motifs recur; correlation between skip-connection density and performance; learned stride/pooling distributions.
+
+Questions for the authors
+- What is the exact computational cost (GPU/CPU days) for the CIFAR and PTB searches, including controller training and child training? What is the wall-clock time?
+- How sensitive are results to the reward shaping (accuracy^3, c·perplexity^2) and to the baseline choice? Did you try entropy regularization or KL constraints to stabilize exploration?
+- How stable is the controller across runs? What is the variance in best-found performance over, say, 3–5 independent searches?
+- How many sampled architectures are invalid, and how often do the padding/concatenation fallbacks activate? Do these heuristics bias the discovered topologies?
+- For CIFAR-10, are the data augmentation and training schedules identical for NAS-found models and for compared baselines? If not, can you provide matched baselines?
+- Can you quantify the contribution of skip-connection prediction vs other search dimensions? What happens if skip connections are not allowed?
+- For the PTB cell, how much of the gain comes from shared embeddings and dropout choices vs the cell structure itself? Provide a controlled comparison.
+- How was “speed” measured in PTB vs RHN and in CIFAR vs DenseNet (e.g., images/sec on identical hardware and batch sizes)? Please specify exact measurement conditions.
+- Did you observe controller collapse to short or long architectures? How does the depth schedule affect search quality?
+- Could you discuss failure cases or counterexamples where NAS finds suboptimal motifs that look intuitively undesirable?

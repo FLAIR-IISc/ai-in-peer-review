@@ -1,0 +1,42 @@
+1. Summary of contributions
+The paper proposes UNREAL, an A3C-based agent augmented with unsupervised auxiliary tasks that shape a shared representation to improve data efficiency and performance. The core ideas are: (i) auxiliary control tasks trained off-policy via Q-learning to maximize pseudo-rewards, notably “pixel control” (maximize per-cell pixel change) and “feature control” (maximize activations of internal units); (ii) reward-focused auxiliary tasks, especially immediate reward prediction trained from a rebalanced replay to counteract reward sparsity; and (iii) value function replay to improve value estimation stability and exploitation of improved features. A combined loss integrates on-policy A3C with off-policy auxiliary heads using a shared CNN+LSTM trunk. The agent achieves strong gains on 13 3D Labyrinth tasks (mean 10× speedup to A3C’s best and 87% human-normalized final performance) and across 57 Atari games (mean 880% and median 250% human-normalized), and shows improved robustness to hyperparameters. Ablations suggest pixel control is more beneficial than pixel reconstruction or input-change prediction, and preliminary “feature control” is promising.
+
+2. Decision: Accept
+Key reasons:
+- Strong empirical advances with careful ablations and clear gains in data efficiency and robustness, across both 3D partial-observation and Atari domains.
+- A well-motivated, practical synthesis of auxiliary control and reward-focused predictions, with architectural choices (off-policy Q-heads, deconvolutional spatial control, rebalanced replay) that are novel in combination and impactful.
+
+3. Supporting arguments
+What problem is tackled? The paper addresses representation learning for deep RL under sparse/partial reward by exploiting abundant auxiliary signals from the sensorimotor stream. The goal is to improve data efficiency, stability, and performance without changing the base extrinsic objective.
+
+Is the approach well-motivated and placed in the literature? Yes. The work is positioned against: options/pseudo-reward policies (Sutton et al., Konidaris & Barreto), Horde (parallel pseudo-reward value functions but no shared representation), UVFA/successor representations (factored value generalization), and model-based/predictive auxiliary tasks (Oh et al., Lample & Chaplot, Mirowski et al.). The novelty is using many off-policy control tasks solely as auxiliary objectives to shape a shared representation for the on-policy controller, plus reward-focused prediction with rebalanced replay to fight sparsity, and a spatial deconv control head. The distinction from intrinsic motivation is also clear: pseudo-rewards do not drive behavior, only representation.
+
+Are claims supported and rigorous? The empirical claims are broadly supported:
+- Labyrinth: thorough evaluation across level types (static/random goal navigation, procedurally generated mazes, laser-tag), clear speedup metrics (steps to A3C-best), human-normalized final performance, and ablations (pixel control vs prediction vs reconstruction; value replay; reward prediction).
+- Atari: broad coverage over 57 games, comparison to strong baselines (A3C, Prioritized Dueling DQN), robustness analyses across hyperparameters, and a variant without pixel control.
+- Implementation details are sufficient to reproduce high-level design (network architecture, loss weights ranges, replay size, update schedules).
+
+However, several aspects limit rigor/clarity:
+- Off-policy training with a shared recurrent trunk is nontrivial. The paper notes that the state includes history and agent activations, but it is not fully specified how hidden states are handled during replay for the Q-heads and value replay (sequence length, burn-in, truncation bias, target network usage, and whether hidden states are re-initialized or reconstructed).
+- The fairness of comparisons: UNREAL uses replay and additional compute per environment step relative to the A3C baseline. While the paper varies learning rate/entropy and reports robustness, it does not normalize by total learner updates or wall-clock compute, making it hard to disentangle algorithmic vs compute advantages. That said, the reported speedups in environment steps are compelling.
+- The reward rebalancing affects the shared representation. While the authors argue it does not bias the policy/value objectives, the shared conv features could still bias the gradients seen by the policy/value heads. Empirically it helps, but this trade-off could be discussed more explicitly.
+- Ablations on Atari are limited (only “no pixel control” variant); more granular ablations (no reward prediction, no value replay) would strengthen the case for generality beyond Labyrinth.
+
+4. Additional feedback (to help improve the paper)
+- Clarify off-policy sequence handling with an LSTM: length of replayed sequences for Q-learning heads, whether a burn-in is used to reconstruct hidden state, how θ− is applied, and whether gradients to LSTM are allowed from off-policy heads (and if so, any stability tricks like stop-gradient on hidden states).
+- Compute fairness: report per-frame update counts, wall-clock, and number of backward passes per env step for A3C vs UNREAL. Consider a matched-update baseline (A3C with extra value-only replay) to isolate auxiliary-task benefits from extra updates.
+- Provide Atari-wide ablations removing reward prediction and value replay. The Labyrinth ablations are convincing; showing the same trend in Atari would improve generality claims.
+- Analyze sensitivity to auxiliary loss weights (λPC, λVR, λRP). You note λPC affects robustness; add a sensitivity plot and guidance.
+- Investigate failure modes: tasks where pixel control could be detrimental (e.g., requiring stillness or focusing on subtle cues). A per-game breakdown of gains/losses could be informative.
+- Positioning vs curiosity/intrinsic motivation: a brief quantitative comparison to a simple intrinsic reward bonus (e.g., prediction error) for behavior would be a useful baseline to highlight the advantage of “representation-only” auxiliary tasks.
+- Minor: feature control appears promising; either expand experiments or move to appendix as future work to keep the main narrative sharp.
+
+Questions for the authors
+- How are LSTM hidden states handled during off-policy replay for: (a) Q-learning heads (pixel/feature control), and (b) value replay? Do you use burn-in, and do auxiliary gradients flow through the recurrent state?
+- Do you use a target network θ− for the auxiliary Q-heads and, if so, how often is it updated? Any stability issues from sharing parameters across on- and off-policy losses?
+- What is the relative compute budget per env frame compared to the A3C baseline (number of backward passes/updates)? How much of the speedup remains when matching the number of parameter updates?
+- Can you provide Atari ablations removing reward prediction and value replay? Which auxiliary component contributes most consistently across games?
+- How sensitive are results to λPC, λVR, and λRP? Are there principled heuristics to set them, or adaptive schemes you tried?
+- Did you observe tasks where pixel control hurts performance? If so, can the agent adaptively gate auxiliary losses based on downstream value?
+- For reward rebalancing: does oversampling rewarding transitions harm long-horizon credit assignment? Did you try prioritized replay by TD error for value replay, and how does it compare?
+- In Labyrinth, is there any domain-specific tuning (e.g., action set, reward scales) that could unfairly advantage UNREAL over A3C?

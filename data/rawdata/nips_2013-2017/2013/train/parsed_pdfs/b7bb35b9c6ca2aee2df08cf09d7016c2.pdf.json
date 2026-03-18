@@ -1,0 +1,452 @@
+{
+  "name" : "b7bb35b9c6ca2aee2df08cf09d7016c2.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "More Effective Distributed ML via a Stale Synchronous Parallel Parameter Server",
+    "authors" : [ "†Qirong Ho", "†James Cipar", "§Henggang Cui", "Kyu Kim", "†Seunghak Lee", "‡Phillip B. Gibbons", "†Garth A. Gibson", "§Gregory R. Ganger", "†Eric P. Xing" ],
+    "emails" : [ "qho@,", "jcipar@,", "jinkyuk@,", "seunghak@,", "garth@,", "epxing@cs.cmu.edu", "hengganc@,", "ganger@ece.cmu.edu", "phillip.b.gibbons@intel.com" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Modern applications awaiting next generation machine intelligence systems have posed unprecedented scalability challenges. These scalability needs arise from at least two aspects: 1) massive data volume, such as societal-scale social graphs [10, 25] with up to hundreds of millions of nodes; and 2) massive model size, such as the Google Brain deep neural network [9] containing billions of parameters. Although there exist means and theories to support reductionist approaches like subsampling data or using small models, there is an imperative need for sound and effective distributed ML methodologies for users who cannot be well-served by such shortcuts. Recent efforts towards distributed ML have made significant advancements in two directions: (1) Leveraging existing common but simple distributed systems to implement parallel versions of a limited selection of ML models, that can be shown to have strong theoretical guarantees under parallelization schemes such as cyclic delay [17, 1], model pre-partitioning [12], lock-free updates [21], bulk synchronous parallel [5], or even no synchronization [28] — these schemes are simple to implement but may under-exploit the full computing power of a distributed cluster. (2) Building high-throughput distributed ML architectures or algorithm implementations that feature significant systems contributions but relatively less theoretical analysis, such as GraphLab [18], Spark [27], Pregel [19], and YahooLDA [2].\nWhile the aforementioned works are significant contributions in their own right, a naturally desirable goal for distributed ML is to pursue a system that (1) can maximally unleash the combined computational power in a cluster of any given size (by spending more time doing useful computation and less time waiting for communication), (2) supports inference for a broad collection of ML methods, and (3) enjoys correctness guarantees. In this paper, we explore a path to such a system using the\nidea of a parameter server [22, 2], which we define as the combination of a shared key-value store that provides a centralized storage model (which may be implemented in a distributed fashion) with a synchronization model for reading/updating model values. The key-value store provides easyto-program read/write access to shared parameters needed by all workers, and the synchronization model maximizes the time each worker spends on useful computation (versus communication with the server) while still providing algorithm correctness guarantees.\nTowards this end, we propose a parameter server using a Stale Synchronous Parallel (SSP) model of computation, for distributed ML algorithms that are parallelized into many computational workers (technically, threads) spread over many machines. In SSP, workers can make updates to a parameter1 ✓, where the updates follow an associative, commutative form ✓ ✓ + . Hence, the current true value of ✓ is just the sum over updates from all workers. When a worker asks for ✓, the SSP model will give it a stale (i.e. delayed) version of ✓ that excludes recent updates . More formally, a worker reading ✓ at iteration c will see the effects of all from iteration 0 to c s 1, where s 0 is a user-controlled staleness threshold. In addition, the worker may get to see some recent updates beyond iteration c s 1. The idea is that SSP systems should deliver as many updates as possible, without missing any updates older than a given age — a concept referred to as bounded staleness [24]. The practical effect of this is twofold: (1) workers can perform more computation instead of waiting for other workers to finish, and (2) workers spend less time communicating with the parameter server, and more time doing useful computation. Bounded staleness distinguishes SSP from cyclic-delay systems [17, 1] (where ✓ is read with inflexible staleness), Bulk Synchronous Parallel (BSP) systems like Hadoop (workers must wait for each other at the end of every iteration), or completely asynchronous systems [2] (workers never wait, but ✓ has no staleness guarantees).\nWe implement an SSP parameter server with a table-based interface, called SSPtable, that supports a wide range of distributed ML algorithms for many models and applications. SSPtable itself can also be run in a distributed fashion, in order to (a) increase performance, or (b) support applications where the parameters ✓ are too large to fit on one machine. Moreover, SSPtable takes advantage of bounded staleness to maximize ML algorithm performance, by reading the parameters ✓ from caches on the worker machines whenever possible, and only reading ✓ from the parameter server when the SSP model requires it. Thus, workers (1) spend less time waiting for each other, and (2) spend less time communicating with the parameter server. Furthermore, we show that SSPtable (3) helps slow, straggling workers to catch up, providing a systems-based solution to the “last reducer” problem on systems like Hadoop (while we note that theory-based solutions are also possible). SSPtable can be run on multiple server machines (called “shards”), thus dividing its workload over the cluster; in this manner, SSPtable can (4) service more workers simultaneously, and (5) support very large models that cannot fit on a single machine. Finally, the SSPtable server program can also be run on worker machines, which (6) provides a simple but effective strategy for allocating machines between workers and the parameter server.\nOur theoretical analysis shows that (1) SSP generalizes the bulk synchronous parallel (BSP) model, and that (2) stochastic gradient algorithms (e.g. for matrix factorization or topic models) under SSP not only converge, but do so at least as fast as cyclic-delay systems [17, 1] (and potentially even faster depending on implementation). Furthermore, our implementation of SSP, SSPtable, supports a wide variety of algortihms and models, and we demonstrate it on several popular ones: (a) Matrix Factorization with stochastic gradient descent [12], (b) Topic Modeling with collapsed Gibbs sampling [2], and (c) Lasso regression with parallelized coordinate descent [5]. Our experimental results show that, for these 3 models and algorithms, (i) SSP yields faster convergence than BSP (up to several times faster), and (ii) SSP yields faster convergence than a fully asynchronous (i.e. no staleness guarantee) system. We explain SSPtable’s better performance in terms of algorithm progress per iteration (quality) and iterations executed per unit time (quantity), and show that SSPtable hits a “sweet spot” between quality and quantity that is missed by BSP and fully asynchronous systems."
+    }, {
+      "heading" : "2 Stale Synchronous Parallel Model of Computation",
+      "text" : "We begin with an informal explanation of SSP: assume a collection of P workers, each of which makes additive updates to a shared parameter x x + u at regular intervals called clocks. Clocks are similar to iterations, and represent some unit of progress by an ML algorithm. Every worker\n1 For example, the parameter ✓ might be the topic-word distributions in LDA, or the factor matrices in a matrix decomposition, while the updates could be adding or removing counts to topic-word or document-word tables in LDA, or stochastic gradient steps in a matrix decomposition.\nhas its own integer-valued clock c, and workers only commit their updates at the end of each clock. Updates may not be immediately visible to other workers trying to read x — in other words, workers only see effects from a “stale” subset of updates. The idea is that, with staleness, workers can retrieve updates from caches on the same machine (fast) instead of querying the parameter server over the network (slow). Given a user-chosen staleness threshold s 0, SSP enforces the following bounded staleness conditions (see Figure 1 for a graphical illustration): • The slowest and fastest workers must be  s clocks apart — otherwise, the fastest worker is\nforced to wait for the slowest worker to catch up. • When a worker with clock c commits an update u, that u is timestamped with time c. • When a worker with clock c reads x, it will always see effects from all u with timestamp \nc s 1. It may also see some u with timestamp > c s 1 from other workers. • Read-my-writes: A worker p will always see the effects of its own updates u\np\n.\nSince the fastest and slowest workers are  s clocks apart, a worker reading x at clock c will see all updates with timestamps in [0, c s 1], plus a (possibly empty) “adaptive” subset of updates in the range [c s, c + s 1]. Note that when s = 0, the “guaranteed” range becomes [0, c 1] while the adaptive range becomes empty, which is exactly the Bulk Synchronous Parallel model of computation. Let us look at how SSP applies to an example ML algorithm."
+    }, {
+      "heading" : "2.1 An example: Stochastic Gradient Descent for Matrix Problems",
+      "text" : "The Stochastic Gradient Descent (SGD) [17, 12] algorithm optimizes an objective function by applying gradient descent to random subsets of the data. Consider a matrix completion task, which involves decomposing an N ⇥M matrix D into two low-rank matrices LR ⇡ D, where L,R have sizes N ⇥ K and K ⇥M (for a user-specified K). The data matrix D may have missing entries, corresponding to missing data. Concretely, D could be a matrix of users against products, with D\nij\nrepresenting user i’s rating of product j. Because users do not rate all possible products, the goal is to predict ratings for missing entries D\nab given known entries D ij . If we found low-rank matrices L,R such that L\ni· ·R·j ⇡ Dij for all known entries Dij , we could then predict Dab = La· ·R·b for unknown entries D\nab\n.\nTo perform the decomposition, let us minimize the squared difference between each known entry D\nij and its prediction L i· ·R·j (note that other loss functions and regularizers are also possible):\nmin L,R\nX\n(i,j)2Data\nDij KX\nk=1\nL ik R kj\n2\n. (1)\nAs a first step towards SGD, consider solving Eq (1) using coordinate gradient descent on L,R: @OMF\n@Lik =\nX\n(a,b)2Data (a = i) [ 2DabRkb + 2La·R·bRkb] ,\n@OMF @Rkj =\nX\n(a,b)2Data (b = j) [ 2DabLak + 2La·R·bLak]\nwhere OMF is the objective in Eq(1), and (a = i) equals 1 if a = i, and 0 otherwise. This can be transformed into an SGD algorithm by replacing the full sum over entries (a, b) with a subsample (with appropriate reweighting). The entries D\nab can then be distributed over multiple workers, and their gradients computed in parallel [12].\nWe assume that D is “tall”, i.e. N > M (or transpose D so this is true), and partition the rows of D and L over the processors. Only R needs to be shared among all processors, so we let it be the SSP shared parameter x := R. SSP allows many workers to read/write to R with minimal waiting, though the workers will only see stale values of R. This tradeoff is beneficial because without staleness, the workers must wait for a long time when reading R from the server (as our experiments will show). While having stale values of R decreases convergence progress per iteration, SSP more than makes up by enabling significantly more iterations per minute, compared to fully synchronous systems. Thus, SSP yields more convergence progress per minute, i.e. faster convergence.\nNote that SSP is not limited to stochastic gradient matrix algorithms: it can also be applied to parallel collapsed sampling on topic models [2] (by storing the word-topic and document-topic tables in x), parallel coordinate descent on Lasso regression [5] (by storing the regression coefficients in x), as well as any other parallel algorithm or model with shared parameters that all workers need read/write access to. Our experiments will show that SSP performs better than bulk synchronous parallel and asynchronous systems for matrix completion, topic modeling and Lasso regression.\n3 SSPtable: an Efficient SSP System Client process\nAn ideal SSP implementation would fully exploit the leeway granted by the SSP’s bounded staleness property, in order to balance the time workers spend waiting on reads with the need for freshness in the shared data. This section describes our initial implementation of SSPtable, which is a parameter server conforming to the SSP model, and that can be run on many server machines at once (distributed). Our experiments with this SSPtable implementation shows that SSP can indeed improve convergence rates for several ML models and algorithms, while further tuning of cache management policies could further improve the performance of SSPtable.\nSSPtable follows a distributed client-server architecture. Clients access shared parameters using a client library, which maintains a machine-wide process cache and optional per-thread2 thread caches (Figure 2); the latter are useful for improving performance, by reducing inter-thread synchronization (which forces workers to wait) when a client ML program executes multiple worker threads on each of multiple cores of a client machine. The server parameter state is divided (sharded) over multiple server machines, and a normal configuration would include a server process on each of the client machines. Programming with SSPtable follows a simple table-based API for reading/writing to shared parameters x (for example, the matrix R in the SGD example of Section 2.1):\n• Table Organization: SSPtable supports an unlimited number of tables, which are divided into rows, which are further subdivided into elements. These tables are used to store x.\n• read row(table,row,s): Retrieve a table-row with staleness threshold s. The user can then query individual row elements.\n• inc(table,row,el,val): Increase a table-row-element by val, which can be negative. These changes are not propagated to the servers until the next call to clock().\n• clock(): Inform all servers that the current thread/processor has completed one clock, and commit all outstanding inc()s to the servers.\nAny number of read row() and inc() calls can be made in-between calls to clock(). Different thread workers are permitted to be at different clocks, however, bounded staleness requires that the fastest and slowest threads be no more than s clocks apart. In this situation, SSPtable forces the fastest thread to block (i.e. wait) on calls to read row(), until the slowest thread has caught up. To maintain the “read-my-writes” property, we use a write-back policy: all writes are immediately committed to the thread caches, and are flushed to the process cache and servers upon clock().\nTo maintain bounded staleness while minimizing wait times on read row() operations, SSPtable uses the following cache protocol: Let every table-row in a thread or process cache be endowed with a clock r\nthread or r proc respectively. Let every thread worker be endowed with a clock c, equal to the number of times it has called clock(). Finally, define the server clock c\nserver to be the minimum over all thread clocks c. When a thread with clock c requests a table-row, it first checks its thread cache. If the row is cached with clock r\nthread c s, then it reads the row. Otherwise, it checks the process cache next — if the row is cached with clock r\nproc c s, then it reads the row. At this point, no network traffic has been incurred yet. However, if both caches miss, then a network request is sent to the server (which forces the thread to wait for a reply). The server returns its view of the table-row as well as the clock c\nserver . Because the fastest and slowest threads can be no more than s clocks apart, and because a thread’s updates are sent to the server whenever it calls clock(), the returned server view always satisfies the bounded staleness requirements for the\n2 We assume that every computation thread corresponds to one ML algorithm worker.\nasking thread. After fetching a row from the server, the corresponding entry in the thread/process caches and the clocks r\nthread\n, r\nproc are then overwritten with the server view and clock c server .\nA beneficial consequence of this cache protocol is that the slowest thread only performs costly server reads every s clocks. Faster threads may perform server reads more frequently, and as frequently as every clock if they are consistently waiting for the slowest thread’s updates. This distinction in work per thread does not occur in BSP, wherein every thread must read from the server on every clock. Thus, SSP not only reduces overall network traffic (thus reducing wait times for all server reads), but also allows slow, straggler threads to avoid server reads in some iterations. Hence, the slow threads naturally catch up — in turn allowing fast threads to proceed instead of waiting for them. In this manner, SSP maximizes the time each machine spends on useful computation, rather than waiting."
+    }, {
+      "heading" : "4 Theoretical Analysis of SSP",
+      "text" : "Formally, the SSP model supports operations x x (z · y), where x,y are members of a ring with an abelian operator (such as addition), and a multiplication operator · such that z · y = y0 where y0 is also in the ring. In the context of ML, we shall focus on addition and multiplication over real vectors x,y and scalar coefficients z, i.e. x x + (zy); such operations can be found in the update equations of many ML inference algorithms, such as gradient descent [12], coordinate descent [5] and collapsed Gibbs sampling [2]. In what follows, we shall informally refer to x as the “system state”, u = zy as an “update”, and to the operation x x+ u as “writing an update”. We assume that P workers write updates at regular time intervals (referred to as “clocks”). Let u\np,c\nbe the update written by worker p at clock c through the write operation x x+u p,c . The updates u p,c\nare a function of the system state x, and under the SSP model, different workers will “see” different, noisy versions of the true state x. Let ˜x\np,c be the noisy state read by worker p at clock c, implying that u\np,c\n= G( ˜x p,c ) for some function G. We now formally re-state bounded staleness, which is the key SSP condition that bounds the possible values ˜x\np,c can take: SSP Condition (Bounded Staleness): Fix a staleness s. Then, the noisy state ˜x\np,c\nis equal to\nx̃\np,c = x0 +\n2 4 c s 1X\nc 0=1\nPX\np 0=1\nu\np 0 ,c 0\n3\n5\n| {z } guaranteed pre-window updates\n+\n2 4 c 1X\nc 0=c s\nu\np,c\n0\n3\n5\n| {z } guaranteed read-my-writes updates\n+\n2 4 X\n(p0,c0)2Sp,c\nu\np 0 ,c 0\n3\n5\n| {z } best-effort in-window updates\n, (2)\nwhere S p,c ✓ W p,c = ([1, P ] \\ {p}) ⇥ [c s, c + s 1] is some subset of the updates u written in the width-2s “window” W\np,c , which ranges from clock c s to c + s 1 and does not include updates from worker p. In other words, the noisy state ˜x\np,c consists of three parts: 1. Guaranteed “pre-window” updates from clock 0 to c s 1, over all workers. 2. Guaranteed “read-my-writes” set {(p, c s), . . . , (p, c 1)} that covers all “in-window”\nupdates made by the querying worker3 p. 3. Best-effort “in-window” updates S\np,c from the width-2s window4 [c s, c + s 1] (not counting updates from worker p). An SSP implementation should try to deliver as many updates from S\np,c as possible, but may choose not to depending on conditions. Notice that S\np,c is specific to worker p at clock c; other workers at different clocks will observe different S . Also, observe that SSP generalizes the Bulk Synchronous Parallel (BSP) model: BSP Corollary: Under zero staleness s = 0, SSP reduces to BSP. Proof: s = 0 implies [c, c + s 1] = ;, and therefore ˜x\np,c exactly consists of all updates until clock c 1. ⇤ Our key tool for convergence analysis is to define a reference sequence of states x\nt , informally referred to as the “true” sequence (this is different and unrelated to the SSPtable server’s view):\nx t = x0 + tX\nt 0=0\nu t 0 , where u t := u t mod P,bt/Pc.\nIn other words, we sum updates by first looping over workers (t mod P ), then over clocks bt/P c. We can now bound the difference between the “true” sequence x\nt and the noisy views ˜x p,c : 3 This is a “read-my-writes” or self-synchronization property, i.e. workers will always see any updates they\nmake. Having such a property makes sense because self-synchronization does not incur a network cost. 4 The width 2s is only an upper bound for the slowest worker. The fastest worker with clock c\nmax has a width-s window [c\nmax s, c max 1], simply because no updates for clocks c max have been written yet.\nLemma 1: Assume s 1, and let ˜x t := ˜x t mod P,bt/Pc, so that\n˜x t = x t\n\" X\ni2At\nu i\n#\n| {z } missing updates\n+\n\" X\ni2Bt\nu i\n#\n| {z } extra updates\n, (3)\nwhere we have decomposed the difference between ˜x t and x t into A t , the index set of updates u i that are missing from ˜x t (w.r.t. x t ), and B t , the index set of “extra” updates in ˜x t but not in x t\n. We then claim that |A\nt |+ |B t |  2s(P 1), and furthermore, min(A t [ B t\n) max(1, t (s+ 1)P ), and max(A\nt [ B t )  t+ sP . Proof: Comparing Eq. (3) with (2), we see that the extra updates obey B\nt ✓ S t mod P,bt/Pc,\nwhile the missing updates obey A t ✓ (W t mod P,bt/Pc \\ St mod P,bt/Pc). Because |Wt mod P,bt/Pc| = 2s(P 1), the first claim immediately follows. The second and third claims follow from looking at the left- and right-most boundaries of W\nt mod P,bt/Pc. ⇤ Lemma 1 basically says that the “true” state x\nt and the noisy state ˜x t only differ by at most 2s(P 1) updates u\nt , and that these updates cannot be more than (s+1)P steps away from t. These properties can be used to prove convergence bounds for various algorithms; in this paper, we shall focus on stochastic gradient descent SGD [17]: Theorem 1 (SGD under SSP): Suppose we want to find the minimizer x⇤ of a convex function f(x) = 1\nT\nP T\nt=1 ft(x), via gradient descent on one component rft at a time. We assume the components f\nt are also convex. Let u t := ⌘ t rf t ( ˜x t ), where ⌘ t =\np t with = F L p 2(s+1)P for\ncertain constants F,L. Then, under suitable conditions (f t are L-Lipschitz and the distance between two points D(xkx0)  F 2),\nR[X] :=\n\" 1\nT\nTX\nt=1\nf\nt\n( ˜x t )\n# f(x⇤)  4FL r 2(s+ 1)P\nT\nThis means that the noisy worker views ˜x t converge in expectation to the true view x⇤ (as measured by the function f(), and at rate O(T 1/2)). We defer the proof to the appendix, noting that it generally follows the analysis in Langford et al. [17], except in places where Lemma 1 is involved. Our bound is also similar to [17], except that (1) their fixed delay ⌧ has been replaced by our staleness upper bound 2(s + 1)P , and (2) we have shown convergence of the noisy worker views ˜x t rather than a true sequence x t\n. Furthermore, because the constant factor 2(s + 1)P is only an upper bound to the number of erroneous updates, SSP’s rate of convergence has a potentially tighter constant factor than Langford et al.’s fixed staleness system (details are in the appendix)."
+    }, {
+      "heading" : "5 Experiments",
+      "text" : "We show that the SSP model outperforms fully-synchronous models such as Bulk Synchronous Parallel (BSP) that require workers to wait for each other on every iteration, as well as asynchronous models with no model staleness guarantees. The general experimental details are: • Computational models and implementation: SSP, BSP and Asynchronous5. We used SSPtable for the\nfirst two (BSP is just staleness 0 under SSP), and implemented the Asynchronous model using many of the caching features of SSPtable (to keep the implementations comparable).\n• ML models (and parallel algorithms): LDA Topic Modeling (collapsed Gibbs sampling), Matrix Factorization (stochastic gradient descent) and Lasso regression (coordinate gradient descent). All algorithms were implemented using SSPtable’s parameter server interface. For TM and MF, we ran the algorithms in a “full batch” mode (where the algorithm’s workers collectively touch every data point once per clock()), as well as a “10% minibatch” model (workers touch 10% of the data per clock()). Due to implementation limitations, we did not run Lasso under the Async model.\n• Datasets: Topic Modeling: New York Times (N = 100m tokens, V = 100k terms, K = 100 topics), Matrix Factorization: NetFlix (480k-by-18k matrix with 100m nonzeros, rank K = 100 decomposition), Lasso regression: Synthetic dataset (N = 500 samples with P = 400k features6). We use a static data partitioning strategy explained in the Appendix.\n• Compute cluster: Multi-core blade servers connected by 10 Gbps Ethernet, running VMware ESX. We use one virtual machine (VM) per physical machine. Each VM is configured with 8 cores (either 2.3GHz or 2.5GHz each) and 23GB of RAM, running on top of Debian Linux 7.0. 5 The Asynchronous model is used in many ML frameworks, such as YahooLDA [2] and HogWild! [21]. 6This is the largest data size we could get the Lasso algorithm to converge on, under ideal BSP conditions.\nConvergence Speed. Figure 3 shows objective vs. time plots for the three ML algorithms, over several machine configurations. We are interested in how long each algorithm takes to reach a given objective value, which corresponds to drawing horizontal lines on the plots. On each plot, we show curves for BSP (zero staleness), Async, and SSP for the best staleness value 1 (we generally omit the other SSP curves to reduce clutter). In all cases except Topic Modeling with 8 VMs, SSP converges to a given objective value faster than BSP or Async. The gap between SSP and the other systems increases with more VMs and smaller data batches, because both of these factors lead to increased network communication — which SSP is able to reduce via staleness. We also provide a scalability-with-N -machines plot in the Appendix. Computation Time vs Network Waiting Time. To understand why SSP performs better, we look at how the Topic Modeling (TM) algorithm spends its time during a fixed number of clock()s. In the 2nd row of Figure 3, we see that for any machine configuration, the TM algorithm spends roughly the same amount of time on useful computation, regardless of the staleness value. However, the time spent waiting for network communication drops rapidly with even a small increase in staleness, allowing SSP to execute clock()s more quickly than BSP (staleness 0). Furthermore, the ratio of network-to-compute time increases as we add more VMs, or use smaller data batches. At 32 VMs and 10% data minibatches, the TM algorithm under BSP spends six times more time on network communications than computation. In contrast, the optimal value of staleness, 32, exhibits a 1:1 ratio of communication to computation. Hence, the value of SSP lies in allowing ML algorithms to perform far more useful computations per second, compared to the BSP model (e.g. Hadoop). Similar observations hold for the MF and Lasso applications (graphs not shown for space reasons). Iteration Quantity and Quality. The network-compute ratio only partially explains SSP’s behavior; we need to examine each clock()’s behavior to get a full picture. In the 3rd row of Figure 3, we plot the number of clocks executed per worker per unit time for the TM algorithm, as well as the objective value at each clock. Higher staleness values increase the number of clocks executed per unit time, but decrease each clock’s progress towards convergence (as suggested by our theory); MF and Lasso also exhibit similar behavior (graphs not shown). Thus, staleness is a tradeoff between iteration quantity and quality — and because the iteration rate exhibits diminishing returns with higher staleness values, there comes a point where additional staleness starts to hurt the rate of convergence per time. This explains why the best staleness value in a given setting is some constant 0 < s < 1— hence, SSP can hit a “sweet spot” between quality/quantity that BSP and Async do not achieve. Automatically finding this sweet spot for a given problem is a subject for future work."
+    }, {
+      "heading" : "6 Related Work and Discussion",
+      "text" : "The idea of staleness has been explored before: in ML academia, it has been analyzed in the context of cyclic-delay architectures [17, 1], in which machines communicate with a central server (or each other) under a fixed schedule (and hence fixed staleness). Even the bulk synchronous parallel (BSP) model inherently produces stale communications, the effects of which have been studied for algorithms such as Lasso regression [5] and topic modeling [2]. Our work differs in that SSP advocates bounded (rather than fixed) staleness to allow higher computational throughput via local machine caches. Furthermore, SSP’s performance does not degrade when parameter updates frequently collide on the same vector elements, unlike asynchronous lock-free systems [21]. We note that staleness has been informally explored in the industrial setting at large scales; our work provides a first attempt at rigorously justifying staleness as a sound ML technique.\nDistributed platforms such as Hadoop and GraphLab [18] are popular for large-scale ML. The biggest difference between them and SSPtable is the programming model — Hadoop uses a stateless map-reduce model, while GraphLab uses stateful vertex programs organized into a graph. In contrast, SSPtable provides a convenient shared-memory programming model based on a table/matrix API, making it easy to convert single-machine parallel ML algorithms into distributed versions. In particular, the algorithms used in our experiments — LDA, MF, Lasso — are all straightforward conversions of single-machine algorithms. Hadoop’s BSP execution model is a special case of SSP, making SSPtable more general in that regard; however, Hadoop also provides fault-tolerance and distributed filesystem features that SSPtable does not cover. Finally, there exist special-purpose tools such as Vowpal Wabbit [16] and YahooLDA [2]. Whereas these systems have been targeted at a subset of ML algorithms, SSPtable can be used by any ML algorithm that tolerates stale updates.\nThe distributed systems community has typically examined staleness in the context of consistency models. The TACT model [26] describes consistency along three dimensions: numerical error, order error, and staleness. Other work [24] attempts to classify existing systems according to a number"
+    }, {
+      "heading" : "Topic Modeling: Convergence",
+      "text" : ""
+    }, {
+      "heading" : "Topic Modeling: Computation Time vs Network Waiting Time",
+      "text" : ""
+    }, {
+      "heading" : "Time Breakdown: Compute vs Network",
+      "text" : ""
+    }, {
+      "heading" : "Matrix Factorization: Convergence",
+      "text" : "of consistency properties, specifically naming the concept of bounded staleness. The vector clocks used in SSPtable are similar to those in Fidge [11] and Mattern [20], which were in turn inspired by Lamport clocks [15]. However, SSPtable uses vector clocks to track the freshness of the data, rather than causal relationships between updates. [8] gives an informal definition of the SSP model, motivated by the need to reduce straggler effects in large compute clusters.\nIn databases, bounded staleness has been applied to improve update and query performance. LazyBase [7] allows staleness bounds to be configured on a per-query basis, and uses this relaxed staleness to improve both query and update performance. FAS [23] keeps data replicated in a number of databases, each providing a different freshness/performance tradeoff. Data stream warehouses [13] collect data about timestamped events, and provide different consistency depending on the freshness of the data. Staleness (or freshness/timeliness) has also been applied in other fields such as sensor networks [14], dynamic web content generation [3], web caching [6], and information systems [4]. Acknowledgments Qirong Ho is supported by an NSS-PhD Fellowship from A-STAR, Singapore. This work is supported in part by NIH 1R01GM087694 and 1R01GM093156, DARPA FA87501220324, and NSF IIS1111142 to Eric P. Xing. We thank the member companies of the PDL Consortium (Actifio, APC, EMC, Emulex, Facebook, Fusion-IO, Google, HP, Hitachi, Huawei, Intel, Microsoft, NEC, NetApp, Oracle, Panasas, Samsung, Seagate, Symantec, VMware, Western Digital) for their interest, insights, feedback, and support. This work is supported in part by Intel via the Intel Science and Technology Center for Cloud Computing (ISTC-CC) and hardware donations from Intel and NetApp."
+    } ],
+    "references" : [ {
+      "title" : "Distributed delayed stochastic optimization",
+      "author" : [ "A. Agarwal", "J.C. Duchi" ],
+      "venue" : "Decision and Control (CDC), 2012 IEEE 51st Annual Conference on, pages 5451–5452. IEEE",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Scalable inference in latent variable models",
+      "author" : [ "A. Ahmed", "M. Aly", "J. Gonzalez", "S. Narayanamurthy", "A.J. Smola" ],
+      "venue" : "WSDM, pages 123–132",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Balancing performance and data freshness in web database",
+      "author" : [ "N.R. Alexandros Labrinidis" ],
+      "venue" : "servers. pages pp",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 2003
+    }, {
+      "title" : "A framework for analysis of data freshness",
+      "author" : [ "M. Bouzeghoub" ],
+      "venue" : "Proceedings of the 2004 international workshop on Information quality in information systems, IQIS ’04, pages 59–67",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : null,
+      "year" : 2004
+    }, {
+      "title" : "Parallel coordinate descent for l1-regularized loss minimization",
+      "author" : [ "J.K. Bradley", "A. Kyrola", "D. Bickson", "C. Guestrin" ],
+      "venue" : "International Conference on Machine Learning ",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Using latency-recency profiles for data delivery on the web",
+      "author" : [ "L. Bright", "L. Raschid" ],
+      "venue" : "Proceedings of the 28th international conference on Very Large Data Bases, VLDB ’02, pages 550–561",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : null,
+      "year" : 2002
+    }, {
+      "title" : "III",
+      "author" : [ "J. Cipar", "G. Ganger", "K. Keeton", "C.B. Morrey" ],
+      "venue" : "C. A. Soules, and A. Veitch. LazyBase: trading freshness for performance in a scalable database. In Proceedings of the 7th ACM european conference on Computer Systems, pages 169–182",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Solving the straggler problem with bounded staleness",
+      "author" : [ "J. Cipar", "Q. Ho", "J.K. Kim", "S. Lee", "G.R. Ganger", "G. Gibson", "K. Keeton", "E. Xing" ],
+      "venue" : "HotOS ’13. Usenix",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Large scale distributed deep networks",
+      "author" : [ "J. Dean", "G. Corrado", "R. Monga", "K. Chen", "M. Devin", "Q. Le", "M. Mao", "M. Ranzato", "A. Senior", "P. Tucker", "K. Yang", "A. Ng" ],
+      "venue" : "NIPS 2012",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Timestamps in Message-Passing Systems that Preserve the Partial Ordering",
+      "author" : [ "C.J. Fidge" ],
+      "venue" : "11th Australian Computer Science Conference, pages 55–66, University of Queensland, Australia",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : null,
+      "year" : 1988
+    }, {
+      "title" : "Large-scale matrix factorization with distributed stochastic gradient descent",
+      "author" : [ "R. Gemulla", "E. Nijkamp", "P.J. Haas", "Y. Sismanis" ],
+      "venue" : "KDD, pages 69–77. ACM",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Consistency in a stream warehouse",
+      "author" : [ "L. Golab", "T. Johnson" ],
+      "venue" : "CIDR",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 2011
+    }, {
+      "title" : "Loft: Low-overhead freshness transmission in sensor networks",
+      "author" : [ "C.-T. Huang" ],
+      "venue" : "SUTC 2008, pages 241–248, Washington, DC, USA",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : null,
+      "year" : 2008
+    }, {
+      "title" : "Time, clocks, and the ordering of events in a distributed system",
+      "author" : [ "L. Lamport" ],
+      "venue" : "Commun. ACM,",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : "15",
+      "year" : 1978
+    }, {
+      "title" : "and A",
+      "author" : [ "J. Langford", "L. Li" ],
+      "venue" : "Strehl. Vowpal wabbit online learning project",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : null,
+      "year" : 2007
+    }, {
+      "title" : "Slow learners are fast",
+      "author" : [ "J. Langford", "A.J. Smola", "M. Zinkevich" ],
+      "venue" : "Advances in Neural Information Processing Systems, pages 2331–2339",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : null,
+      "year" : 2009
+    }, {
+      "title" : "Joseph",
+      "author" : [ "Y. Low", "G. Joseph", "K. Aapo", "D. Bickson", "C. Guestrin", "M. Hellerstein" ],
+      "venue" : "Distributed GraphLab: A framework for machine learning and data mining in the cloud. PVLDB",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Pregel: a system for large-scale graph processing",
+      "author" : [ "G. Malewicz", "M.H. Austern", "A.J. Bik", "J.C. Dehnert", "I. Horn", "N. Leiser", "G. Czajkowski" ],
+      "venue" : "Proceedings of the 2010 International Conference on Management of Data, pages 135–146. ACM",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : null,
+      "year" : 2010
+    }, {
+      "title" : "Virtual time and global states of distributed systems",
+      "author" : [ "F. Mattern" ],
+      "venue" : "C. M. et al., editor, Proc. Workshop on Parallel and Distributed Algorithms, pages 215–226, North-Holland / Elsevier",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : null,
+      "year" : 1989
+    }, {
+      "title" : "Hogwild!: A lock-free approach to parallelizing stochastic gradient descent",
+      "author" : [ "F. Niu", "B. Recht", "C. Ré", "S.J. Wright" ],
+      "venue" : "NIPS",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Piccolo: building fast",
+      "author" : [ "R. Power", "J. Li" ],
+      "venue" : "distributed programs with partitioned tables. In Proceedings of the USENIX conference on Operating systems design and implementation (OSDI), pages 1–14",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : null,
+      "year" : 2010
+    }, {
+      "title" : "Fas: a freshness-sensitive coordination middleware for a cluster of olap components",
+      "author" : [ "U. Röhm", "K. Böhm", "H.-J. Schek", "H. Schuldt" ],
+      "venue" : "VLDB 2002, pages 754–765. VLDB Endowment",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : null,
+      "year" : 2002
+    }, {
+      "title" : "Replicated data consistency explained through baseball",
+      "author" : [ "D. Terry" ],
+      "venue" : "Technical Report MSR-TR-2011-137, Microsoft Research,",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : "24",
+      "year" : 2011
+    }, {
+      "title" : "Design and evaluation of a conit-based continuous consistency model for replicated services",
+      "author" : [ "H. Yu", "A. Vahdat" ],
+      "venue" : "ACM Transactions on Computer Systems,",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : "26",
+      "year" : 2002
+    }, {
+      "title" : "Spark: cluster computing with working sets",
+      "author" : [ "M. Zaharia", "M. Chowdhury", "M.J. Franklin", "S. Shenker", "I. Stoica" ],
+      "venue" : "Proceedings of the 2nd USENIX conference on Hot topics in cloud computing",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : null,
+      "year" : 2010
+    }, {
+      "title" : "Parallelized stochastic gradient descent",
+      "author" : [ "M. Zinkevich", "M. Weimer", "A. Smola", "L. Li" ],
+      "venue" : "Advances in Neural Information Processing Systems, 23(23):1–9",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : null,
+      "year" : 2010
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 8,
+      "context" : "These scalability needs arise from at least two aspects: 1) massive data volume, such as societal-scale social graphs [10, 25] with up to hundreds of millions of nodes; and 2) massive model size, such as the Google Brain deep neural network [9] containing billions of parameters.",
+      "startOffset" : 241,
+      "endOffset" : 244
+    }, {
+      "referenceID" : 15,
+      "context" : "Recent efforts towards distributed ML have made significant advancements in two directions: (1) Leveraging existing common but simple distributed systems to implement parallel versions of a limited selection of ML models, that can be shown to have strong theoretical guarantees under parallelization schemes such as cyclic delay [17, 1], model pre-partitioning [12], lock-free updates [21], bulk synchronous parallel [5], or even no synchronization [28] — these schemes are simple to implement but may under-exploit the full computing power of a distributed cluster.",
+      "startOffset" : 329,
+      "endOffset" : 336
+    }, {
+      "referenceID" : 0,
+      "context" : "Recent efforts towards distributed ML have made significant advancements in two directions: (1) Leveraging existing common but simple distributed systems to implement parallel versions of a limited selection of ML models, that can be shown to have strong theoretical guarantees under parallelization schemes such as cyclic delay [17, 1], model pre-partitioning [12], lock-free updates [21], bulk synchronous parallel [5], or even no synchronization [28] — these schemes are simple to implement but may under-exploit the full computing power of a distributed cluster.",
+      "startOffset" : 329,
+      "endOffset" : 336
+    }, {
+      "referenceID" : 10,
+      "context" : "Recent efforts towards distributed ML have made significant advancements in two directions: (1) Leveraging existing common but simple distributed systems to implement parallel versions of a limited selection of ML models, that can be shown to have strong theoretical guarantees under parallelization schemes such as cyclic delay [17, 1], model pre-partitioning [12], lock-free updates [21], bulk synchronous parallel [5], or even no synchronization [28] — these schemes are simple to implement but may under-exploit the full computing power of a distributed cluster.",
+      "startOffset" : 361,
+      "endOffset" : 365
+    }, {
+      "referenceID" : 19,
+      "context" : "Recent efforts towards distributed ML have made significant advancements in two directions: (1) Leveraging existing common but simple distributed systems to implement parallel versions of a limited selection of ML models, that can be shown to have strong theoretical guarantees under parallelization schemes such as cyclic delay [17, 1], model pre-partitioning [12], lock-free updates [21], bulk synchronous parallel [5], or even no synchronization [28] — these schemes are simple to implement but may under-exploit the full computing power of a distributed cluster.",
+      "startOffset" : 385,
+      "endOffset" : 389
+    }, {
+      "referenceID" : 4,
+      "context" : "Recent efforts towards distributed ML have made significant advancements in two directions: (1) Leveraging existing common but simple distributed systems to implement parallel versions of a limited selection of ML models, that can be shown to have strong theoretical guarantees under parallelization schemes such as cyclic delay [17, 1], model pre-partitioning [12], lock-free updates [21], bulk synchronous parallel [5], or even no synchronization [28] — these schemes are simple to implement but may under-exploit the full computing power of a distributed cluster.",
+      "startOffset" : 417,
+      "endOffset" : 420
+    }, {
+      "referenceID" : 25,
+      "context" : "Recent efforts towards distributed ML have made significant advancements in two directions: (1) Leveraging existing common but simple distributed systems to implement parallel versions of a limited selection of ML models, that can be shown to have strong theoretical guarantees under parallelization schemes such as cyclic delay [17, 1], model pre-partitioning [12], lock-free updates [21], bulk synchronous parallel [5], or even no synchronization [28] — these schemes are simple to implement but may under-exploit the full computing power of a distributed cluster.",
+      "startOffset" : 449,
+      "endOffset" : 453
+    }, {
+      "referenceID" : 16,
+      "context" : "(2) Building high-throughput distributed ML architectures or algorithm implementations that feature significant systems contributions but relatively less theoretical analysis, such as GraphLab [18], Spark [27], Pregel [19], and YahooLDA [2].",
+      "startOffset" : 193,
+      "endOffset" : 197
+    }, {
+      "referenceID" : 24,
+      "context" : "(2) Building high-throughput distributed ML architectures or algorithm implementations that feature significant systems contributions but relatively less theoretical analysis, such as GraphLab [18], Spark [27], Pregel [19], and YahooLDA [2].",
+      "startOffset" : 205,
+      "endOffset" : 209
+    }, {
+      "referenceID" : 17,
+      "context" : "(2) Building high-throughput distributed ML architectures or algorithm implementations that feature significant systems contributions but relatively less theoretical analysis, such as GraphLab [18], Spark [27], Pregel [19], and YahooLDA [2].",
+      "startOffset" : 218,
+      "endOffset" : 222
+    }, {
+      "referenceID" : 1,
+      "context" : "(2) Building high-throughput distributed ML architectures or algorithm implementations that feature significant systems contributions but relatively less theoretical analysis, such as GraphLab [18], Spark [27], Pregel [19], and YahooLDA [2].",
+      "startOffset" : 237,
+      "endOffset" : 240
+    }, {
+      "referenceID" : 20,
+      "context" : "idea of a parameter server [22, 2], which we define as the combination of a shared key-value store that provides a centralized storage model (which may be implemented in a distributed fashion) with a synchronization model for reading/updating model values.",
+      "startOffset" : 27,
+      "endOffset" : 34
+    }, {
+      "referenceID" : 1,
+      "context" : "idea of a parameter server [22, 2], which we define as the combination of a shared key-value store that provides a centralized storage model (which may be implemented in a distributed fashion) with a synchronization model for reading/updating model values.",
+      "startOffset" : 27,
+      "endOffset" : 34
+    }, {
+      "referenceID" : 22,
+      "context" : "The idea is that SSP systems should deliver as many updates as possible, without missing any updates older than a given age — a concept referred to as bounded staleness [24].",
+      "startOffset" : 169,
+      "endOffset" : 173
+    }, {
+      "referenceID" : 15,
+      "context" : "Bounded staleness distinguishes SSP from cyclic-delay systems [17, 1] (where ✓ is read with inflexible staleness), Bulk Synchronous Parallel (BSP) systems like Hadoop (workers must wait for each other at the end of every iteration), or completely asynchronous systems [2] (workers never wait, but ✓ has no staleness guarantees).",
+      "startOffset" : 62,
+      "endOffset" : 69
+    }, {
+      "referenceID" : 0,
+      "context" : "Bounded staleness distinguishes SSP from cyclic-delay systems [17, 1] (where ✓ is read with inflexible staleness), Bulk Synchronous Parallel (BSP) systems like Hadoop (workers must wait for each other at the end of every iteration), or completely asynchronous systems [2] (workers never wait, but ✓ has no staleness guarantees).",
+      "startOffset" : 62,
+      "endOffset" : 69
+    }, {
+      "referenceID" : 1,
+      "context" : "Bounded staleness distinguishes SSP from cyclic-delay systems [17, 1] (where ✓ is read with inflexible staleness), Bulk Synchronous Parallel (BSP) systems like Hadoop (workers must wait for each other at the end of every iteration), or completely asynchronous systems [2] (workers never wait, but ✓ has no staleness guarantees).",
+      "startOffset" : 268,
+      "endOffset" : 271
+    }, {
+      "referenceID" : 15,
+      "context" : "for matrix factorization or topic models) under SSP not only converge, but do so at least as fast as cyclic-delay systems [17, 1] (and potentially even faster depending on implementation).",
+      "startOffset" : 122,
+      "endOffset" : 129
+    }, {
+      "referenceID" : 0,
+      "context" : "for matrix factorization or topic models) under SSP not only converge, but do so at least as fast as cyclic-delay systems [17, 1] (and potentially even faster depending on implementation).",
+      "startOffset" : 122,
+      "endOffset" : 129
+    }, {
+      "referenceID" : 10,
+      "context" : "Furthermore, our implementation of SSP, SSPtable, supports a wide variety of algortihms and models, and we demonstrate it on several popular ones: (a) Matrix Factorization with stochastic gradient descent [12], (b) Topic Modeling with collapsed Gibbs sampling [2], and (c) Lasso regression with parallelized coordinate descent [5].",
+      "startOffset" : 205,
+      "endOffset" : 209
+    }, {
+      "referenceID" : 1,
+      "context" : "Furthermore, our implementation of SSP, SSPtable, supports a wide variety of algortihms and models, and we demonstrate it on several popular ones: (a) Matrix Factorization with stochastic gradient descent [12], (b) Topic Modeling with collapsed Gibbs sampling [2], and (c) Lasso regression with parallelized coordinate descent [5].",
+      "startOffset" : 260,
+      "endOffset" : 263
+    }, {
+      "referenceID" : 4,
+      "context" : "Furthermore, our implementation of SSP, SSPtable, supports a wide variety of algortihms and models, and we demonstrate it on several popular ones: (a) Matrix Factorization with stochastic gradient descent [12], (b) Topic Modeling with collapsed Gibbs sampling [2], and (c) Lasso regression with parallelized coordinate descent [5].",
+      "startOffset" : 327,
+      "endOffset" : 330
+    }, {
+      "referenceID" : 15,
+      "context" : "1 An example: Stochastic Gradient Descent for Matrix Problems The Stochastic Gradient Descent (SGD) [17, 12] algorithm optimizes an objective function by applying gradient descent to random subsets of the data.",
+      "startOffset" : 100,
+      "endOffset" : 108
+    }, {
+      "referenceID" : 10,
+      "context" : "1 An example: Stochastic Gradient Descent for Matrix Problems The Stochastic Gradient Descent (SGD) [17, 12] algorithm optimizes an objective function by applying gradient descent to random subsets of the data.",
+      "startOffset" : 100,
+      "endOffset" : 108
+    }, {
+      "referenceID" : 10,
+      "context" : "ab can then be distributed over multiple workers, and their gradients computed in parallel [12].",
+      "startOffset" : 91,
+      "endOffset" : 95
+    }, {
+      "referenceID" : 1,
+      "context" : "Note that SSP is not limited to stochastic gradient matrix algorithms: it can also be applied to parallel collapsed sampling on topic models [2] (by storing the word-topic and document-topic tables in x), parallel coordinate descent on Lasso regression [5] (by storing the regression coefficients in x), as well as any other parallel algorithm or model with shared parameters that all workers need read/write access to.",
+      "startOffset" : 141,
+      "endOffset" : 144
+    }, {
+      "referenceID" : 4,
+      "context" : "Note that SSP is not limited to stochastic gradient matrix algorithms: it can also be applied to parallel collapsed sampling on topic models [2] (by storing the word-topic and document-topic tables in x), parallel coordinate descent on Lasso regression [5] (by storing the regression coefficients in x), as well as any other parallel algorithm or model with shared parameters that all workers need read/write access to.",
+      "startOffset" : 253,
+      "endOffset" : 256
+    }, {
+      "referenceID" : 10,
+      "context" : "x x + (zy); such operations can be found in the update equations of many ML inference algorithms, such as gradient descent [12], coordinate descent [5] and collapsed Gibbs sampling [2].",
+      "startOffset" : 123,
+      "endOffset" : 127
+    }, {
+      "referenceID" : 4,
+      "context" : "x x + (zy); such operations can be found in the update equations of many ML inference algorithms, such as gradient descent [12], coordinate descent [5] and collapsed Gibbs sampling [2].",
+      "startOffset" : 148,
+      "endOffset" : 151
+    }, {
+      "referenceID" : 1,
+      "context" : "x x + (zy); such operations can be found in the update equations of many ML inference algorithms, such as gradient descent [12], coordinate descent [5] and collapsed Gibbs sampling [2].",
+      "startOffset" : 181,
+      "endOffset" : 184
+    }, {
+      "referenceID" : 15,
+      "context" : "These properties can be used to prove convergence bounds for various algorithms; in this paper, we shall focus on stochastic gradient descent SGD [17]: Theorem 1 (SGD under SSP): Suppose we want to find the minimizer x⇤ of a convex function f(x) = 1",
+      "startOffset" : 146,
+      "endOffset" : 150
+    }, {
+      "referenceID" : 15,
+      "context" : "[17], except in places where Lemma 1 is involved.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 15,
+      "context" : "Our bound is also similar to [17], except that (1) their fixed delay ⌧ has been replaced by our staleness upper bound 2(s + 1)P , and (2) we have shown convergence of the noisy worker views",
+      "startOffset" : 29,
+      "endOffset" : 33
+    }, {
+      "referenceID" : 1,
+      "context" : "5 The Asynchronous model is used in many ML frameworks, such as YahooLDA [2] and HogWild! [21].",
+      "startOffset" : 73,
+      "endOffset" : 76
+    }, {
+      "referenceID" : 19,
+      "context" : "5 The Asynchronous model is used in many ML frameworks, such as YahooLDA [2] and HogWild! [21].",
+      "startOffset" : 90,
+      "endOffset" : 94
+    }, {
+      "referenceID" : 15,
+      "context" : "6 Related Work and Discussion The idea of staleness has been explored before: in ML academia, it has been analyzed in the context of cyclic-delay architectures [17, 1], in which machines communicate with a central server (or each other) under a fixed schedule (and hence fixed staleness).",
+      "startOffset" : 160,
+      "endOffset" : 167
+    }, {
+      "referenceID" : 0,
+      "context" : "6 Related Work and Discussion The idea of staleness has been explored before: in ML academia, it has been analyzed in the context of cyclic-delay architectures [17, 1], in which machines communicate with a central server (or each other) under a fixed schedule (and hence fixed staleness).",
+      "startOffset" : 160,
+      "endOffset" : 167
+    }, {
+      "referenceID" : 4,
+      "context" : "Even the bulk synchronous parallel (BSP) model inherently produces stale communications, the effects of which have been studied for algorithms such as Lasso regression [5] and topic modeling [2].",
+      "startOffset" : 168,
+      "endOffset" : 171
+    }, {
+      "referenceID" : 1,
+      "context" : "Even the bulk synchronous parallel (BSP) model inherently produces stale communications, the effects of which have been studied for algorithms such as Lasso regression [5] and topic modeling [2].",
+      "startOffset" : 191,
+      "endOffset" : 194
+    }, {
+      "referenceID" : 19,
+      "context" : "Furthermore, SSP’s performance does not degrade when parameter updates frequently collide on the same vector elements, unlike asynchronous lock-free systems [21].",
+      "startOffset" : 157,
+      "endOffset" : 161
+    }, {
+      "referenceID" : 16,
+      "context" : "Distributed platforms such as Hadoop and GraphLab [18] are popular for large-scale ML.",
+      "startOffset" : 50,
+      "endOffset" : 54
+    }, {
+      "referenceID" : 14,
+      "context" : "Finally, there exist special-purpose tools such as Vowpal Wabbit [16] and YahooLDA [2].",
+      "startOffset" : 65,
+      "endOffset" : 69
+    }, {
+      "referenceID" : 1,
+      "context" : "Finally, there exist special-purpose tools such as Vowpal Wabbit [16] and YahooLDA [2].",
+      "startOffset" : 83,
+      "endOffset" : 86
+    }, {
+      "referenceID" : 23,
+      "context" : "The TACT model [26] describes consistency along three dimensions: numerical error, order error, and staleness.",
+      "startOffset" : 15,
+      "endOffset" : 19
+    }, {
+      "referenceID" : 22,
+      "context" : "Other work [24] attempts to classify existing systems according to a number 7",
+      "startOffset" : 11,
+      "endOffset" : 15
+    } ],
+    "year" : 2013,
+    "abstractText" : "We propose a parameter server system for distributed ML, which follows a Stale Synchronous Parallel (SSP) model of computation that maximizes the time computational workers spend doing useful work on ML algorithms, while still providing correctness guarantees. The parameter server provides an easy-to-use shared interface for read/write access to an ML model’s values (parameters and variables), and the SSP model allows distributed workers to read older, stale versions of these values from a local cache, instead of waiting to get them from a central storage. This significantly increases the proportion of time workers spend computing, as opposed to waiting. Furthermore, the SSP model ensures ML algorithm correctness by limiting the maximum age of the stale values. We provide a proof of correctness under SSP, as well as empirical results demonstrating that the SSP model achieves faster algorithm convergence on several different ML problems, compared to fully-synchronous and asynchronous schemes.",
+    "creator" : null
+  }
+}

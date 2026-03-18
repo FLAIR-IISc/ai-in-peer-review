@@ -1,0 +1,370 @@
+{
+  "name" : "01931a6925d3de09e5f87419d9d55055.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "A Locally Adaptive Normal Distribution",
+    "authors" : [ "Georgios Arvanitidis", "Lars Kai Hansen", "Søren Hauberg" ],
+    "emails" : [ "gear@dtu.dk", "lkai@dtu.dk", "sohau@dtu.dk" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "The multivariate normal distribution is a fundamental building block in many machine learning algorithms, and its well-known density can compactly be written as\np(x | µ,Σ) ∝ exp ( −1 2 dist2Σ(µ,x) ) , (1)\nwhere dist2Σ(µ,x) denotes the Mahalanobis distance for covariance matrix Σ. This distance measure corresponds to the length of the straight line connecting µ and x, and consequently the normal distribution is often used to model linear phenomena. When data lies near a nonlinear manifold embedded in RD the normal distribution becomes inadequate due to its linear metric. We investigate if a useful distribution can be constructed by replacing the linear distance function with a nonlinear counterpart. This is similar in spirit to Isomap [21] that famously replace the linear distance with a geodesic distance measured over a neighborhood graph spanned by the data, thereby allowing for a nonlinear model. This is, however, a discrete distance measure that is only well-defined over the training data. For a generative model, we need a continuously defined metric over the entire RD. Following Hauberg et al. [9] we learn a smoothly changing metric that favors regions of high density i.e., geodesics tend to move near the data. Under this metric, the data space is interpreted as a D-dimensional Riemannian manifold. This “manifold learning” does not change dimensionality, but merely provides a local description of the data. The Riemannian view-point, however, gives a strong mathematical foundation upon which the proposed distribution can be developed. Our work, thus, bridges work on statistics on Riemannian manifolds [15, 23] with manifold learning [21].\nWe develop a locally adaptive normal distribution (LAND) as follows: First, we construct a metric that captures the nonlinear structure of the data and enables us to compute geodesics; from this, an\n30th Conference on Neural Information Processing Systems (NIPS 2016), Barcelona, Spain.\nGeodesics\nLAND model\nLinear model\nunnormalized density is trivially defined. Second, we propose a scalable Monte Carlo integration scheme for normalizing the density with respect to the measure induced by the metric. Third, we develop a gradient-based algorithm for maximum likelihood estimation on the learned manifold. We further consider a mixture of LANDs and provide the corresponding EM algorithm. The usefulness of the model is verified on both synthetic data and EEG measurements of human sleep stages.\nNotation: all points x ∈ RD are considered as column vectors, and they are denoted with bold lowercase characters. SD++ represents the set of symmetric D ×D positive definite matrices. The learned Riemannian manifold is denotedM, and its tangent space at x ∈M is denoted TxM."
+    }, {
+      "heading" : "2 A Brief Summary of Riemannian Geometry",
+      "text" : "We start our exposition with a brief review of Riemannian manifolds [6]. These smooth manifolds are naturally equipped with a distance measure, and are commonly used to model physical phenomena such as dynamical or periodic systems, and many problems that have a smooth behavior.\nDefinition 1. A smooth manifoldM together with a Riemannian metric M :M→ SD++ is called a Riemannian manifold. The Riemannian metric M encodes a smoothly changing inner product 〈u,M(x)v〉 on the tangent space u,v ∈ TxM of each point x ∈M. Remark 1. The Riemannian metric M(x) acts on tangent vectors, and may, thus, be interpreted as a standard Mahalanobis metric restricted to an infinitesimal region around x.\nThe local inner product based on M is a suitable model for capturing local behavior of data, i.e. manifold learning. From the inner product, we can define geodesics as length-minimizing curves connecting two points x,y ∈M, i.e.\nγ̂ = argmin γ ∫ 1 0 √ 〈γ′(t),M(γ(t))γ′(t)〉dt, s.t. γ(0) = x, γ(1) = y. (2)\nHere M(γ(t)) is the metric tensor at γ(t), and the tangent vector γ′ denotes the derivative (velocity) of γ. The distance between x and y is defined as the length of the geodesic. A standard result from differential geometry is that the geodesic can be found as the solution to a system of 2nd order ordinary differential equations (ODEs) [6, 9]:\nγ′′(t) = −1 2 M−1(γ(t))\n[ ∂vec[M(γ(t))]\n∂γ(t)\n]ᵀ (γ′(t)⊗ γ′(t))\n(3)\nsubject to γ(0) = x, γ(1) = y. Here vec[·] stacks the columns of a matrix into a vector and ⊗ is the Kronecker product. This differential equation allows us to define basic operations on the manifold. The exponential map at a point x takes a tangent vector v ∈ TxM to y = Expx(v) ∈ M such that the curve γ(t) = Expx(t · v) is a geodesic originating at x with initial\nvelocity v and length ‖v‖. The inverse mapping, which takes y to TxM is known as the logarithm map and is denoted Logx(y). By definition ‖Logx(y)‖ corresponds to the geodesic distance from x to y. These operations are illustrated in Fig. 2. The exponential and the logarithmic map can be computed by solving Eq. 3 numerically, as an initial value problem (IVP) or a boundary value problem (BVP) respectively. In practice the IVPs are substantially faster to compute than the BVPs.\nThe Mahalanobis distance is naturally extended to Riemannian manifolds as dist2Σ(x,y) = 〈Logx(y),Σ −1Logx(y)〉. From this, Pennec [15] considered the Riemannian normal distribution\npM(x | µ,Σ) = 1\nC exp ( −1 2 〈Logµ(x),Σ −1Logµ(x)〉 ) , x ∈M (4)\nand showed that it is the manifold-valued distribution with maximum entropy subject to a known mean and covariance. This distribution is an instance of Eq. 1 and is the distribution we consider in this paper. Next, we consider standard “intrinsic least squares” estimates of µ and Σ."
+    }, {
+      "heading" : "2.1 Intrinsic Least Squares Estimators",
+      "text" : "Let the data be generated from an unknown probability distribution qM(x) on a manifold. Then it is common [15] to define the intrinsic mean of the distribution as the point that minimize the variance\nµ̂ = argmin µ∈M ∫ M dist2(µ,x)qM(x)dM(x), (5)\nwhere dM(x) is the measure (or infinitesimal volume element) induced by the metric. Based on the mean, a covariance matrix can be defined\nΣ̂ = ∫ D(µ̂) Logµ̂(x)Logµ̂(x) ᵀqM(x)dM(x), (6)\nwhere D(µ̂) is the domain over which Tµ̂M is well-defined. For the manifolds we consider, the domain D(µ̂) is RD. Practical estimators of µ̂ rely on gradient-based optimization to find a local minimizer of Eq. 5, which is well-defined [12]. For finite data {xn}Nn=1, the descent direction is proportional to v̂ = ∑N n=1 Logµ(xn) ∈ TµM, and the updated mean is a point on the geodesic curve γ(t) = Expµ(t · v̂). After estimating the mean, the empirical covariance matrix is estimated as Σ̂ = 1N−1 ∑N n=1 Logµ̂(xn)Logµ̂(xn)\nᵀ. It is worth noting that even though these estimators are natural, they are not maximum likelihood estimates for the Riemannian normal distribution (4).\nIn practice, the intrinsic mean often falls in regions of low data density [8]. For instance, consider data distributed uniformly on the equator of a sphere, then the optima of Eq. 5 is either of the poles. Consequently, the empirical covariance is often overestimated."
+    }, {
+      "heading" : "3 A Locally Adaptive Normal Distribution",
+      "text" : "We now have the tools to define a locally adaptive normal distribution (LAND): we replace the linear Euclidean distance with a locally adaptive Riemannian distance and study the corresponding Riemannian normal distribution (4). By learning a Riemannian manifold and using its structure to estimate distributions of the data, we provide a new and useful link between Riemannian statistics and manifold learning."
+    }, {
+      "heading" : "3.1 Constructing a Metric",
+      "text" : "In the context of manifold learning, Hauberg et al. [9] suggest to model the local behavior of the data manifold via a locally-defined Riemannian metric. Here we propose to use a local covariance matrix to represent the local structure of the data. We only consider diagonal covariances for computational efficiency and to prevent the overfitting. The locality of the covariance is defined via an isotropic Gaussian kernel of size σ. Thus, the metric tensor at x ∈ M is defined as the inverse of a local diagonal covariance matrix with entries\nMdd(x) = ( N∑ n=1 wn(x)(xnd − xd)2 + ρ )−1 , with wn(x) = exp ( − ‖xn − x‖22 2σ2 ) . (7)\nHere xnd is the dth dimension of the nth observation, and ρ a regularization parameter to avoid singular covariances. This defines a smoothly changing (hence Riemannian) metric that captures the local structure of the data. It is easy to see that if x is outside of the support of the data, then the metric tensor is large. Thus, geodesics are “pulled” towards the data where the metric is small. Note that the proposed metric is not invariant to linear transformations.While we restrict our attention to this particular choice, other learned metrics are equally applicable, c.f. [22, 9]."
+    }, {
+      "heading" : "3.2 Estimating the Normalization Constant",
+      "text" : "The normalization constant of Eq. 4 is by definition C(µ,Σ) = ∫ M exp ( −1 2 〈Logµ(x),Σ −1Logµ(x)〉 ) dM(x), (8)\nwhere dM(x) denotes the measure induced by the Riemannian metric. The constant C(µ,Σ) depends not only on the covariance matrix, but also on the mean of the distribution, and the curvature of the manifold (captured by the logarithm map). For a general learned manifold, C(µ,Σ) is inaccessible in closed-form and we resort to numerical techniques. We start by rewriting Eq. 8 as\nC(µ,Σ) = ∫ TµM √∣∣M(Expµ(v))∣∣ exp(−12 〈v,Σ−1v〉 ) dv. (9)\nIn effect, we integrate the distribution over the tangent space TµM instead of directly over the manifold. This transformation relies on the fact that the volume of an infinitely small area on the manifold can be computed in the tangent space if we take the deformation of the metric into account [15]. This deformation is captured by the measure which, in the tangent space, is dM(x) =√∣∣M(Expµ(v))∣∣dv. For notational simplicity we define the function m(µ,v) =√∣∣M(Expµ(v))∣∣, which intuitively captures the cost for a point to be outside the data support (m is large in low density areas and small where the density is high).\nWe estimate the normalization constant (9) using Monte Carlo integration. We first multiply and divide the integral with the normalization constant of the Euclidean normal distributionZ = √ (2π)D |Σ|. Then, the integral becomes an expectation estimation problem C(µ,Σ) = Z · EN (0,Σ)[m(µ,v)], which can be estimated numerically as\nC(µ,Σ) ' Z S S∑ s=1 m(µ,vs), where vs ∼ N (0,Σ) (10)\nand S is the number of samples on TµM. The computationally expensive element is to evaluatem, which in turn requires evaluating Expµ(v). This amounts to solving an IVP numerically, which is\nfairly fast. Had we performed the integration directly on the manifold (8) we would have had to evaluate the logarithm map, which is a much more expensive BVP. The tangent space integration, thus, scales better."
+    }, {
+      "heading" : "3.3 Inferring Parameters",
+      "text" : "Assuming an independent and identically distributed dataset {xn}Nn=1, we can write their joint distribution as pM(x1, . . . ,xN ) = ∏N n=1 pM(xn |µ,Σ). We find parameters µ and Σ by maximum likelihood, which we implement by minimizing the mean negative log-likelihood\n{µ̂, Σ̂} = argmin µ∈M\nΣ∈SD++\nφ (µ,Σ) = argmin µ∈M\nΣ∈SD++\n1\n2N N∑ n=1 〈Logµ(xn),Σ −1Logµ(xn)〉+ log (C(µ,Σ)) .\n(11)\nThe first term of the objective function φ :M×SD++ is a data-fitting term, while the second can be seen as a force that both pulls the mean closer to the high density areas and shrinks the covariance. Specifically, when the mean is in low density areas, as well as when the covariance gives significant\nAlgorithm 1 LAND maximum likelihood\nInput: the data {xn}Nn=1, stepsizes αµ, αA Output: the estimated µ̂, Σ̂, Ĉ(µ̂, Σ̂)\n1: initialize µ0,Σ0 and t← 0 2: repeat 3: estimate C(µt,Σt) using Eq. 10 4: compute dµφ(µt,Σt) using Eq. 12 5: µt+1 ← Expµt(αµdµφ(µt,Σ t)) 6: estimate C(µt+1,Σt) using Eq. 10 7: compute∇Aφ(µt+1,Σt) using Eq. 13 8: At+1 ← At − αA∇Aφ(µt+1,Σt) 9: Σt+1 ← [(At+1)ᵀAt+1]−1\n10: t← t+ 1 11: until ∥∥φ(µt+1,Σt+1)− φ(µt,Σt)∥∥2 2 ≤\nprobability to those areas, the value of m(µ,v) will by construction be large. Consequently, C(µ,Σ) will increase and these solutions will be penalized. In practice, we find that the maximum likelihood LAND mean generally avoids low density regions, which is in contrast to the standard intrinsic least squares mean (5), see Fig. 3.\nIn practice we optimize φ using block coordinate descent: we optimize the mean keeping the covariance fixed and vice versa. Unfortunately, both of the sub-problems are non-convex, and unlike the linear normal distribution, they lack a closedform solution. Since the logarithm map is a differentiable function, we can use gradient-based techniques to infer µ and Σ. Below we give the descent direction for µ and Σ and the corresponding optimization scheme is given in Algorithm 1. Initialization is discussed in the supplements.\nOptimizing µ: the objective function is differentiable with respect to µ [6], and using that ∂ ∂µ 〈Logµ(x),Σ −1Logµ(x)〉 = −2Σ −1Logµ(x), we get the gradient\n∇µφ(µ,Σ) = −Σ−1 [ 1\nN N∑ n=1 Logµ(xn)− Z C(µ,Σ) · S S∑ s=1 m(µ,vs)vs\n] . (12)\nIt is easy to see that this gradient is highly dependent on the condition number of Σ. We find that this, at times, makes the gradient unstable, and choose to use the steepest descent direction instead of the gradient direction. This is equal to dµφ(µ,Σ) = −Σ∇µφ(µ,Σ) (see supplements).\nOptimizing Σ: since the covariance matrix by definition is constrained to be in the space SD++, a common trick is to decompose the matrix as Σ−1 = AᵀA, and optimize the objective with respect to A. The gradient of this factor is (see supplements for derivation)\n∇Aφ(µ,Σ) = A\n[ 1\nN N∑ n=1 Logµ(xn)Logµ(xn) ᵀ − Z C(µ,Σ) · S S∑ s=1 m(µ,vs)vsv ᵀ s\n] . (13)\nHere the first term fits the given data by increasing the size of the covariance matrix, while the second term regularizes the covariance towards a small matrix."
+    }, {
+      "heading" : "3.4 Mixture of LANDs",
+      "text" : "At this point we can find maximum likelihood estimates of the LAND model. We can easily extend this to mixtures of LANDs: Following the derivation of the standard Gaussian mixture model [3], our objective function for inferring the parameters of the LAND mixture model is formulated as follows\nψ(Θ) = K∑ k=1 N∑ n=1 rnk [ 1 2 〈Logµk(xn),Σ −1 k Logµk(xn)〉+ log(C(µk,Σk))− log(πk) ] , (14)\nwhere Θ = {µk,Σk}Kk=1 , rnk = πkpM(xn | µk,Σk)∑K l=1 πlpM(xn | µl,Σl) is the probability that xn is generated by the\nkth component, and ∑K k=1 πk = 1, πk ≥ 0. The corresponding EM algorithm is in the supplements."
+    }, {
+      "heading" : "4 Experiments",
+      "text" : "In this section we present both synthetic and real experiments to demonstrate the advantages of the LAND. We compare our model with both the Gaussian mixture model (GMM), and a mixture of LANDs using least squares (LS) estimators (5, 6). Since the latter are not maximum likelihood estimates we use a Riemannian K-means algorithm to find cluster centers. In all experiments we use S = 3000 samples in the Monte Carlo integration. This choice is investigated empirically in the supplements. Furthermore, we choose σ as small as possible, while ensuring that the manifold is smooth enough that geodesics can be computed numerically.\n4.1 Synthetic Data Experiments\nAs a first experiment, we generate a nonlinear data-manifold by sampling from a mixture of 20 Gaussians positioned along a half-ellipsoidal curve (see left panel of Fig. 5). We generate 10 datasets with 300 points each, and fit for each dataset the three models with K = 1, . . . , 4 number of components. Then, we generate 10000 samples from each fitted model, and we compute the mean negative log-likelihood of the true generative distribution using these samples. Fig. 4 shows that the LAND learns faster the underlying true distribution, than the GMM. Moreover, the LAND perform better than the least squares estimators, which overestimates the covariance. In the supplements we show, using the standard AIC and BIC criteria, that the optimal LAND is achieved for K = 1, while for the least squares estimators and the GMM, the optimal is achieved for K = 3 and K = 4 respectively.\nIn addition, in Fig. 5 we show the contours for the LAND and the GMM for K = 2. There, we can observe that indeed, the LAND adapts locally to the data and reveals their underlying nonlinear structure. This is particularly evident near the “boundaries” of the data-manifold.\nGeodesics\nLAND mixture model\nGaussian mixture model\nWe extend this experiment to a clustering task (see left panel of Fig. 6 for data). The center and right panels of Fig. 6 show the contours of the LAND and Gaussian mixtures, and it is evident that the LAND is substantially better at capturing non-ellipsoidal clusters. Due to space limitations, we move further illustrative experiments to the supplementary material and continue with real data."
+    }, {
+      "heading" : "4.2 Modeling Sleep Stages",
+      "text" : "We consider electro-encephalography (EEG) measurements of human sleep from 10 subjects, part of the PhysioNet database [11, 7, 5]. For each subject we get EEG measurements during sleep from two electrodes on the front and the back of the head, respectively. Measurements are sampled at fs = 100Hz, and for each 30 second window a so-called sleep stage label is assigned from the set {1, 2, 3, 4,REM, awake}. Rapid eye movement (REM) sleep is particularly interesting, characterized by having EEG patterns similar to the awake state but with a complex physiological pattern, involving e.g., reduced muscle tone, rolling eye movements and erection [16]. Recent evidence points to the importance of REM sleep for memory consolidation [4]. Periods in which the sleeper is awake are typically happening in or near REM intervals. Thus we here consider the characterization of sleep in terms of three categories REM, awake, and non-REM, the latter a merger of sleep stages 1− 4. We extract features from EEG measurements as follows: for each subject we subdivide the 30 second windows to 10 seconds, and apply a short-time-Fourier-transform to the EEG signal of the frontal electrode with 50% overlapping windows. From this we compute the log magnitude of the spectrum log(1 + |f |) of each window. The resulting data matrix is decomposed using Non-Negative Matrix Factorization (10 random starts) into five factors, and we use the coefficients as 5D features. In Fig. 7 we illustrate the nonlinear manifold structure based on a three factor analysis.\nGeodesics\nData LAND means Geodesics, cluster 1 Geodesics, cluster 2\nLAND mixture model\nLAND mean\nGaussian mixture model\nGMM mean\nGeodesics\nLAND mixture model\nGaussian mixture model\nWe perform clustering on the data and evaluate the alignment between cluster labels and sleep stages using the F-measure [14]. The LAND depends on the parameter σ to construct the metric tensor, and in this experiment it is less straightforward to select σ because of significant intersubject variability. First, we fixed σ = 1 for all the subjects. From the results in Table 1 we observe that for σ = 1 the LAND(1) generally outperforms the GMM and achieves much better alignment. To further illustrate the effect of σ we fitted a LAND for σ = [0.5, 0.6, . . . , 1.5] and present the best result achieved by the LAND. Selecting σ this way leads indeed to higher degrees of alignment further underlining that the conspicuous manifold structure and the rather compact sleep stage distributions in Fig. 7 are both captured better with the LAND representation than with a linear GMM."
+    }, {
+      "heading" : "5 Related Work",
+      "text" : "We are not the first to consider Riemannian normal distributions, e.g. Pennec [15] gives a theoretical analysis of the distribution, and Zhang and Fletcher [23] consider the Riemannian counterpart of probabilistic PCA. Both consider the scenario where the manifold is known a priori. We adapt the distribution to the “manifold learning” setting by constructing a Riemannian metric that adapts to the data. This is our overarching contribution.\nTraditionally, manifold learning is seen as an embedding problem where a low-dimensional representation of the data is sought. This is useful for visualization [21, 17, 18, 1], clustering [13], semi-supervised learning [2] and more. However, in embedding approaches, the relation between a\nnew point and the embedded points are less well-defined, and consequently these approaches are less suited for building generative models. In contrast, the Riemannian approach gives the ability to measure continuous geodesics that follow the structure of the data. This makes the learned Riemannian manifold a suitable space for a generative model.\nSimo-Serra et al. [19] consider mixtures of Riemannian normal distributions on manifolds that are known a priori. Structurally, their EM algorithm is similar to ours, but they do not account for the normalization constants for different mixture components. Consequently, their approach is inconsistent with the probabilistic formulation. Straub et al. [20] consider data on spherical manifolds, and further consider a Dirichlet process prior for determining the number of components. Such a prior could also be incorporated in our model. The key difference to our work is that we consider learned manifolds as well as the following complications."
+    }, {
+      "heading" : "6 Discussion",
+      "text" : "In this paper we have introduced a parametric locally adaptive normal distribution. The idea is to replace the Euclidean distance in the ordinary normal distribution with a locally adaptive nonlinear distance measure. In principle, we learn a non-parametric metric space, by constructing a smoothly changing metric that induces a Riemannian manifold, where we build our model. As such, we propose a parametric model over a non-parametric space.\nThe non-parametric space is constructed using a local metric that is the inverse of a local covariance matrix. Here locality is defined via a Gaussian kernel, such that the manifold learning can be seen as a form of kernel smoothing. This indicates that our scheme for learning a manifold might not scale to high-dimensional input spaces. In these cases it may be more practical to learn the manifold probabilistically [22] or as a mixture of metrics [9]. This is feasible as the LAND estimation procedure is agnostic to the details of the learned manifold as long as exponential and logarithm maps can be evaluated.\nOnce a manifold is learned, the LAND is simply a Riemannian normal distribution. This is a natural model, but more intriguing, it is a theoretical interesting model since it is the maximum entropy distribution for a fixed mean and covariance [15]. It is generally difficult to build locally adaptive distributions with maximum entropy properties, yet the LAND does this in a fairly straight-forward manner. This is, however, only a partial truth as the distribution depends on the non-parametric space. The natural question, to which we currently do not have an answer, is whether a suitable maximum entropy manifold exist?\nAlgorithmically, we have proposed a maximum likelihood estimation scheme for the LAND. This combines a gradient-based optimization with a scalable Monte Carlo integration method. Once exponential and logarithm maps are available, this procedure is surprisingly simple to implement. We have demonstrated the algorithm on both real and synthetic data and results are encouraging. We almost always improve upon a standard Gaussian mixture model as the LAND is better at capturing the local properties of the data.\nWe note that both the manifold learning aspect and the algorithmic aspect of our work can be improved. It would be of great value to learn the parameter σ used for smoothing the Riemannian metric, and in general, more adaptive learning schemes are of interest. Computationally, the bottleneck of our work is evaluating the logarithm maps. This may be improved by specialized solvers, e.g. probabilistic solvers [10], or manifold-specific heuristics.\nThe ordinary normal distribution is a key element in many machine learning algorithms. We expect that many fundamental generative models can be extended to the “manifold” setting simply by replacing the normal distribution with a LAND. Examples of this idea include Naïve Bayes, Linear Discriminant Analysis, Principal Component Analysis and more. Finally we note that standard hypothesis tests also extend to Riemannian normal distributions [15] and hence also to the LAND.\nAcknowledgements. LKH was funded in part by the Novo Nordisk Foundation Interdisciplinary Synergy Program 2014, ’Biophysically adjusted state-informed cortex stimulation (BASICS)’. SH was funded in part by the Danish Council for Independent Research, Natural Sciences."
+    } ],
+    "references" : [ {
+      "title" : "Laplacian Eigenmaps for Dimensionality Reduction and Data Representation",
+      "author" : [ "M. Belkin", "P. Niyogi" ],
+      "venue" : "Neural Computation,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : "1",
+      "year" : 2003
+    }, {
+      "title" : "Manifold Regularization: A Geometric Framework for Learning from Labeled and Unlabeled Examples",
+      "author" : [ "M. Belkin", "P. Niyogi", "V. Sindhwani" ],
+      "venue" : null,
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 2006
+    }, {
+      "title" : "Pattern Recognition and Machine Learning (Information Science and Statistics)",
+      "author" : [ "C.M. Bishop" ],
+      "venue" : "Springer- Verlag New York, Inc., Secaucus, NJ, USA",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : null,
+      "year" : 2006
+    }, {
+      "title" : "Causal evidence for the role of REM sleep theta rhythm in contextual memory consolidation",
+      "author" : [ "R. Boyce", "S.D. Glasgow", "S. Williams", "A. Adamantidis" ],
+      "venue" : "Science, 352(6287):812–816",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "EEGLAB: an open source toolbox for analysis of single-trial EEG dynamics including independent component analysis",
+      "author" : [ "A. Delorme", "S. Makeig" ],
+      "venue" : "J. Neurosci. Methods, page 21",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : null,
+      "year" : 2004
+    }, {
+      "title" : "PhysioBank",
+      "author" : [ "A.L. Goldberger", "L.A.N. Amaral", "L. Glass", "J.M. Hausdorff", "P.C. Ivanov", "R.G. Mark", "J.E. Mietus", "G.B. Moody", "C.-K. Peng", "H.E. Stanley" ],
+      "venue" : "PhysioToolkit, and PhysioNet: Components of a New Research Resource for Complex Physiologic Signals. Circulation, 101",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : null,
+      "year" : 2000
+    }, {
+      "title" : "Principal Curves on Riemannian Manifolds",
+      "author" : [ "S. Hauberg" ],
+      "venue" : "IEEE Transactions on Pattern Analysis and Machine Intelligence (TPAMI)",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "A Geometric Take on Metric Learning",
+      "author" : [ "S. Hauberg", "O. Freifeld", "M.J. Black" ],
+      "venue" : "Advances in Neural Information Processing Systems (NIPS) 25, pages 2033–2041",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Probabilistic Solutions to Differential Equations and their Application to Riemannian Statistics",
+      "author" : [ "P. Hennig", "S. Hauberg" ],
+      "venue" : "Proceedings of the 17th international Conference on Artificial Intelligence and Statistics (AISTATS), volume 33",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "An open-source toolbox for standardized use of PhysioNet Sleep EDF Expanded Database",
+      "author" : [ "S.A. Imtiaz", "E. Rodriguez-Villegas" ],
+      "venue" : "In 2015 37th Annual International Conference of the IEEE Engineering in Medicine and Biology Society (EMBC),",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 2015
+    }, {
+      "title" : "Riemannian center of mass and mollifier smoothing",
+      "author" : [ "H. Karcher" ],
+      "venue" : "Communications on Pure and Applied Mathematics, 30(5):509–541",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : null,
+      "year" : 1977
+    }, {
+      "title" : "A Tutorial on Spectral Clustering",
+      "author" : [ "U. Luxburg" ],
+      "venue" : "Statistics and Computing,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 2007
+    }, {
+      "title" : "An f-measure for evaluation of unsupervised clustering with non-determined number of clusters",
+      "author" : [ "R. Marxer", "H. Purwins", "A. Hazan" ],
+      "venue" : "Report of the EmCAP project (European Commission FP6-IST), pages 1–3",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : null,
+      "year" : 2008
+    }, {
+      "title" : "Intrinsic Statistics on Riemannian Manifolds: Basic Tools for Geometric Measurements",
+      "author" : [ "X. Pennec" ],
+      "venue" : "Journal of Mathematical Imaging and Vision,",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : "15",
+      "year" : 2006
+    }, {
+      "title" : "and L",
+      "author" : [ "D. Purves", "G. Augustine", "D. Fitzpatrick", "W. Hall", "A. LaMantia", "J. McNamara" ],
+      "venue" : "White. Neuroscience",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : null,
+      "year" : 2008
+    }, {
+      "title" : "Nonlinear dimensionality reduction by locally linear embedding",
+      "author" : [ "S.T. Roweis", "L.K. Saul" ],
+      "venue" : "Science, 290:2323–2326",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : null,
+      "year" : 2000
+    }, {
+      "title" : "Kernel principal component analysis",
+      "author" : [ "B. Schölkopf", "A. Smola", "K.-R. Müller" ],
+      "venue" : "Advances in Kernel Methods - Support Vector Learning, pages 327–352",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : null,
+      "year" : 1999
+    }, {
+      "title" : "Geodesic Finite Mixture Models",
+      "author" : [ "E. Simo-Serra", "C. Torras", "F. Moreno-Noguer" ],
+      "venue" : "Proceedings of the British Machine Vision Conference. BMVA Press",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "A Dirichlet Process Mixture Model for Spherical Data",
+      "author" : [ "J. Straub", "J. Chang", "O. Freifeld", "J.W. Fisher III" ],
+      "venue" : "International Conference on Artificial Intelligence and Statistics (AISTATS)",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "V",
+      "author" : [ "J.B. Tenenbaum" ],
+      "venue" : "de Silva, and J. C. Langford. A Global Geometric Framework for Nonlinear Dimensionality Reduction. Science, 290(5500):2319",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : null,
+      "year" : 2000
+    }, {
+      "title" : "Metrics for Probabilistic Geometries",
+      "author" : [ "A. Tosi", "S. Hauberg", "A. Vellido", "N.D. Lawrence" ],
+      "venue" : "In The Conference on Uncertainty in Artificial Intelligence (UAI),",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : "22",
+      "year" : 2014
+    }, {
+      "title" : "Probabilistic Principal Geodesic Analysis",
+      "author" : [ "M. Zhang", "P. Fletcher" ],
+      "venue" : "Advances in Neural Information Processing Systems (NIPS) 26, pages 1178–1186",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 19,
+      "context" : "This is similar in spirit to Isomap [21] that famously replace the linear distance with a geodesic distance measured over a neighborhood graph spanned by the data, thereby allowing for a nonlinear model.",
+      "startOffset" : 36,
+      "endOffset" : 40
+    }, {
+      "referenceID" : 7,
+      "context" : "[9] we learn a smoothly changing metric that favors regions of high density i.",
+      "startOffset" : 0,
+      "endOffset" : 3
+    }, {
+      "referenceID" : 13,
+      "context" : "Our work, thus, bridges work on statistics on Riemannian manifolds [15, 23] with manifold learning [21].",
+      "startOffset" : 67,
+      "endOffset" : 75
+    }, {
+      "referenceID" : 21,
+      "context" : "Our work, thus, bridges work on statistics on Riemannian manifolds [15, 23] with manifold learning [21].",
+      "startOffset" : 67,
+      "endOffset" : 75
+    }, {
+      "referenceID" : 19,
+      "context" : "Our work, thus, bridges work on statistics on Riemannian manifolds [15, 23] with manifold learning [21].",
+      "startOffset" : 99,
+      "endOffset" : 103
+    }, {
+      "referenceID" : 7,
+      "context" : "A standard result from differential geometry is that the geodesic can be found as the solution to a system of 2nd order ordinary differential equations (ODEs) [6, 9]:",
+      "startOffset" : 159,
+      "endOffset" : 165
+    }, {
+      "referenceID" : 13,
+      "context" : "From this, Pennec [15] considered the Riemannian normal distribution pM(x | μ,Σ) = 1 C exp ( −(1) 2 〈Logμ(x),Σ Logμ(x)〉 ) , x ∈M (4)",
+      "startOffset" : 18,
+      "endOffset" : 22
+    }, {
+      "referenceID" : 13,
+      "context" : "Then it is common [15] to define the intrinsic mean of the distribution as the point that minimize the variance",
+      "startOffset" : 18,
+      "endOffset" : 22
+    }, {
+      "referenceID" : 6,
+      "context" : "In practice, the intrinsic mean often falls in regions of low data density [8].",
+      "startOffset" : 75,
+      "endOffset" : 78
+    }, {
+      "referenceID" : 7,
+      "context" : "[9] suggest to model the local behavior of the data manifold via a locally-defined Riemannian metric.",
+      "startOffset" : 0,
+      "endOffset" : 3
+    }, {
+      "referenceID" : 13,
+      "context" : "This transformation relies on the fact that the volume of an infinitely small area on the manifold can be computed in the tangent space if we take the deformation of the metric into account [15].",
+      "startOffset" : 190,
+      "endOffset" : 194
+    }, {
+      "referenceID" : 2,
+      "context" : "We can easily extend this to mixtures of LANDs: Following the derivation of the standard Gaussian mixture model [3], our objective function for inferring the parameters of the LAND mixture model is formulated as follows",
+      "startOffset" : 112,
+      "endOffset" : 115
+    }, {
+      "referenceID" : 9,
+      "context" : "We consider electro-encephalography (EEG) measurements of human sleep from 10 subjects, part of the PhysioNet database [11, 7, 5].",
+      "startOffset" : 119,
+      "endOffset" : 129
+    }, {
+      "referenceID" : 5,
+      "context" : "We consider electro-encephalography (EEG) measurements of human sleep from 10 subjects, part of the PhysioNet database [11, 7, 5].",
+      "startOffset" : 119,
+      "endOffset" : 129
+    }, {
+      "referenceID" : 4,
+      "context" : "We consider electro-encephalography (EEG) measurements of human sleep from 10 subjects, part of the PhysioNet database [11, 7, 5].",
+      "startOffset" : 119,
+      "endOffset" : 129
+    }, {
+      "referenceID" : 14,
+      "context" : ", reduced muscle tone, rolling eye movements and erection [16].",
+      "startOffset" : 58,
+      "endOffset" : 62
+    }, {
+      "referenceID" : 3,
+      "context" : "Recent evidence points to the importance of REM sleep for memory consolidation [4].",
+      "startOffset" : 79,
+      "endOffset" : 82
+    }, {
+      "referenceID" : 12,
+      "context" : "We perform clustering on the data and evaluate the alignment between cluster labels and sleep stages using the F-measure [14].",
+      "startOffset" : 121,
+      "endOffset" : 125
+    }, {
+      "referenceID" : 13,
+      "context" : "Pennec [15] gives a theoretical analysis of the distribution, and Zhang and Fletcher [23] consider the Riemannian counterpart of probabilistic PCA.",
+      "startOffset" : 7,
+      "endOffset" : 11
+    }, {
+      "referenceID" : 21,
+      "context" : "Pennec [15] gives a theoretical analysis of the distribution, and Zhang and Fletcher [23] consider the Riemannian counterpart of probabilistic PCA.",
+      "startOffset" : 85,
+      "endOffset" : 89
+    }, {
+      "referenceID" : 19,
+      "context" : "This is useful for visualization [21, 17, 18, 1], clustering [13], semi-supervised learning [2] and more.",
+      "startOffset" : 33,
+      "endOffset" : 48
+    }, {
+      "referenceID" : 15,
+      "context" : "This is useful for visualization [21, 17, 18, 1], clustering [13], semi-supervised learning [2] and more.",
+      "startOffset" : 33,
+      "endOffset" : 48
+    }, {
+      "referenceID" : 16,
+      "context" : "This is useful for visualization [21, 17, 18, 1], clustering [13], semi-supervised learning [2] and more.",
+      "startOffset" : 33,
+      "endOffset" : 48
+    }, {
+      "referenceID" : 0,
+      "context" : "This is useful for visualization [21, 17, 18, 1], clustering [13], semi-supervised learning [2] and more.",
+      "startOffset" : 33,
+      "endOffset" : 48
+    }, {
+      "referenceID" : 11,
+      "context" : "This is useful for visualization [21, 17, 18, 1], clustering [13], semi-supervised learning [2] and more.",
+      "startOffset" : 61,
+      "endOffset" : 65
+    }, {
+      "referenceID" : 1,
+      "context" : "This is useful for visualization [21, 17, 18, 1], clustering [13], semi-supervised learning [2] and more.",
+      "startOffset" : 92,
+      "endOffset" : 95
+    }, {
+      "referenceID" : 17,
+      "context" : "[19] consider mixtures of Riemannian normal distributions on manifolds that are known a priori.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 18,
+      "context" : "[20] consider data on spherical manifolds, and further consider a Dirichlet process prior for determining the number of components.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 20,
+      "context" : "In these cases it may be more practical to learn the manifold probabilistically [22] or as a mixture of metrics [9].",
+      "startOffset" : 80,
+      "endOffset" : 84
+    }, {
+      "referenceID" : 7,
+      "context" : "In these cases it may be more practical to learn the manifold probabilistically [22] or as a mixture of metrics [9].",
+      "startOffset" : 112,
+      "endOffset" : 115
+    }, {
+      "referenceID" : 13,
+      "context" : "This is a natural model, but more intriguing, it is a theoretical interesting model since it is the maximum entropy distribution for a fixed mean and covariance [15].",
+      "startOffset" : 161,
+      "endOffset" : 165
+    }, {
+      "referenceID" : 8,
+      "context" : "probabilistic solvers [10], or manifold-specific heuristics.",
+      "startOffset" : 22,
+      "endOffset" : 26
+    }, {
+      "referenceID" : 13,
+      "context" : "Finally we note that standard hypothesis tests also extend to Riemannian normal distributions [15] and hence also to the LAND.",
+      "startOffset" : 94,
+      "endOffset" : 98
+    } ],
+    "year" : 2016,
+    "abstractText" : "The multivariate normal density is a monotonic function of the distance to the mean, and its ellipsoidal shape is due to the underlying Euclidean metric. We suggest to replace this metric with a locally adaptive, smoothly changing (Riemannian) metric that favors regions of high local density. The resulting locally adaptive normal distribution (LAND) is a generalization of the normal distribution to the “manifold” setting, where data is assumed to lie near a potentially low-dimensional manifold embedded in R. The LAND is parametric, depending only on a mean and a covariance, and is the maximum entropy distribution under the given metric. The underlying metric is, however, non-parametric. We develop a maximum likelihood algorithm to infer the distribution parameters that relies on a combination of gradient descent and Monte Carlo integration. We further extend the LAND to mixture models, and provide the corresponding EM algorithm. We demonstrate the efficiency of the LAND to fit non-trivial probability distributions over both synthetic data, and EEG measurements of human sleep.",
+    "creator" : null
+  }
+}

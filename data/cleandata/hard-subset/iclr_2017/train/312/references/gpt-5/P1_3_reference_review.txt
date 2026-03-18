@@ -1,0 +1,47 @@
+Summary of contributions
+The paper proposes Neural Architecture Search (NAS), a reinforcement learning–based framework that uses a controller RNN to generate variable-length neural network architectures. The controller samples a sequence of architectural decisions (e.g., filter sizes, connections), builds and trains the corresponding “child” network, and receives validation accuracy (or perplexity) as a reward to update itself via policy gradient (REINFORCE with a moving-average baseline). The method extends to richer search spaces by (a) predicting skip/branch connections via a set-selection attention mechanism, (b) including additional layer types and hyperparameters, and (c) generating recurrent cell computations defined as trees with memory cell injection, resulting in novel RNN cells. The approach is evaluated on CIFAR-10 (ConvNets) and Penn Treebank (language modeling), yielding near state-of-the-art or state-of-the-art results; the discovered NAS cell also transfers competitively to character-level PTB and GNMT.
+
+Decision: Accept
+Key reasons:
+- Novel, well-motivated method that demonstrates, convincingly, automatic discovery of high-performing architectures in both vision and language, with state-of-the-art results and cross-task transfer.
+- Clear, general framework with concrete technical contributions (skip-connection selection, tree-based RNN cell search) and strong empirical evidence beyond simple toy problems.
+
+Supporting arguments
+1) Problem and motivation: The paper tackles the costly and expertise-heavy process of neural architecture design. It argues for learning to compose architectures directly, exploiting the fact that architectures can be serialized as token sequences. This is well-placed relative to hyperparameter optimization, Bayesian optimization over architecture spaces, neuroevolution, and meta-learning. Compared to BO and random search, NAS handles variable-length, discrete choices and complex connectivity; compared to evolution, the controller is trained with policy gradient to improve sampling efficiency.
+
+2) Methodology and technical soundness:
+- The controller RNN emits architectural tokens; training uses REINFORCE with a baseline, and large-scale asynchronous distributed training to amortize the high cost of evaluating child models. The reward shaping (e.g., cubing validation accuracy) is disclosed.
+- The skip-connection mechanism via set-selection attention is a neat, differentiable way (for the controller) to parameterize arbitrary DAG connectivity, with practical fixes for compilation/incompatibility issues.
+- The recurrent cell search space is carefully designed using a tree of binary compositions with activation choices and mechanisms to inject ct−1 and extract ct; this is expressive (base 8) yet structured.
+- A random search control demonstrates policy gradient’s advantage; robustness is probed by enlarging the search space (adding max and sin).
+
+3) Empirical support:
+- CIFAR-10: The discovered ConvNets achieve 5.50% (no strides/pooling), 6.01% (with strides), and 4.47% (with pooling blocks), further improved to 3.65% by globally widening. The results are competitive with DenseNet/Wide-ResNet; the paper discusses speed (1.05× faster vs a specific DenseNet variant) and qualitative properties (rectangular filters, shallow depth, skip usage).
+- PTB: The discovered NAS cell yields strong perplexities and beats previous SOTA by ~3.6 perplexity with fewer time-step inner iterations than RHN. Transfer to char-level PTB and GNMT shows the cell is not overfit to the original task; a +0.5 BLEU gain in GNMT without retuning is a valuable signal.
+- Experimental protocols are mostly sound: a held-out validation set is used for reward and model selection; test is reported once for the best val model; small post-selection grid search is disclosed.
+
+4) Scope and impact:
+- The approach is general, modular, and influential. It demonstrates for the first time that automated search can match/exceed human designs on mainstream benchmarks, and lays groundwork for subsequent NAS research. The release of NASCell and code to run child models enhances reproducibility.
+
+Caveats and limitations (do not outweigh merits)
+- Computational cost and accessibility: The method depends on extreme parallelism (e.g., 800 GPUs for CIFAR-10, 400 CPUs for PTB) and thousands of models. This raises concerns about practicality and reproducibility for typical research groups. While common for early NAS, acknowledging and quantifying compute would help contextualize results.
+- Comparisons and fairness: Baselines include random search but not strong SMBO/BO or evolutionary baselines on the same budget. Some CIFAR-10 comparisons entangle search-space constraints (e.g., fixed pooling layer positions, 3-layer blocks) and post hoc widening, complicating fairness. Speed comparisons (1.05×) would benefit from standardized metrics (FLOPs, inference time) and matched training recipes (e.g., 1×1 bottlenecks).
+- Statistical rigor: Results are largely single-run best-model reports; variance across runs/seeds for the controller and the selected architectures is not provided. The reward shaping choices (e.g., cubing) and their sensitivity are not ablated.
+- Search space bias: Several manual constraints (depth schedule, specific pooling indices, channel sets) likely steer the controller toward particular families; ablations on these choices would clarify how much performance comes from search vs carefully designed spaces.
+
+Suggestions for improvement
+- Report compute more transparently (total GPU/CPU days, energy), and discuss strategies to reduce cost (e.g., early stopping, weight sharing, low-fidelity proxies).
+- Provide stronger baseline comparisons under matched budgets: e.g., SMAC/BOHB/TPE and a modern evolutionary algorithm in the same search space.
+- Add variance estimates: multiple NAS runs, variance of top-k models, and stability to reward shaping and baseline choices.
+- Clarify speed metrics (training vs inference, batch size, hardware) and include FLOPs/params for discovered models; compare against DenseNet with/without 1×1 bottlenecks under matched FLOPs.
+- Expand ablations: effect of depth schedule, skip-connection mechanism, and search-space constraints (e.g., fixed pooling positions).
+- Rephrase “gradient-based method” to emphasize policy gradient over non-differentiable rewards to avoid confusion.
+
+Questions to authors
+1) Compute and efficiency: What are the total GPU/CPU days for CIFAR-10 and PTB searches? Did you explore early stopping or low-fidelity proxies (fewer epochs, smaller widths, smaller data subsets) and how did they affect final ranking?
+2) Reward shaping: How sensitive are results to the cube of validation accuracy and to the moving-average baseline? Did you try advantage normalization or entropy regularization?
+3) Search space constraints: For the 39-layer CIFAR-10 model with fixed pooling at layers 13 and 24 and 3-layer blocks, how critical are these choices? Would the controller discover similar depth/structure without these constraints?
+4) Fairness and speed: How is “1.05× faster” measured? Can you provide FLOPs and wall-clock at inference for the final models relative to DenseNet on the same hardware?
+5) Stability and reproducibility: How consistent are discovered architectures across multiple controller runs (different seeds)? What is the variance in validation/test metrics for the selected models?
+6) Baselines: Did you attempt SMBO/TPE or a contemporary evolutionary strategy in the same search space and budget? If so, how did they compare?
+7) Transfer: For GNMT, is the +0.5 BLEU consistent across multiple runs? Any insights into which aspects of the NAS cell benefit NMT compared to LSTM?

@@ -1,0 +1,438 @@
+{
+  "name" : "69adc1e107f7f7d035d7baf04342e1ca.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Decision Jungles: Compact and Rich Models for Classification",
+    "authors" : [ "Jamie Shotton", "Toby Sharp", "Pushmeet Kohli", "Sebastian Nowozin", "John Winn", "Antonio Criminisi" ],
+    "emails" : [ ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Decision trees have a long history in machine learning and were one of the first models proposed for inductive learning [14]. Their use for classification and regression was popularized by the work of Breiman [6]. More recently, they have become popular in fields such as computer vision and information retrieval, partly due to their ability to handle large amounts of data and make efficient predictions. This has led to successes in tasks such as human pose estimation in depth images [29].\nAlthough trees allow making predictions efficiently, learning the optimal decision tree is an NP-hard problem [15]. In his seminal work, Quinlan proposed efficient approximate methods for learning decision trees [27, 28]. Some researchers have argued that learning optimal decision trees could be harmful as it may lead to overfitting [21]. Overfitting may be reduced by controlling the model complexity, e.g. via various stopping criteria such as limiting the tree depth, and post-hoc pruning.\nThese techniques for controlling model complexity impose implicit limits on the type of classification boundaries and feature partitions that can be induced by the decision tree. A number of approaches have been proposed in the literature to regularize tree models without limiting their modelling power. The work in [7] introduced a non-greedy Bayesian sampling-based approach for constructing decision trees. A prior over the space of trees and their parameters induces a posterior distribution, which can be used, for example, to marginalize over all tree models. There are similarities between the idea of randomly drawing multiple trees via a Bayesian procedure and construction of random tree ensembles (forests) using bagging, a method shown to be effective in many applications [1, 5, 9]. Another approach to improve generalization is via large-margin tree classifiers [4].\nWhile the above-mentioned methods can reduce overfitting, decision trees face a fundamental limitation: their exponential growth with depth. For large datasets where deep trees have been shown to be more accurate than large ensembles (e.g. [29]), this exponential growth poses a problem for implementing tree models on memory-constrained hardware such as embedded or mobile processors.\nIn this paper, we investigate the use of randomized ensembles of rooted decision directed acyclic graphs (DAGs) as a means to obtain compact and yet accurate classifiers. We call these ensembles ‘decision jungles’, after the popular ‘decision forests’. We formulate the task of learning each DAG in a jungle as an energy minimization problem. Building on the information gain measure commonly used for training decision trees, we propose an objective that is defined jointly over the features of the split nodes and the structure of the DAG. We then propose two minimization methods for learning the optimal DAG. Both methods alternate between optimizing the split functions at the nodes of the DAG and optimizing the placement of the branches emanating from the parent nodes. As detailed later, they differ in the way they optimize the placement of branches.\nWe evaluate jungles on a number of challenging labelling problems. Our experiments below quantify a substantially reduced memory footprint for decision jungles compared to standard decision forests and several baselines. Furthermore, the experiments also show an important side-benefit of jungles: our optimization strategy is able to achieve considerably improved generalization for only a small extra cost in the number of features evaluated per test example.\nBackground and Prior Work. The use of rooted decision DAGs (‘DAGs’ for short) has been explored by a number of papers in the literature. In [16, 26], DAGs were used to combine the outputs of C×C binary 1-v-1 SVM classifiers into a single C-class classifier. More recently, in [3], DAGs were shown to be a generalization of cascaded boosting.\nIt has also been shown that DAGs lead to accurate predictions while having lower model complexity, subtree replication, and training data fragmentation compared to decision trees. Most existing algorithms for learning DAGs involve training a conventional tree that is later manipulated into a DAG. For instance [17] merges same-level nodes which are associated with the same split function. They report performance similar to that of C4.5-trained trees, but with a much reduced number of nodes. Oliveira [23] used local search method for constructing DAGs in which tree nodes are removed or merged together based on similarity of the underlying sub-graphs and the corresponding message length reduction. A message-length criterion is also employed by the node merging algorithm in [24]. Chou [8] investigated a k-means clustering for learning decision trees and DAGs (similar ‘ClusterSearch’ below), though did not jointly optimize the features with the DAG structure. Most existing work on DAGs have focused on showing how the size and complexity of the learned tree model can be reduced without substantially degrading its accuracy. However, their use for increasing test accuracy has attracted comparatively little attention [10, 20, 23].\nIn this paper we show how jungles, ensembles of DAGs, optimized so as to reduce a well defined objective function, can produce results which are superior to those of analogous decision tree ensembles, both in terms of model compactness as well as generalization. Our work is related to [25], where the authors achieve compact classification DAGs via post-training removal of redundant subtrees in forests. In contrast, our probabilistic node merging is applied directly and efficiently during training, and both saves space as well as achieves greater generalization for multi-class classification.\nContributions. In summary, our contributions are: (i) we highlight that traditional decision trees grow exponentially in memory with depth, and propose decision jungles as a means to avoid this; (ii) we propose and compare two learning algorithms that, within each level, jointly optimize an objective function over both the structure of the graph and the features; (iii) we show that not only do the jungles dramatically reduce memory consumption, but can also improve generalization."
+    }, {
+      "heading" : "2 Forests and Jungles",
+      "text" : "Before delving into the details of our method for learning decision jungles, we first briefly discuss how decision trees and forests are used for classification problems and how they relate to jungles.\nBinary decision trees. A binary decision tree is composed of a set of nodes each with an in-degree of 1, except the root node. The out-degree for every internal (split) node of the tree is 2 and for the leaf nodes is 0. Each split node contains a binary split function (‘feature’) which decides whether an\ninput instance that reaches that node should progress through the left or right branch emanating from the node. Prediction in binary decision trees involves every input starting at the root and moving down as dictated by the split functions encountered at the split nodes. Prediction concludes when the instance reaches a leaf node, each of which contains a unique prediction. For classification trees, this prediction is a normalized histogram over class labels.\nRooted binary decision DAGs. Rooted binary DAGs have a different architecture compared to decision trees and were introduced by Platt et al. [26] as a way of combining binary classifier for multi-class classification tasks. More specifically a rooted binary DAG has: (i) one root node, with in-degree 0; (ii) multiple split nodes, with in-degree ≥ 1 and out-degree 2; (iii) multiple leaf nodes, with in-degree≥ 1 and out-degree 0. Note that in contrast to [26], if we have a C-class classification problem, here we do not necessarily expect to have C DAG leaves. In fact, the leaf nodes are not necessarily pure; And each leaf remains associated with an empirical class distribution.\nClassification DAGs vs classification trees. We explain the relationship between decision trees and decision DAGs using the image classification task illustrated in Fig. 1(a) as an example. We wish to classify image patches into the classes: cow, sheep or grass. A labelled set of patches is used to train a DAG. Since patches corresponding to different classes may have different average intensity, the root node may decide to split them according to this feature. Similarly, the two child nodes may decide to split the patches further based on their chromaticity. This results in grass patches with different intensity and chromaticity (bright yellow and dark green) ending up in different subtrees. However, if we detect that two such nodes are associated with similar class distributions (peaked around grass in this case) and merge them, then we get a single node with training examples from both grass types. This helps capture the degree of variability intrinsic to the training data, and reduce the classifier complexity. While this is clearly a toy example, we hope it gives some intuition as to why rooted DAGs are expected to achieve the improved generalization demonstrated in Section 4."
+    }, {
+      "heading" : "3 Learning Decision Jungles",
+      "text" : "We train each rooted decision DAG in a jungle independently, though there is scope for merging across DAGs as future work. Our method for training DAGs works by growing the DAG one level at a time.1 At each level, the algorithm jointly learns the features and branching structure of the nodes. This is done by minimizing an objective function defined over the predictions made by the child nodes emanating from the nodes whose split features are being learned.\nConsider the set of nodes at two consecutive levels of the decision DAG (as shown in Fig. 1b). This set consist of the set of parent nodesNp and a set of child nodesNc. We assume in this work a known value for M = |Nc|. M is a parameter of our method and may vary per level. Let θi denote the parameters of the split feature function f for parent node i ∈ Np, and Si denote the set of labelled training instances (x, y) that reach node i. Given θi and Si, we can compute the set of instances from node i that travel through its left and right branches as SLi (θi) = {(x, y) ∈ Si | f(θi, x) ≤ 0}\n1Jointly training all levels of the tree simultaneously remains an expensive operation [15].\nand SRi (θi) = Si \\SLi (θi), respectively. We use li ∈ Nc to denote the current assignment of the left outwards edge from parent node i ∈ Np to a child node, and similarly ri ∈ Nc for the right outward edge. Then, the set of instances that reach any child node j ∈ Nc is:\nSj({θi}, {li}, {ri}) =  ⋃ i∈Np s.t. li=j SLi (θi)  ∪  ⋃ i∈Np s.t. ri=j SRi (θi)  . (1) The objective function E associated with the current level of the DAG is a function of {Sj}j∈Nc . We can now formulate the problem of learning the parameters of the decision DAG as a joint minimization of the objective over the split parameters {θi} and the child assignments {li}, {ri}. Thus, the task of learning the current level of a DAG can be written as:\nmin {θi},{li},{ri}\nE({θi}, {li}, {ri}) . (2)\nMaximizing the Information Gain. Although our method can be used for optimizing any objective E that decomposes over nodes, including in theory a regression-based objective, for the sake of simplicity we focus in this work on the information gain objective commonly used for classification problems. The information gain objective requires the minimization of the total weighted entropy of instances, defined as:\nE({θi}, {li}, {ri}) = ∑ j∈Nc |Sj |H(Sj) (3)\nwhere Sj is defined in (1), and H(S) is the Shannon entropy of the class labels y in the training instances (x, y) ∈ S. Note that if the number of child nodes M is equal to twice the number of parent nodes i.e. M = 2|Np|, then the DAG becomes a tree and we can optimize the parameters of the different nodes independently, as done in standard decision tree training, to achieve optimal results."
+    }, {
+      "heading" : "3.1 Optimization",
+      "text" : "The minimization problem described in (2) is hard to solve exactly. We propose two local search based algorithms for its solution: LSearch and ClusterSearch. As local optimizations, neither are likely to reach a global minimum, but in practice both are effective at minimizing the objective. The experiments below show that the simpler LSearch appears to be more effective.\nLSearch. The LSearch method starts from a feasible assignment of the parameters, and then alternates between two coordinate descent steps. In the first (split-optimization) step, it sequentially goes over every parent node k in turn and tries to find the split function parameters θk that minimize the objective function, keeping the values of {li}, {ri} and the split parameters of all other nodes fixed:\nfor k ∈ Np θk ← argmin\nθ′k\nE(θ′k ∪ {θi}i∈Np\\{k}, {li}, {ri})\nThis minimization over θ′k is done by random sampling in a manner similar to decision forest training [9]. In the second (branch-optimization) step, the algorithm redirects the branches emanating from each parent node to different child nodes, so as to yield a lower objective:\nfor k ∈ Np lk ← argmin\nl′k∈Nc E({θi}, l′k ∪ {li}i∈Np\\{k}, {ri})\nrk ← argmin r′k∈Nc E({θi}, {li}, r′k ∪ {ri}i∈Np\\{k})\nThe algorithm terminates when no changes are made, and is guaranteed to converge. We found that a greedy initialization of LSearch (allocating splits to the most energetic parent nodes first) resulted in a lower objective after optimization than a random initialization. We also found that a stochastic version of the above algorithm where only a single randomly chosen node was optimized at a time resulted in similar reductions in the objective for considerably less compute.\nClusterSearch. The ClusterSearch algorithm also alternates between optimizing the branching variables and the split parameters, but differs in that it optimizes the branching variables more globally. First, 2|Np| temporary child nodes are built via conventional tree-based, training-objective minimization procedures. Second, the temporary nodes are clustered into M = |Nc| groups to produce a DAG. Node clustering is done via the Bregman information objective optimization technique in [2]."
+    }, {
+      "heading" : "4 Experiments and results",
+      "text" : "This section compares testing accuracy and computational performance of our decision jungles with state-of-the-art forests of binary decision trees and their variants on several classification problems."
+    }, {
+      "heading" : "4.1 Classification Tasks and Datasets",
+      "text" : "We focus on semantic image segmentation (pixel-wise classification) tasks, where decision forests have proven very successful [9, 19, 29]. We evaluate our jungle model on the following datasets:\n(A) Kinect body part classification [29] (31 classes). We train each tree or DAG in the ensemble on a separate 1000 training images with 250 example pixels randomly sampled per image. Following [29], 3 trees or DAGs are used unless otherwise specified. We test on (a common set of) 1000 images drawn randomly from the MSRC-5000 test set [29]. We use a DAG merging schedule of |NDc | = min(M, 2min(5,D) · 1.2max(0,D−5)), where M is a fixed constant maximum width and D is the current level (depth) in the tree.\n(B) Facial features segmentation [18] (8 classes including background). We train each of 3 trees or DAGs in the ensemble on a separate 1000 training images using every pixel. We use a DAG merging schedule of |NDc | = min(M, 2D). (C) Stanford background dataset [12] (8 classes). We train on all 715 labelled images, seeding our feature generator differently for each of 3 trees or DAGs in the ensemble. Again, we use a DAG merging schedule of |NDc | = min(M, 2D). (D) UCI data sets [22]. We use 28 classification data sets from the UCI corpus as prepared on the libsvm data set repository.2 For each data set all instances from the training, validation, and test set, if available, are combined to a large set of instances. We repeat the following procedure five times: randomly permute the instances, and divide them 50/50 into training and testing set. Train on the training set, evaluate the multiclass accuracy on the test set. We use 8 trees or DAGs per ensemble. Further details regarding parameter choices can be found in the supplementary material.\nFor all segmentation tasks we use the Jaccard index (intersection over union) as adopted in PASCAL VOC [11]. Note that this measure is stricter than e.g. the per class average metric reported in [29]. On the UCI dataset we report the standard classification accuracy numbers. In order to keep training time low, the training sets are somewhat reduced compared to the original sources, especially for (A). However, identical trends were observed in limited experiments with more training data."
+    }, {
+      "heading" : "4.2 Baseline Algorithms",
+      "text" : "We compare our decision jungles with several tree-based alternatives, listed below.\nStandard Forests of Trees. We have implemented standard classification forests, as described in [9] and building upon their publically available implementation.\nBaseline 1: Fixed-Width Trees (A). As a first variant on forests, we train binary decision trees with an enforced maximum width M at each level, and thus a reduced memory footprint. This is useful to tease out whether the improved generalization of jungles is due more to the reduced model complexity or to the node merging. Training a tree with fixed width is achieved by ranking the leaf nodes i at each level by decreasing value of E(Si) and then greedily splitting only the M/2 nodes with highest value of the objective. The leaves that are not split are discarded.\nBaseline 2: Fixed-Width Trees (B). A related, second tree-based variant is obtained by greedily optimizing the best split candidate for all leaf nodes, then ranking the leaves by reduction in the\n2http://www.csie.ntu.edu.tw/˜cjlin/libsvmtools/datasets/\nobjective, and greedily taking only the M/2 splits that most reduce the objective.3 The leaf nodes that are not split are discarded from further consideration.\nBaseline 3: Priority Scheduled Trees. As a final variant, we consider priority-driven tree trainining. Current leaf nodes are ranked by the reduction in the objective that would be achieved by splitting them. At each iteration, the top M nodes are split, optimal splits computed and the new children added into the priority queue. This baseline is identical to the baseline 2 above, except that nodes that are not split at a particular iteration are part of the ranking at subsequent iterations. This can be seen as a form of tree pruning [13], and in the limit, will result in standard binary decision trees. As shown later, the trees at intermediate iterations can give surprisingly good generalization."
+    }, {
+      "heading" : "4.3 Comparative Experiments",
+      "text" : "Prediction Accuracy vs. Model Size. One of our two main hypotheses is that jungles can reduce the amount of memory used compared to forests. To investigate this we compared jungles to the baseline forests on three different datasets. The results are shown in Fig. 2 (top row). Note that the jungles of merged DAGs achieve the same accuracy as the baselines with substantially fewer total nodes. For example, on the Kinect dataset, to achieve an accuracy of 0.2, the jungle requires around 3000 nodes whereas the standard forest require around 22000 nodes. We use the total number of nodes as a proxy for memory usage; the two are strongly linked, and the proxy works well in practice. For example, the forest of 3 trees occupied 80MB on the Kinect dataset vs. 9MB for a jungle of 3 DAGs. On the Faces dataset the forest of 3 trees occupied 7.17MB vs. 1.72MB for 3 DAGs.\nA second hypothesis is that merging provides a good way to regularize the training and thus increases generalization. Firstly, observe how all tree-based baselines saturate and in some cases start to overfit as the trees become larger. This is a common effect with deep trees and small ensembles. Our merged DAGs appear to be able to avoid this overfitting (at least in as far as we have trained them here), and further, actually have increased the generalization quite considerably.\n3In other words, baseline 1 optimizes the most energetic nodes, whereas baseline 2 optimizes all nodes and takes only the splits that most reduce the objective.\n0 0.1\n0.2\n0.3\n0.4\n0.5\n0.6\n0.7\n0.8\n1 10 100 1000 10000 100000 1000000\nTe st\ns eg\nm en\nta ti\no n\na cc\nu ra\ncy\nTotal number of nodes\nFaces dataset Standard Trees Merged DAGs (M=128) Merged DAGs (M=256) Merged DAGs (M=512)\n0\n0.05\n0.1\n0.15\n0.2\n0.25\n0.3\n1 100 10000 1000000\nTe st\ns eg\nm en\nta ti\no n\na cc\nu ra\ncy\nTotal number of nodes\nKinect dataset\n1 Standard Tree 3 Standard Trees 9 Standard Trees 1 Merged DAG 3 Merged DAGs 9 Merged DAGs\n0\n0.05\n0.1\n0.15\n0.2\n0.25\n0.3\n1 10 100 1000\nTe st\ns eg\nm en\nta ti\no n\na cc\nu ra\ncy\nMax. no. feature evaluations / pixel\nKinect dataset\n1 Standard Tree 3 Standard Trees 9 Standard Trees 1 Merged DAG 3 Merged DAGs 9 Merged DAGs\n(a) (b) (c)\nFigure 3: (a, b) Effect of ensemble size on test accuracy. (a) plots accuracy against the total number of nodes in the ensemble, whereas (b) plots accuracy against the maximum number of computations required at test time. For a fixed ensemble size jungles of DAGs achieve consistently better generalization than conventional forests. (c) Effect of merging parameter M on test accuracy. The model width M has a regularizing effect on our DAG model. For other results shown on this dataset, we set M = 256. See text for details.\nInterestingly, the width-limited tree-based baselines perform substantially better than the standard tree training algorithm, and in particular the priority scheduling appears to work very well, though still inferior to our DAG model. This suggests that both reducing the model size and node merging have a substantial positive effect on generalization.\nPrediction Accuracy vs. Depth. We do not expect the reduction in memory given by merging to come for free: there is likely to be a cost in terms of the number of nodes evaluated for any individual test example. Fig. 2 (bottom row) shows this trade-off. The large gains in memory footprint and accuracy come at a relatively small cost in the number of feature evaluations at test time. Again, however, the improved generalization is also evident. The need to train deeper also has some effect on training time. For example, training 3 trees for Kinect took 32mins vs. 50mins for 3 DAGs.\nEffect of Ensemble Size. Fig. 3 (a, b) compares results for 1, 3, and 9 trees/DAGs in a forest/jungle. Note from (a) that in all cases, a jungle of DAGs uses substantially less memory than a standard forest for the same accuracy, and also that the merging consistently increases generalization. In (b) we can see again that this comes at a cost in terms of test time evaluations, but note that the upper-envelope of the curves belongs in several regions to DAGs rather than trees.\nLSearch vs. ClusterSearch Optimization. In experiments we observed the LSearch algorithm to perform better than the ClusterSearch optimization, both in terms of the objective achieved (reported in the table below for the face dataset) and also in test accuracy. The difference is slight, yet very consistent. In our experiments the LSearch algorithm was used with 250 iterations.\nNumber of nodes 2047 5631 10239 20223 30207 40191 LSearch objective 0.735 0.596 0.514 0.423 0.375 0.343 ClusterSearch objective 0.739 0.605 0.524 0.432 0.382 0.351\nEffect of Model Width. We performed an experiment investigating changes to M , the maximum tree width. Fig. 3 (c) shows the results. The merged DAGs consistently outperform the standard trees both in terms of memory consumption and generalization, for all settings of M evaluated. Smaller values of M improve accuracy while keeping memory constant, but must be trained deeper.\nQualitative Image Segmentation Results. Fig. 4 shows some randomly chosen segmentation results on both the Kinect and Faces data. On the Kinect data, forests of 9 trees are compared to jungles of 9 DAGs. The jungles appear to give smoother segmentations than the standard forests, perhaps more so than the quantitative results would suggest. On the Faces data, small forests of 3 trees are compared to jungles of 3 DAGs, with each model containing only 48k nodes in total.\nResults on UCI Datasets. Figure 5 reports the test classification accuracy as a function of model size for two UCI data sets. The full results for all UCI data sets are reported in the supplementary material. Overall using DAGs allows us to achieve higher accuracies at smaller model sizes, but in\nmost cases the generalization performance is not improved or only slightly improved. The largest improvements for DAGs over trees is reported for the largest dataset (Poker)."
+    }, {
+      "heading" : "5 Conclusion",
+      "text" : "This paper has presented decision jungles as ensembles of rooted decision DAGs. These DAGs are trained, level-by-level, by jointly optimizing an objective function over both the choice of split function and the structure of the DAG. Two local optimization strategies were evaluated, with an efficient move-making algorithm producing the best results. Our evaluation on a number of diverse and challenging classification tasks has shown jungles to improve both memory efficiency and generalization for several tasks compared to conventional decision forests and their variants.\nWe believe that decision jungles can be extended to regression tasks. We also plan to investigate multiply rooted trees and merging between DAGs within a jungle.\nAcknowledgements. The authors would like to thank Albert Montillo for initial investigation of related ideas."
+    } ],
+    "references" : [ {
+      "title" : "Randomized inquiries about shape; an application to handwritten digit recognition",
+      "author" : [ "Y. Amit", "D. Geman" ],
+      "venue" : "Technical Report 401, Dept. of Statistics, University of Chicago, IL, Nov",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : null,
+      "year" : 1994
+    }, {
+      "title" : "Clustering with Bregman divergences",
+      "author" : [ "A. Banerjee", "S. Merugu", "I.S. Dhillon", "J. Ghosh" ],
+      "venue" : "Journal of Machine Learning Research, 6:1705–1749, Oct.",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : null,
+      "year" : 2005
+    }, {
+      "title" : "Fast classification using sparse decision DAGs",
+      "author" : [ "D. Benbouzid", "R. Busa-Fekete", "B. Kégl" ],
+      "venue" : "Proc. Intl Conf. on Machine Learning (ICML), New York, NY, USA,",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Enlarging the margins in perceptron decision trees",
+      "author" : [ "K.P. Bennett", "N. Cristianini", "J. Shawe-Taylor", "D. Wu" ],
+      "venue" : "Machine Learning, 41(3):295–313,",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : null,
+      "year" : 2000
+    }, {
+      "title" : "Random forests",
+      "author" : [ "L. Breiman" ],
+      "venue" : "Machine Learning, 45(1),",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : null,
+      "year" : 2001
+    }, {
+      "title" : "Classification and Regression Trees",
+      "author" : [ "L. Breiman", "J. Friedman", "C.J. Stone", "R.A. Olshen" ],
+      "venue" : "Chapman and Hall/CRC,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : null,
+      "year" : 1984
+    }, {
+      "title" : "Bayesian CART model search",
+      "author" : [ "H. Chipman", "E.I. George", "R.E. Mcculloch" ],
+      "venue" : "Journal of the American Statistical Association, 93:935–960,",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : null,
+      "year" : 1997
+    }, {
+      "title" : "Optimal partitioning for classification and regression trees",
+      "author" : [ "P. Chou" ],
+      "venue" : "IEEE Trans. PAMI, 13(4),",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : null,
+      "year" : 1991
+    }, {
+      "title" : "Decision Forests for Computer Vision and Medical Image Analysis",
+      "author" : [ "A. Criminisi", "J. Shotton" ],
+      "venue" : "Springer,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "On the practice of branching program boosting",
+      "author" : [ "T. Elomaa", "M. Kääriäinen" ],
+      "venue" : "European Conf. on Machine Learning (ECML),",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : null,
+      "year" : 2001
+    }, {
+      "title" : "Decomposing a scene into geometric and semantically consistent regions",
+      "author" : [ "S. Gould", "R. Fulton", "D. Koller" ],
+      "venue" : "Proc. IEEE ICCV,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : null,
+      "year" : 2009
+    }, {
+      "title" : "The Elements of Statistical Learning",
+      "author" : [ "T. Hastie", "R. Tibshirani", "J. Friedman" ],
+      "venue" : "Springer,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : null,
+      "year" : 2001
+    }, {
+      "title" : "Experiments in Induction",
+      "author" : [ "E.B. Hunt", "J. Marin", "P.T. Stone" ],
+      "venue" : "Academic Press, New York,",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : null,
+      "year" : 1966
+    }, {
+      "title" : "Constructing optimal binary decision trees is NP-complete",
+      "author" : [ "L. Hyafil", "R.L. Rivest" ],
+      "venue" : "Information Processing Letters, 5(1):15–17,",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : null,
+      "year" : 1976
+    }, {
+      "title" : "Adaptive directed acyclic graphs for multiclass classification",
+      "author" : [ "B. Kijsirikul", "N. Ussivakul", "S. Meknavin" ],
+      "venue" : "Pacific Rim Intl Conference on Artificial Intelligence (PRICAI),",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : null,
+      "year" : 2002
+    }, {
+      "title" : "Oblivious decision trees, graphs, and top-down pruning",
+      "author" : [ "R. Kohavi", "C.-H. Li" ],
+      "venue" : "Intl Joint Conf. on Artifical Intelligence (IJCAI),",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : null,
+      "year" : 1995
+    }, {
+      "title" : "GeoF: Geodesic forests for learning coupled predictors",
+      "author" : [ "P. Kontschieder", "P. Kohli", "J. Shotton", "A. Criminisi" ],
+      "venue" : "Proc. IEEE CVPR,",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Keypoint recognition using randomized trees",
+      "author" : [ "V. Lepetit", "P. Fua" ],
+      "venue" : "IEEE Trans. PAMI,",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : null,
+      "year" : 2006
+    }, {
+      "title" : "Initializing ID5R with a domain theory: some negative results",
+      "author" : [ "J. Mahoney", "R.J. Mooney" ],
+      "venue" : "Technical Report 91-154, Dept. of Computer Science, University of Texas, Austin, TX,",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : null,
+      "year" : 1991
+    }, {
+      "title" : "On growing better decision trees from data",
+      "author" : [ "K.V.S. Murthy", "S.L. Salzberg" ],
+      "venue" : "PhD thesis, John Hopkins University,",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : null,
+      "year" : 1995
+    }, {
+      "title" : "UCI repository of machine learning databases",
+      "author" : [ "D. Newman", "S. Hettich", "C. Blake", "C. Merz" ],
+      "venue" : "Technical Report 28, University of California, Irvine, Department of Information and Computer Science,",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : null,
+      "year" : 1998
+    }, {
+      "title" : "Using the minimum description length principle to infer reduced ordered decision graphs",
+      "author" : [ "A.L. Oliveira", "A. Sangiovanni-Vincentelli" ],
+      "venue" : "Machine Learning, 12,",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : null,
+      "year" : 1995
+    }, {
+      "title" : "Decision graphs – an extension of decision trees",
+      "author" : [ "J.J. Oliver" ],
+      "venue" : "Technical Report 92/173, Dept. of Computer Science, Monash University, Victoria, Australia,",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : null,
+      "year" : 1992
+    }, {
+      "title" : "Reducing decision trees ensemble size using parallel decision DAGs",
+      "author" : [ "A.H. Peterson", "T.R. Martinez" ],
+      "venue" : "Intl Journ. on Artificial Intelligence Tools, 18(4),",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : null,
+      "year" : 2009
+    }, {
+      "title" : "Large margin DAGs for multiclass classification",
+      "author" : [ "J.C. Platt", "N. Cristianini", "J. Shawe-Taylor" ],
+      "venue" : "Proc. NIPS, pages 547–553,",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : null,
+      "year" : 2000
+    }, {
+      "title" : "Induction of decision trees",
+      "author" : [ "J.R. Quinlan" ],
+      "venue" : "Machine Learning,",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : null,
+      "year" : 1986
+    }, {
+      "title" : "Programs for Machine Learning",
+      "author" : [ "J.R. Quinlan. C" ],
+      "venue" : null,
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : "28",
+      "year" : 1993
+    }, {
+      "title" : "Efficient human pose estimation from single depth images",
+      "author" : [ "J. Shotton", "R. Girshick", "A. Fitzgibbon", "T. Sharp", "M. Cook", "M. Finocchio", "R. Moore", "P. Kohli", "A. Criminisi", "A. Kipman", "A. Blake" ],
+      "venue" : "IEEE Trans. PAMI,",
+      "citeRegEx" : "29",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 12,
+      "context" : "Decision trees have a long history in machine learning and were one of the first models proposed for inductive learning [14].",
+      "startOffset" : 120,
+      "endOffset" : 124
+    }, {
+      "referenceID" : 5,
+      "context" : "Their use for classification and regression was popularized by the work of Breiman [6].",
+      "startOffset" : 83,
+      "endOffset" : 86
+    }, {
+      "referenceID" : 27,
+      "context" : "This has led to successes in tasks such as human pose estimation in depth images [29].",
+      "startOffset" : 81,
+      "endOffset" : 85
+    }, {
+      "referenceID" : 13,
+      "context" : "Although trees allow making predictions efficiently, learning the optimal decision tree is an NP-hard problem [15].",
+      "startOffset" : 110,
+      "endOffset" : 114
+    }, {
+      "referenceID" : 25,
+      "context" : "In his seminal work, Quinlan proposed efficient approximate methods for learning decision trees [27, 28].",
+      "startOffset" : 96,
+      "endOffset" : 104
+    }, {
+      "referenceID" : 26,
+      "context" : "In his seminal work, Quinlan proposed efficient approximate methods for learning decision trees [27, 28].",
+      "startOffset" : 96,
+      "endOffset" : 104
+    }, {
+      "referenceID" : 19,
+      "context" : "Some researchers have argued that learning optimal decision trees could be harmful as it may lead to overfitting [21].",
+      "startOffset" : 113,
+      "endOffset" : 117
+    }, {
+      "referenceID" : 6,
+      "context" : "The work in [7] introduced a non-greedy Bayesian sampling-based approach for constructing decision trees.",
+      "startOffset" : 12,
+      "endOffset" : 15
+    }, {
+      "referenceID" : 0,
+      "context" : "There are similarities between the idea of randomly drawing multiple trees via a Bayesian procedure and construction of random tree ensembles (forests) using bagging, a method shown to be effective in many applications [1, 5, 9].",
+      "startOffset" : 219,
+      "endOffset" : 228
+    }, {
+      "referenceID" : 4,
+      "context" : "There are similarities between the idea of randomly drawing multiple trees via a Bayesian procedure and construction of random tree ensembles (forests) using bagging, a method shown to be effective in many applications [1, 5, 9].",
+      "startOffset" : 219,
+      "endOffset" : 228
+    }, {
+      "referenceID" : 8,
+      "context" : "There are similarities between the idea of randomly drawing multiple trees via a Bayesian procedure and construction of random tree ensembles (forests) using bagging, a method shown to be effective in many applications [1, 5, 9].",
+      "startOffset" : 219,
+      "endOffset" : 228
+    }, {
+      "referenceID" : 3,
+      "context" : "Another approach to improve generalization is via large-margin tree classifiers [4].",
+      "startOffset" : 80,
+      "endOffset" : 83
+    }, {
+      "referenceID" : 27,
+      "context" : "[29]), this exponential growth poses a problem for implementing tree models on memory-constrained hardware such as embedded or mobile processors.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 14,
+      "context" : "In [16, 26], DAGs were used to combine the outputs of C×C binary 1-v-1 SVM classifiers into a single C-class classifier.",
+      "startOffset" : 3,
+      "endOffset" : 11
+    }, {
+      "referenceID" : 24,
+      "context" : "In [16, 26], DAGs were used to combine the outputs of C×C binary 1-v-1 SVM classifiers into a single C-class classifier.",
+      "startOffset" : 3,
+      "endOffset" : 11
+    }, {
+      "referenceID" : 2,
+      "context" : "More recently, in [3], DAGs were shown to be a generalization of cascaded boosting.",
+      "startOffset" : 18,
+      "endOffset" : 21
+    }, {
+      "referenceID" : 15,
+      "context" : "For instance [17] merges same-level nodes which are associated with the same split function.",
+      "startOffset" : 13,
+      "endOffset" : 17
+    }, {
+      "referenceID" : 21,
+      "context" : "Oliveira [23] used local search method for constructing DAGs in which tree nodes are removed or merged together based on similarity of the underlying sub-graphs and the corresponding message length reduction.",
+      "startOffset" : 9,
+      "endOffset" : 13
+    }, {
+      "referenceID" : 22,
+      "context" : "A message-length criterion is also employed by the node merging algorithm in [24].",
+      "startOffset" : 77,
+      "endOffset" : 81
+    }, {
+      "referenceID" : 7,
+      "context" : "Chou [8] investigated a k-means clustering for learning decision trees and DAGs (similar ‘ClusterSearch’ below), though did not jointly optimize the features with the DAG structure.",
+      "startOffset" : 5,
+      "endOffset" : 8
+    }, {
+      "referenceID" : 9,
+      "context" : "However, their use for increasing test accuracy has attracted comparatively little attention [10, 20, 23].",
+      "startOffset" : 93,
+      "endOffset" : 105
+    }, {
+      "referenceID" : 18,
+      "context" : "However, their use for increasing test accuracy has attracted comparatively little attention [10, 20, 23].",
+      "startOffset" : 93,
+      "endOffset" : 105
+    }, {
+      "referenceID" : 21,
+      "context" : "However, their use for increasing test accuracy has attracted comparatively little attention [10, 20, 23].",
+      "startOffset" : 93,
+      "endOffset" : 105
+    }, {
+      "referenceID" : 23,
+      "context" : "Our work is related to [25], where the authors achieve compact classification DAGs via post-training removal of redundant subtrees in forests.",
+      "startOffset" : 23,
+      "endOffset" : 27
+    }, {
+      "referenceID" : 24,
+      "context" : "[26] as a way of combining binary classifier for multi-class classification tasks.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 24,
+      "context" : "Note that in contrast to [26], if we have a C-class classification problem, here we do not necessarily expect to have C DAG leaves.",
+      "startOffset" : 25,
+      "endOffset" : 29
+    }, {
+      "referenceID" : 13,
+      "context" : "Given θi and Si, we can compute the set of instances from node i that travel through its left and right branches as S i (θi) = {(x, y) ∈ Si | f(θi, x) ≤ 0} (1)Jointly training all levels of the tree simultaneously remains an expensive operation [15].",
+      "startOffset" : 245,
+      "endOffset" : 249
+    }, {
+      "referenceID" : 8,
+      "context" : "This minimization over θ′ k is done by random sampling in a manner similar to decision forest training [9].",
+      "startOffset" : 103,
+      "endOffset" : 106
+    }, {
+      "referenceID" : 1,
+      "context" : "Node clustering is done via the Bregman information objective optimization technique in [2].",
+      "startOffset" : 88,
+      "endOffset" : 91
+    }, {
+      "referenceID" : 8,
+      "context" : "We focus on semantic image segmentation (pixel-wise classification) tasks, where decision forests have proven very successful [9, 19, 29].",
+      "startOffset" : 126,
+      "endOffset" : 137
+    }, {
+      "referenceID" : 17,
+      "context" : "We focus on semantic image segmentation (pixel-wise classification) tasks, where decision forests have proven very successful [9, 19, 29].",
+      "startOffset" : 126,
+      "endOffset" : 137
+    }, {
+      "referenceID" : 27,
+      "context" : "We focus on semantic image segmentation (pixel-wise classification) tasks, where decision forests have proven very successful [9, 19, 29].",
+      "startOffset" : 126,
+      "endOffset" : 137
+    }, {
+      "referenceID" : 27,
+      "context" : "We evaluate our jungle model on the following datasets: (A) Kinect body part classification [29] (31 classes).",
+      "startOffset" : 92,
+      "endOffset" : 96
+    }, {
+      "referenceID" : 27,
+      "context" : "Following [29], 3 trees or DAGs are used unless otherwise specified.",
+      "startOffset" : 10,
+      "endOffset" : 14
+    }, {
+      "referenceID" : 27,
+      "context" : "We test on (a common set of) 1000 images drawn randomly from the MSRC-5000 test set [29].",
+      "startOffset" : 84,
+      "endOffset" : 88
+    }, {
+      "referenceID" : 16,
+      "context" : "(B) Facial features segmentation [18] (8 classes including background).",
+      "startOffset" : 33,
+      "endOffset" : 37
+    }, {
+      "referenceID" : 10,
+      "context" : "(C) Stanford background dataset [12] (8 classes).",
+      "startOffset" : 32,
+      "endOffset" : 36
+    }, {
+      "referenceID" : 27,
+      "context" : "the per class average metric reported in [29].",
+      "startOffset" : 41,
+      "endOffset" : 45
+    }, {
+      "referenceID" : 8,
+      "context" : "We have implemented standard classification forests, as described in [9] and building upon their publically available implementation.",
+      "startOffset" : 69,
+      "endOffset" : 72
+    }, {
+      "referenceID" : 11,
+      "context" : "This can be seen as a form of tree pruning [13], and in the limit, will result in standard binary decision trees.",
+      "startOffset" : 43,
+      "endOffset" : 47
+    } ],
+    "year" : 2013,
+    "abstractText" : "Randomized decision trees and forests have a rich history in machine learning and have seen considerable success in application, perhaps particularly so for computer vision. However, they face a fundamental limitation: given enough data, the number of nodes in decision trees will grow exponentially with depth. For certain applications, for example on mobile or embedded processors, memory is a limited resource, and so the exponential growth of trees limits their depth, and thus their potential accuracy. This paper proposes decision jungles, revisiting the idea of ensembles of rooted decision directed acyclic graphs (DAGs), and shows these to be compact and powerful discriminative models for classification. Unlike conventional decision trees that only allow one path to every node, a DAG in a decision jungle allows multiple paths from the root to each leaf. We present and compare two new node merging algorithms that jointly optimize both the features and the structure of the DAGs efficiently. During training, node splitting and node merging are driven by the minimization of exactly the same objective function, here the weighted sum of entropies at the leaves. Results on varied datasets show that, compared to decision forests and several other baselines, decision jungles require dramatically less memory while considerably improving generalization.",
+    "creator" : null
+  }
+}

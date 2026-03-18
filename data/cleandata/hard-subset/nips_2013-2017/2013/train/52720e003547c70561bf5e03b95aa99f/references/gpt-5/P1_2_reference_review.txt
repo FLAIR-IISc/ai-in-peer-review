@@ -1,0 +1,56 @@
+Summary
+The paper tackles large-scale sparse precision (inverse covariance) estimation in the high-dimensional, low-sample regime. It focuses on the CLIME estimator, which reduces to solving p independent linear programs, and proposes a linearized (inexact) ADMM algorithm that operates on column-blocks (k columns at a time) rather than column-by-column. Key ideas:
+- A linearized ADMM update for CLIME with closed-form elementwise updates for X (soft-threshold) and Z (box projection), and two matrix multiplications per iteration. Convergence rates of O(1/T) are provided for both objective and residuals under η ≥ ρ λ_max(C)^2.
+- Computational acceleration by (i) using matrix–matrix multiplies (Level-3 BLAS) for column-blocks, (ii) exploiting low-rank structure C=A A’ (with n≪p) to compute CX as A(A’X), and (iii) leveraging sparsity in iterates and possibly in a sparsified version of C.
+- A scalable implementation on shared-memory and distributed-memory systems using block-cyclic distribution and ScaLAPACK. The authors demonstrate near-linear scaling up to hundreds of cores and report estimating a p=10^6 precision matrix in ~11 hours on 400 cores.
+
+Relation to prior work: CLIME has strong statistical guarantees and decomposes across columns; previous solvers include interior-point and ADMM variants per column. QUIC and DC-QUIC address ℓ1-penalized log-det problems and exploit block structures. The paper is positioned among large-scale ML/distributed optimization work (ADMM, parameter servers, GraphLab, BLAS-3 optimizations). The main difference is an end-to-end, block-based, low-rank-aware, distributed CLIME-ADMM with explicit convergence rates and a systems design targeted at ultra-high dimensional settings.
+
+Strengths
+- Significance and scope: Addresses a timely systems/statistics bottleneck: scaling precision estimation beyond thousands to millions of variables. The reported 10^6-dimensional run is impressive.
+- Solid optimization design: The linearized ADMM with elementwise proximal steps and matrix-matrix multiplies is a good fit for modern architectures; the O(1/T) rates align with known results and are appropriate for first-order methods.
+- Systems contribution: Careful discussion of block sizes, block-cyclic distribution, and shared vs distributed behavior; use of A(A’X) to avoid materializing C is practical and impactful in the n≪p regime.
+- Empirical results: Comparisons against CLIME (flare), TIGER, and DC-QUIC, plus thorough scaling studies (column-block speedups and core speedups) on synthetic and real data.
+
+Weaknesses and points needing clarification
+- Statistical correctness of “sparsifying C”: Theorem 3 assumes independent sub-exponential perturbations. The “special case” of zeroing small entries sets Δ_ij = −C_ij for those entries, which depends on C and breaks independence. A simpler deterministic argument would suffice: if |Δ|∞ ≤ τ with τ = O(√(log p/n)), then the deviation bound and CLIME guarantees continue to hold with a larger constant. Please restate this clearly and avoid implying independence where it does not hold.
+- Symmetry/positive-definiteness: CLIME does not enforce symmetry/PD; standard practice is post-hoc symmetrization (e.g., min-abs choice across columns) and possibly projection to S++ if needed for downstream use. The paper should explicitly describe the symmetrization step used in experiments and whether any PD projection is performed.
+- Parameter choices and practicality: The convergence proofs require η ≥ ρ λ_max(C)^2, but C is not formed. Since λ_max(C)=σ_max(A)^2, how do you estimate σ_max(A) efficiently and robustly in practice? What values of (ρ,η) were used, and how sensitive is performance to them?
+- Stopping criteria and accuracy: The experiments emphasize speed and scaling, but lack details on stopping tolerances, primal/dual residuals, and solution accuracy (e.g., constraint feasibility, suboptimality). For the 10^6 run, what tolerance was achieved, and what was the observed feasibility gap?
+- Fairness and breadth of baselines: TIGER and DC-QUIC are reasonable baselines, but CLIME-specific column-wise ADMM baselines beyond flare would help isolate the benefit of block-level BLAS-3 and distribution. Also clarify whether you applied block-diagonal thresholding in your own method when present (as noted for DC-QUIC), to ensure apples-to-apples comparisons.
+- Communication complexity: The distributed section is well motivated, but a more explicit per-iteration communication analysis (messages, bandwidth costs for A’X and AY, and synchronization points) would improve reproducibility and help practitioners size clusters and choose k and block sizes.
+- Clarity/typos: Algorithm 1 is hard to follow (V-update uses extrapolation; ensure iteration indices are consistent). Some references are incomplete. Figures/tables are referenced but not shown here; ensure the final version is self-contained.
+
+Quality
+- The algorithmic core is technically sound and aligned with existing linearized ADMM theory. The sparse/low-rank computational tricks are standard but well integrated. The sparsification theorem needs a cleaner, data-dependent statement. Experimental methodology is generally solid but missing key details on accuracy and stopping.
+
+Clarity
+- Overall clear, but the algorithm pseudocode and the statistical perturbation argument need tightening. Provide parameter settings, stopping criteria, and post-processing (symmetrization) details.
+
+Originality
+- The core optimization ideas (linearized ADMM, BLAS-3, low-rank multiplications) are known. The novelty lies in the specific combination for CLIME, the column-blocking strategy, and the distributed systems design that achieves very large scales. This is an incremental but meaningful contribution.
+
+Significance
+- High practical relevance for large-scale graphical modeling and other convex programs with similar structures. The demonstrated scale and near-linear speedups will likely interest both practitioners and researchers.
+
+Questions for the authors
+1) How do you choose ρ and η without forming C, and how sensitive is convergence to these choices?  
+2) What symmetrization/PD post-processing do you apply?  
+3) What stopping criteria are used, and what feasibility/suboptimality levels are achieved in the large runs?  
+4) For the 10^6 experiment: what n, memory footprint per node, and communication volume per iteration?  
+5) Can you provide an ablation of k on both compute and communication costs, and any heuristic to pick k automatically?  
+6) Please restate the “sparsify C” result for deterministic, data-dependent truncation with a clear bound.
+
+Arguments for acceptance
+- Addresses an important scalability problem with a practically effective solution.  
+- Strong systems engineering with demonstrable large-scale performance.  
+- Theoretical convergence guarantees and clear mapping to efficient primitives.  
+- Likely to be used or extended by others.
+
+Arguments against acceptance
+- Theoretical novelty is limited; several components are known.  
+- Some statistical claims (sparsifying C) need correction/clarification.  
+- Missing details on accuracy, stopping, and symmetrization hinder reproducibility.  
+- Comparisons could be broadened and fairness clarified.
+
+Recommendation: Weak accept. The work makes a useful, well-engineered contribution to scaling precision estimation with reasonable theoretical support, and will be of interest to the NeurIPS community. Strengthening the statistical justification of covariance sparsification, clarifying algorithmic details, and reporting accuracy will further improve the paper.

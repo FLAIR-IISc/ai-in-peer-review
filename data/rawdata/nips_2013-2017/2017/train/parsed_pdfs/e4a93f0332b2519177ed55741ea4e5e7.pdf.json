@@ -1,0 +1,604 @@
+{
+  "name" : "e4a93f0332b2519177ed55741ea4e5e7.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Fast-Slow Recurrent Neural Networks",
+    "authors" : [ "Asier Mujika", "Florian Meier" ],
+    "emails" : [ "asierm@ethz.ch", "meierflo@inf.ethz.ch", "steger@inf.ethz.ch" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Processing, modeling and predicting sequential data of variable length is a major challenge in the field of machine learning. In recent years, recurrent neural networks (RNNs) [34, 32, 39, 41] have been the most popular tool to approach this challenge. RNNs have been successfully applied to improve state of the art results in complex tasks like language modeling and speech recognition. A popular variation of RNNs are long short-term memories (LSTMs) [18], which have been proposed to address the vanishing gradient problem [16, 5, 17]. LSTMs maintain constant error flow and thus are more suitable to learn long-term dependencies compared to standard RNNs.\nOur work contributes to the ongoing debate on how to interconnect several RNN cells with the goals of promoting the learning of long-term dependencies, favoring efficient hierarchical representations of information, exploiting the computational advantages of deep over shallow networks and increasing computational efficiency of training and testing. In deep RNN architectures, RNNs or LSTMs are stacked layer-wise on top of each other [9, 20, 11]. The additional layers enable the network to learn complex input to output relations and encourage a efficient hierarchical representation of information. In these architectures, the hidden states of all the hierarchical layers are updated once per time step (by one time step we refer to the time between two consecutive input elements). In multiscale RNN architectures [35, 9, 25, 6], the operation on different timescales is enforced\n31st Conference on Neural Information Processing Systems (NIPS 2017), Long Beach, CA, USA.\nby updating the higher layers less frequently, which further encourages an efficient hierarchical representation of information. Updating higher layers in fewer time steps leads to computationally efficient implementations and gives rise to short gradient paths that favor the learning of long-term dependencies. In deep transition RNN architectures, intermediate sequentially connected layers are interposed between two consecutive hidden states in order to increase the depth of the transition function from one time step to the next, as for example in deep transition networks [31] or Recurrent Highway Networks (RHN) [43]. The intermediate layers enable the network to learn complex nonlinear transition functions. Thus, the model exploits the fact that deep models can represent some functions exponentially more efficiently than shallow models [4]. We interpret these networks as several RNN cells that update a single hidden state sequentially. Observe that any RNN cell can be used to build a deep transition RNN by connecting several of these cells sequentially.\nHere, we propose the Fast-Slow RNN (FS-RNN) architecture, a novel way of interconnecting RNN cells, that combines advantages of multiscale RNNs and deep transition RNNs. The architecture consists of k sequentially connected RNN cells in the lower hierarchical layer and one RNN cell in the higher hierarchical layer, see Figure 1 and Section 3. Therefore, the hidden state of the lower layer is updated k times per time step, whereas the hidden state of the higher layer is updated only once per time step. We evaluate the FS-RNN on two standard character level language modeling data sets, namely Penn Treebank and Hutter Prize Wikipedia. Additionally, following [31], we present an empirical analysis that reveals advantages of the FS-RNN architecture over other RNN architectures.\nThe main contributions of this paper are:\n• We propose the FS-RNN as a novel RNN architecture. • We improve state of the art results on the Penn Treebank and Hutter Prize Wikipedia data\nsets.\n• We surpass the BPC performance of the best known text compression algorithm evaluated on Hutter Prize Wikipedia by using an ensemble of two FS-RNNs.\n• We show empirically that the FS-RNN incorporates strengths of both multiscale RNNs and deep transition RNNs, as it stores long-term dependencies efficiently and it adapts quickly to unexpected input.\n• We provide our code in the following URL https://github.com/amujika/Fast-Slow-LSTM."
+    }, {
+      "heading" : "2 Related work",
+      "text" : "In the following, we review the work that relates to our approach in more detail. First, we focus on deep transition RNNs and multiscale RNNs since these two architectures are the main sources of inspiration for the FS-RNN architecture. Then, we discuss how our approach differs from these two architectures. Finally, we review other approaches that address the issue of learning long-term dependencies when processing sequential data.\nPascanu et al. [31] investigated how a RNN can be converted into a deep RNN. In standard RNNs, the transition function from one hidden state to the next is shallow, that is, the function can be written as one linear transformation concatenated with a point wise non-linearity. The authors added intermediate layers to increase the depth of the transition function, and they found empirically that such deeper architectures boost performance. Since deeper architectures are more difficult to train, they equip the network with skip connections, which give rise to shorter gradient paths (DT(S)-RNN, see [31]). Following a similar line of research, Zilly et al. [43] further increased the transition depth between two consecutive hidden states. They used highway layers [38] to address the issue of training deep architectures. The resulting RHN [43] achieved state of the art results on the Penn Treebank and Hutter Prize Wikipedia data sets. Furthermore, a vague similarity to deep transition networks can be seen in adaptive computation [12], where an LSTM cell learns how many times it should update its state after receiving the input to produce the next output.\nMultiscale RNNs are obtained by stacking multiple RNNs with decreasing order of update frequencies on top of each other. Early attempts proposed such architectures for sequential data compression [35], where the higher layer is only updated in case of prediction errors of the lower layer, and for sequence classification [9], where the higher layers are updated with a fixed smaller frequency. More recently, Koutnik et al. [25] proposed the Clockwork RNN, in which the hidden units are divided into\nseveral modules, of which the i-th module is only updated every 2i-th time-step. General advantages of this multiscale RNN architecture are improved computational efficiency, efficient propagation of long-term dependencies and flexibility in allocating resources (units) to the hierarchical layers. Multiscale RNNs have been applied for speech recognition in [3], where the slower operating RNN pools information over time and the timescales are fixed hyperparameters as in Clockwork RNNs. In [36], multiscale RNNs are applied to make context-aware query suggestions. In this case, explicit hierarchical boundary information is provided. Chung et al. [6] presented a hierarchical multiscale RNN (HM-RNN) that discovers the latent hierarchical structure of the sequence without explicitly given boundary information. If a parametrized boundary detector indicates the end of a segment, then a summarized representation of the segment is fed to the upper layer and the state of the lower layer is reset [6].\nOur FS-RNN architectures borrows elements from both deep transition RNNs and multiscale RNNs. The lower hierarchical layer is a deep transition RNN, that updates the hidden state several times per time step, whereas the higher hierarchical layer updates the hidden state only once per time step.\nMany approaches aim at solving the problem of learning long-term dependencies in sequential data. A very popular one is to use external memory cells that can be accessed and modified by the network, see Neural Turing Machines [13], Memory Networks [40] and Differentiable Neural Computer [14]. Other approaches focus on different optimization techniques rather than network architectures. One attempt is Hessian Free optimization [29], a second order training method that achieved good results on RNNs. The use of different optimization techniques can improve learning in a wide range of RNN architectures and therefore, the FS-RNN may also benefit from it."
+    }, {
+      "heading" : "3 Fast-Slow RNN",
+      "text" : "We propose the FS-RNN architecture, see Figure 1. It consists of k sequentially connected RNN cells F1, . . . , Fk on the lower hierarchical layer and one RNN cell S on the higher hierarchical layer. We call F1, . . . , Fk the Fast cells, S the Slow cell and the corresponding hierarchical layers the Fast and Slow layer, respectively. S receives input from F1 and feeds its state to F2. F1 receives the sequential input data xt, and Fk outputs the predicted probability distribution yt of the next element of the sequence.\nIntuitively, the Fast cells are able to learn complex transition functions from one time step to the next one. The Slow cell gives rise to shorter gradient paths between sequential inputs that are distant in time, and thus, it facilitates the learning of long-term dependencies. Therefore, the FS-RNN architecture incorporates advantages of deep transition RNNs and of multiscale RNNs, see Section 2.\nSince any kind of RNN cell can be used as building block for the FS-RNN architecture, we state the formal update rules of the FS-RNN for arbitrary RNN cells. We define a RNN cell Q to be a differentiable function fQ(h, x) that maps a hidden state h and an additional input x to a new hidden state. Note that x can be input data or input from a cell in a higher or lower hierarchical layer. If a cell does not receive an additional input, then we will omit x. The following equations define the FS-RNN architecture for arbitrary RNN cells F1, . . . , Fk and S.\nhF1t = f F1(hFkt−1, xt)\nhSt = f S(hSt−1, h F1 t )\nhF2t = f F2(hF1t , h S t )\nhFit = f Fi(h Fi−1 t ) for 3 ≤ i ≤ k\nThe output yt is computed as an affine transformation of hFkt . It is possible to extend the FS-RNN architecture in order to further facilitate the learning of long-term dependencies by adding hierarchical layers, each of which operates on a slower timescale than the ones below, resembling clockwork RNNs [25]. However, for the tasks considered in Section 4, we observed that this led to overfitting the training data even when applying regularization techniques and reduced the performance at test time. Therefore, we will not further investigate this extension of the model in this paper, even though it might be beneficial for other tasks or larger data sets.\nIn the experiments in Section 4, we use LSTM cells as building blocks for the FS-RNN architecture. For completeness, we state the update function fQ for an LSTM Q. The state of an LSTM is a pair (ht, ct), consisting of the hidden state and the cell state. The function fQ maps the previous state and input (ht−1, ct−1, xt) to the next state (ht, ct) according toftitot\ngt  =WQh ht−1 +WQx xt + bQ ct = σ(ft) ct−1 + σ(it) tanh(gt) ht = σ(ot) tanh(ct) ,\nwhere ft, it and ot are commonly referred to as forget, input and output gates, and gt are the new candidate cell states. Moreover,WQh ,W Q x and b\nQ are the learnable parameters, σ denotes the sigmoid function, and denotes the element-wise multiplication."
+    }, {
+      "heading" : "4 Experiments",
+      "text" : "For the experiments, we consider the Fast-Slow LSTM (FS-LSTM) that is a FS-RNN, where each RNN cell is a LSTM cell. The FS-LSTM is evaluated on two character level language modeling data sets, namely Penn Treebank and Hutter Prize Wikipedia, which will be referred to as enwik8 in this section. The task consists of predicting the probability distribution of the next character given all the previous ones. In Section 4.1, we compare the performance of the FS-LSTM with other approaches. In Section 4.2, we empirically compare the network dynamics of different RNN architectures and show the FS-LSTM combines the benefits of both, deep transition RNNs and multiscale RNNs."
+    }, {
+      "heading" : "4.1 Performance on Penn Treebank and Hutter Prize Wikipedia",
+      "text" : "The FS-LSTM achieves 1.19 BPC and 1.25 BPC on the Penn Treebank and enwik8 data sets, respectively. These results are compared to other approaches in Table 1 and Table 2 (the baseline LSTM results without citations are taken from [44] for Penn Treebank and from [15] for enwik8). For the Penn Treebank, the FS-LSTM outperforms all previous approaches with significantly less parameters than the previous top approaches. We did not observe any improvement when increasing the model size, probably due to overfitting. In the enwik8 data set, the FS-LSTM surpasses all other neural approaches. Following [13], we compare the results with text compression algorithms using the BPC measure. An ensemble of two FS-LSTM models (1.20 BPC) outperforms cmix (1.23 BPC) [24], the current best text compression algorithm on enwik8 [27]. However, a fair comparison is difficult. Compression algorithms are usually evaluated by the final size of the compressed data set including the decompressor size. For character prediction models, the network size is usually not taken into account and the performance is measured on the test set. We remark that as the FS-LSTM is evaluated on the test set, it should achieve similar performance on any part of the English Wikipedia.\nThe FS-LSTM-2 and FS-LSTM-4 model consist of two and four cells in the Fast layer, respectively. The FS-LSTM-4 model outperforms the FS-LSTM-2 model, but its processing time for one time step is 25% higher than the one of the FS-LSTM-2. Adding more cells to the Fast layer could further improve the performance as observed for RHN [43], but would increase the processing time, because the cell states are computed sequentially. Therefore, we did not further increase the number of Fast cells.\nThe model is trained to minimize the cross-entropy loss between the predictions and the training data. Formally, the loss function is defined as L = − 1n ∑n i=1 log pθ(xi|x1, . . . , xi−1), where pθ(xi|x1, . . . , xi−1) is the probability that a model with parameters θ assigns to the next character xi given all the previous ones. The model is evaluated by the BPC measure, which uses the binary logarithm instead of the natural logarithm in the loss function. All the hyperparameters used for the experiments are summarized in Table 3. We regularize the FS-LSTM with dropout [37]. In each time step, a different dropout mask is applied for the non-recurrent connections [42], and Zoneout [2] is applied for the recurrent connections. The network is trained with minibatch gradient descent using the Adam optimizer [23]. If the gradients have norm larger than 1 they are normalized to 1. Truncated backpropagation through time (TBPTT) [34, 10] is used to approximate the gradients, and the final hidden state is passed to the next sequence. The learning rate is divided by a factor 10 for the last 20 epochs in the Penn Treebank experiments, and it is divided by a factor 10 whenever the validation error does not improve in two consecutive epochs in the enwik8 experiments. The forget bias of every LSTM cell is initialized to 1, and all weight matrices are initialized to orthogonal matrices. Layer normalization [1] is applied to the cell and to each gate separately. The network with the smallest validation error is evaluated on the test set. The two data sets that we use for evaluation are:\nPenn Treebank [28] The dataset is a collection of Wall Street Journal articles written in English. It only contains 10000 different words, all written in lower-case, and rare words are replaced with \"< unk >\". Following [30], we split the data set into train, validation and test sets consisting of 5.1M, 400K and 450K characters, respectively.\nHutter Prize Wikipedia [19] This dataset is also known as enwik8 and it consists of \"raw\" Wikipedia data, that is, English articles, tables, XML data, hyperlinks and special characters. The data set contains 100M characters with 205 unique tokens. Following [7], we split the data set into train, validation and test sets consisting of 90M, 5M and 5M characters, respectively."
+    }, {
+      "heading" : "4.2 Comparison of network dynamics of different architectures",
+      "text" : "We compare the FS-LSTM architecture with the stacked-LSTM and the sequential-LSTM architectures, depicted in Figure 2, by investigating the network dynamics. In order to conduct a fair comparison we chose the number of parameters to roughly be the same for all three models. The FS-LSTM consists of one Slow and four Fast LSTM cells of 450 units each. The stacked-LSTM consists of five LSTM cells stacked on top of each other consisting of 375 units each, which will be\nreferred to as Stacked-1, ... , Stacked-5, from bottom to top. The sequential-LSTM consists of five sequentially connected LSTM cells of 500 units each. All three models require roughly the same time to process one time step. The models are trained on enwik8 for 20 epochs with minibatch gradient descent using the Adam optimizer [23] without any regularization, but layer normalization [1] is applied on the cell states of the LSTMs. The hyperparameters are not optimized for any of the three models. We repeat each experiment 5 times and report the mean and standard deviation.\nThe experiments suggest that the FS-LSTM architecture favors the learning of long-term dependencies (Figure 3), enforces hidden cell states to change at different rates (Figure 4) and facilitates a quick adaptation to unexpected inputs (Figure 5). Moreover, the FS-LSTM achieves a mean performance of 1.49 BPC with a standard deviation of 0.007 BPC and outperforms the stacked-LSTM (mean 1.60 BPC, standard deviation 0.022 BPC ) and the sequential-LSTM (mean 1.58 BPC, standard deviation 0.008 BPC ).\nIn Figure 3, we asses the ability to capture long-term dependencies by investigating the effect of the cell state on the loss at later time points, following [2]. We measure the effect of the cell state at time t− k on the loss at time t by the gradient ‖ ∂Lt∂ct−k ‖. This gradient is the largest for the Slow\nLSTM, and it is small and steeply decaying as k increases for the Fast LSTM. Evidently, the Slow cell captures long-term dependencies, whereas the Fast cell only stores short-term information. In the stacked-LSTM, the gradients decrease from the top layer to the bottom layer, which can be explained by the vanishing gradient problem. The small, steeply decaying gradients of the sequential-LSTM indicate that it is less capable to learn long-term dependencies than the other two models.\nFigure 4 gives further evidence that the FS-LSTM stores long-term dependencies efficiently in the Slow LSTM cell. It shows that among all the layers of the three RNN architectures, the cell states of the Slow LSTM change the least from one time step to the next. The highest change is observed for the cells of the sequential model followed by the Fast LSTM cells.\nIn Figure 5, we investigate whether the FS-LSTM quickly adapts to unexpected characters, that is, whether it performs well on the subsequent ones. In text modeling, the initial character of a word has the highest entropy, whereas later characters in a word are usually less ambiguous [10]. Since the first character of a word is the most difficult one to predict, the performance at the following positions should reflect the ability to adapt to unexpected inputs. While the prediction qualities at the first position are rather close for all three models, the FS-LSTM outperforms the stacked-LSTM and sequential-LSTM significantly on subsequent positions. It is possible that new information is incorporated quickly in the Fast layer, because it only stores short-term information, see Figure 3."
+    }, {
+      "heading" : "5 Conclusion",
+      "text" : "In this paper, we have proposed the FS-RNN architecture. Up to our knowledge, it is the first architecture that incorporates ideas of both multiscale and deep transition RNNs. The FS-RNN architecture improved state of the art results on character level language modeling evaluated on the Penn Treebank and Hutter Prize Wikipedia data sets. An ensemble of two FS-RNNs achieves better BPC performance than the best known compression algorithm. Further experiments provided evidence that the Slow cell enables the network to learn long-term dependencies, while the Fast cells enable the network to quickly adapt to unexpected inputs and learn complex transition functions from one time step to the next.\nOur FS-RNN architecture provides a general framework for connecting RNN cells as any type of RNN cell can be used as building block. Thus, there is a lot of flexibility in applying the architecture to different tasks. For instance using RNN cells with good long-term memory, like EURNNs [21] or NARX RNNs [26, 8], for the Slow cell might boost the long-term memory of the FS-RNN\narchitecture. Therefore, the FS-RNN architecture might improve performance in many different applications."
+    }, {
+      "heading" : "Acknowledgments",
+      "text" : "We thank Julian Zilly for many helpful discussions."
+    } ],
+    "references" : [ {
+      "title" : "Zoneout: Regularizing rnns by randomly preserving hidden activations",
+      "author" : [ "Jimmy Lei Ba", "Jamie Ryan Kiros", "Geoffrey E. Hinton" ],
+      "venue" : "arXiv preprint arXiv:1607.06450,",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 2016
+    }, {
+      "title" : "End-to-end attention-based large vocabulary speech recognition",
+      "author" : [ "Dzmitry Bahdanau", "Jan Chorowski", "Dmitriy Serdyuk", "Philemon Brakel", "Yoshua Bengio" ],
+      "venue" : "Acoustics, Speech and Signal Processing (ICASSP),",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 2016
+    }, {
+      "title" : "Learning deep architectures for ai",
+      "author" : [ "Yoshua Bengio" ],
+      "venue" : "Foundations and trends R  © in Machine Learning,",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : "4",
+      "year" : 2009
+    }, {
+      "title" : "Learning long-term dependencies with gradient descent is difficult",
+      "author" : [ "Yoshua Bengio", "Patrice Simard", "Paolo Frasconi" ],
+      "venue" : "IEEE transactions on neural networks,",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : "5",
+      "year" : 1994
+    }, {
+      "title" : "Hierarchical multiscale recurrent neural networks",
+      "author" : [ "Junyoung Chung", "Sungjin Ahn", "Yoshua Bengio" ],
+      "venue" : "arXiv preprint arXiv:1609.01704,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : "6",
+      "year" : 2016
+    }, {
+      "title" : "Gated feedback recurrent neural networks",
+      "author" : [ "Junyoung Chung", "Caglar Gülçehre", "Kyunghyun Cho", "Yoshua Bengio" ],
+      "venue" : "In ICML, pages 2067–2075,",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : "7",
+      "year" : 2015
+    }, {
+      "title" : "Revisiting narx recurrent neural networks for long-term dependencies, 2017",
+      "author" : [ "Robert DiPietro", "Nassir Navab", "Gregory D. Hager" ],
+      "venue" : null,
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : "8",
+      "year" : 2017
+    }, {
+      "title" : "Hierarchical recurrent neural networks for long-term dependencies",
+      "author" : [ "Salah El Hihi", "Yoshua Bengio" ],
+      "venue" : "In Nips,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 1995
+    }, {
+      "title" : "Finding structure in time",
+      "author" : [ "Jeffrey L. Elman" ],
+      "venue" : "COGNITIVE SCIENCE,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : "10",
+      "year" : 1990
+    }, {
+      "title" : "Generating sequences with recurrent neural networks",
+      "author" : [ "Alex Graves" ],
+      "venue" : "arXiv preprint arXiv:1308.0850,",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 2013
+    }, {
+      "title" : "Adaptive computation time for recurrent neural networks",
+      "author" : [ "Alex Graves" ],
+      "venue" : "arXiv preprint arXiv:1603.08983,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 2016
+    }, {
+      "title" : "Neural turing machines",
+      "author" : [ "Alex Graves", "Greg Wayne", "Ivo Danihelka" ],
+      "venue" : "arXiv preprint arXiv:1410.5401,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 2014
+    }, {
+      "title" : "Hybrid computing using a neural network with dynamic external memory",
+      "author" : [ "Alex Graves", "Greg Wayne", "Malcolm Reynolds", "Tim Harley", "Ivo Danihelka", "Agnieszka Grabska-Barwińska", "Sergio Gómez Colmenarejo", "Edward Grefenstette", "Tiago Ramalho", "John Agapiou" ],
+      "venue" : null,
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 2016
+    }, {
+      "title" : "Untersuchungen zu dynamischen neuronalen Netzen. PhD thesis, diploma thesis, institut für informatik, lehrstuhl prof. brauer, technische universität münchen",
+      "author" : [ "Sepp Hochreiter" ],
+      "venue" : null,
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : "16",
+      "year" : 1991
+    }, {
+      "title" : "The vanishing gradient problem during learning recurrent neural nets and problem solutions",
+      "author" : [ "Sepp Hochreiter" ],
+      "venue" : "International Journal of Uncertainty, Fuzziness and Knowledge-Based Systems,",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : "17",
+      "year" : 1998
+    }, {
+      "title" : "Long short-term memory",
+      "author" : [ "Sepp Hochreiter", "Jürgen Schmidhuber" ],
+      "venue" : "Neural computation,",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : "18",
+      "year" : 1997
+    }, {
+      "title" : "The human knowledge compression",
+      "author" : [ "Marcus Hutter" ],
+      "venue" : "contest. http://prize.hutter1.net,",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : "19",
+      "year" : 2012
+    }, {
+      "title" : "Discovering multiscale dynamical features with hierarchical echo state networks",
+      "author" : [ "Herbert Jaeger" ],
+      "venue" : "Technical report, Jacobs University Bremen,",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : "20",
+      "year" : 2007
+    }, {
+      "title" : "Tunable efficient unitary neural networks (eunn) and their application to rnns, 2016",
+      "author" : [ "Li Jing", "Yichen Shen", "Tena Dubček", "John Peurifoy", "Scott Skirlo", "Yann LeCun", "Max Tegmark", "Marin Soljačić" ],
+      "venue" : null,
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : "21",
+      "year" : 2016
+    }, {
+      "title" : "Neural machine translation in linear time",
+      "author" : [ "Nal Kalchbrenner", "Lasse Espeholt", "Karen Simonyan", "Aaron van den Oord", "Alex Graves", "Koray Kavukcuoglu" ],
+      "venue" : "arXiv preprint arXiv:1610.10099,",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : "22",
+      "year" : 2016
+    }, {
+      "title" : "Adam: A method for stochastic optimization",
+      "author" : [ "Diederik P. Kingma", "Jimmy Ba" ],
+      "venue" : "arXiv preprint arXiv:1412.6980,",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : "23",
+      "year" : 2014
+    }, {
+      "title" : "Cmix. http://www.byronknoll.com/cmix.html, 2017",
+      "author" : [ "Bryon Knoll" ],
+      "venue" : "Accessed: 2017-05-18",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : "24",
+      "year" : 2017
+    }, {
+      "title" : "A clockwork rnn",
+      "author" : [ "Jan Koutník", "Klaus Greff", "Faustino Gomez", "Jürgen Schmidhuber" ],
+      "venue" : "arXiv preprint arXiv:1603.08983,",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : "25",
+      "year" : 2016
+    }, {
+      "title" : "Learning long-term dependencies in narx recurrent neural networks",
+      "author" : [ "Tsungnan Lin", "Bill G Horne", "Peter Tino", "C Lee Giles" ],
+      "venue" : "IEEE Transactions on Neural Networks,",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : "26",
+      "year" : 1996
+    }, {
+      "title" : "Large text compression benchmark",
+      "author" : [ "Matt Mahoney" ],
+      "venue" : "http://mattmahoney.net/dc/text.html,",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : "27",
+      "year" : 2017
+    }, {
+      "title" : "Building a large annotated corpus of english: The penn treebank",
+      "author" : [ "Mitchell P. Marcus", "Mary Ann Marcinkiewicz", "Beatrice Santorini" ],
+      "venue" : "Comput. Linguist.,",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : "28",
+      "year" : 1993
+    }, {
+      "title" : "Learning recurrent neural networks with hessian-free optimization",
+      "author" : [ "James Martens", "Ilya Sutskever" ],
+      "venue" : "In Proceedings of the 28th International Conference on Machine Learning",
+      "citeRegEx" : "29",
+      "shortCiteRegEx" : "29",
+      "year" : 2011
+    }, {
+      "title" : "Subword language modeling with neural networks",
+      "author" : [ "Tomás̆ Mikolov", "Ilya Sutskever", "Anoop Deoras", "Hai-Son Le", "Kombrink Stefan", "Jan C̆ernocký" ],
+      "venue" : "preprint: http://www.fit.vutbr.cz/ imikolov/rnnlm/char.pdf,",
+      "citeRegEx" : "30",
+      "shortCiteRegEx" : "30",
+      "year" : 2012
+    }, {
+      "title" : "How to construct deep recurrent neural networks",
+      "author" : [ "Razvan Pascanu", "Caglar Gulcehre", "Kyunghyun Cho", "Yoshua Bengio" ],
+      "venue" : "arXiv preprint arXiv:1312.6026,",
+      "citeRegEx" : "31",
+      "shortCiteRegEx" : "31",
+      "year" : 2013
+    }, {
+      "title" : "The utility driven dynamic error propagation network",
+      "author" : [ "AJ Robinson", "Frank Fallside" ],
+      "venue" : "University of Cambridge Department of Engineering,",
+      "citeRegEx" : "32",
+      "shortCiteRegEx" : "32",
+      "year" : 1987
+    }, {
+      "title" : "Surprisal-driven zoneout",
+      "author" : [ "Kamil Rocki", "Tomasz Kornuta", "Tegan Maharaj" ],
+      "venue" : "arXiv preprint arXiv:1610.07675,",
+      "citeRegEx" : "33",
+      "shortCiteRegEx" : "33",
+      "year" : 2016
+    }, {
+      "title" : "Learning representations by backpropagating errors",
+      "author" : [ "David E Rumelhart", "Geoffrey E Hinton", "Ronald J Williams" ],
+      "venue" : "Cognitive modeling,",
+      "citeRegEx" : "34",
+      "shortCiteRegEx" : "34",
+      "year" : 1988
+    }, {
+      "title" : "Learning complex, extended sequences using the principle of history compression",
+      "author" : [ "Jürgen Schmidhuber" ],
+      "venue" : "Neural Computation,",
+      "citeRegEx" : "35",
+      "shortCiteRegEx" : "35",
+      "year" : 1992
+    }, {
+      "title" : "A hierarchical recurrent encoder-decoder for generative context-aware query suggestion",
+      "author" : [ "Alessandro Sordoni", "Yoshua Bengio", "Hossein Vahabi", "Christina Lioma", "Jakob Grue Simonsen", "Jian- Yun Nie" ],
+      "venue" : "In Proceedings of the 24th ACM International on Conference on Information and Knowledge Management,",
+      "citeRegEx" : "36",
+      "shortCiteRegEx" : "36",
+      "year" : 2015
+    }, {
+      "title" : "Dropout: A simple way to prevent neural networks from overfitting",
+      "author" : [ "Nitish Srivastava", "Geoffrey Hinton", "Alex Krizhevsky", "Ilya Sutskever", "Ruslan Salakhutdinov" ],
+      "venue" : "J. Mach. Learn. Res.,",
+      "citeRegEx" : "37",
+      "shortCiteRegEx" : "37",
+      "year" : 2014
+    }, {
+      "title" : "Generalization of backpropagation with application to a recurrent gas market model",
+      "author" : [ "Paul J Werbos" ],
+      "venue" : "Neural networks,",
+      "citeRegEx" : "39",
+      "shortCiteRegEx" : "39",
+      "year" : 1988
+    }, {
+      "title" : "Complexity of exact gradient computation algorithms for recurrent neural networks",
+      "author" : [ "Ronald J Williams" ],
+      "venue" : "Technical report, Technical Report Technical Report NU-CCS-89-27,",
+      "citeRegEx" : "41",
+      "shortCiteRegEx" : "41",
+      "year" : 1989
+    }, {
+      "title" : "Recurrent neural network regularization",
+      "author" : [ "Wojciech Zaremba", "Ilya Sutskever", "Oriol Vinyals" ],
+      "venue" : "arXiv preprint arXiv:1409.2329,",
+      "citeRegEx" : "42",
+      "shortCiteRegEx" : "42",
+      "year" : 2014
+    }, {
+      "title" : "Recurrent highway networks",
+      "author" : [ "Julian Georg Zilly", "Rupesh Kumar Srivastava", "Jan Koutník", "Jürgen Schmidhuber" ],
+      "venue" : "arXiv preprint arXiv:1607.03474,",
+      "citeRegEx" : "43",
+      "shortCiteRegEx" : "43",
+      "year" : 2016
+    }, {
+      "title" : "Neural architecture search with reinforcement learning",
+      "author" : [ "Barret Zoph", "Quoc V. Le" ],
+      "venue" : "arXiv preprint arXiv:1611.01578,",
+      "citeRegEx" : "44",
+      "shortCiteRegEx" : "44",
+      "year" : 2016
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 31,
+      "context" : "In recent years, recurrent neural networks (RNNs) [34, 32, 39, 41] have been the most popular tool to approach this challenge.",
+      "startOffset" : 50,
+      "endOffset" : 66
+    }, {
+      "referenceID" : 29,
+      "context" : "In recent years, recurrent neural networks (RNNs) [34, 32, 39, 41] have been the most popular tool to approach this challenge.",
+      "startOffset" : 50,
+      "endOffset" : 66
+    }, {
+      "referenceID" : 35,
+      "context" : "In recent years, recurrent neural networks (RNNs) [34, 32, 39, 41] have been the most popular tool to approach this challenge.",
+      "startOffset" : 50,
+      "endOffset" : 66
+    }, {
+      "referenceID" : 36,
+      "context" : "In recent years, recurrent neural networks (RNNs) [34, 32, 39, 41] have been the most popular tool to approach this challenge.",
+      "startOffset" : 50,
+      "endOffset" : 66
+    }, {
+      "referenceID" : 15,
+      "context" : "A popular variation of RNNs are long short-term memories (LSTMs) [18], which have been proposed to address the vanishing gradient problem [16, 5, 17].",
+      "startOffset" : 65,
+      "endOffset" : 69
+    }, {
+      "referenceID" : 13,
+      "context" : "A popular variation of RNNs are long short-term memories (LSTMs) [18], which have been proposed to address the vanishing gradient problem [16, 5, 17].",
+      "startOffset" : 138,
+      "endOffset" : 149
+    }, {
+      "referenceID" : 3,
+      "context" : "A popular variation of RNNs are long short-term memories (LSTMs) [18], which have been proposed to address the vanishing gradient problem [16, 5, 17].",
+      "startOffset" : 138,
+      "endOffset" : 149
+    }, {
+      "referenceID" : 14,
+      "context" : "A popular variation of RNNs are long short-term memories (LSTMs) [18], which have been proposed to address the vanishing gradient problem [16, 5, 17].",
+      "startOffset" : 138,
+      "endOffset" : 149
+    }, {
+      "referenceID" : 7,
+      "context" : "In deep RNN architectures, RNNs or LSTMs are stacked layer-wise on top of each other [9, 20, 11].",
+      "startOffset" : 85,
+      "endOffset" : 96
+    }, {
+      "referenceID" : 17,
+      "context" : "In deep RNN architectures, RNNs or LSTMs are stacked layer-wise on top of each other [9, 20, 11].",
+      "startOffset" : 85,
+      "endOffset" : 96
+    }, {
+      "referenceID" : 9,
+      "context" : "In deep RNN architectures, RNNs or LSTMs are stacked layer-wise on top of each other [9, 20, 11].",
+      "startOffset" : 85,
+      "endOffset" : 96
+    }, {
+      "referenceID" : 32,
+      "context" : "In multiscale RNN architectures [35, 9, 25, 6], the operation on different timescales is enforced",
+      "startOffset" : 32,
+      "endOffset" : 46
+    }, {
+      "referenceID" : 7,
+      "context" : "In multiscale RNN architectures [35, 9, 25, 6], the operation on different timescales is enforced",
+      "startOffset" : 32,
+      "endOffset" : 46
+    }, {
+      "referenceID" : 22,
+      "context" : "In multiscale RNN architectures [35, 9, 25, 6], the operation on different timescales is enforced",
+      "startOffset" : 32,
+      "endOffset" : 46
+    }, {
+      "referenceID" : 4,
+      "context" : "In multiscale RNN architectures [35, 9, 25, 6], the operation on different timescales is enforced",
+      "startOffset" : 32,
+      "endOffset" : 46
+    }, {
+      "referenceID" : 28,
+      "context" : "In deep transition RNN architectures, intermediate sequentially connected layers are interposed between two consecutive hidden states in order to increase the depth of the transition function from one time step to the next, as for example in deep transition networks [31] or Recurrent Highway Networks (RHN) [43].",
+      "startOffset" : 267,
+      "endOffset" : 271
+    }, {
+      "referenceID" : 38,
+      "context" : "In deep transition RNN architectures, intermediate sequentially connected layers are interposed between two consecutive hidden states in order to increase the depth of the transition function from one time step to the next, as for example in deep transition networks [31] or Recurrent Highway Networks (RHN) [43].",
+      "startOffset" : 308,
+      "endOffset" : 312
+    }, {
+      "referenceID" : 2,
+      "context" : "Thus, the model exploits the fact that deep models can represent some functions exponentially more efficiently than shallow models [4].",
+      "startOffset" : 131,
+      "endOffset" : 134
+    }, {
+      "referenceID" : 28,
+      "context" : "Additionally, following [31], we present an empirical analysis that reveals advantages of the FS-RNN architecture over other RNN architectures.",
+      "startOffset" : 24,
+      "endOffset" : 28
+    }, {
+      "referenceID" : 28,
+      "context" : "[31] investigated how a RNN can be converted into a deep RNN.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 28,
+      "context" : "Since deeper architectures are more difficult to train, they equip the network with skip connections, which give rise to shorter gradient paths (DT(S)-RNN, see [31]).",
+      "startOffset" : 160,
+      "endOffset" : 164
+    }, {
+      "referenceID" : 38,
+      "context" : "[43] further increased the transition depth between two consecutive hidden states.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 38,
+      "context" : "The resulting RHN [43] achieved state of the art results on the Penn Treebank and Hutter Prize Wikipedia data sets.",
+      "startOffset" : 18,
+      "endOffset" : 22
+    }, {
+      "referenceID" : 10,
+      "context" : "Furthermore, a vague similarity to deep transition networks can be seen in adaptive computation [12], where an LSTM cell learns how many times it should update its state after receiving the input to produce the next output.",
+      "startOffset" : 96,
+      "endOffset" : 100
+    }, {
+      "referenceID" : 32,
+      "context" : "Early attempts proposed such architectures for sequential data compression [35], where the higher layer is only updated in case of prediction errors of the lower layer, and for sequence classification [9], where the higher layers are updated with a fixed smaller frequency.",
+      "startOffset" : 75,
+      "endOffset" : 79
+    }, {
+      "referenceID" : 7,
+      "context" : "Early attempts proposed such architectures for sequential data compression [35], where the higher layer is only updated in case of prediction errors of the lower layer, and for sequence classification [9], where the higher layers are updated with a fixed smaller frequency.",
+      "startOffset" : 201,
+      "endOffset" : 204
+    }, {
+      "referenceID" : 22,
+      "context" : "[25] proposed the Clockwork RNN, in which the hidden units are divided into",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 1,
+      "context" : "Multiscale RNNs have been applied for speech recognition in [3], where the slower operating RNN pools information over time and the timescales are fixed hyperparameters as in Clockwork RNNs.",
+      "startOffset" : 60,
+      "endOffset" : 63
+    }, {
+      "referenceID" : 33,
+      "context" : "In [36], multiscale RNNs are applied to make context-aware query suggestions.",
+      "startOffset" : 3,
+      "endOffset" : 7
+    }, {
+      "referenceID" : 4,
+      "context" : "[6] presented a hierarchical multiscale RNN (HM-RNN) that discovers the latent hierarchical structure of the sequence without explicitly given boundary information.",
+      "startOffset" : 0,
+      "endOffset" : 3
+    }, {
+      "referenceID" : 4,
+      "context" : "If a parametrized boundary detector indicates the end of a segment, then a summarized representation of the segment is fed to the upper layer and the state of the lower layer is reset [6].",
+      "startOffset" : 184,
+      "endOffset" : 187
+    }, {
+      "referenceID" : 11,
+      "context" : "A very popular one is to use external memory cells that can be accessed and modified by the network, see Neural Turing Machines [13], Memory Networks [40] and Differentiable Neural Computer [14].",
+      "startOffset" : 128,
+      "endOffset" : 132
+    }, {
+      "referenceID" : 12,
+      "context" : "A very popular one is to use external memory cells that can be accessed and modified by the network, see Neural Turing Machines [13], Memory Networks [40] and Differentiable Neural Computer [14].",
+      "startOffset" : 190,
+      "endOffset" : 194
+    }, {
+      "referenceID" : 26,
+      "context" : "One attempt is Hessian Free optimization [29], a second order training method that achieved good results on RNNs.",
+      "startOffset" : 41,
+      "endOffset" : 45
+    }, {
+      "referenceID" : 22,
+      "context" : "It is possible to extend the FS-RNN architecture in order to further facilitate the learning of long-term dependencies by adding hierarchical layers, each of which operates on a slower timescale than the ones below, resembling clockwork RNNs [25].",
+      "startOffset" : 242,
+      "endOffset" : 246
+    }, {
+      "referenceID" : 39,
+      "context" : "These results are compared to other approaches in Table 1 and Table 2 (the baseline LSTM results without citations are taken from [44] for Penn Treebank and from [15] for enwik8).",
+      "startOffset" : 130,
+      "endOffset" : 134
+    }, {
+      "referenceID" : 11,
+      "context" : "Following [13], we compare the results with text compression algorithms using the BPC measure.",
+      "startOffset" : 10,
+      "endOffset" : 14
+    }, {
+      "referenceID" : 21,
+      "context" : "23 BPC) [24], the current best text compression algorithm on enwik8 [27].",
+      "startOffset" : 8,
+      "endOffset" : 12
+    }, {
+      "referenceID" : 24,
+      "context" : "23 BPC) [24], the current best text compression algorithm on enwik8 [27].",
+      "startOffset" : 68,
+      "endOffset" : 72
+    }, {
+      "referenceID" : 38,
+      "context" : "Adding more cells to the Fast layer could further improve the performance as observed for RHN [43], but would increase the processing time, because the cell states are computed sequentially.",
+      "startOffset" : 94,
+      "endOffset" : 98
+    }, {
+      "referenceID" : 34,
+      "context" : "We regularize the FS-LSTM with dropout [37].",
+      "startOffset" : 39,
+      "endOffset" : 43
+    }, {
+      "referenceID" : 37,
+      "context" : "In each time step, a different dropout mask is applied for the non-recurrent connections [42], and Zoneout [2] is applied for the recurrent connections.",
+      "startOffset" : 89,
+      "endOffset" : 93
+    }, {
+      "referenceID" : 0,
+      "context" : "In each time step, a different dropout mask is applied for the non-recurrent connections [42], and Zoneout [2] is applied for the recurrent connections.",
+      "startOffset" : 107,
+      "endOffset" : 110
+    }, {
+      "referenceID" : 20,
+      "context" : "The network is trained with minibatch gradient descent using the Adam optimizer [23].",
+      "startOffset" : 80,
+      "endOffset" : 84
+    }, {
+      "referenceID" : 31,
+      "context" : "Truncated backpropagation through time (TBPTT) [34, 10] is used to approximate the gradients, and the final hidden state is passed to the next sequence.",
+      "startOffset" : 47,
+      "endOffset" : 55
+    }, {
+      "referenceID" : 8,
+      "context" : "Truncated backpropagation through time (TBPTT) [34, 10] is used to approximate the gradients, and the final hidden state is passed to the next sequence.",
+      "startOffset" : 47,
+      "endOffset" : 55
+    }, {
+      "referenceID" : 25,
+      "context" : "Penn Treebank [28] The dataset is a collection of Wall Street Journal articles written in English.",
+      "startOffset" : 14,
+      "endOffset" : 18
+    }, {
+      "referenceID" : 27,
+      "context" : "Following [30], we split the data set into train, validation and test sets consisting of 5.",
+      "startOffset" : 10,
+      "endOffset" : 14
+    }, {
+      "referenceID" : 16,
+      "context" : "Hutter Prize Wikipedia [19] This dataset is also known as enwik8 and it consists of \"raw\" Wikipedia data, that is, English articles, tables, XML data, hyperlinks and special characters.",
+      "startOffset" : 23,
+      "endOffset" : 27
+    }, {
+      "referenceID" : 5,
+      "context" : "Following [7], we split the data set into train, validation and test sets consisting of 90M, 5M and 5M characters, respectively.",
+      "startOffset" : 10,
+      "endOffset" : 13
+    }, {
+      "referenceID" : 30,
+      "context" : "32 35M Surprisal-driven Zoneout [33] 1.",
+      "startOffset" : 32,
+      "endOffset" : 36
+    }, {
+      "referenceID" : 20,
+      "context" : "The models are trained on enwik8 for 20 epochs with minibatch gradient descent using the Adam optimizer [23] without any regularization, but layer normalization [1] is applied on the cell states of the LSTMs.",
+      "startOffset" : 104,
+      "endOffset" : 108
+    }, {
+      "referenceID" : 0,
+      "context" : "In Figure 3, we asses the ability to capture long-term dependencies by investigating the effect of the cell state on the loss at later time points, following [2].",
+      "startOffset" : 158,
+      "endOffset" : 161
+    }, {
+      "referenceID" : 8,
+      "context" : "In text modeling, the initial character of a word has the highest entropy, whereas later characters in a word are usually less ambiguous [10].",
+      "startOffset" : 137,
+      "endOffset" : 141
+    }, {
+      "referenceID" : 18,
+      "context" : "For instance using RNN cells with good long-term memory, like EURNNs [21] or NARX RNNs [26, 8], for the Slow cell might boost the long-term memory of the FS-RNN",
+      "startOffset" : 69,
+      "endOffset" : 73
+    }, {
+      "referenceID" : 23,
+      "context" : "For instance using RNN cells with good long-term memory, like EURNNs [21] or NARX RNNs [26, 8], for the Slow cell might boost the long-term memory of the FS-RNN",
+      "startOffset" : 87,
+      "endOffset" : 94
+    }, {
+      "referenceID" : 6,
+      "context" : "For instance using RNN cells with good long-term memory, like EURNNs [21] or NARX RNNs [26, 8], for the Slow cell might boost the long-term memory of the FS-RNN",
+      "startOffset" : 87,
+      "endOffset" : 94
+    } ],
+    "year" : 2017,
+    "abstractText" : "Processing sequential data of variable length is a major challenge in a wide range of applications, such as speech recognition, language modeling, generative image modeling and machine translation. Here, we address this challenge by proposing a novel recurrent neural network (RNN) architecture, the Fast-Slow RNN (FSRNN). The FS-RNN incorporates the strengths of both multiscale RNNs and deep transition RNNs as it processes sequential data on different timescales and learns complex transition functions from one time step to the next. We evaluate the FS-RNN on two character level language modeling data sets, Penn Treebank and Hutter Prize Wikipedia, where we improve state of the art results to 1.19 and 1.25 bits-per-character (BPC), respectively. In addition, an ensemble of two FS-RNNs achieves 1.20 BPC on Hutter Prize Wikipedia outperforming the best known compression algorithm with respect to the BPC measure. We also present an empirical investigation of the learning and network dynamics of the FS-RNN, which explains the improved performance compared to other RNN architectures. Our approach is general as any kind of RNN cell is a possible building block for the FS-RNN architecture, and thus can be flexibly applied to different tasks.",
+    "creator" : null
+  }
+}

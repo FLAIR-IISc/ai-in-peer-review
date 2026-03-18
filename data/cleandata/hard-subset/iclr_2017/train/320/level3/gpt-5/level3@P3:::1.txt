@@ -1,0 +1,39 @@
+1. Summary of contributions
+- The paper tackles visual servoing by learning to act in the space of visual features rather than pixels or hand-engineered keypoints. It combines (i) a learned, action-conditional bilinear dynamics model that predicts next-frame feature maps from current features and control, (ii) a servoing objective that uses per-channel, per-scale feature weights, and (iii) a fitted Q-iteration (FQI) scheme tailored to this objective.
+- It proposes a locally connected bilinear dynamics model to couple actions and feature maps. This design trades off expressiveness and compute better than fully connected or standard convolutional alternatives, while remaining compatible with exact (in u) linearization and efficient Jacobian computation for control.
+- It formulates the Q-function as a linear function of the per-channel weights, so the greedy action recovers the weighted one-step lookahead servoing objective. This enables direct learning of which feature channels matter for the task instead of treating all channels equally.
+- It introduces a simple but elegant optimization trick for FQI: exploit the policy-invariance of the Q-parameters under non-negative scaling and an additive bias to jointly optimize the “target” and “current” Qs’ scale/bias (Eq. 5), which stabilizes/speeds up fitted value estimation without changing the implied greedy policy.
+- Empirically, the method learns sample-efficient, robust servoing on a synthetic car-following setup, showing: (a) per-channel weighting is important (unweighted is worse), (b) deeper VGG features (up to conv4_3) paired with bilinear dynamics generalize better than pixels and conv5_3, and (c) large gains in sample efficiency over TRPO-trained end-to-end policies and over classical IBVS baselines.
+
+2. Decision: Reject
+Key reasons:
+- The experimental evaluation is too limited to substantiate several central claims (architecture choices for the dynamics; benefits of the modified VGG; advantages of the proposed FQI variant over standard iterative targets). The main results rely on a single, toy simulated task without comparison to standard benchmarks or real hardware.
+- Critical ablations are missing or incomplete (fully connected vs convolutional vs locally connected dynamics on semantic features; FQI vs standard target-parameter holding; modified VGG vs unmodified).
+
+3. Supporting arguments
+What problem is tackled? Learning sample-efficient visual servoing by predicting feature dynamics and learning which features to trust for control. This is well-motivated: classic IBVS needs manual features/models; model-free RL is data-hungry; pre-trained CNN features offer invariances, but servoing needs dynamics and task-specific feature selection.
+
+Is the approach well placed in the literature? Yes. The paper connects bilinear image/feature dynamics to action-conditioned prediction, leverages pre-trained CNN features with dilated convs to retain spatial detail, and uses FQI to align a one-step servoing objective with long-horizon returns. Related work in IBVS/PBVS, video prediction, and RL is cited and the positioning is fair.
+
+Do the results support the claims? Partially.
+- Positive: The bilinear dynamics plus learned per-channel weights form a coherent, technically solid formulation. The scale/bias-invariance observation for the Q-parameters is neat and leads to a clean FQI implementation. The ablation showing per-channel weighting helps is convincing. The linearization exactness in u for bilinear models enables efficient control.
+- Insufficient: The preference for locally connected bilinear dynamics is argued but not adequately demonstrated. For pixels there is some comparison, but for semantic features the paper does not present head-to-head results versus fully connected or convolutional dynamics (citing memory constraints). The superiority of the modified VGG (removal of pooling, use of dilation) over the original architecture is asserted but not validated. The FQI variant (Eq. 5) is not compared to the standard iterative approach that holds the target network fixed; we cannot assess whether the scale/bias step materially improves convergence, stability, or sample efficiency. Finally, the single synthetic environment limits generality; no standard domain benchmark or real-robot task is included.
+
+4. Additional feedback (to help improve the paper)
+- Dynamics architecture comparisons: Please include systematic comparisons among fully connected, convolutional (tied weights), and locally connected bilinear dynamics on semantic features. If memory is the constraint, consider channel grouping, depthwise separability, low-rank factorization, or block-diagonal/local receptive field factorizations so that ablations remain feasible. Report parameter counts, training time, Jacobian computation cost, and servo FPS.
+- FQI variant vs standard FQI: Add experiments that (a) hold the target Q fixed (no Eq. 5), (b) only fit the bias b, (c) only scale α, and (d) your full α,b step. Compare Bellman error trajectories, policy performance and stability across seeds, and sensitivity to ν. Discuss the interaction with L2 regularization, which breaks pure scale invariance in the objective even if the greedy policy is invariant.
+- On the scale-invariance claim: Provide a brief proof sketch that min_u Qθ,b(s,u) is invariant to α≥0 and b, and clarify when this fails (e.g., when constraints on u, saturation, or additional regularizers are present).
+- Modified VGG: Validate the choice to remove pooling and use dilation. Compare dynamics prediction error and downstream servo performance versus using the unmodified VGG features at matched spatial resolutions.
+- Broader evaluation: Add at least one standard benchmark (e.g., widely used simulated navigation/servo environments) and, ideally, a small real-robot study to demonstrate robustness to real imaging artifacts. Report generalization across targets and scenes, and sensitivity to occlusions and lighting shifts.
+- Cost and supervision: While using ground-truth pose only for costs is practical in sim, please discuss how costs/rewards would be obtained on real systems and whether learned/estimated pose or image-based surrogate rewards suffice.
+- Analysis of learned weights: Visualize the per-channel weights across layers/scales to show what the agent selects. Do these correlate with objectness or mid-level semantics?
+- Safety/stability: Provide conditions ensuring the Q-induced quadratic objective remains convex in u (constraints on λ and Jacobian norms), and any safeguards against large control outputs.
+
+Questions for the authors
+- Can you provide a direct empirical comparison between your FQI with α,b optimization (Eq. 5–6) and a standard fitted Q-iteration that holds the target Q fixed? How do convergence speed, final performance, and variance across runs differ?
+- For semantic features: can you implement scalable approximations to fully connected/convolutional bilinear dynamics (e.g., low-rank or separable kernels) to quantify the claimed advantage of locally connected models?
+- Does the modified VGG consistently improve either prediction error or control performance over the original VGG features at the same downsampled resolution? Please include quantitative results.
+- How sensitive is performance to the choice of receptive field size nf in the locally connected operator, and to the number of scales used?
+- How do results change when the per-channel weights are learned with an iterative approach that holds the second term in Eq. 5 fixed (target network constant), and what is the sample-efficiency trade-off?
+- What happens when the discount γ, the L2 penalty ν, or the non-negativity constraint on θ are varied? Do negative weights ever help or harm?
+- Could the same framework be used with self-supervised video features trained for temporal coherence or tracking, potentially reducing reliance on ImageNet pretraining?

@@ -1,0 +1,49 @@
+Summary
+The paper introduces “on-the-job learning,” a decision-theoretic framework that produces high-quality predictions from the outset by issuing selective, asynchronous queries to crowd workers at test time while concurrently training a model from the noisy responses. The problem is formalized as a stochastic game between the system and the crowd. The system repeatedly chooses among actions: query a position, wait for a response, or return a prediction. Utilities trade off expected predictive accuracy against monetary query cost and latency. The environment comprises (i) a structured prediction model pθ(y|x) (e.g., a linear-chain CRF), (ii) a fixed-accuracy response model pR(r|yq), and (iii) a response-time model pT. Because exact planning is intractable, the paper proposes an approximate planner based on Monte Carlo Tree Search with UCT and progressive widening to handle continuous time. The system (LENSE) is evaluated on NER, sentiment, and image classification; it reportedly achieves higher accuracy at lower cost than human-only and machine-only baselines, and reduces cost over time as the model improves.
+
+Relation to prior work
+The paper sits at the intersection of online learning, active learning, crowdsourcing control (e.g., TurKontrol/POMDP approaches), test-time active classification/feature acquisition, and structured prediction. Relative to Legion:AR, it provides a formal Bayesian decision-theoretic model and a general-purpose planner applicable to structured outputs. Compared to active classification and budgeted feature acquisition, the novelty is integrating crowd responses (noisy, delayed) as test-time “features” with continuous-time decision-making. The use of MCTS with progressive widening for VOI-style planning under latency seems new in this specific context. The related work section is generally good, though some closely related budgeted/VOI planning and dynamic feature acquisition works could be discussed in more detail.
+
+Strengths
+- Clear, principled formulation: casting the problem as a stochastic game with a utility that jointly values accuracy, cost, and latency is appealing and yields intuitive policies (redundant queries for robustness; parallelization vs adaptivity).
+- Methodological contribution: MCTS with progressive widening to handle continuous-time stochastic responses is a sensible and scalable planning heuristic.
+- Structured prediction focus: conditioning on crowd responses via a CRF posterior is a natural way to leverage correlations among labels.
+- Practicality: retainer pool setup and real-time response times are realistic; the paper targets a real need—obtaining high accuracy before any fully trained system exists.
+- Empirical evidence: consistent cost reductions at comparable accuracy; LENSE outperforms simple baselines and adapts over time.
+
+Weaknesses and concerns
+- Noise model oversimplification: pR(r|yq)=0.7 uniformly is a strong assumption. It ignores worker heterogeneity, instance difficulty, and correlation among workers. In practice, modeling worker reliabilities (per-worker or hierarchical), instance difficulty, or even a learned confusion matrix is important for calibrated decision-making. This limitation may bias VOI estimates and query redundancy decisions.
+- Training/inference details are under-specified: The paper states that pθ is “learned based on all actual responses using AdaGrad,” but does not clarify how the CRF is trained from noisy labels (e.g., EM/marginalization over latent y given pR, or treating responses as soft evidence via additional potentials). Reproducibility and correctness hinge on this.
+- Objective mismatch: The planning utility uses ExpAcc of the MAP under p(y|·). For sequence labeling, evaluation is by F1, not sequence 0–1 accuracy. The paper does not explain how the planner’s objective relates to the reported F1; using token accuracy as a surrogate is reasonable but should be justified and its impact quantified.
+- Evaluation protocol: To “control worker quality,” experiments sample responses and delays from a frozen pool of five pre-collected responses per item. This turns the end-to-end system into an offline simulation, potentially distorting the effects of concurrency, worker availability, and long-tail noise. Sampling without replacement risks artificial constraints (e.g., a hard limit of five redundant queries) and dependency across methods. A live A/B evaluation, or at least a larger replay buffer with replacement and per-worker modeling, would strengthen claims.
+- Baselines may be weak or mismatched: The “online learning” baseline uses gold labels, which is not available in the target setting; it is a helpful upper bound but not a realistic alternative. The threshold baseline is fairly ad hoc. Missing are stronger myopic VOI baselines (e.g., greedy marginal VOI or adaptive submodular policies under noisy observations), and test-time feature acquisition methods with learned static policies. Comparisons to TurKontrol-like POMDP controllers on similar tasks would be instructive.
+- Computational overhead and scalability: The paper lacks a discussion of planning latency, number of simulations, UCT constants, rollout policies, and how these scale with sequence length n and number of concurrent queries. Since the system operates in real-time, planning cost is critical.
+- Utility hyperparameters: How wM and wT are set and their sensitivity is not clearly documented; more robust analysis across a range of budgets/latency penalties would improve the practical guidance.
+- Modeling limitation: The prohibition on launching new queries while “waiting” simplifies search but can hurt responsiveness; the impact of this constraint should be quantified.
+
+Questions for the authors
+- How exactly is the CRF trained from noisy, partial responses? Do you marginalize over latent y using pR, or treat responses as hard/soft labels?
+- What is the exact accuracy functional in ExpAcc during planning for NER (token accuracy, sequence accuracy)? How sensitive are results to this choice?
+- How were pT and pR calibrated? Are they learned from held-out response/time data per task, and do you re-estimate over time?
+- What are the MCTS budget (simulations per decision), UCT constants, and rollout policy? What is the average planning time per action?
+- Can you report live end-to-end experiments without the frozen replay pool? If not, can you increase the pool size and sample with replacement to reduce artifacts?
+
+Suggestions for improvement
+- Incorporate richer noise models: per-worker reliabilities, instance difficulty, or confusion matrices learned online; compare to TurKontrol-style models.
+- Provide ablations: MCTS vs greedy myopic VOI; parallel-only vs sequential-only querying; with/without progressive widening.
+- Report planning latency and sensitivity to wM, wT; show Pareto frontiers (accuracy vs cost vs latency).
+- Align the planning objective more closely with the evaluation metric (e.g., expected token F1 approximations) or justify the surrogate with empirical correlation.
+- Include at least a subset of fully live experiments.
+
+Pros
+- Principled formulation; practical value; novel use of MCTS for crowd-in-the-loop structured prediction.
+- Demonstrates meaningful cost reductions at comparable accuracy.
+- Open-source release and attempt at reproducibility.
+
+Cons
+- Simplistic noise model; unclear training details; simulated evaluation with a small frozen pool.
+- Limited baselines and missing analysis of planning overhead and utility sensitivity.
+- Objective/evaluation mismatch not addressed.
+
+Recommendation
+Weak accept. The problem is important, the formulation is compelling, and the method is likely to influence future work on real-time, crowd-in-the-loop ML. However, to be fully convincing, the paper should clarify training details, strengthen baselines and evaluation, and provide more thorough analysis of modeling and computational choices.

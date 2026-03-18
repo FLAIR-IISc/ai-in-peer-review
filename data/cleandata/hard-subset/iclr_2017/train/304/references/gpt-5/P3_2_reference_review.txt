@@ -1,0 +1,53 @@
+Summary
+- Problem and claim: The paper argues that explicit recursion is the key abstraction for neural program induction to generalize beyond training distributions, and that incorporating recursion enables provable guarantees. Concretely, the authors show how to train recursive variants of NPI by modifying execution traces to include self-calls. They demonstrate on four tasks (grade-school addition, bubble sort, topological sort, quicksort) that recursive NPI programs generalize to much larger inputs than seen in training, often achieving 100% accuracy, and propose a verification procedure that, given coverage of base cases and reduction rules, yields “provably perfect generalization” by checking a finite set of step input-output configurations.
+
+Decision: Reject
+Key reasons:
+1) The core “recursion enables provable perfect generalization” claim rests on strong task-specific engineering (custom domain encoders, primitive operations, and fully supervised recursive traces) and, for several tasks, incomplete formal verification (coverage of V constructed via random generation). As such, the provability and generality claims are overstated.
+2) Methodological novelty is limited: NPI already supports a call stack; the contribution is mainly to provide recursive supervision and a conformance-testing procedure. The paper does not address discovering recursion from weaker supervision nor demonstrate applicability beyond NPI-like settings.
+
+Supporting arguments
+- Motivation and placement: The paper correctly identifies a key failure mode of non-recursive neural program learners—spurious dependencies, especially length—and motivates recursion as a principled remedy. This is well grounded in programming language theory and resonates with NPI’s call-stack semantics. However, related work is underdeveloped: there is little discussion of differentiable stacks/call stacks (e.g., stack-augmented RNNs), differentiable interpreters, or recent neural algorithmic reasoning. The claim of being “the first to enable provable guarantees for neural programs” ignores a growing body of neural network verification, and prior work on program synthesis with formal specs, even if in different settings.
+
+- Methodology:
+  - The main technical step is to rewrite training traces to be recursive. The architecture already supports recursion; there is no new mechanism to induce or discover recursion. This makes the learning problem substantially easier but weakens the generality of the claim.
+  - The verification approach amounts to exhaustive conformance testing over a finite set V of step input sequences. This is sensible if V is proven complete and closed under the transition relation induced by the reference semantics, but:
+    - For several tasks (topological sort, quicksort), V is not analytically derived; instead, the authors generate random inputs until they “cover” V. This is not a proof of completeness and undermines the provability claim.
+    - The construction of V depends critically on the domain-specific encoder and the chosen primitive actions. The paper sometimes modifies the encoder to make verification tractable (e.g., bubble sort compares booleans rather than exposing values), which changes the task and complicates fair comparison to non-recursive baselines.
+    - The proof obligation implicitly assumes that the observation vector fully determines the correct next action and that all reachable internal hidden states within a call are captured by V. While the reset of the LSTM state at each call helps, within-call hidden state remains and could, in principle, encode spurious dependencies; the paper does not formalize boundedness of within-call execution nor provide completeness proofs for V except in addition.
+
+- Empirical evaluation:
+  - Training uses very small numbers of traces but with full execution supervision and engineered encoders/DSLs, making the tasks close to deterministic interpreters rather than neural discovery of algorithms.
+  - The improvements are compelling in the reported settings (e.g., perfect generalization for recursive variants), but test sizes per length are small (30 samples), and confidence intervals are not provided. Depth/stack usage and failure analysis (termination errors via return probability) are not discussed.
+  - Comparisons to non-recursive baselines are potentially unfair where the encoder differs (bubble sort verification variant), and ablations are missing (e.g., recursion without state reset; impact of tail recursion vs general recursion; effect of trace length).
+
+- Scope and claims:
+  - The paper itself acknowledges that the approach does not scale to tasks with very large/infinite base case spaces (e.g., perceptual inputs), which substantially limits the scope.
+  - The central claim of “provably perfect generalization” is conditional on (i) the exact DSL, (ii) the specific encoder, (iii) exact trace matching, and (iv) exhaustive coverage of V. Where V is not proven complete, the claim should be softened to “conformance to a finite test suite induced by the recursive structure.”
+
+Constructive feedback
+- Clarify and strengthen the verification story:
+  - Provide formal completeness proofs of V for at least one nontrivial task beyond addition (e.g., topological sort), or develop an automated procedure that constructs V from the reference semantics and proves closure.
+  - Report exact sizes of V and SV for each task, and show that SV is minimal or sufficient by construction rather than empirical coverage.
+  - Make explicit the assumptions under which step outputs are functionally determined by the observation vector, and bound the maximum steps per recursive call.
+
+- Fairness and ablations:
+  - Use the same encoder across non-recursive and recursive comparisons, or provide separate ablations quantifying the effect of encoder simplifications.
+  - Include ablations: recursive traces vs iterative traces with call-state reset; recursion discovery from non-recursive traces; impact of deeper/shallower LSTM; removal of hidden-state reset.
+
+- Broader applicability:
+  - Demonstrate the approach on another neural programming architecture (e.g., DNC/NTM) to support claims of generality.
+  - Explore partial supervision: can the model learn to insert recursive calls from non-recursive traces or I/O pairs?
+
+- Reproducibility:
+  - Release code and exact training/verification sets. Provide full hyperparameters and training curves, and report stack depth statistics and runtime/memory.
+
+Questions for the authors
+1) For topological sort and quicksort, how do you guarantee that the constructed V is complete? Can you prove that no additional observation transitions are reachable under the DSL and encoder?
+2) In bubble sort, how much of the generalization gain remains if you use the original encoder (with raw values) in both the recursive and non-recursive settings?
+3) Within a recursive call, what is the maximum number of steps, and can you bound it independent of input size for each task? Does the LSTM hidden state within a call influence decisions beyond the observation vector?
+4) How often do return-probability errors (premature/late returns) occur, and how does verification handle such deviations?
+5) Can your verification procedure detect spurious but unreachable behaviors? How do you ensure SV covers all reachable step input sequences without over- or under-approximation?
+6) Did you encounter stack overflows for deep recursion, and did you implement tail recursion optimization in practice? If so, how?
+
+Overall, the paper raises an important and well-motivated idea and shows promising evidence, but the current form overstates provability and generality, relies on heavy supervision/engineering, and lacks rigorous verification beyond the simplest task. Strengthening these aspects could make it a strong contribution.

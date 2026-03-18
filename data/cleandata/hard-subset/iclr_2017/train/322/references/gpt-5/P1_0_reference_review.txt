@@ -1,0 +1,62 @@
+Summary and contributions
+- Problem: Automatically choosing neural network size during a single training run rather than via expensive black-box hyperparameter search or post-hoc pruning.
+- Proposal: “Nonparametric neural networks” that dynamically add/remove units during training while optimizing weights. A unit-wise group Lp regularizer (fan-in or fan-out; focus on p=2, fan-in) induces exact zero fan-ins, enabling removal.
+- Theory: Proves that, with fan-in/out regularization (λ>0, 1≤p<∞) and mild conditions on activations and loss, the training objective attains a global minimum at some finite dimensionality (Theorem 1). Also shows a scaling result (Proposition 1) for self-similar activations (e.g., ReLU) equating layerwise λs with a single λ (up to rescaling).
+- Methods: Two practical ingredients to make growth/pruning work:
+  - CapNorm: a modified batch normalization that subtracts mean but only rescales if batch std>1, with no learned γ/β, to prevent neutralizing the regularizer by arbitrary rescalings.
+  - AdaRad: an optimizer that decomposes each fan-in gradient into parallel (radial) and orthogonal (angular) components; normalizes only the angular component and applies group shrinkage only in the radial direction. A momentum variant (AdaRad-M) is provided.
+- Empirics: MLPs on MNIST, rectangles-images, convex; large-scale poker dataset from OpenML. The method often converges to reasonable sizes; sometimes matches or beats parametric networks of the same size; on MNIST, nonparametric nets outperform same-size parametric nets; on rectangles-images, best nonparametric beats best parametric with fewer parameters; on convex, nonparametric underperforms. On poker, both parametric and nonparametric attain <1% error; one nonparametric run reports 0% test error.
+
+Decision: Reject (borderline)
+Key reasons
+- Empirical validation is limited and partly unconvincing: mostly small MLPs on classic benchmarks, with a notable failure on convex and a suspiciously strong poker result (0% test error).
+- Comparisons raise fairness and methodological questions (e.g., treatment of batch norm vs regularization; manual “representative” selection; sensitivity to many hyperparameters and schedules), making it hard to attribute gains to the proposed ingredients.
+
+Supporting arguments
+- Novelty and motivation: The framing of width as a nonparametric parameter, the existence proof of a finite minimizer under group regularization, and the optimizer design (radial/angular decomposition) are interesting and potentially impactful. The focus on unit-wise group sparsity (rather than weight sparsity) to maintain dense matrices is sensible given current hardware.
+- Soundness: Theorem 1 is technically substantial and, while complex, appears correct under the stated assumptions. It addresses a key conceptual concern (no incentive to grow unboundedly under the chosen regularization). CapNorm’s rationale (avoiding scale invariances that would negate the regularizer) is clear; Proposition 1 is neat and justifies using a single λ with self-similar activations.
+- Practicality: AdaRad is thoughtfully designed to allow new units to learn (normalize angular steps) while preserving the intended effect of shrinkage (do not normalize radial components). Complexity claims versus RMSprop are plausible (fan-in granularity reduces memory).
+- Weaknesses in validation:
+  - Scope: Only fully-connected nets with ReLU; no convolutional or modern tasks; no depth adaptation; no end-to-end comparisons on widely-used large-scale benchmarks.
+  - Poker result: A 0% test error on a 100k test set is extraordinary and warrants rigorous auditing (data leakage, preprocessing, splits, leakage through CapNorm statistics, or duplicate patterns). Without such checks, this result undermines confidence.
+  - Fairness: Parametric models use BN and λ=0 “because L2 is not compatible with BN” (this is not generally accepted; weight decay is commonly used with BN, even if its effect differs). Nonparametric models use CapNorm and group-l2. This mismatch confounds comparisons of “same-size” accuracy. Additionally, nonparametric runs set λ→0 late, further complicating fairness.
+  - Selection and tuning: “Typical representative” chosen manually from 10 seeds; extensive step-size annealing and rewinding; many hyperparameters (αr, αφ, ν, νfreq) and schedules. Ablations isolating the effect of AdaRad vs RMSprop/Adam, CapNorm vs BN, and unit addition/removal frequency are missing.
+  - Negative case: On convex, nonparametric models settle to small sizes and underperform substantially; the failure mode is acknowledged but not analyzed.
+
+Feedback to improve the paper (helpful, not all decision-critical)
+- Provide rigorous, reproducible comparisons:
+  - Use identical normalization for both methods where possible; or include CapNorm baselines for parametric nets, and BN-like layers for nonparametric with appropriate regularizer coupling (e.g., fixed γ/β).
+  - Include L2/weight decay with BN for parametric nets to reflect common practice; report sensitivity.
+  - Report wall-clock and memory vs RMSprop/Adam on matched hardware.
+- Add ablations:
+  - AdaRad vs SGD/momentum/RMSprop/Adam under CapNorm and the same regularizer. Show that radial/angular decomposition is essential for growth + pruning.
+  - CapNorm vs BN vs no normalization for nonparametric nets.
+  - Unit addition strategies (rate, schedule, initialization) and λ/αr sensitivity.
+  - Effect of turning off late-stage λ→0 annealing.
+- Clarify and strengthen the poker experiment:
+  - Describe data preprocessing, splits (train/val/test), shuffling, leakage checks, and whether duplicates exist across splits. Include a simple sanity check like training a model on permuted labels.
+  - If 0% test error is correct, analyze what makes the task separable and why linear models fail.
+- Extend scope:
+  - Demonstrate on convolutional architectures or at least modern MLP tasks (e.g., tabular benchmarks with standardized protocols).
+  - Explore depth adaptation or cite concrete steps toward it.
+- Theory and method clarity:
+  - Provide a concise intuition for why CapNorm filters the radial gradient component while std>1, or include a short derivation.
+  - Discuss relations to weight normalization, spherical optimization, or Riemannian updates on the unit sphere of fan-ins.
+  - Clean up references and formatting.
+
+Questions for the authors
+1) Poker dataset:
+- How were the train/validation/test splits created? Are there exact duplicate feature vectors across splits? Any preprocessing that could leak label information? How many errors do the best parametric models make under the same split?
+2) Fairness of comparisons:
+- Why exclude weight decay with BN for parametric nets? Can you report results with standard weight decay?
+- Can you provide a “CapNorm for parametric” baseline and a “BN for nonparametric” variant with a compatible regularizer to disentangle normalization effects?
+3) Ablations:
+- What happens if you replace AdaRad with RMSprop or Adam but keep CapNorm and the same group regularizer? Is AdaRad necessary?
+- Sensitivity to αr, αφ, ν, νfreq, and λ. Are results robust across seeds/hyperparameters?
+4) Practicality:
+- Wall-clock overhead of AdaRad vs RMSprop/Adam for typical widths, and the break-even regime.
+- How does the method scale in convolutional layers? Any preliminary results?
+5) Theory:
+- Does Theorem 1 extend to piecewise-linear but non-self-similar activations or to architectures with BN-like layers? Can you comment on generalization (as opposed to optimization) implications?
+
+Overall, this paper contains promising ideas and solid theoretical grounding, but the empirical evidence and experimental rigor are not yet at a level I would expect for acceptance.

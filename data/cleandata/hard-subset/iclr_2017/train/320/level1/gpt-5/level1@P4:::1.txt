@@ -1,0 +1,41 @@
+Summary of contributions
+- The paper proposes a visual servoing approach that operates in the space of learned deep features (from a pre-trained, lightly modified VGG-16), rather than pixels or hand-crafted keypoints. The core servo policy performs one-step lookahead in feature space and chooses controls that minimize the predicted feature error to a goal image.
+- A multiscale bilinear predictive model is learned to approximate feature dynamics under camera motion; a locally connected variant reduces parameters and yields efficient Jacobian computation needed by the controller.
+- To make the servo robust to distractors and select the most relevant feature channels and scales, the paper introduces a sample-efficient fitted Q-iteration (FQI) scheme with a linear Q-function whose greedy policy matches the weighted servo objective. This yields an analytic and efficient learning procedure for the feature weights and control regularizers.
+- Experiments on a synthetic quadcopter car-following benchmark show strong performance and robustness to viewpoint changes and occlusions, generalization to novel car instances, and large gains in sample efficiency over model-free deep RL (TRPO). Ablations compare feature layers, pixel vs. VGG features, different weighting/optimization schemes (FQI, TRPO, CEM), and classical IBVS baselines (ORB features and tracker-based).
+
+Decision: Accept
+Key reasons: (1) The approach is technically sound and well-motivated, combining pre-trained features, a simple yet effective bilinear feature dynamics, and a tailored FQI that tightly matches the servo objective; (2) Clear empirical gains with strong sample efficiency and ablations that support the claims.
+
+Supporting arguments
+- Problem and motivation: Visual servoing with hand-engineered features and interaction matrices is brittle and task-specific. Using pre-trained convolutional features to gain invariance while learning short-horizon predictive dynamics is well placed in the literature, and the bilinear assumption for feature-map evolution under camera motion is reasonable and computationally attractive.
+- Methodological clarity and soundness:
+  - The servo objective and its relation to a linear Q-function class are clearly specified; the greedy policy corresponds to minimizing a quadratic objective with closed-form or efficient solution due to exact linearization in controls (Appendix A).
+  - The bilinear locally connected dynamics and multiscale features are described with sufficient detail for reproduction; training is supervised with ADAM, and Jacobians are efficiently computed via forward passes.
+  - The FQI variant exploits scale invariance in θ and includes L2 regularization and non-negativity constraints, which improve stability. While no theoretical convergence guarantees are provided, the construction is standard within fitted Q-iteration and the linear approximator matches the control structure, reducing approximation error.
+- Empirical evaluation:
+  - The setup is rigorously described, with fixed train/validation/test splits, reporting over 100 test rollouts, and comparisons to multiple baselines. Code and environment are made available, improving reproducibility.
+  - The ablations convincingly show that mid-level VGG features (conv1_2–conv4_3) outperform pixels and conv5_3, that the learned weighting is crucial (FQI > TRPO/CEM with the same dynamics), and that the approach is more sample efficient than end-to-end policies trained with TRPO.
+  - Comparisons to classical IBVS (including tracker-based) are informative; the method runs substantially faster than tracker-based IBVS and is more robust than ORB-based IBVS. PBVS with ground-truth poses unsurprisingly performs best, serving as an upper bound.
+
+Additional feedback (to help improve the paper; not all points affect the recommendation)
+- Clarify the use of privileged information: the RL cost uses ground-truth 3D car positions to shape the cost and termination. This is fine for simulation but should be discussed as a limitation and avenues for image-based surrogate costs in real settings (e.g., learned pose estimators or detection-based costs).
+- Sample efficiency framing: the dynamics training uses 10k (100 trajectories) supervised transitions, and RL uses 20 trajectories. Please separate and report both budgets when comparing to model-free RL, and, if possible, provide a version where model-free RL gets the same total number of environment transitions.
+- Statistical reporting: include standard deviations or confidence intervals on average costs, and significance where applicable.
+- Generality: results are on a single synthetic domain. A small real-world validation (or sim-to-real sensitivity study) and/or a second task (e.g., following different object classes, manipulation-based servoing) would strengthen the case for generality.
+- Feature choices: provide more analysis on why conv5_3 underperforms (quantify spatial invariance loss) and the effect of dilated-conv modifications to VGG. A small study on fine-tuning the feature extractor (even shallow layers) could be informative.
+- Overfitting control: the number of trainable weights (w per channel and scale, λ per control) can be large. Discuss regularization (beyond L2), sparsity, or grouping strategies, and show weight distributions or stability across runs.
+- Failure modes: add qualitative examples of failures (e.g., heavy occlusions, rapid viewpoint changes, moving distractors of the same class), and quantify robustness thresholds.
+- Fairness in IBVS comparisons: you provide ground-truth depths and, in one variant, car dynamics to the IBVS baselines. Make explicit which variants are reported in main figures and ensure consistent resource assumptions.
+
+Questions for the authors
+1. Cost function: Does learning critically depend on access to ground-truth 3D positions to compute costs and early terminations? Have you tried purely image-based costs (e.g., bounding-box overlap to the goal image) and how does performance change?
+2. Data efficiency: How does performance vary with (a) fewer/more supervised dynamics samples, and (b) fewer/more RL sampling iterations S or inner FQI iterations K? Any signs of overfitting when increasing θ dimensionality?
+3. Dynamics model: How sensitive is the controller to model mismatch or larger control magnitudes that may violate the bilinear approximation? Do you re-linearize online or adapt the model?
+4. Feature weighting: What is the dimensionality of θ for the best setting (conv4_3) and how do learned weights distribute across layers/channels and scales? Are weights sparse or broadly distributed?
+5. Target specification: Beyond using the first-frame goal image, can the method follow a class exemplar unseen in the current scene? How does it disambiguate among multiple similar cars?
+6. Generalization: How well does the learned policy transfer across camera intrinsics (FOV), height ranges, or lighting conditions not seen in training?
+7. End-to-end learning: Did you attempt joint fine-tuning of the feature extractor with the dynamics and weights, perhaps with a small number of additional trajectories?
+8. Runtime: Please report wall-clock training time for dynamics and FQI, and inference FPS on CPU/GPU. Can a lighter backbone (e.g., MobileNet) maintain performance with higher FPS?
+
+Overall, the paper is clearly written, technically sound, and presents a novel and practical approach with convincing empirical support and open-source release.

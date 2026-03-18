@@ -1,0 +1,625 @@
+{
+  "name" : "42a0e188f5033bc65bf8d78622277c4e.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Parallel Direction Method of Multipliers",
+    "authors" : [ "Huahua Wang" ],
+    "emails" : [ "huwang@cs.umn.edu,", "banerjee@cs.umn.edu,", "luozq@umn.edu" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "In this paper, we consider the minimization of block-seperable convex functions subject to linear constraints, with a canonical form:\nmin {xj∈Xj} f(x) = J∑ j=1 fj(xj) , s.t. Ax = J∑ j=1 Acjxj = a , (1)\nwhere the objective function f(x) is a sum of J block separable (nonsmooth) convex functions, Acj ∈ Rm×nj is the j-th column block of A ∈ Rm×n where n = ∑ j nj , xj ∈ Rnj×1 is the j-th block coordinate of x, Xj is a local convex constraint of xj and a ∈ Rm×1. The canonical form can be extended to handle linear inequalities by introducing slack variables, i.e., writing Ax ≤ a as Ax + z = a, z ≥ 0. A variety of machine learning problems can be cast into the linearly-constrained optimization problem (1) [8, 4, 24, 5, 6, 21, 11]. For example, in robust Principal Component Analysis (RPCA) [5], one attempts to recover a low rank matrix L and a sparse matrix S from an observation matrix M, i.e., the linear constraint is M = L+S. Further, in the stable version of RPCA [29], an noisy matrix Z is taken into consideration, and the linear constraint has three blocks, i.e., M = L+S+Z. Problem (1) can also include composite minimization problems which solve a sum of a loss function and a set of nonsmooth regularization functions. Due to the increasing interest in structural sparsity [1], composite regularizers have become widely used, e.g., overlapping group lasso [28]. As the blocks are overlapping in this class of problems, it is difficult to apply block coordinate descent methods for large scale problems [16, 18] which assume block-separable. By simply splitting blocks and introducing equality constraints, the composite minimization problem can also formulated as (1) [2].\nA classical approach to solving (1) is to relax the linear constraints using the (augmented) Lagrangian, i.e.,\nLρ(x,y) = f(x) + 〈y,Ax− a〉+ ρ\n2 ‖Ax− a‖22 , (2)\nwhere ρ ≥ 0 is called the penalty parameter. We call x the primal variable and y the dual variable. (2) usually leads to primal-dual algorithms which update the primal and dual variables alternatively. While the dual update is simply dual gradient descent, the primal update is to solve a minimization problem of (2) given y. If ρ = 0, the primal update can be solved in a parallel block coordinate fashion [3, 19], leading to the dual ascent method. While the dual ascent method can achieve massive parallelism, a careful choice of stepsize and some strict conditions are required for convergence, particularly when f is nonsmooth. To achieve better numerical efficiency and convergence behavior compared to the dual ascent method, it is favorable to set ρ > 0 in the augmented Lagrangian (2) which we call the method of multipliers. However, (2) is no longer separable and solving entire augmented Lagrangian (2) exactly is computationally expensive. In [20], randomized block coordinate descent (RBCD) [16, 18] is used to solve (2) exactly, but leading to a double-loop algorithm along with the dual step. More recent results show (2) can be solved inexactly by just sweeping the coordinates once using the alternating direction method of multipliers (ADMM) [12, 2]. This paper attempts to develop a parallel randomized block coordinate variant of ADMM.\nWhen J = 2, ADMM has been widely used to solve the augmented Lagragian (2) in many applications [2]. Encouraged by the success of ADMM with two blocks, ADMM has also been extended to solve the problem with multiple blocks [15, 14, 10, 17, 13, 7]. The variants of ADMM can be mainly divided into two categories. The first category considers Gauss-Seidel ADMM (GSADMM) [15, 14], which solves (2) in a cyclic block coordinate manner. In [13], a back substitution step was added so that the convergence of ADMM for multiple blocks can be proved. In some cases, it has been shown that ADMM might not converge for multiple blocks [7]. In [14], a block successive upper bound minimization method of multipliers (BSUMM) is proposed to solve the problem (1). The convergence of BSUMM is established under some fairly strict conditions: (i) certain local error bounds hold; (ii) the step size is either sufficiently small or decreasing. However, in general, Gauss-Seidel ADMM with multiple blocks is not well understood and its iteration complexity is largely open. The second category considers Jacobian variants of ADMM [26, 10, 17], which solves (2) in a parallel block coordinate fashion. In [26, 17], (1) is solved by using two-block ADMM with splitting variables (sADMM). [10] considers a proximal Jacobian ADMM (PJADMM) by adding proximal terms. A randomized block coordinate variant of ADMM named RBSUMM was proposed in [14]. However, RBSUMM can only randomly update one block. Moreover, the convergence of RBSUMM is established under the same conditions as BSUMM and its iteration complexity is unknown.\nIn this paper, we propose a parallel randomized block coordinate method named parallel direction method of multipliers (PDMM) which randomly picks up any number of blocks to update in parallel, behaving like randomized block coordinate descent [16, 18]. Like the dual ascent method, PDMM solves the primal update in a parallel block coordinate fashion even with the augmentation term. Moreover, PDMM inherits the merits of the method of multipliers and can solve a fairly large class of problems, including nonsmooth functions. Technically, PDMM has three aspects which make it distinct from such state-of-the-art methods. First, if block coordinates of the primal x is solved exactly, PDMM uses a backward step on the dual update so that the dual variable makes conservative progress. Second, the sparsity of A and the number of randomized blocks are taken into consideration to determine the step size of the dual update. Third, PDMM can randomly update arbitrary number of primal blocks in parallel. Moreover, we show that sADMM and PJADMM are the two extreme cases of PDMM. The connection between sADMM and PJADMM through PDMM provides better understanding of dual backward step. PDMM can also be used to solve overlapping groups in a randomized block coordinate fashion. Interestingly, the corresponding problem for RBCD [16, 18] with overlapping blocks is still an open problem. We establish the global convergence and O(1/T ) iteration complexity of PDMM with constant step size. We evaluate the performance of PDMM in two applications: robust principal component analysis and overlapping group lasso.\nThe rest of the paper is organized as follows: We introduce PDMM in Section 2, and establish convergence results in Section 3. We evaluate the performance of PDMM in Section 4 and conclude in Section 5. The technical analysis and detailed proofs are provided in the supplement.\nNotations: Assume that A ∈ Rm×n is divided into I × J blocks. Let Ari ∈ Rmi×n be the i-th row block of A, Acj ∈ Rm×nj be the j-th column block of A, and Aij ∈ Rmi×nj be the ij-th block of A. Let yi ∈ Rmi×1 be the i-th block of y ∈ Rm×1. Let N (i) be a set of nonzero blocks Aij in the\ni-th row block Ari and di = |N (i)| be the number of nonzero blocks. Let K̃i = min{di,K} where K is the number of blocks randomly chosen by PDMM and T be the number of iterations."
+    }, {
+      "heading" : "2 Parallel Direction Method of Multipliers",
+      "text" : "Consider a direct Jacobi version of ADMM which updates all blocks in parallel:\nxt+1j = argminxj∈Xj Lρ(xj ,x t k 6=j ,y t) , (3)\nyt+1 = yt + τρ(Axt+1 − a) . (4)\nwhere τ is a shrinkage factor for the step size of the dual gradient ascent update. However, empirical results show that it is almost impossible to make the direct Jacobi updates (3)-(4) to converge even when τ is extremely small. [15, 10] also noticed that the direct Jacobi updates may not converge.\nTo address the problem in (3) and (4), we propose a backward step on the dual update. Moreover, instead of updating all blocks, the blocks xj will be updated in a parallel randomized block coordinate fashion. We call the algorithm Parallel Direction Method of Multipliers (PDMM). PDMM first randomly select K blocks denoted by set Jt at time t, then executes the following iterates:\nxt+1jt = argmin xjt∈Xjt Lρ(xjt ,x t k 6=jt , ŷ t) + ηjtBφjt (xjt ,x t jt) , jt ∈ Jt, (5)\nyt+1i = y t i + τiρ(Aix t+1 − ai) , (6) ŷt+1i = y t+1 i − νiρ(Aix t+1 − ai) , (7)\nwhere τi > 0, 0 ≤ νi < 1, ηjt ≥ 0, and Bφjt (xjt ,x t jt ) is a Bregman divergence. Note xt+1 = (xt+1Jt ,x t k/∈Jt) in (6) and (7). (6) and (7) update all dual blocks. We show that PDMM can also do randomized dual block coordinate ascent in an extended work [25]. Let K̃i = min{di,K}. τi and νi can take the following values:\nτi = K\nK̃i(2J −K) , νi = 1−\n1\nK̃i . (8)\nIn the xjt -update (5), a Bregman divergence is addded so that exact PDMM and its inexact variants can be analyzed in an unified framework [23, 11]. In particular, if ηjt = 0, (5) is an exact update. If ηjt > 0, by choosing a suitable Bregman divergence, (5) can be solved by various inexact updates, often yielding a closed-form for the xjt update (see Section 2.1).\nTo better understand PDMM, we discuss the following three aspects which play roles in choosing τi and νi: the dual backward step (7), the sparsity of A, and the choice of randomized blocks.\nDual Backward Step: We attribute the failure of the Jacobi updates (3)-(4) to the following observation in (3), which can be rewritten as:\nxt+1j = argminxj∈Xj fj(xj) + 〈y t + ρ(Axt − a),Acjxj〉+\nρ 2 ‖Acj(xj − xtj)‖22 . (9)\nIn the primal xj update, the quadratic penalty term implicitly adds full gradient ascent step to the dual variable, i.e., yt+ρ(Axt−a), which we call implicit dual ascent. The implicit dual ascent along with the explicit dual ascent (4) may lead to too aggressive progress on the dual variable, particularly when the number of blocks is large. Based on this observation, we introduce an intermediate variable ŷt to replace yt in (9) so that the implicit dual ascent in (9) makes conservative progress, e.g., ŷt + ρ(Axt − a) = yt + (1 − ν)ρ(Axt − a) , where 0 < ν < 1. ŷt is the result of a ‘backward step’ on the dual variable, i.e., ŷt = yt − νρ(Axt − a). Moreover, one can show that τ and ν have also been implicitly used when using two-block ADMM with splitting variables (sADMM) to solve (1) [17, 26]. Section 2.2 shows sADMM is a special case of PDMM. The connection helps in understanding the role of the two parameters τi, νi in PDMM. Interestingly, the step sizes τi and νi can be improved by considering the block sparsity of A and the number of random blocks K to be updated.\nSparsity of A: Assume A is divided into I × J blocks. While xj can be updated in parallel, the matrix multiplication Ax in the dual update (4) requires synchronization to gather messages from all block coordinates jt ∈ Jt. For updating the i-th block of the dual yi, we need Aixt+1 =∑ jt∈Jt Aijtx t+1 jt + ∑ k/∈Jt Aikx t k which aggregates “messages” from all xjt . If Aijt is a block of\nzeros, there is no “message” from xjt to yi. More precisely, Aix t+1 = ∑ jt∈Jt∩N (i) Aijtx t+1 jt\n+∑ k/∈Jt Aikx t k where N (i) denotes a set of nonzero blocks in the i-th row block Ai. N (i) can be considered as the set of neighbors of the i-th dual block yi and di = |N (i)| is the degree of the i-th dual block yi. If A is sparse, di could be far smaller than J . According to (8), a low di will lead to bigger step sizes τi for the dual update and smaller step sizes for the dual backward step (7). Further, as shown in Section 2.3, when using PDMM with all blocks to solve composite minimization with overlapping blocks, PDMM can use τi = 0.5 which is much larger than 1/J in sADMM.\nRandomized Blocks: The number of blocks to be randomly chosen also has the effect on τi, νi. If randomly choosing one block (K = 1), then νi = 0, τi = 12J−1 . The dual backward step (7) vanishes. As K increases, νi increases from 0 to 1 − 1di and τi increases from 1 2J−1 to 1 di\n. If updating all blocks (K = J), τi = 1di , νi = 1− 1 di .\nPDMM does not necessarily choose any K combination of J blocks. The J blocks can be randomly partitioned into J/K groups where each group has K blocks. Then PDMM randomly picks some groups. A simple way is to permutate the J blocks and choose K blocks cyclically."
+    }, {
+      "heading" : "2.1 Inexact PDMM",
+      "text" : "If ηjt > 0, there is an extra Bregman divergence term in (5), which can serve two purposes. First, choosing a suitable Bregman divergence can lead to an efficient solution for (5). Second, if ηjt is sufficiently large, the dual update can use a large step size (τi = 1) and the backward step (7) can be removed (νi = 0), leading to the same updates as PJADMM [10] (see Section 2.2).\nGiven a continuously differentiable and strictly convex function ψjt , its Bregman divergence is defiend as\nBψjt (xjt ,x t jt) = ψjt(xjt)− ψjt(x t jt)− 〈∇ψjt(x t jt),xjt − x t jt〉, (10)\nwhere∇ψjt denotes the gradient of ψjt . Rearranging the terms yields\nψjt(xjt)−Bψjt (xjt ,x t jt) = ψjt(x t jt) + 〈∇ψjt(x t jt),xjt − x t jt〉, (11)\nwhich is exactly the linearization of ψjt(xjt) at x t jt . Therefore, if solving (5) exactly becomes difficult due to some problematic terms, we can use the Bregman divergence to linearize these problematic terms so that (5) can be solved efficiently. More specifically, in (5), we can choose φjt = ϕjt − 1ηjt ψjt assuming ψjt is the problematic term. Using the linearity of Bregman diver-gence,\nBφjt (xjt ,x t jt) = Bϕjt (xjt ,x t jt)−\n1\nηjt Bψjt (xjt ,x\nt jt) . (12)\nFor instance, if fjt is a logistic function, solving (5) exactly requires an iterative algorithm. Setting ψjt = fjt , ϕjt = 1 2‖· ‖ 2 2 in (12) and plugging into (5) yield\nxt+1jt =argmin xjt∈Xjt 〈∇fjt(xtjt),xjt〉+〈ŷ t,Ajtxjt〉+\nρ 2 ‖Ajtxjt + ∑ k 6=jt Akx t k−a‖22+ηjt‖xjt−xtjt‖ 2 2 ,\nwhich has a closed-form solution. Similarly, if the quadratic penalty term ρ2‖A c jt xjt +∑\nk 6=jt A c kx t k − a‖22 is a problematic term, we can set ψjt(xjt) = ρ 2‖A c jt xjt‖22, then\nBψjt (xjt ,x t jt ) = ρ2‖A c jt (xjt − xtjt)‖ 2 2 can be used to linearize the quadratic penalty term.\nIn (12), the nonnegativeness of Bφjt implies that Bϕjt ≥ 1 ηjt Bψjt . This condition can be satisfied as long as ϕjt is more convex than ψjt . Technically, we assume that ϕjt is σ/ηjt -strongly convex and ψjt has Lipschitz continuous gradient with constant σ, which has been shown in [23]."
+    }, {
+      "heading" : "2.2 Connections to Related Work",
+      "text" : "Consider the case when all blocks are used in PDMM. There are also two other methods which update all blocks in parallel. If solving the primal updates exactly, two-block ADMM with splitting variables (sADMM) is considered in [17, 26]. We show that sADMM is a special case of PDMM when setting τi = 1J and νi = 1 − 1 J (Appendix B in [25]). If the primal updates are solved inexactly, [10] considers a proximal Jacobian ADMM (PJADMM) by adding proximal terms where\nthe converge rate is improved to o(1/T ) given the sufficiently large proximal terms. We show that PJADMM [10] is also a special case of PDMM (Appendix C in [25]). sADMM and PJADMM are two extreme cases of PDMM. The connection between sADMM and PJADMM through PDMM can provide better understanding of the three methods and the role of dual backward step. If the primal update is solved exactly which makes sufficient progress, the dual update should take small step, e.g., sADMM. On the other hand, if the primal update takes small progress by adding proximal terms, the dual update can take full gradient step, e.g. PJADMM. While sADMM is a direct derivation of ADMM, PJADMM introduces more terms and parameters.\nIn addition to PDMM, RBUSMM [14] can also randomly update one block. The convergence of RBSUMM requires certain local error bounds to be hold and decreasing step size. Moreover, the iteration complexity of RBSUMM is still unknown. In contast, PDMM converges at a rate of O(1/T ) with the constant step size."
+    }, {
+      "heading" : "2.3 Randomized Overlapping Block Coordinate Descent",
+      "text" : "Consider the composite minimization problem of a sum of a loss function `(w) and composite regularizers gj(wj):\nmin w `(w) + L∑ j=1 gj(wj) , (13)\nwhich considers L overlapping groups wj ∈ Rb×1. Let J = L + 1,xJ = w. For 1 ≤ j ≤ L, denote xj = wj , then xj = UTj xJ , where Uj ∈ Rb×L is the columns of an identity matrix and extracts the coordinates of xJ . Denote U = [U1, · · · ,UL] ∈ Rn×(bL) and A = [IbL,−UT ] where bL denotes b× L. By letting fj(xj) = gj(wj) and fJ(xJ) = `(w), (13) can be written as:\nmin x J∑ j=1 fj(xj) s.t. Ax = 0. (14)\nwhere x = [x1; · · · ;xL;xL+1] ∈ Rb×J . (14) can be solved by PDMM in a randomized block coordinate fashion. In A, for b rows block, there are only two nonzero blocks, i.e., di = 2. Therefore, τi = K2(2J−K) , νi = 0.5. In particular, if K = J , τi = νi = 0.5. In contrast, sADMM uses τi = 1/J 0.5, νi = 1− 1/J > 0.5 if J is larger. Remark 1 (a) ADMM [2] can solve (14) where the equality constraint is xj = UTj xJ .\n(b) In this setting, Gauss-Seidel ADMM (GSADMM) and BSUMM [14] are the same as ADMM. BSUMM should converge with constant stepsize ρ (not necessarily sufficiently small), although the theory of BSUMM does not include this special case."
+    }, {
+      "heading" : "3 Theoretical Results",
+      "text" : "We establish the convergence results for PDMM under fairly simple assumptions:\nAssumption 1\n(1) fj : Rnj 7→ R ∪ {+∞} are closed, proper, and convex. (2) A KKT point of the Lagrangian (ρ = 0 in (2)) of Problem (1) exists.\nAssumption 1 is the same as that required by ADMM [2, 22]. Assume that {x∗j ∈ Xj ,y∗i } satisfies the KKT conditions of the Lagrangian (ρ = 0 in (2)), i.e.,\n−ATj y∗ ∈ ∂fj(x∗j ) , (15) Ax∗ − a = 0. (16)\nDuring iterations, (16) is satisfied if Axt+1 = a. Let f ′j(x t+1 j ) ∈ ∂fj(x t+1 j ) where ∂fj be the subdifferential of fj . For x∗j ∈ Xj , the optimality conditions for the xj update (5) is\n〈f ′j(xt+1j )+A c j [y t+(1−ν)ρ(Axt−a)+Acj(xt+1j −x t j)]+ηj(∇φj(xt+1j )−∇φj(x t j)),x t+1 j −x ∗ j 〉≤0 .\nWhen Axt+1 = a, yt+1 = yt. If Acj(x t+1 j − xtj) = 0, then Axt − a = 0. When ηj ≥ 0, further assuming Bφj (x t+1 j ,x t j) = 0, (15) will be satisfied. Note x ∗ j ∈ Xj is always satisfied in (5) in\nPDMM. Overall, the KKT conditions (15)-(16) are satisfied if the following optimality conditions are satisfied by the iterates:\nAxt+1 = a ,Acj(x t+1 j − x t j) = 0 , (17)\nBφj (x t+1 j ,x t j) = 0 . (18)\nThe above optimality conditions are sufficient for the KKT conditions. (17) are the optimality conditions for the exact PDMM. (18) is needed only when ηj > 0.\nLet zij = Aijxj ∈ Rmi×1, zri = [zTi1, · · · , zTiJ ]T ∈ RmiJ×1 and z = [(zr1)T , · · · , (zrI)T ]T ∈ RJm×1. Define the residual of optimality conditions (17)-(18) as\nR(xt+1) = ρ\n2 ‖zt+1 − zt‖2Pt +\nρ\n2 I∑ i=1 βi‖Arixt+1 − ai‖22 + J∑ j=1 ηjBφj (x t+1 j ,x t j) . (19)\nwhere Pt is some positive semi-definite matrix and βi = KJK̃i . If R(x t+1) → 0, (17)-(18) will be satisfied and thus PDMM converges to the KKT point {x∗,y∗}. Define the current iterate vt = (xtj ,y t i) and h(v ∗,vt) as a distance from vt to a KKT point v∗ = (x∗j ∈ Xj ,y∗i ):\nh(v∗,vt) = K\nJ I∑ i=1 1 2τiρ ‖y∗i − yt−1i ‖ 2 2 + L̃ρ(xt,yt) + ρ 2 ‖z∗ − zt‖2Q + J∑ j=1 ηjBφj (x ∗ j ,x t j) , (20)\nwhere Q is a positive semi-definite matrix and L̃ρ(xt,yt) with γi = 2(J−K)K̃i(2J−K) + 1 di − K JK̃i is\nL̃ρ(xt,yt) = f(xt)− f(x∗) + I∑ i=1 { 〈yti ,Arixt − ai〉+ (γi − τi)ρ 2 ‖Arixt − ai‖22 } . (21)\nThe following Lemma shows that h(v∗,vt) ≥ 0.\nLemma 1 Let vt = (xtj ,yti) be generated by PDMM (5)-(7) and h(v∗,vt) be defined in (20). Setting νi = 1− 1K̃i and τi = K K̃i(2J−K) , we have\nh(v∗,vt) ≥ ρ 2 I∑ i=1 ζi‖Arixt − ai‖22 + ρ 2 ‖z∗ − zt‖2Q + J∑ j=1 ηjBφj (x ∗ j ,x t j) ≥ 0 . (22)\nwhere ζi = J−KK̃i(2J−K) + 1 di − K JK̃i ≥ 0. Moreover, if h(v∗,vt) = 0, then Arixt = ai, zt = z∗ and Bφj (x ∗ j ,x t j) = 0. Thus, (15)-(16) are satisfied.\nIn PDMM, yt+1 depends on xt+1, which in turn depends on Jt. xt and yt are independent of Jt. xt depends on the observed realizations of the random variable ξt−1 = {J1, · · · , Jt−1} .The following theorem shows that h(v∗,vt) decreases monotonically and thus establishes the global convergence of PDMM.\nTheorem 1 (Global Convergence) Let vt = (xtj ,yti) be generated by PDMM (5)-(7) and v∗ = (x∗j ∈ Xj ,y∗i ) be a KKT point satisfying (15)-(16). Setting νi = 1 − 1K̃i and τi = K K̃i(2J−K)\n, we have\n0 ≤ Eξth(v∗,vt+1) ≤ Eξt−1h(v∗,vt) , EξtR(xt+1)→ 0 . (23)\nThe following theorem establishes the iteration complexity of PDMM in an ergodic sense.\nTheorem 2 (Iteration Complexity) Let (xtj ,yti) be generated by PDMM (5)-(7). Let x̄T =∑T t=1 x t. Setting νi = 1− 1K̃i and τi = K K̃i(2J−K) , we have\nEf(x̄T )− f(x∗) ≤ J K\n{∑I i=1 1 2βiρ ‖y∗i ‖22 + L̃ρ(x1,y1) + ρ 2‖z ∗ − z1‖2Q + ∑J j=1 ηjBφj (x ∗ j ,x 1 j ) }\nT ,\nE I∑ i=1 βi‖Ari x̄T − ai‖22 ≤ 2 ρh(v ∗,v0) T .\nwhere βi = KJK̃i , Q is a positive semi-definite matrix, and the expectation is over Jt.\nRemark 2 PDMM converges at the same rate as ADMM and its variants. In Theorem 2, PDMM can achieve the fastest convergence by setting J = K = 1, τi = 1, νi = 0, i.e., the entire matrix A is considered as a single block, indicating PDMM reduces to the method of multipliers. In this case, however, the resulting subproblem may be difficult to solve, as discussed in Section 1. Therefore, the number of blocks in PDMM depends on the trade-off between the number of subproblems and how efficiently each subproblem can be solved."
+    }, {
+      "heading" : "4 Experimental Results",
+      "text" : "In this section, we evaluate the performance of PDMM in solving robust principal component analysis (RPCA) and overlapping group lasso [28]. We compared PDMM with ADMM [2] or GSADMM (no theory guarantee), sADMM [17, 26], and RBSUMM [14]. Note GSADMM includes BSUMM [14]. All experiments are implemented in Matlab and run sequentially. We run the experiments 10 times and report the average results. The stopping criterion is either when the residual is smaller than 10−4 or when the number of iterations exceeds 2000.\nRPCA: RPCA is used to obtain a low rank and sparse decomposition of a given matrix A corrupted by noise [5, 17]:\nmin 1\n2 ‖X1‖2F + γ2‖X2‖1 + γ3‖X3‖∗ s.t. A = X1 + X2 + X3 . (24)\nwhere A ∈ Rm×n, X1 is a noise matrix, X2 is a sparse matrix and X3 is a low rank matrix. A = L + S + V is generated in the same way as [17]1. In this experiment, m = 1000, n = 5000 and the rank is 100. The number appended to PDMM denotes the number of blocks (K) to be chosen in PDMM, e.g., PDMM1 randomly updates one block.\nFigure 1 compares the convegence results of PDMM with ADMM methods. In PDMM, ρ = 1 and τi, νi are chosen according to (8), i.e., (τi, νi) = {( 15 , 0), ( 1 4 , 1 2 ), ( 1 3 , 1 3 )} for PDMM1, PDMM2 and PDMM3 respectively. We choose the ‘best’results for GSADMM (ρ = 1) and RBSUMM (ρ = 1, α = ρ 11√\nt+10 ) and sADMM (ρ = 1). PDMMs perform better than RBSUMM and sADMM.\nNote the public available code of sADMM1 does not have dual update, i.e., τi = 0. sADMM should be the same as PDMM3 if τi = 13 . Since τi = 0, sADMM is the slowest algorithm. Without tuning the parameters of PDMM, GSADMM converges faster than PDMM. Note PDMM can run in parallel but GSADMM only runs sequentially. PDMM3 is faster than two randomized version of PDMM since the costs of extra iterations in PDMM1 and PDMM2 have surpassed the savings at each iteration. For the two randomized one block coordinate methods, PDMM1 converges faster than RBSUMM in terms of both the number of iterations and runtime.\nThe effect of τi, νi: We tuned the parameter τi, νi in PDMMs. Three randomized methods (RBSUMM, PDMM1 and PDMM2) choose the blocks cyclically instead of randomly. Table 1 compares the ‘best’results of PDMM with other ADMM methods. In PDMM, (τi, νi) =\n1http://www.stanford.edu/ boyd/papers/prox algs/matrix decomp.html\n{( 12 , 0), ( 1 3 , 1 2 ), ( 1 2 , 1 2 )}. GSADMM converges with the smallest number of iterations, but PDMMs can converge faster than GSADMM in terms of runtime. The computation per iteration in GSADMM is slightly higher than PDMM3 because GSADMM updates the sum X1 +X2 +X3 but PDMM3 can reuse the sum. Therefore, if the numbers of iterations of the two methods are close, PDMM3 can be faster than GSADMM. PDMM1 and PDMM2 can be faster than PDMM3. By simply updating one block, PDMM1 is the fastest algorithm and achieves the lowest residual.\nOverlapping Group Lasso: We consider solving the overlapping group lasso problem [28]:\nmin w\n1\n2Lλ ‖Aw − b‖22 + ∑ g∈G dg‖wg‖2 . (25)\nwhere A ∈ Rm×n,w ∈ Rn×1 and wg ∈ Rb×1 is the vector of overlapping group indexed by g. dg is some positive weight of group g ∈ G. As shown in Section 2.3, (25) can be rewritten as the form (14). The data is generated in a same way as [27, 9]: the elements of A are sampled from normal distribution, b = Ax + with noise sampled from normal distribution, and xj = (−1)j exp(−(j − 1)/100). In this experiment, m = 5000, the number of groups is L = 100, and dg = 1 L , λ = L 5 in (25). The size of each group is 100 and the overlap is 10. The total number of blocks in PDMM and sADMM is J = 101. τi, νi in PDMM are computed according to (8).\nIn Figure 2, the first two figures plot the convergence of objective in terms of the number of iterations and time. PDMM uses all 101 blocks and is the fastest algorithm. ADMM is the same as GSADMM in this problem, but is slower than PDMM. Since sADMM does not consider the sparsity, it uses τi = 1 J+1 , νi = 1− 1 J+1 , leading to slow convergence. The two accelerated methods, PA-APG [27] and S-APG [9], are slower than PDMM and ADMM.\nThe effect of K: The third figure shows PDMM with different number of blocks K. Although the complexity of each iteration is the lowest when K = 1, PDMM takes much more iterations than other cases and thus takes the longest time. As K increases, PDMM converges faster and faster. When K = 20, the runtime is already same as using all blocks. When K > 21, PDMM takes less time to converge than using all blocks. The runtime of PDMM decreases as K increases from 21 to 61. However, the speedup from 61 to 81 is negligable. We tried different set of parameters for RBSUMM ρ i\n2+1 i+t (0 ≤ i ≤ 5, ρ = 0.01, 0.1, 1) or sufficiently small step size, but could not see the\nconvergence of the objective within 5000 iterations. Therefore, the results are not included here."
+    }, {
+      "heading" : "5 Conclusions",
+      "text" : "We proposed a randomized block coordinate variant of ADMM named Parallel Direction Method of Multipliers (PDMM) to solve the class of problem of minimizing block-separable convex functions subject to linear constraints. PDMM considers the sparsity and the number of blocks to be updated when setting the step size. We show two existing Jacobian ADMM methods are special cases of PDMM. We also use PDMM to solve overlapping block problems. The global convergence and the iteration complexity are established with constant step size. Experiments on robust PCA and overlapping group lasso show that PDMM is faster than existing methods."
+    }, {
+      "heading" : "Acknowledgment",
+      "text" : "H. W. and A. B. acknowledge the support of NSF via IIS-1447566, IIS-1422557, CCF-1451986, CNS-1314560, IIS-0953274, IIS-1029711, IIS-0916750, and NASA grant NNX12AQ39A. H. W. acknowledges the support of DDF (2013-2014) from the University of Minnesota. A.B. acknowledges support from IBM and Yahoo. Z.Q. Luo is supported in part by the US AFOSR via grant number FA9550-12-1-0340 and the National Science Foundation via grant number DMS-1015346."
+    } ],
+    "references" : [ {
+      "title" : "Convex Optimization with Sparsity-Inducing Norms",
+      "author" : [ "F. Bach", "R. Jenatton", "J. Mairal", "G. Obozinski" ],
+      "venue" : "S. Sra, S. Nowozin, S. J. Wright., editors, Optimization for Machine Learning, MIT Press",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "E",
+      "author" : [ "S. Boyd" ],
+      "venue" : "Chu N. Parikh, B. Peleato, and J. Eckstein. Distributed optimization and statistical learning via the alternating direction method of multipliers. Foundation and Trends Machine Learning, 3(1):1–122",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Convex Optimization",
+      "author" : [ "S. Boyd", "L. Vandenberghe" ],
+      "venue" : "Cambridge University Press",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : null,
+      "year" : 2004
+    }, {
+      "title" : "A constrained `1 minimization approach to sparse precision matrix estimation",
+      "author" : [ "T. Cai", "W. Liu", "X. Luo" ],
+      "venue" : "Journal of American Statistical Association, 106:594–607",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Robust principal component analysis ",
+      "author" : [ "E.J. Candes", "X. Li", "Y. Ma", "J. Wright" ],
+      "venue" : "Journal of the ACM, 58:1–37",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Latent variable graphical model selection via convex optimization",
+      "author" : [ "V. Chandrasekaran", "P.A. Parrilo", "A.S. Willsky" ],
+      "venue" : "Annals of Statistics, 40:1935–1967",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "The direct extension of ADMM for multi-block convex minimization problems is not necessarily convergent",
+      "author" : [ "C. Chen", "B. He", "Y. Ye", "X. Yuan" ],
+      "venue" : "Preprint",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Atomic decomposition by basis pursuit",
+      "author" : [ "S. Chen", "D.L. Donoho", "M.A. Saunders" ],
+      "venue" : "SIAM review, 43:129–159",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : null,
+      "year" : 2001
+    }, {
+      "title" : "Smoothing proximal gradient method for general structured sparse regression",
+      "author" : [ "X. Chen", "Q. Lin", "S. Kim", "J.G. Carbonell", "E.P. Xing" ],
+      "venue" : "The Annals of Applied Statistics, 6:719752",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Parallel multi-block admm with o(1/k) convergence",
+      "author" : [ "W. Deng", "M. Lai", "Z. Peng", "W. Yin" ],
+      "venue" : "ArXiv",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Bethe-ADMM for tree decomposition based parallel MAP inference",
+      "author" : [ "Q. Fu", "H. Wang", "A. Banerjee" ],
+      "venue" : "UAI",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "A dual algorithm for the solution of nonlinear variational problems via finiteelement approximations",
+      "author" : [ "D. Gabay", "B. Mercier" ],
+      "venue" : "Computers and Mathematics with Applications, 2:17–40",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : null,
+      "year" : 1976
+    }, {
+      "title" : "Alternating direction method with Gaussian back substitution for separable convex programming",
+      "author" : [ "B. He", "M. Tao", "X. Yuan" ],
+      "venue" : "SIAM Journal of Optimization, pages 313–340",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "A block successive upper bound minimization method of multipliers for linearly constrained convex optimization",
+      "author" : [ "M. Hong", "T. Chang", "X. Wang", "M. Razaviyayn", "S. Ma", "Z. Luo" ],
+      "venue" : "Preprint",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "On the linear convergence of the alternating direction method of multipliers",
+      "author" : [ "M. Hong", "Z. Luo" ],
+      "venue" : "ArXiv",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Efficiency of coordinate descent methods on huge-scale optimization methods",
+      "author" : [ "Y. Nesterov" ],
+      "venue" : "SIAM Journal on Optimization, 22(2):341362",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Proximal algorithms",
+      "author" : [ "N. Parikh", "S. Boyd" ],
+      "venue" : "Foundations and Trends in Optimization, 1:123–231",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Iteration complexity of randomized block-coordinate descent methods for minimizing a composite function",
+      "author" : [ "P. Richtarik", "M. Takac" ],
+      "venue" : "Mathematical Programming",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Minimization Methods for Non-Differentiable Functions",
+      "author" : [ "N.Z. Shor" ],
+      "venue" : "Springer-Verlag",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : null,
+      "year" : 1985
+    }, {
+      "title" : "Separable approximations and decomposition methods for the augmented lagrangian",
+      "author" : [ "R. Tappenden", "P. Richtarik", "B. Buke" ],
+      "venue" : "Preprint",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Graphical models",
+      "author" : [ "M.J. Wainwright", "M.I. Jordan" ],
+      "venue" : "exponential families, and variational inference. Foundations and Trends in Machine Learning, 1:1–305",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : null,
+      "year" : 2008
+    }, {
+      "title" : "Online alternating direction method",
+      "author" : [ "H. Wang", "A. Banerjee" ],
+      "venue" : "ICML",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Bregman alternating direction method of multipliers",
+      "author" : [ "H. Wang", "A. Banerjee" ],
+      "venue" : "NIPS",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Large scale distributed sparse precesion estimation",
+      "author" : [ "H. Wang", "A. Banerjee", "C. Hsieh", "P. Ravikumar", "I. Dhillon" ],
+      "venue" : "NIPS",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Parallel direction method of multipliers",
+      "author" : [ "H. Wang", "A. Banerjee", "Z. Luo" ],
+      "venue" : "ArXiv",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Solving multiple-block separable convex minimization problems using two-block alternating direction method of multipliers",
+      "author" : [ "X. Wang", "M. Hong", "S. Ma", "Z. Luo" ],
+      "venue" : "Preprint",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Better approximation and faster algorithm using the proximal average",
+      "author" : [ "Y. Yu" ],
+      "venue" : "NIPS",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "The composite absolute penalties family for grouped and hierarchical variable selection",
+      "author" : [ "P. Zhao", "G. Rocha", "B. Yu" ],
+      "venue" : "Annals of Statistics, 37:34683497",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : null,
+      "year" : 2009
+    }, {
+      "title" : "Stable principal component pursuit",
+      "author" : [ "Z. Zhou", "X. Li", "J. Wright", "E. Candes", "Y. Ma" ],
+      "venue" : "IEEE International Symposium on Information Theory",
+      "citeRegEx" : "29",
+      "shortCiteRegEx" : null,
+      "year" : 2010
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 7,
+      "context" : "A variety of machine learning problems can be cast into the linearly-constrained optimization problem (1) [8, 4, 24, 5, 6, 21, 11].",
+      "startOffset" : 106,
+      "endOffset" : 130
+    }, {
+      "referenceID" : 3,
+      "context" : "A variety of machine learning problems can be cast into the linearly-constrained optimization problem (1) [8, 4, 24, 5, 6, 21, 11].",
+      "startOffset" : 106,
+      "endOffset" : 130
+    }, {
+      "referenceID" : 23,
+      "context" : "A variety of machine learning problems can be cast into the linearly-constrained optimization problem (1) [8, 4, 24, 5, 6, 21, 11].",
+      "startOffset" : 106,
+      "endOffset" : 130
+    }, {
+      "referenceID" : 4,
+      "context" : "A variety of machine learning problems can be cast into the linearly-constrained optimization problem (1) [8, 4, 24, 5, 6, 21, 11].",
+      "startOffset" : 106,
+      "endOffset" : 130
+    }, {
+      "referenceID" : 5,
+      "context" : "A variety of machine learning problems can be cast into the linearly-constrained optimization problem (1) [8, 4, 24, 5, 6, 21, 11].",
+      "startOffset" : 106,
+      "endOffset" : 130
+    }, {
+      "referenceID" : 20,
+      "context" : "A variety of machine learning problems can be cast into the linearly-constrained optimization problem (1) [8, 4, 24, 5, 6, 21, 11].",
+      "startOffset" : 106,
+      "endOffset" : 130
+    }, {
+      "referenceID" : 10,
+      "context" : "A variety of machine learning problems can be cast into the linearly-constrained optimization problem (1) [8, 4, 24, 5, 6, 21, 11].",
+      "startOffset" : 106,
+      "endOffset" : 130
+    }, {
+      "referenceID" : 4,
+      "context" : "For example, in robust Principal Component Analysis (RPCA) [5], one attempts to recover a low rank matrix L and a sparse matrix S from an observation matrix M, i.",
+      "startOffset" : 59,
+      "endOffset" : 62
+    }, {
+      "referenceID" : 28,
+      "context" : "Further, in the stable version of RPCA [29], an noisy matrix Z is taken into consideration, and the linear constraint has three blocks, i.",
+      "startOffset" : 39,
+      "endOffset" : 43
+    }, {
+      "referenceID" : 0,
+      "context" : "Due to the increasing interest in structural sparsity [1], composite regularizers have become widely used, e.",
+      "startOffset" : 54,
+      "endOffset" : 57
+    }, {
+      "referenceID" : 15,
+      "context" : "As the blocks are overlapping in this class of problems, it is difficult to apply block coordinate descent methods for large scale problems [16, 18] which assume block-separable.",
+      "startOffset" : 140,
+      "endOffset" : 148
+    }, {
+      "referenceID" : 17,
+      "context" : "As the blocks are overlapping in this class of problems, it is difficult to apply block coordinate descent methods for large scale problems [16, 18] which assume block-separable.",
+      "startOffset" : 140,
+      "endOffset" : 148
+    }, {
+      "referenceID" : 1,
+      "context" : "By simply splitting blocks and introducing equality constraints, the composite minimization problem can also formulated as (1) [2].",
+      "startOffset" : 127,
+      "endOffset" : 130
+    }, {
+      "referenceID" : 2,
+      "context" : "If ρ = 0, the primal update can be solved in a parallel block coordinate fashion [3, 19], leading to the dual ascent method.",
+      "startOffset" : 81,
+      "endOffset" : 88
+    }, {
+      "referenceID" : 18,
+      "context" : "If ρ = 0, the primal update can be solved in a parallel block coordinate fashion [3, 19], leading to the dual ascent method.",
+      "startOffset" : 81,
+      "endOffset" : 88
+    }, {
+      "referenceID" : 19,
+      "context" : "In [20], randomized block coordinate descent (RBCD) [16, 18] is used to solve (2) exactly, but leading to a double-loop algorithm along with the dual step.",
+      "startOffset" : 3,
+      "endOffset" : 7
+    }, {
+      "referenceID" : 15,
+      "context" : "In [20], randomized block coordinate descent (RBCD) [16, 18] is used to solve (2) exactly, but leading to a double-loop algorithm along with the dual step.",
+      "startOffset" : 52,
+      "endOffset" : 60
+    }, {
+      "referenceID" : 17,
+      "context" : "In [20], randomized block coordinate descent (RBCD) [16, 18] is used to solve (2) exactly, but leading to a double-loop algorithm along with the dual step.",
+      "startOffset" : 52,
+      "endOffset" : 60
+    }, {
+      "referenceID" : 11,
+      "context" : "More recent results show (2) can be solved inexactly by just sweeping the coordinates once using the alternating direction method of multipliers (ADMM) [12, 2].",
+      "startOffset" : 152,
+      "endOffset" : 159
+    }, {
+      "referenceID" : 1,
+      "context" : "More recent results show (2) can be solved inexactly by just sweeping the coordinates once using the alternating direction method of multipliers (ADMM) [12, 2].",
+      "startOffset" : 152,
+      "endOffset" : 159
+    }, {
+      "referenceID" : 1,
+      "context" : "When J = 2, ADMM has been widely used to solve the augmented Lagragian (2) in many applications [2].",
+      "startOffset" : 96,
+      "endOffset" : 99
+    }, {
+      "referenceID" : 14,
+      "context" : "Encouraged by the success of ADMM with two blocks, ADMM has also been extended to solve the problem with multiple blocks [15, 14, 10, 17, 13, 7].",
+      "startOffset" : 121,
+      "endOffset" : 144
+    }, {
+      "referenceID" : 13,
+      "context" : "Encouraged by the success of ADMM with two blocks, ADMM has also been extended to solve the problem with multiple blocks [15, 14, 10, 17, 13, 7].",
+      "startOffset" : 121,
+      "endOffset" : 144
+    }, {
+      "referenceID" : 9,
+      "context" : "Encouraged by the success of ADMM with two blocks, ADMM has also been extended to solve the problem with multiple blocks [15, 14, 10, 17, 13, 7].",
+      "startOffset" : 121,
+      "endOffset" : 144
+    }, {
+      "referenceID" : 16,
+      "context" : "Encouraged by the success of ADMM with two blocks, ADMM has also been extended to solve the problem with multiple blocks [15, 14, 10, 17, 13, 7].",
+      "startOffset" : 121,
+      "endOffset" : 144
+    }, {
+      "referenceID" : 12,
+      "context" : "Encouraged by the success of ADMM with two blocks, ADMM has also been extended to solve the problem with multiple blocks [15, 14, 10, 17, 13, 7].",
+      "startOffset" : 121,
+      "endOffset" : 144
+    }, {
+      "referenceID" : 6,
+      "context" : "Encouraged by the success of ADMM with two blocks, ADMM has also been extended to solve the problem with multiple blocks [15, 14, 10, 17, 13, 7].",
+      "startOffset" : 121,
+      "endOffset" : 144
+    }, {
+      "referenceID" : 14,
+      "context" : "The first category considers Gauss-Seidel ADMM (GSADMM) [15, 14], which solves (2) in a cyclic block coordinate manner.",
+      "startOffset" : 56,
+      "endOffset" : 64
+    }, {
+      "referenceID" : 13,
+      "context" : "The first category considers Gauss-Seidel ADMM (GSADMM) [15, 14], which solves (2) in a cyclic block coordinate manner.",
+      "startOffset" : 56,
+      "endOffset" : 64
+    }, {
+      "referenceID" : 12,
+      "context" : "In [13], a back substitution step was added so that the convergence of ADMM for multiple blocks can be proved.",
+      "startOffset" : 3,
+      "endOffset" : 7
+    }, {
+      "referenceID" : 6,
+      "context" : "In some cases, it has been shown that ADMM might not converge for multiple blocks [7].",
+      "startOffset" : 82,
+      "endOffset" : 85
+    }, {
+      "referenceID" : 13,
+      "context" : "In [14], a block successive upper bound minimization method of multipliers (BSUMM) is proposed to solve the problem (1).",
+      "startOffset" : 3,
+      "endOffset" : 7
+    }, {
+      "referenceID" : 25,
+      "context" : "The second category considers Jacobian variants of ADMM [26, 10, 17], which solves (2) in a parallel block coordinate fashion.",
+      "startOffset" : 56,
+      "endOffset" : 68
+    }, {
+      "referenceID" : 9,
+      "context" : "The second category considers Jacobian variants of ADMM [26, 10, 17], which solves (2) in a parallel block coordinate fashion.",
+      "startOffset" : 56,
+      "endOffset" : 68
+    }, {
+      "referenceID" : 16,
+      "context" : "The second category considers Jacobian variants of ADMM [26, 10, 17], which solves (2) in a parallel block coordinate fashion.",
+      "startOffset" : 56,
+      "endOffset" : 68
+    }, {
+      "referenceID" : 25,
+      "context" : "In [26, 17], (1) is solved by using two-block ADMM with splitting variables (sADMM).",
+      "startOffset" : 3,
+      "endOffset" : 11
+    }, {
+      "referenceID" : 16,
+      "context" : "In [26, 17], (1) is solved by using two-block ADMM with splitting variables (sADMM).",
+      "startOffset" : 3,
+      "endOffset" : 11
+    }, {
+      "referenceID" : 9,
+      "context" : "[10] considers a proximal Jacobian ADMM (PJADMM) by adding proximal terms.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 13,
+      "context" : "A randomized block coordinate variant of ADMM named RBSUMM was proposed in [14].",
+      "startOffset" : 75,
+      "endOffset" : 79
+    }, {
+      "referenceID" : 15,
+      "context" : "In this paper, we propose a parallel randomized block coordinate method named parallel direction method of multipliers (PDMM) which randomly picks up any number of blocks to update in parallel, behaving like randomized block coordinate descent [16, 18].",
+      "startOffset" : 244,
+      "endOffset" : 252
+    }, {
+      "referenceID" : 17,
+      "context" : "In this paper, we propose a parallel randomized block coordinate method named parallel direction method of multipliers (PDMM) which randomly picks up any number of blocks to update in parallel, behaving like randomized block coordinate descent [16, 18].",
+      "startOffset" : 244,
+      "endOffset" : 252
+    }, {
+      "referenceID" : 15,
+      "context" : "Interestingly, the corresponding problem for RBCD [16, 18] with overlapping blocks is still an open problem.",
+      "startOffset" : 50,
+      "endOffset" : 58
+    }, {
+      "referenceID" : 17,
+      "context" : "Interestingly, the corresponding problem for RBCD [16, 18] with overlapping blocks is still an open problem.",
+      "startOffset" : 50,
+      "endOffset" : 58
+    }, {
+      "referenceID" : 14,
+      "context" : "[15, 10] also noticed that the direct Jacobi updates may not converge.",
+      "startOffset" : 0,
+      "endOffset" : 8
+    }, {
+      "referenceID" : 9,
+      "context" : "[15, 10] also noticed that the direct Jacobi updates may not converge.",
+      "startOffset" : 0,
+      "endOffset" : 8
+    }, {
+      "referenceID" : 24,
+      "context" : "We show that PDMM can also do randomized dual block coordinate ascent in an extended work [25].",
+      "startOffset" : 90,
+      "endOffset" : 94
+    }, {
+      "referenceID" : 22,
+      "context" : "In the xjt -update (5), a Bregman divergence is addded so that exact PDMM and its inexact variants can be analyzed in an unified framework [23, 11].",
+      "startOffset" : 139,
+      "endOffset" : 147
+    }, {
+      "referenceID" : 10,
+      "context" : "In the xjt -update (5), a Bregman divergence is addded so that exact PDMM and its inexact variants can be analyzed in an unified framework [23, 11].",
+      "startOffset" : 139,
+      "endOffset" : 147
+    }, {
+      "referenceID" : 16,
+      "context" : "Moreover, one can show that τ and ν have also been implicitly used when using two-block ADMM with splitting variables (sADMM) to solve (1) [17, 26].",
+      "startOffset" : 139,
+      "endOffset" : 147
+    }, {
+      "referenceID" : 25,
+      "context" : "Moreover, one can show that τ and ν have also been implicitly used when using two-block ADMM with splitting variables (sADMM) to solve (1) [17, 26].",
+      "startOffset" : 139,
+      "endOffset" : 147
+    }, {
+      "referenceID" : 9,
+      "context" : "Second, if ηjt is sufficiently large, the dual update can use a large step size (τi = 1) and the backward step (7) can be removed (νi = 0), leading to the same updates as PJADMM [10] (see Section 2.",
+      "startOffset" : 178,
+      "endOffset" : 182
+    }, {
+      "referenceID" : 22,
+      "context" : "Technically, we assume that φjt is σ/ηjt -strongly convex and ψjt has Lipschitz continuous gradient with constant σ, which has been shown in [23].",
+      "startOffset" : 141,
+      "endOffset" : 145
+    }, {
+      "referenceID" : 16,
+      "context" : "If solving the primal updates exactly, two-block ADMM with splitting variables (sADMM) is considered in [17, 26].",
+      "startOffset" : 104,
+      "endOffset" : 112
+    }, {
+      "referenceID" : 25,
+      "context" : "If solving the primal updates exactly, two-block ADMM with splitting variables (sADMM) is considered in [17, 26].",
+      "startOffset" : 104,
+      "endOffset" : 112
+    }, {
+      "referenceID" : 24,
+      "context" : "We show that sADMM is a special case of PDMM when setting τi = 1 J and νi = 1 − 1 J (Appendix B in [25]).",
+      "startOffset" : 99,
+      "endOffset" : 103
+    }, {
+      "referenceID" : 9,
+      "context" : "If the primal updates are solved inexactly, [10] considers a proximal Jacobian ADMM (PJADMM) by adding proximal terms where",
+      "startOffset" : 44,
+      "endOffset" : 48
+    }, {
+      "referenceID" : 9,
+      "context" : "We show that PJADMM [10] is also a special case of PDMM (Appendix C in [25]).",
+      "startOffset" : 20,
+      "endOffset" : 24
+    }, {
+      "referenceID" : 24,
+      "context" : "We show that PJADMM [10] is also a special case of PDMM (Appendix C in [25]).",
+      "startOffset" : 71,
+      "endOffset" : 75
+    }, {
+      "referenceID" : 13,
+      "context" : "In addition to PDMM, RBUSMM [14] can also randomly update one block.",
+      "startOffset" : 28,
+      "endOffset" : 32
+    }, {
+      "referenceID" : 1,
+      "context" : "Remark 1 (a) ADMM [2] can solve (14) where the equality constraint is xj = Uj xJ .",
+      "startOffset" : 18,
+      "endOffset" : 21
+    }, {
+      "referenceID" : 13,
+      "context" : "(b) In this setting, Gauss-Seidel ADMM (GSADMM) and BSUMM [14] are the same as ADMM.",
+      "startOffset" : 58,
+      "endOffset" : 62
+    }, {
+      "referenceID" : 1,
+      "context" : "Assumption 1 is the same as that required by ADMM [2, 22].",
+      "startOffset" : 50,
+      "endOffset" : 57
+    }, {
+      "referenceID" : 21,
+      "context" : "Assumption 1 is the same as that required by ADMM [2, 22].",
+      "startOffset" : 50,
+      "endOffset" : 57
+    }, {
+      "referenceID" : 27,
+      "context" : "In this section, we evaluate the performance of PDMM in solving robust principal component analysis (RPCA) and overlapping group lasso [28].",
+      "startOffset" : 135,
+      "endOffset" : 139
+    }, {
+      "referenceID" : 1,
+      "context" : "We compared PDMM with ADMM [2] or GSADMM (no theory guarantee), sADMM [17, 26], and RBSUMM [14].",
+      "startOffset" : 27,
+      "endOffset" : 30
+    }, {
+      "referenceID" : 16,
+      "context" : "We compared PDMM with ADMM [2] or GSADMM (no theory guarantee), sADMM [17, 26], and RBSUMM [14].",
+      "startOffset" : 70,
+      "endOffset" : 78
+    }, {
+      "referenceID" : 25,
+      "context" : "We compared PDMM with ADMM [2] or GSADMM (no theory guarantee), sADMM [17, 26], and RBSUMM [14].",
+      "startOffset" : 70,
+      "endOffset" : 78
+    }, {
+      "referenceID" : 13,
+      "context" : "We compared PDMM with ADMM [2] or GSADMM (no theory guarantee), sADMM [17, 26], and RBSUMM [14].",
+      "startOffset" : 91,
+      "endOffset" : 95
+    }, {
+      "referenceID" : 4,
+      "context" : "RPCA: RPCA is used to obtain a low rank and sparse decomposition of a given matrix A corrupted by noise [5, 17]:",
+      "startOffset" : 104,
+      "endOffset" : 111
+    }, {
+      "referenceID" : 16,
+      "context" : "RPCA: RPCA is used to obtain a low rank and sparse decomposition of a given matrix A corrupted by noise [5, 17]:",
+      "startOffset" : 104,
+      "endOffset" : 111
+    }, {
+      "referenceID" : 16,
+      "context" : "A = L + S + V is generated in the same way as [17]1.",
+      "startOffset" : 46,
+      "endOffset" : 50
+    }, {
+      "referenceID" : 27,
+      "context" : "Overlapping Group Lasso: We consider solving the overlapping group lasso problem [28]:",
+      "startOffset" : 81,
+      "endOffset" : 85
+    }, {
+      "referenceID" : 26,
+      "context" : "The data is generated in a same way as [27, 9]: the elements of A are sampled from normal distribution, b = Ax + with noise sampled from normal distribution, and xj = (−1) exp(−(j − 1)/100).",
+      "startOffset" : 39,
+      "endOffset" : 46
+    }, {
+      "referenceID" : 8,
+      "context" : "The data is generated in a same way as [27, 9]: the elements of A are sampled from normal distribution, b = Ax + with noise sampled from normal distribution, and xj = (−1) exp(−(j − 1)/100).",
+      "startOffset" : 39,
+      "endOffset" : 46
+    }, {
+      "referenceID" : 26,
+      "context" : "The two accelerated methods, PA-APG [27] and S-APG [9], are slower than PDMM and ADMM.",
+      "startOffset" : 36,
+      "endOffset" : 40
+    }, {
+      "referenceID" : 8,
+      "context" : "The two accelerated methods, PA-APG [27] and S-APG [9], are slower than PDMM and ADMM.",
+      "startOffset" : 51,
+      "endOffset" : 54
+    } ],
+    "year" : 2014,
+    "abstractText" : "We consider the problem of minimizing block-separable (non-smooth) convex functions subject to linear constraints. While the Alternating Direction Method of Multipliers (ADMM) for two-block linear constraints has been intensively studied both theoretically and empirically, in spite of some preliminary work, effective generalizations of ADMM to multiple blocks is still unclear. In this paper, we propose a parallel randomized block coordinate method named Parallel Direction Method of Multipliers (PDMM) to solve optimization problems with multi-block linear constraints. At each iteration, PDMM randomly updates some blocks in parallel, behaving like parallel randomized block coordinate descent. We establish the global convergence and the iteration complexity for PDMM with constant step size. We also show that PDMM can do randomized block coordinate descent on overlapping blocks. Experimental results show that PDMM performs better than state-of-the-arts methods in two applications, robust principal component analysis and overlapping group lasso.",
+    "creator" : null
+  }
+}

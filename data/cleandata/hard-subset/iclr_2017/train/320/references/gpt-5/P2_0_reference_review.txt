@@ -1,0 +1,41 @@
+Summary and claimed contributions
+- Problem: Learn sample-efficient visual servoing for target following, without hand-designed features or calibrated models.
+- Approach: Combine (i) off-the-shelf pre-trained CNN features (modified VGG-16 layers), (ii) a learned bilinear predictive model of feature dynamics that is linear in control, and (iii) a fitted Q-iteration (FQI) procedure that learns nonnegative weights over multi-scale, multi-channel features and control penalties. The servo policy is a simple one-step lookahead that minimizes a weighted L2 distance between predicted features and a goal.
+- Key technical elements: locally connected bilinear dynamics per feature channel; an analytic Q-function approximator linear in the feature weights so that the greedy policy equals the servo objective; a stabilization step that jointly fits a scaling α and bias b for both current and target Q-functions to accelerate FQI.
+- Empirical results: In a CitySim3D quadcopter-following-car benchmark, the method learns effective policies using only 20 trajectories for RL (100 steps each), with dynamics trained from 10k transitions. It outperforms unweighted policies, CEM- or TRPO-tuned weightings, classical IBVS with ORB points, and an end-to-end CNN policy trained with TRPO, and generalizes to novel car instances. Code, simulator, and videos are provided.
+
+Decision: Accept
+Key reasons:
+1) Strong, well-motivated idea with a clean formulation that ties model-based prediction, pre-trained features, and FQI into a coherent, computationally efficient servoing framework.
+2) Convincing empirical evidence of large sample-efficiency gains and performance improvements over reasonable baselines and ablations, with careful analysis of feature layers and weighting methods.
+
+Supporting arguments
+- On the question addressed: The paper directly targets a long-standing bottleneck in visual servoing—reliance on hand-crafted features/Jacobians and sample-hungry model-free RL—by asking if pre-trained features plus lightweight learned dynamics can yield robust, quickly adaptable servoing.
+- Motivation and placement: The related work is well covered, spanning classical IBVS/PBVS, photometric servoing, learning-based servoing, video prediction, and deep RL. The rationale for using pre-trained features (robust invariances without task-specific massive data) and a bilinear dynamics model (adequate for short-horizon camera-induced feature motion; linear in control enabling efficient optimization) is clear. The need to learn feature importance is well argued, and the FQI-based weighting is novel and well matched to the policy structure.
+- Correctness and rigor:
+  - Formulation: The policy is the argmin of a quadratic in u, enabled by linear-in-control dynamics; the Q-approximation is linear in weights to ensure policy consistency. The optimization details (exact linearization due to bilinearity; Jacobian computation by forward pass) are sound.
+  - RL algorithm: The FQI objective and the use of fixed target Q are standard; the α,b “policy-independent” scaling step is a plausible stabilization trick and is justified by the invariance of the greedy action to scaling and bias.
+  - Experimental design: Ablations across VGG layers (conv1_2 to conv5_3) and pixel intensities; comparison of weighting methods (no weighting + CEM for λ, TRPO for weights, proposed FQI); comparison to classical IBVS (ORB; tracker-based with C-COT; with depth and dynamics where applicable); to end-to-end CNN+TRPO from pixels/VGG features. Train/validation/test splits are described; test uses 100 held-out trajectories with fixed seeds; both seen and novel cars tested. Metrics (sum of per-step costs tied to camera-frame target position) match the task objective. Runtime analysis is provided.
+  - Claims vs results: The paper credibly supports (i) sample efficiency (20 RL trajectories vs >200k samples for TRPO), (ii) performance improvements (especially with conv4_3 features), and (iii) robustness relative to pixel-based servoing and keypoint IBVS. The observation that very deep features (conv5_3) become too spatially invariant for precise servo is consistent and insightful.
+
+Limitations and concerns (do not block acceptance)
+- Simulation only: No real-robot evidence; sim-to-real transfer and sensing noise/latency are untested. Nonetheless, the method’s reliance on pre-trained features and simple dynamics is promising for transfer.
+- Privileged cost signal during RL: The cost uses ground-truth car pose in the camera frame (Appendix B). While this is only for training and not needed at test time, in real-world deployments obtaining such supervision may be nontrivial. Discussion of practical reward design without privileged state would strengthen the story.
+- Baseline tuning: TRPO policies are trained with a specific architecture and batch sizes. While results are plausible, more extensive hyperparameter sweeps or reporting sensitivity would reinforce claims of superiority. Similarly, only VGG features are explored; ResNet or lighter backbones could affect speed/performance trade-offs.
+- Scope: The approach optimizes weights for a fixed one-step servo objective; it may struggle if longer-horizon, non-myopic behavior or complex occlusion dynamics are essential. The paper partially counters this by showing policy-level performance via FQI, but multi-step model usage is minimal.
+
+Suggestions for improvement
+- Provide an experiment with a non-privileged, image-derived reward (e.g., goal-image feature distances or learned reward) to demonstrate feasibility without ground-truth pose.
+- Add robustness tests: stronger occlusions, lighting changes, camera tilt errors, or dynamics/model mismatch; quantify failure rates and recoveries.
+- Evaluate alternative backbones (e.g., ResNet-18/34) for speed, and quantify runtime bottlenecks; include per-component timing.
+- Consider uncertainty-aware dynamics (e.g., ensembles) to handle prediction errors, or brief multi-step MPC with the learned dynamics.
+- Clarify how to select which VGG layers to use in practice and whether a small learned projector improves spatial specificity.
+- Report success metrics (e.g., time in FOV, distance-to-target thresholds) in addition to cumulative cost.
+
+Questions for the authors
+1) How would you design the cost/reward in real-world settings without access to ground-truth target pose? Can your FQI weighting be learned from purely image-based signals or sparse human feedback?
+2) How sensitive is performance to layer choice and number of scales? Could an automatic selection/regularization (e.g., group sparsity over channels/scales) further improve sample efficiency?
+3) How does the bilinear dynamics handle moving distractors quantitatively? Do you have experiments where the target stops/turns abruptly or where multiple similar cars are present?
+4) What is the performance impact of dynamics model error? Did you compare against a naive “identity” dynamics (no prediction) or a simple optical-flow-based predictor?
+5) Can the method generalize to other tasks (e.g., object reaching/IBVS variants) with minimal re-training, and what data would be needed to adapt the dynamics?
+6) How stable is FQI across random seeds and different ν regularization? Any observed failure modes (e.g., collapsing weights to few channels)?

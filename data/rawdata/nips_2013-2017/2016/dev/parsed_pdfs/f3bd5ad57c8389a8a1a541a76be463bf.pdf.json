@@ -1,0 +1,304 @@
+{
+  "name" : "f3bd5ad57c8389a8a1a541a76be463bf.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Depth from a Single Image by Harmonizing Overcomplete Local Network Predictions",
+    "authors" : [ "Ayan Chakrabarti", "Jingyu Shao" ],
+    "emails" : [ "ayanc@ttic.edu", "shaojy15@ucla.edu", "gregory@ttic.edu" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "In this paper, we consider the task of monocular depth estimation—i.e., recovering scene depth from a single color image. Knowledge of a scene’s three-dimensional (3D) geometry can be useful in reasoning about its composition, and therefore measurements from depth sensors are often used to augment image data for inference in many vision, robotics, and graphics tasks. However, the human visual system can clearly form at least an approximate estimate of depth in the absence of stereo and parallax cues—e.g., from two-dimensional photographs—and it is desirable to replicate this ability computationally. Depth information inferred from monocular images can serve as a useful proxy when explicit depth measurements are unavailable, and be used to refine these measurements where they are noisy or ambiguous.\nThe 3D co-ordinates of a surface imaged by a perspective camera are physically ambiguous along a ray passing through the camera center. However, a natural image often contains multiple cues that can indicate aspects of the scene’s underlying geometry. For example, the projected scale of a familiar object of known size indicates how far it is; foreshortening of regular textures provide information about surface orientation; gradients due to shading indicate both orientation and curvature; strong edges and corners can correspond to convex or concave depth boundaries; and occluding contours or the relative position of key landmarks can be used to deduce the coarse geometry of an object or the whole scene. While a given image may be rich in such geometric cues, it is important to note that these cues are present in different image regions, and each indicates a different aspect of 3D structure.\nWe propose a neural network-based approach to monocular depth estimation that explicitly leverages this intuition. Prior neural methods have largely sought to directly regress to depth [1, 2]—with some additionally making predictions about smoothness across adjacent regions [4], or predicting relative\n∗Part of this work was done while JS was a visiting student at TTI-Chicago.\n30th Conference on Neural Information Processing Systems (NIPS 2016), Barcelona, Spain.\ndepth ordering between pairs of image points [7]. In contrast, we train a neural network with a rich distributional output space. Our network characterizes various aspects of the local geometric structure by predicting values of a number of derivatives of the depth map—at various scales, orientations, and of different orders (including the 0th derivative, i.e., the depth itself)—at every image location.\nHowever, as mentioned above, we expect different image regions to contain cues informative towards different aspects of surface depth. Therefore, instead of over-committing to a single value, our network outputs parameterized distributions for each derivative, allowing it to effectively characterize the ambiguity in its predictions. The full output of our network is then this set of multiple distributions at each location, characterizing coefficients in effectively an overcomplete representation of the depth map. To recover the depth map itself, we employ an efficient globalization procedure to find the single consistent depth map that best agrees with this set of local distributions.\nWe evaluate our approach on the NYUv2 depth data set [11], and find that it achieves state-of-the-art performance. Beyond the benefits to the monocular depth estimation task itself, the success of our approach suggests that our network can serve as a useful way to incorporate monocular cues in more general depth estimation settings—e.g., when sparse or noisy depth measurements are available. Since the output of our network is distributional, it can be easily combined with partial depth cues from other sources within a common globalization framework. Moreover, we expect our general approach—of learning to predict distributions in an overcomplete respresentation followed by globalization—to be useful broadly in tasks that involve recovering other kinds of scene value maps that have rich structure, such as optical or scene flow, surface reflectances, illumination environments, etc."
+    }, {
+      "heading" : "2 Related Work",
+      "text" : "Interest in monocular depth estimation dates back to the early days of computer vision, with methods that reasoned about geometry from cues such as diffuse shading [12], or contours [13, 14]. However, the last decade has seen accelerated progress on this task [1–10], largely owing to the availability of cheap consumer depth sensors, and consequently, large amounts of depth data for training learningbased methods. Most recent methods are based on training neural networks to map RGB images to geometry [1–7]. Eigen et al. [1, 2] set up their network to regress directly to per-pixel depth values, although they provide deeper supervision to their network by requiring an intermediate layer\nto explicitly output a coarse depth map. Other methods [3, 4] use conditional random fields (CRFs) to smooth their neural estimates. Moreover, the network in [4] also learns to predict one aspect of depth structure, in the form of the CRF’s pairwise potentials.\nSome methods are trained to exploit other individual aspects of geometric structure. Wang et al. [6] train a neural network to output surface normals instead of depth (Eigen et al. [1] do so as well, for a network separately trained for this task). In a novel approach, Zoran et al. [7] were able to train a network to predict the relative depth ordering between pairs of points in the image—whether one surface is behind, in front of, or at the same depth as the other. However, their globalization scheme to combine these outputs was able to achieve limited accuracy at estimating actual depth, due to the limited information carried by ordinal pair-wise predictions.\nIn contrast, our network learns to reason about a more diverse set of structural relationships, by predicting a large number of coefficients at each location. Note that some prior methods [3, 5] also regress to coefficients in some basis instead of to depth values directly. However, their motivation for this is to reduce the complexity of the output space, and use basis sets that have much lower dimensionality than the depth map itself. Our approach is different—our predictions are distributions over coefficients in an overcomplete representation, motivated by the expectation that our network will be able to precisely characterize only a small subset of the total coefficients in our representation.\nOur overall approach is similar to, and indeed motivated by, the recent work of Chakrabarti et al. [15], who proposed estimating a scene map (they considered disparity estimation from stereo images) by first using local predictors to produce distributional outputs from many overlapping regions at multiple scales, followed by a globalization step to harmonize these outputs. However, in addition to the fact that we use a neural network to carry out local inference, our approach is different in that inference is not based on imposing a restrictive model (such as planarity) on our local outputs. Instead, we produce independent local distributions for various derivatives of the depth map. Consequently, our globalization method need not explicitly reason about which local predictions are “outliers” with respect to such a model. Moreover, since our coefficients can be related to the global depth map through convolutions, we are able to use Fourier-domain computations for efficient inference."
+    }, {
+      "heading" : "3 Proposed Approach",
+      "text" : "We formulate our problem as that of estimating a scene map y(n) ∈ R, which encodes point-wise scene depth, from a single RGB image x(n) ∈ R3, where n ∈ Z2 indexes location on the image plane. We represent this scene map y(n) in terms of a set of coefficients {wi(n)}Ki=1 at each location n, corresponding to various spatial derivatives. Specifically, these coefficients are related to the scene map y(n) through convolution with a bank of derivative filters {ki}Ki=1, i.e.,\nwi(n) = (y ∗ ki)(n). (1)\nFor our task, we define {ki} to be a set of 2D derivative-of-Gaussian filters with standard deviations 2s pixels, for scales s = {1, 2, 3}. We use the zeroth order derivative (i.e., the Gaussian itself), first order derivatives along eight orientations, as well as second order derivatives—along each of the orientations, and orthogonal orientations (see Fig. 1 for examples). We also use the impulse filter which can be interpreted as the zeroth derivative at scale 0, with the corresponding coefficients wi(n) = y(n)—this gives us a total of K = 64 filters. We normalize the first and second order filters to be unit norm. The zeroth order filters coefficients typically have higher magnitudes, and in practice, we find it useful to normalize them as ‖ki‖2 = 1/4 to obtain a more balanced representation. To estimate the scene map y(n), we first use a convolutional neural network to output distributions for the coefficients p (wi(n)), for every filter i and location n. We choose a parametric form for these distributions p(·), with the network predicting the corresponding parameters for each coefficient. The network is trained to produce these distributions for each set of coefficients {wi(n)} by using as input a local region centered around n in the RGB image x. We then form a single consistent estimate of y(n) by solving a global optimization problem that maximizes the likelihood of the different coefficients of y(n) under the distributions provided by our network. We now describe the different components of our approach (which is summarized in Fig. 1)—the parametric form for our local coefficient distributions, the architecture of our neural network, and our globalization method."
+    }, {
+      "heading" : "3.1 Parameterizing Local Distributions",
+      "text" : "Our neural network has to output a distribution, rather than a single estimate, for each coefficient wi(n). We choose Gaussian mixtures as a convenient parametric form for these distributions:\npi,n (wi(n)) =\nM ∑\nj=1\np̂ji (n) 1√ 2πσi exp\n(\n−|wi(n)− c j i |2\n2σ2i\n)\n, (2)\nwhere M is the number of mixture components (64 in our implementation), σ2i is a common variance for all components for derivative i, and {cji} the individual component means. A distribution for a specific coefficient wi(n) can then characterized by our neural network by producing the mixture weights {p̂ji (n)}, ∑ j p̂ j i (n) = 1, for each wi(n) from the scene’s RGB image.\nPrior to training the network, we fix the means {cji} and variances {σ2i } based on a training set of ground truth depth maps. We use one-dimensional K-means clustering on sets of training coefficient values {wi} for each derivative i, and set the means cji in (2) above to the cluster centers. We set σ2i to the average in-cluster variance—however, since these coefficients have heavy-tailed distributions, we compute this average only over clusters with more than a minimum number of assignments."
+    }, {
+      "heading" : "3.2 Neural Network-based Local Predictions",
+      "text" : "Our method uses a neural network to predict the mixture weights p̂ji (n) of the parameterization in (2) from an input color image. We train our network to output K ×M numbers at each pixel location n, which we interpret as a set of M -dimensional vectors corresponding to the weights {p̂ji (n)}j , for each of the K distributions of the coefficients {wi(n)}i. This training is done with respect to a loss between the predicted p̂ji (n), and the best fit of the parametric form in (2) to the ground truth derivative value wi(n). Specifically, we define q j i (n) in terms of the true wi(n) as:\nqji (n) ∝ exp ( −|wi(n)− c j i |2\n2σ2i\n)\n, ∑\nj\nqji (n) = 1, (3)\nand define the training loss L in terms of the KL-divergence between these vectors qji (n) and the network predictions p̂ji (n), weighting the loss for each derivative by its variance σ 2 i :\nL = − 1 NK ∑\ni,n\nσ2i\nM ∑\nj=1\nqji (n) ( log p̂ji (n)− log q j i (n) ) , (4)\nwhere N is the total number of locations n.\nOur network has a fairly high-dimensional output space—corresponding to K ×M numbers, with (M − 1) × K degrees of freedom, at each location n. Its architecture, detailed in Fig. 2, uses a cascade of seven convolution layers (each with ReLU activations) to extract a 1024-dimensional local feature vector from each 97× 97 local patch in the input image. To further add scene-level semantic context, we include a separate path that extracts a single 4096-dimensional feature vector from the entire image—using pre-trained layers (upto pool5) from the VGG-19 [16] network, followed downsampling with averaging by a factor of two, and a fully connected layer with a ReLU activation that is trained with dropout. This global vector is used to derive a 64-dimensional vector for each location n—using a learned layer that generates a feature map at a coarser resolution, that is then bi-linearly upsampled by a factor of 32 to yield an image-sized map.\nThe concatenated local and scene-level features are passed through two more hidden layers (with ReLU activations). The final layer produces the K ×M -vector of mixture weights p̂ji (n), applying a separate softmax to each of the M -dimensional vector {pji (n)}j . All layers in the network are learned end-to-end, with the VGG-19 layers finetuned with a reduced learning rate factor of 0.1 compared to the rest of the network. The local path of the network is applied in a “fully convolutional” way [17] during training and inference, allowing efficient reuse of computations between overlapping patches."
+    }, {
+      "heading" : "3.3 Global Scene Map Estimation",
+      "text" : "Applying our neural network to a given input image produces a dense set of distributions pi,n(wi(n)) for all derivative coefficients at all locations. We combine these to form a single coherent estimate by finding the scene map y(n) whose coefficients {wi(n)} have high likelihoods under the corresponding distributions {pi,n(·)}. We do this by optimizing the following objective:\ny = argmax y\n∑\ni,n\nσ2i log pi,n ((ki ∗ y)(n)) , (5)\nwhere, like in (4), the log-likelihoods for different derivatives are weighted by their variance σ2i .\nThe objective in (5) is a summation over a large (K times image-size) number of non-convex terms, each of which depends on scene values y(n) at multiple locations n in a local neighborhood— based on the support of filter ki. Despite the apparent complexity of this objective, we find that approximate inference using an alternating minimization algorithm, like in [15], works well in practice. Specifically, we create explicit auxiliary variables wi(n) for the coefficients, and solve the following modified optimization problem:\ny = argmin y min {wi(n)}\n−\n\n\n∑\ni,n\nσ2i log pi,n (wi(n))\n\n+ β\n2\n∑\ni,n\n(wi(n)− (ki ∗ y)(n))2 + 1\n2 R(y). (6)\nNote that the second term above forces coefficients of y(n) to be equal to the corresponding auxiliary variables wi(n), as β → ∞. We iteratively compute (6), by alternating between minimizing the objective with respect to y(n) and to {wi(n)}, keeping the other fixed, while increasing the value of β across iterations.\nNote that there is also a third regularization term R(y) in (6), which we define as\nR(y) = ∑\nr\n∑\nn\n‖(∇r ∗ y)(n)‖2, (7)\nusing 3× 3 Laplacian filters, at four orientations, for {∇r}. In practice, this term only affects the computation of y(n) in the initial iterations when the value of β is small, and in later iterations is dominated by the values of wi(n). However, we find that adding this regularization allows us to increase the value of β faster, and therefore converge in fewer iterations.\nEach step of our alternating minimization can be carried out efficiently. When y(n) fixed, the objective in (6) can be minimized with respect to each coefficient wi(n) independently as:\nwi(n) = argmin w\n− log pi,n(w) + β\n2σ2i (w − w̄i(n))2, (8)\nwhere w̄i(n) = (ki ∗ y)(n) is the corresponding derivative of the current estimate of y(n). Since pi,n(·) is a mixture of Gaussians, the objective in (8) can also be interpreted as the (scaled) negative log-likelihood of a Gaussian-mixture, with “posterior” mixture means w̄ji (n) and weights p̄ j i (n):\nw̄ji (n) = cij + βw̄i(n)\n1 + β , p̄ji (n) ∝ p̂ j i (n) exp\n(\n− β β + 1 (cji − w̄i(n))2 2σ2i\n)\n. (9)\nWhile there is no closed form solution to (8), we find that a reasonable approximation is to simply set wi(n) to the posterior mean value w̄ j i (n) for which weight p̄ j i (n) is the highest.\nThe second step at each iteration involves minimizing (6) with respect to y given the current estimates of wi(n). This is a simple least-squares minimization given by\ny = argmin y\nβ ∑\ni,n\n((ki ∗ y)(n)− w(n))2 + ∑\nr,n\n‖(∇r ∗ y)(n)‖2. (10)\nNote that since all terms above are related to y by convolutions with different filters, we can carry out this minimization very efficiently in the Fourier domain.\nWe initialize our iterations by setting wi(n) simply to the component mean c j i for which our predicted weight p̂ji (n) is highest. Then, we apply the y and {wi(n)} minimization steps alternatingly, while increasing β from 2−10 to 27, by a factor of 21/8 at each iteration."
+    }, {
+      "heading" : "4 Experimental Results",
+      "text" : "We train and evaluate our method on the NYU v2 depth dataset [11]. To construct our training and validation sets, we adopt the standard practice of using the raw videos corresponding to the training images from the official train/test split. We randomly select 10% of these videos for validation, and use the rest for training our network. Our training set is formed by sub-sampling video frames uniformly, and consists of roughly 56,000 color image-depth map pairs. Monocular depth estimation algorithms are evaluated on their accuracy in the 561× 427 crop of the depth map that contains a valid depth projection (including filled-in areas within this crop). We use the same crop of the color image as input to our algorithm, and train our network accordingly.\nWe let the scene map y(n) in our formulation correspond to the reciprocal of metric depth, i.e., y(n) = 1/z(n). While other methods use different compressive transform (e.g., [1, 2] regress to log z(n)), our choice is motivated by the fact that points on the image plane are related to their world co-ordinates by a perspective transform. This implies, for example, that in planar regions the first derivatives of y(n) will depend only on surface orientation, and that second derivatives will be zero."
+    }, {
+      "heading" : "4.1 Network Training",
+      "text" : "We use data augmentation during training, applying random rotations of ±5◦ and horizontal flips simultaneously to images and depth maps, and random contrast changes to images. We use a fully convolutional version of our architecture during training with a stride of 8 pixels, yielding nearly 4000 training patches per image. We train the network using SGD for a total of 14 epochs, using a batch size of only one image and a momentum value of 0.9. We begin with a learning rate of 0.01, and reduce it after the 4th, 8th, 10th, 12th, and 13th epochs, each time by a factor of two. This schedule was set by tracking the post-globalization depth accuracy on a validation set."
+    }, {
+      "heading" : "4.2 Evaluation",
+      "text" : "First, we analyze the informativeness of individual distributional outputs from our neural network. Figure 3 visualizes the accuracy and confidence of the local per-coefficient distributions produced by our network on a typical image. For various derivative filters, we display maps of the absolute error between the true coefficient values wi(n) and the mean of the corresponding predicted distributions {pi,n(·)}. Alongside these errors, we also visualize the network’s “confidence” in terms of a map of the standard deviations of {pi,n(·)}. We see that the network makes high confidence predictions for different derivatives in different regions, and that the number of such high confidence predictions is least for zeroth order derivatives. Moreover, we find that all regions with high predicted confidence\n(i.e., low standard deviation) also have low errors. Figure 3 also displays the corresponding global depth estimates, along with their accuracy relative to the ground truth. We find that despite having large low-confidence regions for individual coefficients, our final depth map is still quite accurate. This suggests that the information from different coefficients’ predicted distributions is complementary.\nTo quantitatively characterize the contribution of the various components of our overcomplete representation, we conduct an ablation study on 100 validation images. With the same trained network, we include different subsets of filter coefficients for global estimation—leaving out either specific derivative orders, or scales—and report their accuracy in Table 1. We use the standard metrics from [2] for accuracy between estimated and true depth values ẑ(n) and z(n) across all pixels in all images: root mean square error (RMSE) of both z and log z, mean relative error (|z(n) − ẑ(n)|/z(n)) and relative square error (|z(n) − ẑ(n)|2/z(n)), as well as percentages of pixels with error δ = max(z(n)/ẑ(n), ẑ(n)/z(n)) below different thresholds. We find that removing each of these subsets degrades the performance of the global estimation method—with second order derivatives contributing least to final estimation accuracy. Interestingly, combining multiple scales but with only zeroth order derivatives performs worse than using just the point-wise depth distributions.\nFinally, we evaluate the performance of our method on the NYU v2 test set. Table 2 reports the quantitative performance of our method, along with other state-of-the-art approaches over the entire test set, and we find that the proposed method yields superior performance on most metrics. Figure 4 shows example predictions from our approach and that of [1]. We see that our approach is often able to better reproduce local geometric structure in its predictions (desk & chair in column 1, bookshelf in column 4), although it occasionally mis-estimates the relative position of some objects (e.g., globe in column 5). At the same time, it is also usually able to correctly estimate the depth of large and texture-less planar regions (but, see column 6 for an example failure case).\nOur overall inference method (network predictions and globalization) takes 24 seconds per-image when using an NVIDIA Titan X GPU. The source code for implementation, along with a pre-trained network model, are available at http://www.ttic.edu/chakrabarti/mdepth."
+    }, {
+      "heading" : "5 Conclusion",
+      "text" : "In this paper, we described an alternative approach to reasoning about scene geometry from a single image. Instead of formulating the task as a regression to point-wise depth values, we trained a neural network to probabilistically characterize local coefficients of the scene depth map in an overcomplete representation. We showed that these local predictions could then be reconciled to form an estimate of the scene depth map using an efficient globalization procedure. We demonstrated the utility of our approach by evaluating it on the NYU v2 depth benchmark.\nIts performance on the monocular depth estimation task suggests that our network’s local predictions effectively summarize the depth cues present in a single image. In future work, we will explore how these predictions can be used in other settings—e.g., to aid stereo reconstruction, or improve the quality of measurements from active and passive depth sensors. We are also interested in exploring whether our approach of training a network to make overcomplete probabilistic local predictions can be useful in other applications, such as motion estimation or intrinsic image decomposition.\nAcknowledgments. AC acknowledges support for this work from the National Science Foundation under award no. IIS-1618021, and from a gift by Adobe Systems. AC and GS thank NVIDIA Corporation for donations of Titan X GPUs used in this research."
+    } ],
+    "references" : [ {
+      "title" : "Predicting depth, surface normals and semantic labels with a common multi-scale convolutional architecture",
+      "author" : [ "D. Eigen", "R. Fergus" ],
+      "venue" : "In Proc. ICCV,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : "1",
+      "year" : 2015
+    }, {
+      "title" : "Depth map prediction from a single image using a multi-scale deep network",
+      "author" : [ "D. Eigen", "C. Puhrsch", "R. Fergus" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 2014
+    }, {
+      "title" : "Towards unified depth and semantic prediction from a single image",
+      "author" : [ "P. Wang", "X. Shen", "Z. Lin", "S. Cohen", "B. Price", "A. Yuille" ],
+      "venue" : "In Proc. CVPR,",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 2015
+    }, {
+      "title" : "Deep convolutional neural fields for depth estimation from a single image",
+      "author" : [ "F. Liu", "C. Shen", "G. Lin" ],
+      "venue" : "In Proc. CVPR,",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : "4",
+      "year" : 2015
+    }, {
+      "title" : "Coupled depth learning",
+      "author" : [ "M. Baig", "L. Torresani" ],
+      "venue" : "In Proc. WACV,",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : "5",
+      "year" : 2016
+    }, {
+      "title" : "Designing deep networks for surface normal estimation",
+      "author" : [ "X. Wang", "D. Fouhey", "A. Gupta" ],
+      "venue" : "In Proc. CVPR,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : "6",
+      "year" : 2015
+    }, {
+      "title" : "Learning ordinal relationships for mid-level vision",
+      "author" : [ "D. Zoran", "P. Isola", "D. Krishnan", "W.T. Freeman" ],
+      "venue" : "In Proc. ICCV,",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : "7",
+      "year" : 2015
+    }, {
+      "title" : "Depth extraction from video using non-parametric sampling",
+      "author" : [ "K. Karsch", "C. Liu", "S.B. Kang" ],
+      "venue" : "In Proc. ECCV",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : "8",
+      "year" : 2012
+    }, {
+      "title" : "Pulling things out of perspective",
+      "author" : [ "L. Ladicky", "J. Shi", "M. Pollefeys" ],
+      "venue" : "In Proc. CVPR,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 2014
+    }, {
+      "title" : "Learning depth from single monocular images",
+      "author" : [ "A. Saxena", "S.H. Chung", "A.Y. Ng" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : "10",
+      "year" : 2005
+    }, {
+      "title" : "Indoor segmentation and support inference from rgbd images",
+      "author" : [ "N. Silberman", "D. Hoiem", "P. Kohli", "R. Fergus" ],
+      "venue" : "In Proc. ECCV",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 2012
+    }, {
+      "title" : "Shape from shading",
+      "author" : [ "B.K. Horn", "M.J. Brooks" ],
+      "venue" : null,
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 1986
+    }, {
+      "title" : "On seeing things",
+      "author" : [ "M.B. Clowes" ],
+      "venue" : "Artificial intelligence,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 1971
+    }, {
+      "title" : "Machine interpretation of line drawings",
+      "author" : [ "K. Sugihara" ],
+      "venue" : null,
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 1986
+    }, {
+      "title" : "Low-level vision by consensus in a spatial hierarchy of regions",
+      "author" : [ "A. Chakrabarti", "Y. Xiong", "S. Gortler", "T. Zickler" ],
+      "venue" : "In Proc. CVPR,",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : "15",
+      "year" : 2015
+    }, {
+      "title" : "Return of the devil in the details: Delving deep into convolutional nets",
+      "author" : [ "K. Chatfield", "K. Simonyan", "A. Vedaldi", "A. Zisserman" ],
+      "venue" : "In Proc. BMVC,",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : "16",
+      "year" : 2014
+    }, {
+      "title" : "Fully convolutional networks for semantic segmentation",
+      "author" : [ "J. Long", "E. Shelhamer", "T. Darrell" ],
+      "venue" : "In Proc. CVPR,",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : "17",
+      "year" : 2015
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 0,
+      "context" : "Prior neural methods have largely sought to directly regress to depth [1, 2]—with some additionally making predictions about smoothness across adjacent regions [4], or predicting relative",
+      "startOffset" : 70,
+      "endOffset" : 76
+    }, {
+      "referenceID" : 1,
+      "context" : "Prior neural methods have largely sought to directly regress to depth [1, 2]—with some additionally making predictions about smoothness across adjacent regions [4], or predicting relative",
+      "startOffset" : 70,
+      "endOffset" : 76
+    }, {
+      "referenceID" : 3,
+      "context" : "Prior neural methods have largely sought to directly regress to depth [1, 2]—with some additionally making predictions about smoothness across adjacent regions [4], or predicting relative",
+      "startOffset" : 160,
+      "endOffset" : 163
+    }, {
+      "referenceID" : 6,
+      "context" : "depth ordering between pairs of image points [7].",
+      "startOffset" : 45,
+      "endOffset" : 48
+    }, {
+      "referenceID" : 10,
+      "context" : "We evaluate our approach on the NYUv2 depth data set [11], and find that it achieves state-of-the-art performance.",
+      "startOffset" : 53,
+      "endOffset" : 57
+    }, {
+      "referenceID" : 11,
+      "context" : "Interest in monocular depth estimation dates back to the early days of computer vision, with methods that reasoned about geometry from cues such as diffuse shading [12], or contours [13, 14].",
+      "startOffset" : 164,
+      "endOffset" : 168
+    }, {
+      "referenceID" : 12,
+      "context" : "Interest in monocular depth estimation dates back to the early days of computer vision, with methods that reasoned about geometry from cues such as diffuse shading [12], or contours [13, 14].",
+      "startOffset" : 182,
+      "endOffset" : 190
+    }, {
+      "referenceID" : 13,
+      "context" : "Interest in monocular depth estimation dates back to the early days of computer vision, with methods that reasoned about geometry from cues such as diffuse shading [12], or contours [13, 14].",
+      "startOffset" : 182,
+      "endOffset" : 190
+    }, {
+      "referenceID" : 0,
+      "context" : "[1, 2] set up their network to regress directly to per-pixel depth values, although they provide deeper supervision to their network by requiring an intermediate layer",
+      "startOffset" : 0,
+      "endOffset" : 6
+    }, {
+      "referenceID" : 1,
+      "context" : "[1, 2] set up their network to regress directly to per-pixel depth values, although they provide deeper supervision to their network by requiring an intermediate layer",
+      "startOffset" : 0,
+      "endOffset" : 6
+    }, {
+      "referenceID" : 2,
+      "context" : "Other methods [3, 4] use conditional random fields (CRFs) to smooth their neural estimates.",
+      "startOffset" : 14,
+      "endOffset" : 20
+    }, {
+      "referenceID" : 3,
+      "context" : "Other methods [3, 4] use conditional random fields (CRFs) to smooth their neural estimates.",
+      "startOffset" : 14,
+      "endOffset" : 20
+    }, {
+      "referenceID" : 3,
+      "context" : "Moreover, the network in [4] also learns to predict one aspect of depth structure, in the form of the CRF’s pairwise potentials.",
+      "startOffset" : 25,
+      "endOffset" : 28
+    }, {
+      "referenceID" : 5,
+      "context" : "[6] train a neural network to output surface normals instead of depth (Eigen et al.",
+      "startOffset" : 0,
+      "endOffset" : 3
+    }, {
+      "referenceID" : 0,
+      "context" : "[1] do so as well, for a network separately trained for this task).",
+      "startOffset" : 0,
+      "endOffset" : 3
+    }, {
+      "referenceID" : 6,
+      "context" : "[7] were able to train a network to predict the relative depth ordering between pairs of points in the image—whether one surface is behind, in front of, or at the same depth as the other.",
+      "startOffset" : 0,
+      "endOffset" : 3
+    }, {
+      "referenceID" : 2,
+      "context" : "Note that some prior methods [3, 5] also regress to coefficients in some basis instead of to depth values directly.",
+      "startOffset" : 29,
+      "endOffset" : 35
+    }, {
+      "referenceID" : 4,
+      "context" : "Note that some prior methods [3, 5] also regress to coefficients in some basis instead of to depth values directly.",
+      "startOffset" : 29,
+      "endOffset" : 35
+    }, {
+      "referenceID" : 14,
+      "context" : "[15], who proposed estimating a scene map (they considered disparity estimation from stereo images) by first using local predictors to produce distributional outputs from many overlapping regions at multiple scales, followed by a globalization step to harmonize these outputs.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 15,
+      "context" : "To further add scene-level semantic context, we include a separate path that extracts a single 4096-dimensional feature vector from the entire image—using pre-trained layers (upto pool5) from the VGG-19 [16] network, followed downsampling with averaging by a factor of two, and a fully connected layer with a ReLU activation that is trained with dropout.",
+      "startOffset" : 203,
+      "endOffset" : 207
+    }, {
+      "referenceID" : 16,
+      "context" : "The local path of the network is applied in a “fully convolutional” way [17] during training and inference, allowing efficient reuse of computations between overlapping patches.",
+      "startOffset" : 72,
+      "endOffset" : 76
+    }, {
+      "referenceID" : 14,
+      "context" : "Despite the apparent complexity of this objective, we find that approximate inference using an alternating minimization algorithm, like in [15], works well in practice.",
+      "startOffset" : 139,
+      "endOffset" : 143
+    }, {
+      "referenceID" : 10,
+      "context" : "We train and evaluate our method on the NYU v2 depth dataset [11].",
+      "startOffset" : 61,
+      "endOffset" : 65
+    }, {
+      "referenceID" : 0,
+      "context" : ", [1, 2] regress to log z(n)), our choice is motivated by the fact that points on the image plane are related to their world co-ordinates by a perspective transform.",
+      "startOffset" : 2,
+      "endOffset" : 8
+    }, {
+      "referenceID" : 1,
+      "context" : ", [1, 2] regress to log z(n)), our choice is motivated by the fact that points on the image plane are related to their world co-ordinates by a perspective transform.",
+      "startOffset" : 2,
+      "endOffset" : 8
+    }, {
+      "referenceID" : 1,
+      "context" : "We use the standard metrics from [2] for accuracy between estimated and true depth values ẑ(n) and z(n) across all pixels in all images: root mean square error (RMSE) of both z and log z, mean relative error (|z(n) − ẑ(n)|/z(n)) and relative square error (|z(n) − ẑ(n)|2/z(n)), as well as percentages of pixels with error δ = max(z(n)/ẑ(n), ẑ(n)/z(n)) below different thresholds.",
+      "startOffset" : 33,
+      "endOffset" : 36
+    }, {
+      "referenceID" : 0,
+      "context" : "Figure 4 shows example predictions from our approach and that of [1].",
+      "startOffset" : 65,
+      "endOffset" : 68
+    }, {
+      "referenceID" : 10,
+      "context" : "Table 2: Depth Estimation Performance on NYUv2 [11] Test Set",
+      "startOffset" : 47,
+      "endOffset" : 51
+    } ],
+    "year" : 2016,
+    "abstractText" : "A single color image can contain many cues informative towards different aspects of local geometric structure. We approach the problem of monocular depth estimation by using a neural network to produce a mid-level representation that summarizes these cues. This network is trained to characterize local scene geometry by predicting, at every image location, depth derivatives of different orders, orientations and scales. However, instead of a single estimate for each derivative, the network outputs probability distributions that allow it to express confidence about some coefficients, and ambiguity about others. Scene depth is then estimated by harmonizing this overcomplete set of network predictions, using a globalization procedure that finds a single consistent depth map that best matches all the local derivative distributions. We demonstrate the efficacy of this approach through evaluation on the NYU v2 depth data set.",
+    "creator" : null
+  }
+}

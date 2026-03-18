@@ -1,0 +1,662 @@
+{
+  "name" : "6c1da886822c67822bcf3679d04369fa.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Masked Autoregressive Flow for Density Estimation",
+    "authors" : [ "George Papamakarios", "Theo Pavlakou", "Iain Murray" ],
+    "emails" : [ "g.papamakarios@ed.ac.uk", "theo.pavlakou@ed.ac.uk", "i.murray@ed.ac.uk" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "The joint density p(x) of a set of variables x is a central object of interest in machine learning. Being able to access and manipulate p(x) enables a wide range of tasks to be performed, such as inference, prediction, data completion and data generation. As such, the problem of estimating p(x) from a set of examples {xn} is at the core of probabilistic unsupervised learning and generative modelling. In recent years, using neural networks for density estimation has been particularly successful. Combining the flexibility and learning capacity of neural networks with prior knowledge about the structure of data to be modelled has led to impressive results in modelling natural images [4, 30, 37, 38] and audio data [34, 36]. State-of-the-art neural density estimators have also been used for likelihood-free inference from simulated data [21, 23], variational inference [13, 24], and as surrogates for maximum entropy models [19].\nNeural density estimators differ from other approaches to generative modelling—such as variational autoencoders [12, 25] and generative adversarial networks [7]—in that they readily provide exact density evaluations. As such, they are more suitable in applications where the focus is on explicitly evaluating densities, rather than generating synthetic data. For instance, density estimators can learn suitable priors for data from large unlabelled datasets, for use in standard Bayesian inference [39]. In simulation-based likelihood-free inference, conditional density estimators can learn models for the likelihood [5] or the posterior [23] from simulated data. Density estimators can learn effective proposals for importance sampling [22] or sequential Monte Carlo [8, 21]; such proposals can be used in probabilistic programming environments to speed up inference [15, 16]. Finally, conditional density estimators can be used as flexible inference networks for amortized variational inference and as part of variational autoencoders [12, 25].\nA challenge in neural density estimation is to construct models that are flexible enough to represent complex densities, but have tractable density functions and learning algorithms. There are mainly two families of neural density estimators that are both flexible and tractable: autoregressive models [35] and normalizing flows [24]. Autoregressive models decompose the joint density as a product of conditionals, and model each conditional in turn. Normalizing flows transform a base density (e.g. a standard Gaussian) into the target density by an invertible transformation with tractable Jacobian.\n31st Conference on Neural Information Processing Systems (NIPS 2017), Long Beach, CA, USA.\nOur starting point is the realization (as pointed out by Kingma et al. [13]) that autoregressive models, when used to generate data, correspond to a differentiable transformation of an external source of randomness (typically obtained by random number generators). This transformation has a tractable Jacobian by design, and for certain autoregressive models it is also invertible, hence it precisely corresponds to a normalizing flow. Viewing an autoregressive model as a normalizing flow opens the possibility of increasing its flexibility by stacking multiple models of the same type, by having each model provide the source of randomness for the next model in the stack. The resulting stack of models is a normalizing flow that is more flexible than the original model, and that remains tractable.\nIn this paper we present Masked Autoregressive Flow (MAF), which is a particular implementation of the above normalizing flow that uses the Masked Autoencoder for Distribution Estimation (MADE) [6] as a building block. The use of MADE enables density evaluations without the sequential loop that is typical of autoregressive models, and thus makes MAF fast to evaluate and train on parallel computing architectures such as Graphics Processing Units (GPUs). We show a close theoretical connection between MAF and Inverse Autoregressive Flow (IAF) [13], which has been designed for variational inference instead of density estimation, and show that both correspond to generalizations of the successful Real NVP [4]. We experimentally evaluate MAF on a wide range of datasets, and we demonstrate that (a) MAF outperforms Real NVP on general-purpose density estimation, and (b) a conditional version of MAF achieves close to state-of-the-art performance on conditional image modelling even with a general-purpose architecture."
+    }, {
+      "heading" : "2 Background",
+      "text" : ""
+    }, {
+      "heading" : "2.1 Autoregressive density estimation",
+      "text" : "Using the chain rule of probability, any joint density p(x) can be decomposed into a product of one-dimensional conditionals as p(x) = ∏ i p(xi |x1:i−1). Autoregressive density estimators [35] model each conditional p(xi |x1:i−1) as a parametric density, whose parameters are a function of a hidden state hi. In recurrent architectures, hi is a function of the previous hidden state hi−1 and the ith input variable xi. The Real-valued Neural Autoregressive Density Estimator (RNADE) [32] uses mixtures of Gaussian or Laplace densities for modelling the conditionals, and a simple linear rule for updating the hidden state. More flexible approaches for updating the hidden state are based on Long Short-Term Memory recurrent neural networks [30, 38].\nA drawback of autoregressive models is that they are sensitive to the order of the variables. For example, the order of the variables matters when learning the density of Figure 1a if we assume a model with Gaussian conditionals. As Figure 1b shows, a model with order (x1, x2) cannot learn this density, even though the same model with order (x2, x1) can represent it perfectly. In practice is it hard to know which of the factorially many orders is the most suitable for the task at hand. Autoregressive models that are trained to work with an order chosen at random have been developed, and the predictions from different orders can then be combined in an ensemble [6, 33]. Our approach (Section 3) can use a different order in each layer, and using random orders would also be possible.\nStraightforward recurrent autoregressive models would update a hidden state sequentially for every variable, requiring D sequential computations to compute the probability p(x) of a D-dimensional vector, which is not well-suited for computation on parallel architectures such as GPUs. One way to enable parallel computation is to start with a fully-connected model with D inputs and D outputs, and drop out connections in order to ensure that output i will only be connected to inputs 1, 2, . . . , i−1. Output i can then be interpreted as computing the parameters of the ith conditional p(xi |x1:i−1). By construction, the resulting model will satisfy the autoregressive property, and at the same time it will be able to calculate p(x) efficiently on a GPU. An example of this approach is the Masked Autoencoder for Distribution Estimation (MADE) [6], which drops out connections by multiplying the weight matrices of a fully-connected autoencoder with binary masks. Other mechanisms for dropping out connections include masked convolutions [38] and causal convolutions [36]."
+    }, {
+      "heading" : "2.2 Normalizing flows",
+      "text" : "A normalizing flow [24] represents p(x) as an invertible differentiable transformation f of a base density πu(u). That is, x = f(u) where u ∼ πu(u). The base density πu(u) is chosen such that it can be easily evaluated for any input u (a common choice for πu(u) is a standard Gaussian). Under\nthe invertibility assumption for f , the density p(x) can be calculated as\np(x) = πu ( f−1(x) ) ∣∣∣∣det(∂f−1∂x )∣∣∣∣ . (1)\nIn order for Equation (1) to be tractable, the transformation f must be constructed such that (a) it is easy to invert, and (b) the determinant of its Jacobian is easy to compute. An important point is that if transformations f1 and f2 have the above properties, then their composition f1 ◦ f2 also has these properties. In other words, the transformation f can be made deeper by composing multiple instances of it, and the result will still be a valid normalizing flow.\nThere have been various approaches in developing normalizing flows. An early example is Gaussianization [2], which is based on successive application of independent component analysis. Enforcing invertibility with nonsingular weight matrices has been proposed [1, 26], however in such approaches calculating the determinant of the Jacobian scales cubicly with data dimensionality in general. Planar/radial flows [24] and Inverse Autoregressive Flow (IAF) [13] are models whose Jacobian is tractable by design. However, they were developed primarily for variational inference and are not well-suited for density estimation, as they can only efficiently calculate the density of their own samples and not of externally provided datapoints. The Non-linear Independent Components Estimator (NICE) [3] and its successor Real NVP [4] have a tractable Jacobian and are also suitable for density estimation. IAF, NICE and Real NVP are discussed in more detail in Section 3."
+    }, {
+      "heading" : "3 Masked Autoregressive Flow",
+      "text" : ""
+    }, {
+      "heading" : "3.1 Autoregressive models as normalizing flows",
+      "text" : "Consider an autoregressive model whose conditionals are parameterized as single Gaussians. That is, the ith conditional is given by\np(xi |x1:i−1) = N ( xi |µi, (expαi)2 ) where µi = fµi(x1:i−1) and αi = fαi(x1:i−1). (2)\nIn the above, fµi and fαi are unconstrained scalar functions that compute the mean and log standard deviation of the ith conditional given all previous variables. We can generate data from the above model using the following recursion:\nxi = ui expαi + µi where µi = fµi(x1:i−1), αi = fαi(x1:i−1) and ui ∼ N (0, 1). (3)\nIn the above, u = (u1, u2, . . . , uI) is the vector of random numbers the model uses internally to generate data, typically by making calls to a random number generator often called randn().\nEquation (3) provides an alternative characterization of the autoregressive model as a transformation f from the space of random numbers u to the space of data x. That is, we can express the model as x = f(u) where u ∼ N (0, I). By construction, f is easily invertible. Given a datapoint x, the random numbers u that were used to generate it are obtained by the following recursion:\nui = (xi − µi) exp(−αi) where µi = fµi(x1:i−1) and αi = fαi(x1:i−1). (4)\nDue to the autoregressive structure, the Jacobian of f−1 is triangular by design, hence its absolute determinant can be easily obtained as follows:∣∣∣∣det(∂f−1∂x )∣∣∣∣ = exp(−∑iαi) where αi = fαi(x1:i−1). (5) It follows that the autoregressive model can be equivalently interpreted as a normalizing flow, whose density p(x) can be obtained by substituting Equations (4) and (5) into Equation (1). This observation was first pointed out by Kingma et al. [13].\nA useful diagnostic for assessing whether an autoregressive model of the above type fits the target density well is to transform the train data {xn} into corresponding random numbers {un} using Equation (4), and assess whether the ui’s come from independent standard normals. If the ui’s do not seem to come from independent standard normals, this is evidence that the model is a bad fit. For instance, Figure 1b shows that the scatter plot of the random numbers associated with the train data can look significantly non-Gaussian if the model fits the target density poorly.\nHere we interpret autoregressive models as a flow, and improve the model fit by stacking multiple instances of the model into a deeper flow. Given autoregressive models M1,M2, . . . ,MK , we model the density of the random numbers u1 ofM1 withM2, model the random numbers u2 ofM2 withM3 and so on, finally modelling the random numbers uK of MK with a standard Gaussian. This stacking adds flexibility: for example, Figure 1c demonstrates that a flow of 5 autoregressive models is able to learn multimodal conditionals, even though each model has unimodal conditionals. Stacking has previously been used in a similar way to improve model fit of deep belief nets [9] and deep mixtures of factor analyzers [28].\nWe choose to implement the set of functions {fµi , fαi} with masking, following the approach used by MADE [6]. MADE is a feedforward network that takes x as input and outputs µi and αi for all i with a single forward pass. The autoregressive property is enforced by multiplying the weight matrices of MADE with suitably constructed binary masks. In other words, we use MADE with Gaussian conditionals as the building layer of our flow. The benefit of using masking is that it enables transforming from data x to random numbers u and thus calculating p(x) in one forward pass through the flow, thus eliminating the need for sequential recursion as in Equation (4). We call this implementation of stacking MADEs into a flow Masked Autoregressive Flow (MAF)."
+    }, {
+      "heading" : "3.2 Relationship with Inverse Autoregressive Flow",
+      "text" : "Like MAF, Inverse Autoregressive Flow (IAF) [13] is a normalizing flow which uses MADE as its component layer. Each layer of IAF is defined by the following recursion:\nxi = ui expαi + µi where µi = fµi(u1:i−1) and αi = fαi(u1:i−1). (6)\nSimilarly to MAF, functions {fµi , fαi} are computed using a MADE with Gaussian conditionals. The difference is architectural: in MAF µi and αi are directly computed from previous data variables x1:i−1, whereas in IAF µi and αi are directly computed from previous random numbers u1:i−1.\nThe consequence of the above is that MAF and IAF are different models with different computational trade-offs. MAF is capable of calculating the density p(x) of any datapoint x in one pass through the model, however sampling from it requires performing D sequential passes (where D is the dimensionality of x). In contrast, IAF can generate samples and calculate their density with one pass, however calculating the density p(x) of an externally provided datapoint x requires D passes to find the random numbers u associated with x. Hence, the design choice of whether to connect µi and αi directly to x1:i−1 (obtaining MAF) or to u1:i−1 (obtaining IAF) depends on the intended usage. IAF is suitable as a recognition model for stochastic variational inference [12, 25], where it only ever needs to calculate the density of its own samples. In contrast, MAF is more suitable for density estimation, because each example requires only one pass through the model whereas IAF requires D.\nA theoretical equivalence between MAF and IAF is that training a MAF with maximum likelihood corresponds to fitting an implicit IAF to the base density with stochastic variational inference. Let πx(x) be the data density we wish to learn, πu(u) be the base density, and f be the transformation from u to x as implemented by MAF. The density defined by MAF (with added subscript x for disambiguation) is\npx(x) = πu ( f−1(x) ) ∣∣∣∣det(∂f−1∂x )∣∣∣∣ . (7)\nThe inverse transformation f−1 from x to u can be seen as describing an implicit IAF with base density πx(x), which defines the following implicit density over the u space:\npu(u) = πx(f(u)) ∣∣∣∣det(∂f∂u )∣∣∣∣ . (8)\nTraining MAF by maximizing the total log likelihood ∑ n log p(xn) on train data {xn} corresponds to fitting px(x) to πx(x) by stochastically minimizing DKL(πx(x) ‖ px(x)). In Section A of the supplementary material, we show that\nDKL(πx(x) ‖ px(x)) = DKL(pu(u) ‖πu(u)). (9)\nHence, stochastically minimizing DKL(πx(x) ‖ px(x)) is equivalent to fitting pu(u) to πu(u) by minimizing DKL(pu(u) ‖πu(u)). Since the latter is the loss function used in variational inference, and pu(u) can be seen as an IAF with base density πx(x) and transformation f−1, it follows that training MAF as a density estimator of πx(x) is equivalent to performing stochastic variational inference with an implicit IAF, where the posterior is taken to be the base density πu(u) and the transformation f−1 implements the reparameterization trick [12, 25]. This argument is presented in more detail in Section A of the supplementary material."
+    }, {
+      "heading" : "3.3 Relationship with Real NVP",
+      "text" : "Real NVP [4] (NVP stands for Non Volume Preserving) is a normalizing flow obtained by stacking coupling layers. A coupling layer is an invertible transformation f from random numbers u to data x with a tractable Jacobian, defined by\nx1:d = u1:d xd+1:D = ud+1:D expα+ µ\nwhere µ = fµ(u1:d)\nα = fα(u1:d). (10)\nIn the above, denotes elementwise multiplication, and the exp is applied to each element of α. The transformation copies the first d elements, and scales and shifts the remaining D−d elements, with the amount of scaling and shifting being a function of the first d elements. When stacking coupling layers into a flow, the elements are permuted across layers so that a different set of elements is copied each time. A special case of the coupling layer where α=0 is used by NICE [3].\nWe can see that the coupling layer is a special case of both the autoregressive transformation used by MAF in Equation (3), and the autoregressive transformation used by IAF in Equation (6). Indeed, we can recover the coupling layer from the autoregressive transformation of MAF by setting µi = αi = 0 for i ≤ d and making µi and αi functions of only x1:d for i > d (for IAF we need to make µi and αi functions of u1:d instead for i > d). In other words, both MAF and IAF can be seen as more flexible (but different) generalizations of Real NVP, where each element is individually scaled and shifted as a function of all previous elements. The advantage of Real NVP compared to MAF and IAF is that it can both generate data and estimate densities with one forward pass only, whereas MAF would need D passes to generate data and IAF would need D passes to estimate densities."
+    }, {
+      "heading" : "3.4 Conditional MAF",
+      "text" : "Given a set of example pairs {(xn,yn)}, conditional density estimation is the task of estimating the conditional density p(x |y). Autoregressive modelling extends naturally to conditional density estimation. Each term in the chain rule of probability can be conditioned on side-information y, decomposing any conditional density as p(x |y) = ∏ i p(xi |x1:i−1,y). Therefore, we can turn any unconditional autoregressive model into a conditional one by augmenting its set of input variables with y and only modelling the conditionals that correspond to x. Any order of the variables can be chosen, as long as y comes before x. In masked autoregressive models, no connections need to be dropped from the y inputs to the rest of the network.\nWe can implement a conditional version of MAF by stacking MADEs that were made conditional using the above strategy. That is, in a conditional MAF, the vector y becomes an additional input for every layer. As a special case of MAF, Real NVP can be made conditional in the same way. In Section 4, we show that conditional MAF significantly outperforms unconditional MAF when conditional information (such as data labels) is available. In our experiments, MAF was able to benefit from conditioning considerably more than MADE and Real NVP."
+    }, {
+      "heading" : "4 Experiments",
+      "text" : ""
+    }, {
+      "heading" : "4.1 Implementation and setup",
+      "text" : "We systematically evaluate three types of density estimator (MADE, Real NVP and MAF) in terms of density estimation performance on a variety of datasets. Code for reproducing our experiments (which uses Theano [29]) can be found at https://github.com/gpapamak/maf.\nMADE. We consider two versions: (a) a MADE with Gaussian conditionals, denoted simply by MADE, and (b) a MADE whose conditionals are each parameterized as a mixture of C Gaussians, denoted by MADE MoG. We used C=10 in all our experiments. MADE can be seen either as a MADE MoG with C=1, or as a MAF with only one autoregressive layer. Adding more Gaussian components per conditional or stacking MADEs to form a MAF are two alternative ways of increasing the flexibility of MADE, which we are interested in comparing.\nReal NVP. We consider a general-purpose implementation of the coupling layer, which uses two feedforward neural networks, implementing the scaling function fα and the shifting function fµ respectively. Both networks have the same architecture, except that fα has hyperbolic tangent hidden units, whereas fµ has rectified linear hidden units (we found this combination to perform best). Both networks have a linear output. We consider Real NVPs with either 5 or 10 coupling layers, denoted by Real NVP (5) and Real NVP (10) respectively, and in both cases the base density is a standard Gaussian. Successive coupling layers alternate between (a) copying the odd-indexed variables and transforming the even-indexed variables, and (b) copying the even-indexed variables and transforming the odd-indexed variables. It is important to clarify that this is a general-purpose implementation of Real NVP which is different and thus not comparable to its original version [4], which was designed specifically for image data. Here we are interested in comparing coupling layers with autoregressive layers as building blocks of normalizing flows for general-purpose density estimation tasks, and our design of Real NVP is such that a fair comparison between the two can be made.\nMAF. We consider three versions: (a) a MAF with 5 autoregressive layers and a standard Gaussian as a base density πu(u), denoted by MAF (5), (b) a MAF with 10 autoregressive layers and a standard Gaussian as a base density, denoted by MAF (10), and (c) a MAF with 5 autoregressive layers and a MADE MoG with C=10 Gaussian components as a base density, denoted by MAF MoG (5). MAF MoG (5) can be thought of as a MAF (5) stacked on top of a MADE MoG and trained jointly with it.\nIn all experiments, MADE and MADE MoG order the inputs using the order that comes with the dataset by default; no alternative orders were considered. MAF uses the default order for the first autoregressive layer (i.e. the layer that directly models the data) and reverses the order for each successive layer (the same was done for IAF by Kingma et al. [13]).\nMADE, MADE MoG and each layer in MAF is a feedforward neural network with masked weight matrices, such that the autoregressive property holds. The procedure for designing the masks (due to Germain et al. [6]) is as follows. Each input or hidden unit is assigned a degree, which is an integer ranging from 1 to D, where D is the data dimensionality. The degree of an input is taken to be its index in the order. The D outputs have degrees that sequentially range from 0 to D−1. A unit is allowed to receive input only from units with lower or equal degree, which enforces the autoregressive property. In order for output i to be connected to all inputs with degree less than i, and thus make sure that no conditional independences are introduced, it is both necessary and sufficient that every hidden layer contains every degree. In all experiments except for CIFAR-10, we sequentially assign degrees within each hidden layer and use enough hidden units to make sure that all degrees appear. Because CIFAR-10 is high-dimensional, we used fewer hidden units than inputs and assigned degrees to hidden units uniformly at random (as was done by Germain et al. [6]).\nWe added batch normalization [10] after each coupling layer in Real NVP and after each autoregressive layer in MAF. Batch normalization is an elementwise scaling and shifting, which is easily invertible and has a tractable Jacobian, and thus it is suitable for use in a normalizing flow. We found that batch normalization in Real NVP and MAF reduces training time, increases stability during training and improves performance (as observed by Dinh et al. [4] for Real NVP). Section B of the supplementary material discusses our implementation of batch normalization and its use in normalizing flows.\nAll models were trained with the Adam optimizer [11], using a minibatch size of 100, and a step size of 10−3 for MADE and MADE MoG, and of 10−4 for Real NVP and MAF. A small amount of `2\nregularization was added, with coefficient 10−6. Each model was trained with early stopping until no improvement occurred for 30 consecutive epochs on the validation set. For each model, we selected the number of hidden layers and number of hidden units based on validation performance (we gave the same options to all models), as described in Section D of the supplementary material."
+    }, {
+      "heading" : "4.2 Unconditional density estimation",
+      "text" : "Following Uria et al. [32], we perform unconditional density estimation on four UCI datasets (POWER, GAS, HEPMASS, MINIBOONE) and on a dataset of natural image patches (BSDS300).\nUCI datasets. These datasets were taken from the UCI machine learning repository [18]. We selected different datasets than Uria et al. [32], because the ones they used were much smaller, resulting in an expensive cross-validation procedure involving a separate hyperparameter search for each fold. However, our data preprocessing follows Uria et al. [32]. The sample mean was subtracted from the data and each feature was divided by its sample standard deviation. Discrete-valued attributes were eliminated, as well as every attribute with a Pearson correlation coefficient greater than 0.98. These procedures are meant to avoid trivial high densities, which would make the comparison between approaches hard to interpret. Section D of the supplementary material gives more details about the UCI datasets and the individual preprocessing done on each of them.\nImage patches. This dataset was obtained by extracting random 8×8 monochrome patches from the BSDS300 dataset of natural images [20]. We used the same preprocessing as by Uria et al. [32]. Uniform noise was added to dequantize pixel values, which was then rescaled to be in the range [0, 1]. The mean pixel value was subtracted from each patch, and the bottom-right pixel was discarded.\nTable 1 shows the performance of each model on each dataset. A Gaussian fitted to the train data is reported as a baseline. We can see that on 3 out of 5 datasets MAF is the best performing model, with MADE MoG being the best performing model on the other 2. On all datasets, MAF outperforms Real NVP. For the MINIBOONE dataset, due to overlapping error bars, a pairwise comparison was done to determine which model performs the best, the results of which are reported in Section E of the supplementary material. MAF MoG (5) achieves the best reported result on BSDS300 for a single model with 156.36 nats, followed by Deep RNADE [33] with 155.2. An ensemble of 32 Deep RNADEs was reported to achieve 157.0 nats [33]. The UCI datasets were used for the first time in the literature for density estimation, so no comparison with existing work can be made yet."
+    }, {
+      "heading" : "4.3 Conditional density estimation",
+      "text" : "For conditional density estimation, we used the MNIST dataset of handwritten digits [17] and the CIFAR-10 dataset of natural images [14]. In both datasets, each datapoint comes from one of 10 distinct classes. We represent the class label as a 10-dimensional, one-hot encoded vector y, and we model the density p(x |y), where x represents an image. At test time, we evaluate the probability of a test image x by p(x)= ∑ y p(x |y)p(y), where p(y)= 1 10 is a uniform prior over the labels. For comparison, we also train every model as an unconditional density estimator and report both results.\nFor both MNIST and CIFAR-10, we use the same preprocessing as by Dinh et al. [4]. We dequantize pixel values by adding uniform noise, and then rescale them to [0, 1]. We transform the rescaled pixel values into logit space by x 7→ logit(λ+ (1− 2λ)x), where λ=10−6 for MNIST and λ=0.05 for CIFAR-10, and perform density estimation in that space. In the case of CIFAR-10, we also augment the train set with horizontal flips of all train examples (as also done by Dinh et al. [4]).\nTable 2 shows the results on MNIST and CIFAR-10. The performance of a class-conditional Gaussian is reported as a baseline for the conditional case. Log likelihoods are calculated in logit space. For unconditional density estimation, MADE MoG is the best performing model on MNIST, whereas MAF is the best performing model on CIFAR-10. For conditional density estimation, MAF is by far the best performing model on both datasets. On CIFAR-10, both MADE and MADE MoG performed significantly worse than the Gaussian baseline. MAF outperforms Real NVP in all cases.\nThe conditional performance of MAF is particularly impressive. MAF performs almost twice as well compared to its unconditional version and to every other model’s conditional version. To facilitate comparison with the literature, Section E of the supplementary material reports results in bits/pixel. MAF (5) and MAF (10), the two best performing conditional models, achieve 3.02 and 2.98 bits/pixel respectively on CIFAR-10. This result is very close to the state-of-the-art 2.94 bits/pixel achieved by a conditional PixelCNN++ [27], even though, unlike PixelCNN++, our version of MAF does not incorporate prior image knowledge, and it pays a price for doing density estimation in a transformed real-valued space (PixelCNN++ directly models discrete pixel values)."
+    }, {
+      "heading" : "5 Discussion",
+      "text" : "We showed that we can improve MADE by modelling the density of its internal random numbers. Alternatively, MADE can be improved by increasing the flexibility of its conditionals. The comparison between MAF and MADE MoG showed that the best approach is dataset specific; in our experiments MAF outperformed MADE MoG in 6 out of 9 cases, which is strong evidence of its competitiveness. MADE MoG is a universal density approximator; with sufficiently many hidden units and Gaussian components, it can approximate any continuous density arbitrarily well. It is an open question whether MAF with a Gaussian base density has a similar property (MAF MoG clearly does).\nWe also showed that the coupling layer used in Real NVP is a special case of the autoregressive layer used in MAF. In fact, MAF outperformed Real NVP in all our experiments. Real NVP has achieved impressive performance in image modelling by incorporating knowledge about image structure. Our results suggest that replacing coupling layers with autoregressive layers in the original version of Real NVP is a promising direction for further improving its performance. Real NVP maintains however the advantage over MAF (and autoregressive models in general) that samples from the model can be generated efficiently in parallel.\nMAF achieved impressive results in conditional density estimation. Whereas almost all models we considered benefited from the additional information supplied by the labels, MAF nearly doubled its performance, coming close to state-of-the-art models for image modelling without incorporating\nany prior image knowledge. The ability of MAF to benefit significantly from conditional knowledge suggests that automatic discovery of conditional structure (e.g. finding labels by clustering) could be a promising direction for improving unconditional density estimation in general.\nDensity estimation is one of several types of generative modelling, with the focus on obtaining accurate densities. However, we know that accurate densities do not necessarily imply good performance in other tasks, such as in data generation [31]. Alternative approaches to generative modelling include variational autoencoders [12, 25], which are capable of efficient inference of their (potentially interpretable) latent space, and generative adversarial networks [7], which are capable of high quality data generation. Choice of method should be informed by whether the application at hand calls for accurate densities, latent space inference or high quality samples. Masked Autoregressive Flow is a contribution towards the first of these goals."
+    }, {
+      "heading" : "Acknowledgments",
+      "text" : "We thank Maria Gorinova for useful comments. George Papamakarios and Theo Pavlakou were supported by the Centre for Doctoral Training in Data Science, funded by EPSRC (grant EP/L016427/1) and the University of Edinburgh. George Papamakarios was also supported by Microsoft Research through its PhD Scholarship Programme."
+    } ],
+    "references" : [ {
+      "title" : "Density modeling of images using a generalized normalization transformation",
+      "author" : [ "J. Ballé", "V. Laparra", "E.P. Simoncelli" ],
+      "venue" : "Proceedings of the 4nd International Conference on Learning Representations",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Gaussianization",
+      "author" : [ "S.S. Chen", "R.A. Gopinath" ],
+      "venue" : "Advances in Neural Information Processing Systems 13, pages 423–429",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : null,
+      "year" : 2001
+    }, {
+      "title" : "NICE: Non-linear Independent Components Estimation",
+      "author" : [ "L. Dinh", "D. Krueger", "Y. Bengio" ],
+      "venue" : "arXiv:1410.8516",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Density estimation using Real NVP",
+      "author" : [ "L. Dinh", "J. Sohl-Dickstein", "S. Bengio" ],
+      "venue" : "Proceedings of the 5th International Conference on Learning Representations",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : null,
+      "year" : 2017
+    }, {
+      "title" : "Approximate Bayesian computation via regression density estimation",
+      "author" : [ "Y. Fan", "D.J. Nott", "S.A. Sisson" ],
+      "venue" : "Stat, 2(1):34–48",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "MADE: Masked Autoencoder for Distribution Estimation",
+      "author" : [ "M. Germain", "K. Gregor", "I. Murray", "H. Larochelle" ],
+      "venue" : "Proceedings of the 32nd International Conference on Machine Learning, pages 881–889",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Generative adversarial nets",
+      "author" : [ "I. Goodfellow", "J. Pouget-Abadie", "M. Mirza", "B. Xu", "D. Warde-Farley", "S. Ozair", "A. Courville", "Y. Bengio" ],
+      "venue" : "Advances in Neural Information Processing Systems 27, pages 2672–2680",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Neural adaptive sequential Monte Carlo",
+      "author" : [ "S. Gu", "Z. Ghahramani", "R.E. Turner" ],
+      "venue" : "Advances in Neural Information Processing Systems 28, pages 2629–2637",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "A fast learning algorithm for deep belief nets",
+      "author" : [ "G. Hinton", "S. Osindero", "Y.-W. Teh" ],
+      "venue" : "Neural Computation, 18(7):1527–1554",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : null,
+      "year" : 2006
+    }, {
+      "title" : "Batch normalization: Accelerating deep network training by reducing internal covariate shift",
+      "author" : [ "S. Ioffe", "C. Szegedy" ],
+      "venue" : "Proceedings of the 32nd International Conference on Machine Learning, pages 448–456",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Adam: A method for stochastic optimization",
+      "author" : [ "D.P. Kingma", "J. Ba" ],
+      "venue" : "Proceedings of the 3rd International Conference on Learning Representations",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Auto-encoding variational Bayes",
+      "author" : [ "D.P. Kingma", "M. Welling" ],
+      "venue" : "Proceedings of the 2nd International Conference on Learning Representations",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Improved variational inference with Inverse Autoregressive Flow",
+      "author" : [ "D.P. Kingma", "T. Salimans", "R. Jozefowicz", "X. Chen", "I. Sutskever", "M. Welling" ],
+      "venue" : "Advances in Neural Information Processing Systems 29, pages 4743–4751",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Learning multiple layers of features from tiny images",
+      "author" : [ "A. Krizhevsky", "G. Hinton" ],
+      "venue" : "Technical report, University of Toronto",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : null,
+      "year" : 2009
+    }, {
+      "title" : "Picture: A probabilistic programming language for scene perception",
+      "author" : [ "T.D. Kulkarni", "P. Kohli", "J.B. Tenenbaum", "V. Mansinghka" ],
+      "venue" : "IEEE Conference on Computer Vision and Pattern Recognition, pages 4390–4399",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Inference compilation and universal probabilistic programming",
+      "author" : [ "T.A. Le", "A.G. Baydin", "F. Wood" ],
+      "venue" : "Proceedings of the 20th International Conference on Artificial Intelligence and Statistics",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : null,
+      "year" : 2017
+    }, {
+      "title" : "Maximum entropy flow networks",
+      "author" : [ "G. Loaiza-Ganem", "Y. Gao", "J.P. Cunningham" ],
+      "venue" : "Proceedings of the 5th International Conference on Learning Representations",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : null,
+      "year" : 2017
+    }, {
+      "title" : "A database of human segmented natural images and its application to evaluating segmentation algorithms and measuring ecological statistics",
+      "author" : [ "D. Martin", "C. Fowlkes", "D. Tal", "J. Malik" ],
+      "venue" : "pages 416–423",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : null,
+      "year" : 2001
+    }, {
+      "title" : "Inference networks for sequential Monte Carlo in graphical models",
+      "author" : [ "B. Paige", "F. Wood" ],
+      "venue" : "Proceedings of the 33rd International Conference on Machine Learning",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Distilling intractable generative models, 2015",
+      "author" : [ "G. Papamakarios", "I. Murray" ],
+      "venue" : "Probabilistic Integration Workshop at Neural Information Processing Systems",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : "22",
+      "year" : 2015
+    }, {
+      "title" : "Fast -free inference of simulation models with Bayesian conditional density estimation",
+      "author" : [ "G. Papamakarios", "I. Murray" ],
+      "venue" : "Advances in Neural Information Processing Systems 29",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Variational inference with normalizing flows",
+      "author" : [ "D.J. Rezende", "S. Mohamed" ],
+      "venue" : "Proceedings of the 32nd International Conference on Machine Learning, pages 1530–1538",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Stochastic backpropagation and approximate inference in deep generative models",
+      "author" : [ "D.J. Rezende", "S. Mohamed", "D. Wierstra" ],
+      "venue" : "Proceedings of the 31st International Conference on Machine Learning, pages 1278–1286",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "High-dimensional probability estimation with deep density models",
+      "author" : [ "O. Rippel", "R.P. Adams" ],
+      "venue" : "arXiv:1302.5125",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "PixelCNN++: Improving the PixelCNN with discretized logistic mixture likelihood and other modifications",
+      "author" : [ "T. Salimans", "A. Karpathy", "X. Chen", "D.P. Kingma" ],
+      "venue" : "arXiv:1701.05517",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : null,
+      "year" : 2017
+    }, {
+      "title" : "Deep mixtures of factor analysers",
+      "author" : [ "Y. Tang", "R. Salakhutdinov", "G. Hinton" ],
+      "venue" : "Proceedings of the 29th International Conference on Machine Learning, pages 505–512",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Generative image modeling using spatial LSTMs",
+      "author" : [ "L. Theis", "M. Bethge" ],
+      "venue" : "Advances in Neural Information Processing Systems 28, pages 1927–1935",
+      "citeRegEx" : "30",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "A",
+      "author" : [ "L. Theis" ],
+      "venue" : "van den Oord, and M. Bethge. A note on the evaluation of generative models. Proceedings of the 4nd International Conference on Learning Representations",
+      "citeRegEx" : "31",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "RNADE: The real-valued neural autoregressive density-estimator",
+      "author" : [ "B. Uria", "I. Murray", "H. Larochelle" ],
+      "venue" : "Advances in Neural Information Processing Systems 26, pages 2175–2183",
+      "citeRegEx" : "32",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "A deep and tractable density estimator",
+      "author" : [ "B. Uria", "I. Murray", "H. Larochelle" ],
+      "venue" : "Proceedings of the 31st International Conference on Machine Learning, pages 467–475",
+      "citeRegEx" : "33",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Modelling acoustic feature dependencies with artificial neural networks: Trajectory-RNADE",
+      "author" : [ "B. Uria", "I. Murray", "S. Renals", "C. Valentini-Botinhao", "J. Bridle" ],
+      "venue" : "IEEE International Conference on Acoustics, Speech and Signal Processing, pages 4465–4469",
+      "citeRegEx" : "34",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Neural autoregressive distribution estimation",
+      "author" : [ "B. Uria", "M.-A. Côté", "K. Gregor", "I. Murray", "H. Larochelle" ],
+      "venue" : "Journal of Machine Learning Research, 17(205):1–37",
+      "citeRegEx" : "35",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "WaveNet: A generative model for raw audio",
+      "author" : [ "A. van den Oord", "S. Dieleman", "H. Zen", "K. Simonyan", "O. Vinyals", "A. Graves", "N. Kalchbrenner", "A.W. Senior", "K. Kavukcuoglu" ],
+      "venue" : null,
+      "citeRegEx" : "36",
+      "shortCiteRegEx" : "36",
+      "year" : 2016
+    }, {
+      "title" : "Conditional image generation with PixelCNN decoders",
+      "author" : [ "A. van den Oord", "N. Kalchbrenner", "L. Espeholt", "K. Kavukcuoglu", "O. Vinyals", "A. Graves" ],
+      "venue" : "Advances in Neural Information Processing Systems",
+      "citeRegEx" : "37",
+      "shortCiteRegEx" : "37",
+      "year" : 2016
+    }, {
+      "title" : "Pixel recurrent neural networks",
+      "author" : [ "A. van den Oord", "N. Kalchbrenner", "K. Kavukcuoglu" ],
+      "venue" : "Proceedings of the 33rd International Conference on Machine Learning,",
+      "citeRegEx" : "38",
+      "shortCiteRegEx" : "38",
+      "year" : 2016
+    }, {
+      "title" : "From learning models of natural image patches to whole image restoration",
+      "author" : [ "D. Zoran", "Y. Weiss" ],
+      "venue" : "Proceedings of the 13rd International Conference on Computer Vision, pages 479–486",
+      "citeRegEx" : "39",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 3,
+      "context" : "Combining the flexibility and learning capacity of neural networks with prior knowledge about the structure of data to be modelled has led to impressive results in modelling natural images [4, 30, 37, 38] and audio data [34, 36].",
+      "startOffset" : 189,
+      "endOffset" : 204
+    }, {
+      "referenceID" : 26,
+      "context" : "Combining the flexibility and learning capacity of neural networks with prior knowledge about the structure of data to be modelled has led to impressive results in modelling natural images [4, 30, 37, 38] and audio data [34, 36].",
+      "startOffset" : 189,
+      "endOffset" : 204
+    }, {
+      "referenceID" : 33,
+      "context" : "Combining the flexibility and learning capacity of neural networks with prior knowledge about the structure of data to be modelled has led to impressive results in modelling natural images [4, 30, 37, 38] and audio data [34, 36].",
+      "startOffset" : 189,
+      "endOffset" : 204
+    }, {
+      "referenceID" : 34,
+      "context" : "Combining the flexibility and learning capacity of neural networks with prior knowledge about the structure of data to be modelled has led to impressive results in modelling natural images [4, 30, 37, 38] and audio data [34, 36].",
+      "startOffset" : 189,
+      "endOffset" : 204
+    }, {
+      "referenceID" : 30,
+      "context" : "Combining the flexibility and learning capacity of neural networks with prior knowledge about the structure of data to be modelled has led to impressive results in modelling natural images [4, 30, 37, 38] and audio data [34, 36].",
+      "startOffset" : 220,
+      "endOffset" : 228
+    }, {
+      "referenceID" : 32,
+      "context" : "Combining the flexibility and learning capacity of neural networks with prior knowledge about the structure of data to be modelled has led to impressive results in modelling natural images [4, 30, 37, 38] and audio data [34, 36].",
+      "startOffset" : 220,
+      "endOffset" : 228
+    }, {
+      "referenceID" : 18,
+      "context" : "State-of-the-art neural density estimators have also been used for likelihood-free inference from simulated data [21, 23], variational inference [13, 24], and as surrogates for maximum entropy models [19].",
+      "startOffset" : 113,
+      "endOffset" : 121
+    }, {
+      "referenceID" : 20,
+      "context" : "State-of-the-art neural density estimators have also been used for likelihood-free inference from simulated data [21, 23], variational inference [13, 24], and as surrogates for maximum entropy models [19].",
+      "startOffset" : 113,
+      "endOffset" : 121
+    }, {
+      "referenceID" : 12,
+      "context" : "State-of-the-art neural density estimators have also been used for likelihood-free inference from simulated data [21, 23], variational inference [13, 24], and as surrogates for maximum entropy models [19].",
+      "startOffset" : 145,
+      "endOffset" : 153
+    }, {
+      "referenceID" : 21,
+      "context" : "State-of-the-art neural density estimators have also been used for likelihood-free inference from simulated data [21, 23], variational inference [13, 24], and as surrogates for maximum entropy models [19].",
+      "startOffset" : 145,
+      "endOffset" : 153
+    }, {
+      "referenceID" : 16,
+      "context" : "State-of-the-art neural density estimators have also been used for likelihood-free inference from simulated data [21, 23], variational inference [13, 24], and as surrogates for maximum entropy models [19].",
+      "startOffset" : 200,
+      "endOffset" : 204
+    }, {
+      "referenceID" : 11,
+      "context" : "Neural density estimators differ from other approaches to generative modelling—such as variational autoencoders [12, 25] and generative adversarial networks [7]—in that they readily provide exact density evaluations.",
+      "startOffset" : 112,
+      "endOffset" : 120
+    }, {
+      "referenceID" : 22,
+      "context" : "Neural density estimators differ from other approaches to generative modelling—such as variational autoencoders [12, 25] and generative adversarial networks [7]—in that they readily provide exact density evaluations.",
+      "startOffset" : 112,
+      "endOffset" : 120
+    }, {
+      "referenceID" : 6,
+      "context" : "Neural density estimators differ from other approaches to generative modelling—such as variational autoencoders [12, 25] and generative adversarial networks [7]—in that they readily provide exact density evaluations.",
+      "startOffset" : 157,
+      "endOffset" : 160
+    }, {
+      "referenceID" : 35,
+      "context" : "For instance, density estimators can learn suitable priors for data from large unlabelled datasets, for use in standard Bayesian inference [39].",
+      "startOffset" : 139,
+      "endOffset" : 143
+    }, {
+      "referenceID" : 4,
+      "context" : "In simulation-based likelihood-free inference, conditional density estimators can learn models for the likelihood [5] or the posterior [23] from simulated data.",
+      "startOffset" : 114,
+      "endOffset" : 117
+    }, {
+      "referenceID" : 20,
+      "context" : "In simulation-based likelihood-free inference, conditional density estimators can learn models for the likelihood [5] or the posterior [23] from simulated data.",
+      "startOffset" : 135,
+      "endOffset" : 139
+    }, {
+      "referenceID" : 19,
+      "context" : "Density estimators can learn effective proposals for importance sampling [22] or sequential Monte Carlo [8, 21]; such proposals can be used in probabilistic programming environments to speed up inference [15, 16].",
+      "startOffset" : 73,
+      "endOffset" : 77
+    }, {
+      "referenceID" : 7,
+      "context" : "Density estimators can learn effective proposals for importance sampling [22] or sequential Monte Carlo [8, 21]; such proposals can be used in probabilistic programming environments to speed up inference [15, 16].",
+      "startOffset" : 104,
+      "endOffset" : 111
+    }, {
+      "referenceID" : 18,
+      "context" : "Density estimators can learn effective proposals for importance sampling [22] or sequential Monte Carlo [8, 21]; such proposals can be used in probabilistic programming environments to speed up inference [15, 16].",
+      "startOffset" : 104,
+      "endOffset" : 111
+    }, {
+      "referenceID" : 14,
+      "context" : "Density estimators can learn effective proposals for importance sampling [22] or sequential Monte Carlo [8, 21]; such proposals can be used in probabilistic programming environments to speed up inference [15, 16].",
+      "startOffset" : 204,
+      "endOffset" : 212
+    }, {
+      "referenceID" : 15,
+      "context" : "Density estimators can learn effective proposals for importance sampling [22] or sequential Monte Carlo [8, 21]; such proposals can be used in probabilistic programming environments to speed up inference [15, 16].",
+      "startOffset" : 204,
+      "endOffset" : 212
+    }, {
+      "referenceID" : 11,
+      "context" : "Finally, conditional density estimators can be used as flexible inference networks for amortized variational inference and as part of variational autoencoders [12, 25].",
+      "startOffset" : 159,
+      "endOffset" : 167
+    }, {
+      "referenceID" : 22,
+      "context" : "Finally, conditional density estimators can be used as flexible inference networks for amortized variational inference and as part of variational autoencoders [12, 25].",
+      "startOffset" : 159,
+      "endOffset" : 167
+    }, {
+      "referenceID" : 31,
+      "context" : "There are mainly two families of neural density estimators that are both flexible and tractable: autoregressive models [35] and normalizing flows [24].",
+      "startOffset" : 119,
+      "endOffset" : 123
+    }, {
+      "referenceID" : 21,
+      "context" : "There are mainly two families of neural density estimators that are both flexible and tractable: autoregressive models [35] and normalizing flows [24].",
+      "startOffset" : 146,
+      "endOffset" : 150
+    }, {
+      "referenceID" : 12,
+      "context" : "[13]) that autoregressive models, when used to generate data, correspond to a differentiable transformation of an external source of randomness (typically obtained by random number generators).",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 5,
+      "context" : "In this paper we present Masked Autoregressive Flow (MAF), which is a particular implementation of the above normalizing flow that uses the Masked Autoencoder for Distribution Estimation (MADE) [6] as a building block.",
+      "startOffset" : 194,
+      "endOffset" : 197
+    }, {
+      "referenceID" : 12,
+      "context" : "We show a close theoretical connection between MAF and Inverse Autoregressive Flow (IAF) [13], which has been designed for variational inference instead of density estimation, and show that both correspond to generalizations of the successful Real NVP [4].",
+      "startOffset" : 89,
+      "endOffset" : 93
+    }, {
+      "referenceID" : 3,
+      "context" : "We show a close theoretical connection between MAF and Inverse Autoregressive Flow (IAF) [13], which has been designed for variational inference instead of density estimation, and show that both correspond to generalizations of the successful Real NVP [4].",
+      "startOffset" : 252,
+      "endOffset" : 255
+    }, {
+      "referenceID" : 31,
+      "context" : "Autoregressive density estimators [35] model each conditional p(xi |x1:i−1) as a parametric density, whose parameters are a function of a hidden state hi.",
+      "startOffset" : 34,
+      "endOffset" : 38
+    }, {
+      "referenceID" : 28,
+      "context" : "The Real-valued Neural Autoregressive Density Estimator (RNADE) [32] uses mixtures of Gaussian or Laplace densities for modelling the conditionals, and a simple linear rule for updating the hidden state.",
+      "startOffset" : 64,
+      "endOffset" : 68
+    }, {
+      "referenceID" : 26,
+      "context" : "More flexible approaches for updating the hidden state are based on Long Short-Term Memory recurrent neural networks [30, 38].",
+      "startOffset" : 117,
+      "endOffset" : 125
+    }, {
+      "referenceID" : 34,
+      "context" : "More flexible approaches for updating the hidden state are based on Long Short-Term Memory recurrent neural networks [30, 38].",
+      "startOffset" : 117,
+      "endOffset" : 125
+    }, {
+      "referenceID" : 5,
+      "context" : "Autoregressive models that are trained to work with an order chosen at random have been developed, and the predictions from different orders can then be combined in an ensemble [6, 33].",
+      "startOffset" : 177,
+      "endOffset" : 184
+    }, {
+      "referenceID" : 29,
+      "context" : "Autoregressive models that are trained to work with an order chosen at random have been developed, and the predictions from different orders can then be combined in an ensemble [6, 33].",
+      "startOffset" : 177,
+      "endOffset" : 184
+    }, {
+      "referenceID" : 5,
+      "context" : "An example of this approach is the Masked Autoencoder for Distribution Estimation (MADE) [6], which drops out connections by multiplying the weight matrices of a fully-connected autoencoder with binary masks.",
+      "startOffset" : 89,
+      "endOffset" : 92
+    }, {
+      "referenceID" : 34,
+      "context" : "Other mechanisms for dropping out connections include masked convolutions [38] and causal convolutions [36].",
+      "startOffset" : 74,
+      "endOffset" : 78
+    }, {
+      "referenceID" : 32,
+      "context" : "Other mechanisms for dropping out connections include masked convolutions [38] and causal convolutions [36].",
+      "startOffset" : 103,
+      "endOffset" : 107
+    }, {
+      "referenceID" : 21,
+      "context" : "A normalizing flow [24] represents p(x) as an invertible differentiable transformation f of a base density πu(u).",
+      "startOffset" : 19,
+      "endOffset" : 23
+    }, {
+      "referenceID" : 1,
+      "context" : "An early example is Gaussianization [2], which is based on successive application of independent component analysis.",
+      "startOffset" : 36,
+      "endOffset" : 39
+    }, {
+      "referenceID" : 0,
+      "context" : "Enforcing invertibility with nonsingular weight matrices has been proposed [1, 26], however in such approaches calculating the determinant of the Jacobian scales cubicly with data dimensionality in general.",
+      "startOffset" : 75,
+      "endOffset" : 82
+    }, {
+      "referenceID" : 23,
+      "context" : "Enforcing invertibility with nonsingular weight matrices has been proposed [1, 26], however in such approaches calculating the determinant of the Jacobian scales cubicly with data dimensionality in general.",
+      "startOffset" : 75,
+      "endOffset" : 82
+    }, {
+      "referenceID" : 21,
+      "context" : "Planar/radial flows [24] and Inverse Autoregressive Flow (IAF) [13] are models whose Jacobian is tractable by design.",
+      "startOffset" : 20,
+      "endOffset" : 24
+    }, {
+      "referenceID" : 12,
+      "context" : "Planar/radial flows [24] and Inverse Autoregressive Flow (IAF) [13] are models whose Jacobian is tractable by design.",
+      "startOffset" : 63,
+      "endOffset" : 67
+    }, {
+      "referenceID" : 2,
+      "context" : "The Non-linear Independent Components Estimator (NICE) [3] and its successor Real NVP [4] have a tractable Jacobian and are also suitable for density estimation.",
+      "startOffset" : 55,
+      "endOffset" : 58
+    }, {
+      "referenceID" : 3,
+      "context" : "The Non-linear Independent Components Estimator (NICE) [3] and its successor Real NVP [4] have a tractable Jacobian and are also suitable for density estimation.",
+      "startOffset" : 86,
+      "endOffset" : 89
+    }, {
+      "referenceID" : 8,
+      "context" : "Stacking has previously been used in a similar way to improve model fit of deep belief nets [9] and deep mixtures of factor analyzers [28].",
+      "startOffset" : 92,
+      "endOffset" : 95
+    }, {
+      "referenceID" : 25,
+      "context" : "Stacking has previously been used in a similar way to improve model fit of deep belief nets [9] and deep mixtures of factor analyzers [28].",
+      "startOffset" : 134,
+      "endOffset" : 138
+    }, {
+      "referenceID" : 5,
+      "context" : "We choose to implement the set of functions {fμi , fαi} with masking, following the approach used by MADE [6].",
+      "startOffset" : 106,
+      "endOffset" : 109
+    }, {
+      "referenceID" : 12,
+      "context" : "Like MAF, Inverse Autoregressive Flow (IAF) [13] is a normalizing flow which uses MADE as its component layer.",
+      "startOffset" : 44,
+      "endOffset" : 48
+    }, {
+      "referenceID" : 11,
+      "context" : "IAF is suitable as a recognition model for stochastic variational inference [12, 25], where it only ever needs to calculate the density of its own samples.",
+      "startOffset" : 76,
+      "endOffset" : 84
+    }, {
+      "referenceID" : 22,
+      "context" : "IAF is suitable as a recognition model for stochastic variational inference [12, 25], where it only ever needs to calculate the density of its own samples.",
+      "startOffset" : 76,
+      "endOffset" : 84
+    }, {
+      "referenceID" : 11,
+      "context" : "Since the latter is the loss function used in variational inference, and pu(u) can be seen as an IAF with base density πx(x) and transformation f−1, it follows that training MAF as a density estimator of πx(x) is equivalent to performing stochastic variational inference with an implicit IAF, where the posterior is taken to be the base density πu(u) and the transformation f−1 implements the reparameterization trick [12, 25].",
+      "startOffset" : 418,
+      "endOffset" : 426
+    }, {
+      "referenceID" : 22,
+      "context" : "Since the latter is the loss function used in variational inference, and pu(u) can be seen as an IAF with base density πx(x) and transformation f−1, it follows that training MAF as a density estimator of πx(x) is equivalent to performing stochastic variational inference with an implicit IAF, where the posterior is taken to be the base density πu(u) and the transformation f−1 implements the reparameterization trick [12, 25].",
+      "startOffset" : 418,
+      "endOffset" : 426
+    }, {
+      "referenceID" : 3,
+      "context" : "Real NVP [4] (NVP stands for Non Volume Preserving) is a normalizing flow obtained by stacking coupling layers.",
+      "startOffset" : 9,
+      "endOffset" : 12
+    }, {
+      "referenceID" : 2,
+      "context" : "A special case of the coupling layer where α=0 is used by NICE [3].",
+      "startOffset" : 63,
+      "endOffset" : 66
+    }, {
+      "referenceID" : 3,
+      "context" : "It is important to clarify that this is a general-purpose implementation of Real NVP which is different and thus not comparable to its original version [4], which was designed specifically for image data.",
+      "startOffset" : 152,
+      "endOffset" : 155
+    }, {
+      "referenceID" : 9,
+      "context" : "We added batch normalization [10] after each coupling layer in Real NVP and after each autoregressive layer in MAF.",
+      "startOffset" : 29,
+      "endOffset" : 33
+    }, {
+      "referenceID" : 10,
+      "context" : "All models were trained with the Adam optimizer [11], using a minibatch size of 100, and a step size of 10−3 for MADE and MADE MoG, and of 10−4 for Real NVP and MAF.",
+      "startOffset" : 48,
+      "endOffset" : 52
+    }, {
+      "referenceID" : 28,
+      "context" : "[32], we perform unconditional density estimation on four UCI datasets (POWER, GAS, HEPMASS, MINIBOONE) and on a dataset of natural image patches (BSDS300).",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 28,
+      "context" : "[32], because the ones they used were much smaller, resulting in an expensive cross-validation procedure involving a separate hyperparameter search for each fold.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 17,
+      "context" : "This dataset was obtained by extracting random 8×8 monochrome patches from the BSDS300 dataset of natural images [20].",
+      "startOffset" : 113,
+      "endOffset" : 117
+    }, {
+      "referenceID" : 29,
+      "context" : "36 nats, followed by Deep RNADE [33] with 155.",
+      "startOffset" : 32,
+      "endOffset" : 36
+    }, {
+      "referenceID" : 13,
+      "context" : "For conditional density estimation, we used the MNIST dataset of handwritten digits [17] and the CIFAR-10 dataset of natural images [14].",
+      "startOffset" : 132,
+      "endOffset" : 136
+    }, {
+      "referenceID" : 24,
+      "context" : "94 bits/pixel achieved by a conditional PixelCNN++ [27], even though, unlike PixelCNN++, our version of MAF does not incorporate prior image knowledge, and it pays a price for doing density estimation in a transformed real-valued space (PixelCNN++ directly models discrete pixel values).",
+      "startOffset" : 51,
+      "endOffset" : 55
+    }, {
+      "referenceID" : 27,
+      "context" : "However, we know that accurate densities do not necessarily imply good performance in other tasks, such as in data generation [31].",
+      "startOffset" : 126,
+      "endOffset" : 130
+    }, {
+      "referenceID" : 11,
+      "context" : "Alternative approaches to generative modelling include variational autoencoders [12, 25], which are capable of efficient inference of their (potentially interpretable) latent space, and generative adversarial networks [7], which are capable of high quality data generation.",
+      "startOffset" : 80,
+      "endOffset" : 88
+    }, {
+      "referenceID" : 22,
+      "context" : "Alternative approaches to generative modelling include variational autoencoders [12, 25], which are capable of efficient inference of their (potentially interpretable) latent space, and generative adversarial networks [7], which are capable of high quality data generation.",
+      "startOffset" : 80,
+      "endOffset" : 88
+    }, {
+      "referenceID" : 6,
+      "context" : "Alternative approaches to generative modelling include variational autoencoders [12, 25], which are capable of efficient inference of their (potentially interpretable) latent space, and generative adversarial networks [7], which are capable of high quality data generation.",
+      "startOffset" : 218,
+      "endOffset" : 221
+    } ],
+    "year" : 2017,
+    "abstractText" : "Autoregressive models are among the best performing neural density estimators. We describe an approach for increasing the flexibility of an autoregressive model, based on modelling the random numbers that the model uses internally when generating data. By constructing a stack of autoregressive models, each modelling the random numbers of the next model in the stack, we obtain a type of normalizing flow suitable for density estimation, which we call Masked Autoregressive Flow. This type of flow is closely related to Inverse Autoregressive Flow and is a generalization of Real NVP. Masked Autoregressive Flow achieves state-of-the-art performance in a range of general-purpose density estimation tasks.",
+    "creator" : null
+  }
+}

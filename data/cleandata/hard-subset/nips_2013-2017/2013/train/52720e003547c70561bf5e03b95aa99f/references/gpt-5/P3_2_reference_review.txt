@@ -1,0 +1,52 @@
+Summary and relation to prior work
+The paper targets ultra–high-dimensional sparse precision matrix estimation via the CLIME estimator, proposing a distributed, column-block inexact ADMM algorithm (CLIME-ADMM). Key ideas: (i) replace CΩ with A(A′Ω) to exploit the low-rank structure (since C=A A′ with n≪p) and avoid forming C; (ii) solve multiple columns at a time to turn mat-vec into BLAS-3 mat-mat operations; (iii) use block-cyclic distribution for load balance and cache efficiency in distributed memory; (iv) an inexact/linearized ADMM update with O(1/T) convergence rates for objective and residuals. They further discuss exploiting sparsity in iterates and a “coarsened” covariance via thresholding while preserving CLIME’s deviation conditions. Experiments compare runtime and precision/recall against CLIME (flare), TIGER, and DC-QUIC on synthetic and two real datasets, and provide scalability results up to p=10^6 on 400 cores, with a reported 11-hour run.
+
+There is substantial prior work on statistical properties of CLIME/TIGER and computational methods (interior-point, ADMM, QUIC/DC-QUIC, covariance thresholding and block decomposition, parallel BLAS/ScaLAPACK, and distributed ADMM). The paper’s novelty lies primarily in the systems/algorithmic engineering: a linearized ADMM tailored for CLIME at column-block granularity, and a carefully engineered distributed implementation.
+
+Strengths
+- Significance/impact: Addresses an important and challenging large-scale setting (p up to 10^6) with a pragmatic algorithmic/systems design that appears to deliver strong speedups. Avoiding explicit C and using A-based multiplications is a crucial and elegant design choice.
+- Methodology: The column-block approach is well-motivated (BLAS-3 efficiency, cache locality) and the block-cyclic distribution is standard but effective for load balancing. The algorithm consists of elementwise ops and mat-muls amenable to optimized kernels and distribution.
+- Theory: Provides O(1/T) convergence rates under a plausible majorization condition η ≥ ρ‖C‖^2. The residual bound structure connects to linearized ADMM literature.
+- Empirics: Good scalability studies in both shared- and distributed-memory settings, with informative speedup plots and a demonstration at unprecedented dimension.
+
+Weaknesses and detailed comments
+Quality (technical soundness)
+- Convergence claims: Theorem 1 bounds the suboptimality in terms of l1 norms on an averaged iterate, but does not directly provide primal feasibility or a standard objective gap to the optimum; Theorem 2 presents a last-iterate O(1/T) bound on a composite residual, which is stronger than typical ergodic bounds for linearized ADMM. The paper cites [26,12] but the precise mapping of assumptions and the non-ergodic guarantee need clearer derivation. Please clarify whether the guarantees are ergodic (averaged) or last-iterate, and make explicit the exact residual definitions and optimality gap bound to the true optimal solution.
+- Linearization details: The derivation from the quadratic penalty to the linearized update (8) is terse. The definition Vt = (ρη)(2C Yt − C Yt−1) suggests an extragradient/extrapolation step; please provide a precise derivation and cite the exact variant (e.g., linearized ADMM with over-relaxation) ensuring that (9) is a valid majorized step with η ≥ ρ‖C‖^2.
+- Symmetry/PD: CLIME solutions are not automatically symmetric; the standard CLIME symmetrization is not described. How is symmetry enforced at scale after blockwise computation? Positive definiteness is not required by CLIME, but a discussion of symmetrization and its distributed implementation is needed.
+- Thresholding/coarsening of C: Theorem 3 assumes an independent sub-exponential perturbation ∆ and concludes the sup-norm deviation still holds. In practice, the proposed thresholding is a deterministic function of C, violating independence. A simpler and more relevant argument is deterministic: if ‖∆‖∞ ≤ τ, then ‖(C+∆)−Σ0‖∞ ≤ ‖C−Σ0‖∞+τ. However, hard-thresholding C may induce |∆ij|=|Cij| which can exceed the allowable τ unless Σ0 is itself sparse/approximately sparse. Please restate this result under deterministic conditions and specify conditions on Σ0 (e.g., approximate sparsity) and the chosen threshold to preserve guarantees.
+- Dimensional inconsistencies/typos: There are several confusing dimension statements (e.g., in Section 4, U is defined as A W with A∈R^{n×p}, implying U∈R^{n×k}, but earlier A∈R^{p×n} and U=CX∈R^{p×k}). Also, “For q cores, we use the process grid q^2 × 2” is impossible; please correct (likely q×2). Algorithm step indices and the V-update scaling appear inconsistent between the text and Algorithm 1. These should be fixed for reproducibility.
+
+Clarity
+- The algorithm would benefit from a clean, dimension-consistent pseudocode that precisely specifies shapes, the linearization, the over-relaxation (if any), and stopping criteria (primal/dual residuals, tolerances).
+- Provide a brief communication complexity analysis per iteration for A′X and AY under block-cyclic distribution (e.g., SUMMA-like), so readers can reason about scalability beyond the presented platforms.
+
+Originality
+- The combination of CLIME with a linearized ADMM, column-block updates, and block-cyclic distribution is a thoughtful engineering advance. However, related work on large-scale graphical lasso/precision estimation using distributed block structure (e.g., QUIC/DC-QUIC and follow-ons, BigQUIC) should be more comprehensively discussed. If BigQUIC (Hsieh et al.) predates this submission, it is a highly relevant baseline; if not, please still position the differences (CLIME vs log-det, low-rank vs block-thresholding).
+
+Significance/empirical evaluation
+- Comparisons: Runtime comparisons mix objectives (CLIME, TIGER, QUIC). For fairness, please also compare against a strong CLIME baseline (e.g., flare ADMM) on multi-core and report per-iteration costs and convergence criteria. It would be helpful to report accuracy metrics (matrix norm errors) in addition to precision/recall on synthetic data, and residuals/stopping time on real data.
+- Parameter selection: Although CLIME can be made tuning-insensitive, experiments tune λ to match sparsity, which is optimistic. Please either use parameter-free variants (e.g., [4]) or report sensitivity/selection rules.
+- Large-scale run: The p=10^6 experiment reports runtime but no quality metrics or convergence traces. Please add iteration counts, residual curves, and memory per node. An ablation showing the benefit of column-blocking (k) and of low-rank multiplications (vs forming C) would strengthen the case.
+
+Pros
+- Tackles an important problem with a scalable, implementable method.
+- Solid systems design (BLAS-3 friendly, block-cyclic distribution) with convincing speedups.
+- Avoiding C by leveraging low-rank structure is a key practical insight.
+- Provides some convergence guarantees.
+
+Cons
+- Theory is underspecified and in places potentially incorrect/misaligned with practice (Theorem 3; non-ergodic claim).
+- Clarity issues (dimensions, algorithm steps, process grid).
+- Empirical comparisons limited and partially unfair; missing accuracy and convergence diagnostics at scale.
+- Missing discussion of symmetry/symmetrization and communication complexity.
+
+Questions for the authors
+1) Please clarify the exact linearized ADMM variant, the role of extrapolation in Vt, and whether Theorem 2 is last-iterate or ergodic.
+2) How do you symmetrize the CLIME solution in a distributed setting?
+3) What stopping criteria and tolerances are used? How many iterations for the 1M-dim run?
+4) Can you provide a deterministic, data-dependent thresholding guarantee (or conditions on Σ0) for the covariance coarsening?
+5) Please correct the dimension inconsistencies and the process grid description.
+
+Recommendation
+Borderline. The paper addresses a high-impact problem and demonstrates impressive scalability with a thoughtful algorithm/implementation. However, theoretical statements need clarification/correction, key details are unclear, and the empirical evaluation should be strengthened. With revisions addressing the above, this could be a strong contribution.

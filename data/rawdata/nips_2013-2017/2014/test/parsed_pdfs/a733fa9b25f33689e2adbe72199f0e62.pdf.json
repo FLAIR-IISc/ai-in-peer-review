@@ -1,0 +1,461 @@
+{
+  "name" : "a733fa9b25f33689e2adbe72199f0e62.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Gaussian Process Volatility Model",
+    "authors" : [ "Yue Wu", "José Miguel Hernández Lobato", "Zoubin Ghahramani" ],
+    "emails" : [ "wu5@post.harvard.edu", "jmh233@cam.ac.uk", "zoubin@eng.cam.ac.uk" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Time series of financial returns often exhibit heteroscedasticity, that is the standard deviation or volatility of the returns is time-dependent. In particular, large returns (either positive or negative) are often followed by returns that are also large in size. The result is that financial time series frequently display periods of low and high volatility. This phenomenon is known as volatility clustering [1]. Several univariate models have been proposed in the literature for capturing this property. The best known and most popular is the Generalised Autoregressive Conditional Heteroscedasticity model (GARCH) [2]. An alternative to GARCH are stochastic volatility models [3]. However, there is no evidence that SV models have better predictive performance than GARCH [4, 5, 6].\nGARCH has further inspired a host of variants and extensions. A review of many of these models can be found in [7]. Most of these GARCH variants attempt to address one or both limitations of GARCH: a) the assumption of a linear dependency between current and past volatilities, and b) the assumption that positive and negative returns have symmetric effects on volatility. Asymmetric effects are often observed, as large negative returns often send measures of volatility soaring, while this effect is smaller for large positive returns [8, 9]. Finally, there are also extensions that use additional data besides daily closing prices to improve volatility predictions [10].\nMost solutions proposed in these variants of GARCH involve: a) introducing nonlinear functional relationships for the evolution of volatility, and b) adding asymmetric effects in these functional relationships. However, the GARCH variants do not fundamentally address the problem that the specific functional relationship of the volatility is unknown. In addition, these variants can have a high number of parameters, which may lead to overfitting when using maximum likelihood learning.\nMore recently, volatility modeling has received attention within the machine learning community, with the development of copula processes [11] and heteroscedastic Gaussian processes [12]. These\nmodels leverage the flexibility of Gaussian Processes [13] to model the unknown relationship between the variances. However, these models do not address the asymmetric effects of positive and negative returns on volatility.\nWe introduce a new non-parametric volatility model, called the Gaussian Process Volatility Model (GP-Vol). This new model is more flexible, as it is not limited by a fixed functional form. Instead, a non-parametric prior distribution is placed on possible functions, and the functional relationship is learned from the data. This allows GP-Vol to explicitly capture the asymmetric effects of positive and negative returns on volatility. Our new volatility model is evaluated in a series of experiments with real financial returns, and compared against popular econometric models, namely, GARCH, EGARCH [14] and GJR-GARCH [15]. In these experiments, GP-Vol produces the best overall predictions. In addition to this, we show that the functional relationship learned by GP-Vol often exhibits the nonlinear and asymmetric features that previous models attempt to capture.\nThe second main contribution of the paper is the development of an online algorithm for learning GP-Vol. GP-Vol is an instance of a Gaussian Process State Space Model (GP-SSM). Previous work on GP-SSMs [16, 17, 18] has mainly focused on developing approximation methods for filtering and smoothing the hidden states in GP-SSM, without jointly learning the GP transition dynamics. Only very recently have Frigola et al. [19] addressed the problem of learning both the hidden states and the transition dynamics by using Particle Gibbs with Ancestor Sampling (PGAS) [20]. In this paper, we introduce a new online algorithm for performing inference on GP-SSMs. Our algorithm has similar predictive performance as PGAS on financial data, but is much faster."
+    }, {
+      "heading" : "2 Review of GARCH and GARCH variants",
+      "text" : "The standard variance model for financial data is GARCH. GARCH assumes a Gaussian observation model and a linear transition function for the variance: the time-varying variance σ2t is linearly dependent on p previous variance values and q previous squared time series values, that is,\nxt∼ N (0, σ2t ) , and σ2t = α0 + ∑q j=1 αjx 2 t−j + ∑p i=1 βiσ 2 t−i , (1)\nwhere xt are the values of the return time series being modeled. This model is flexible and can produce a variety of clustering behaviors of high and low volatility periods for different settings of α1, . . . , αq and β1, . . . , βp. However, it has several limitations. First, only linear relationships between σ2t−p:t−1 and σ 2 t are allowed. Second, past positive and negative returns have the same effect on σ2t due to the quadratic term x 2 t−j . However, it is often observed that large negative returns lead to larger rises in volatility than large positive returns [8, 9].\nA more flexible and often cited GARCH extension is Exponential GARCH (EGARCH) [14]. The equation for σ2t is now:\nlog(σ2t ) = α0 + ∑q j=1 αjg(xt−j) + ∑p i=1 βi log(σ 2 t−i) , where g(xt) = θxt + λ |xt| . (2)\nAsymmetry in the effects of positive and negative returns is introduced through the function g(xt). If the coefficient θ is negative, negative returns will increase volatility, while the opposite will happen if θ is positive. Another GARCH extension that models asymmetric effects is GJR-GARCH [15]:\nσ2t = α0 + ∑q j=1 αjx 2 t−j + ∑p i=1 βiσ 2 t−i + ∑r k=1 γkx 2 t−kIt−k , (3)\nwhere It−k = 0 if xt−k ≥ 0 and It−k = 1 otherwise. The asymmetric effect is now captured by It−k, which is nonzero if xt−k < 0."
+    }, {
+      "heading" : "3 Gaussian process state space models",
+      "text" : "GARCH, EGARCH and GJR-GARCH can be all represented as General State-Space or Hidden Markov models (HMM) [21, 22], with the unobserved dynamic variances being the hidden states. Transition functions for the hidden states are fixed and assumed to be linear in these models. The linear assumption limits the flexibility of these models.\nMore generally, a non-parametric approach can be taken where a Gaussian Process (GP) prior is placed on the transition function, so that its functional form can be learned from data. This Gaussian Process state space model (GP-SSM) is a generalization of HMM. GP-SSM and HMM differ in two main ways. First, in HMM the transition function has a fixed functional form, while in GP-SSM\nit is represented by a GP. Second, in GP-SSM the states do not have Markovian structure once the transition function is marginalized out.\nThe flexibility of GP-SSMs comes at a cost: inference in GP-SSMs is computationally challenging. Because of this, most of the previous work on GP-SSMs [16, 17, 18] has focused on filtering and smoothing the hidden states in GP-SSM, without jointly learning the GP dynamics. Note that in [18], the authors learn the dynamics, but using a separate dataset in which both input and target values for the GP model are observed. A few papers considered learning both the GP dynamics and the hidden states for special cases of GP-SSMs. For example, [23] applied EM to obtain maximum likelihood estimates for parametric systems that can be represented by GPs. A general method has been recently proposed for joint inference on the hidden states and the GP dynamics using Particle Gibbs with Ancestor Sampling (PGAS) [20, 19]. However, PGAS is a batch MCMC inference method that is computationally very expensive."
+    }, {
+      "heading" : "4 Gaussian process volatility model",
+      "text" : "Our new Gaussian Process Volatility Model (GP-Vol) is an instance of GP-SSM: xt ∼ N (0, σ2t ) , vt := log(σ2t ) = f(vt−1, xt−1) + t , t ∼ N (0, σ2n) . (4) Note that we model the logarithm of the variance, which has real support. Equation (4) defines a GP-SMM. We place a GP prior on the transition function f . Let zt = (vt, xt). Then f ∼ GP(m, k) where m(zt) and k(zt, z′t) are the GP mean and covariance functions, respectively. The mean function can encode prior knowledge of the system dynamics. The covariance function gives the prior covariance between function values: k(zt, z′t) = Cov(f(zt), f(z ′ t)) . Intuitively if zt and z ′ t are close to each other, the covariances between the corresponding function values should be large: f(zt) and f(z′t) should be highly correlated.\nThe graphical model for GP-Vol is given in Figure 1. The explicit dependence of transition function values on the previous return xt−1 enables GP-Vol to model the asymmetric effects of positive and negative returns on the variance evolution. GP-Vol can be extended to depend on p previous log variances and q past returns like in GARCH(p,q). In this case, the transition would be of the form vt = f(vt−1, vt−2, ..., vt−p, xt−1, xt−2, ..., xt−q) + t."
+    }, {
+      "heading" : "5 Bayesian inference in GP-Vol",
+      "text" : "In the standard GP regression setting, the inputs and targets are fully observed and f can be learned using exact Bayesian inference [13]. However, this is not the case in GP-Vol, where the unknown {vt} form part of the inputs and all the targets. Let θ denote the model hyper-parameters and let f = [f(v1), . . . , f(vT )]. Directly learning the joint posterior of the unknown variables f , v1:T and θ is a challenging task. Fortunately, the posterior p(vt|θ, x1:t), where f has been marginalized out, can be approximated with particles [24]. We first describe a standard sequential Monte Carlo (SMC) particle filter to learn this posterior.\nLet {vi1:t−1}Ni=1 be particles representing chains of states up to t−1 with corresponding normalized weights W it−1. The posterior p(v1:t−1|θ, x1:t−1) is then approximated by\np̂(v1:t−1|θ, x1:t−1) = ∑N\ni=1W i t−1δvi1:t−1(v1:t−1) . (5)\nThe corresponding posterior for v1:t can be approximated by propagating these particles forward. For this, we propose new states from the GP-Vol transition model and then we importance-weight them according to the GP-Vol observation model. Specifically, we resample particles vj1:t−1 from (5) according to their weights W jt−1, and propagate the samples forward. Then, for each of the particles propagated forward, we propose vjt from p(vt|θ, v j 1:t−1, x1:t−1), which is the GP predictive distribution. The proposed particles are then importance-weighted according to the observation model, that is, W jt ∝ p(xt|θ, v j t ) = N (xt|0, exp{v j t }).\nThe above setup assumes that θ is known. To learn these hyper-parameters, we can also encode them in particles and filter them together with the hidden states. However, since θ is constant across time, naively filtering such particles without regeneration will fail due to particle impoverishment, where a few or even one particle receives all the weight. To solve this problem, the Regularized Auxiliary Particle Filter (RAPF) regenerates parameter particles by performing kernel smoothing operations [25]. This introduces artificial dynamics and estimation bias. Nevertheless, RAPF has been shown to produce state-of-the-art inference in multivariate parametric financial models [6].\nRAPF was designed for HMMs, but GP-Vol is non-Markovian once f is marginalized out. Therefore, we design a new version of RAPF for non-Markovian systems and refer to it as the Regularized Auxiliary Particle Chain Filter (RAPCF), see Algorithm 1. There are two main parts in RAPCF. First, there is the Auxiliary Particle Filter (APF) part in lines 5, 6 and 7 of the pseudocode [26]. This part selects particles associated with high expected likelihood, as given by the new expected state in (7) and the corresponding resampling weight in (8). This bias towards particles with high expected likelihood is eliminated when the final importance weights are computed in (9). The most promising particles are propagated forward in lines 8 and 9. The main difference between RAPF and RAPCF is in the effect that previous states vi1:t−1 have in the propagation of particles. In RAPCF all the previous states determine the probabilities of the particles being propagated, as the model is non-Markovian, while in RAPF these probabilities are only determined by the last state vit−1. The second part of RAPCF avoids particle impoverishment in θ. For this, new particles are generated in line 10 by sampling from a Gaussian kernel. The over-dispersion introduced by these artificial dynamics is eliminated in (6) by shrinking the particles towards their empirical average. We fix the shrinking parameter λ to be 0.95. In practice, we found little difference in predictions when we varied λ from 0.99 to 0.95.\nRAPCF has limitations similar to those of RAPF. First, it introduces bias as sampling from the kernel adds artificial dynamics. Second, RAPCF only filters forward and does not smooth backward. Consequently, there will be impoverishment in distant ancestors vt−L, since these states are not regenerated. When this occurs, GP-Vol will consider the collapsed ancestor states as inputs with little uncertainty and the predictive variance near these inputs will be underestimated. These issues can be addressed by adopting a batch MCMC approach. In particular, Particle Markov Chain Monte Carlo (PMCMC) procedures [24] established a framework for learning the states and the parameters in general state space models. Additionally, [20] developed a PMCMC algorithm called Particle Gibbs with ancestor sampling (PGAS) for learning non-Markovian state space models. PGAS was applied by [19] to learn GP-SSMs. These batch MCMC methods are computationally much more expensive than RAPCF. Furthermore, our experiments show that in the GP-Vol model, RAPCF and PGAS have similar empirical performance, while RAPCF is orders of magnitude faster than PGAS. This indicates that the aforementioned issues have limited impact in practice."
+    }, {
+      "heading" : "6 Experiments",
+      "text" : "We performed three sets of experiments. First, we tested on synthetic data whether we can jointly learn the hidden states and transition dynamics in GP-Vol using RAPCF. Second, we compared the performance of GP-Vol against standard econometric models GARCH, EGARCH and GJRGARCH on fifty real financial time series. Finally, we compared RAPCF with the batch MCMC method PGAS in terms of accuracy and execution time. The code for RAPCF in GP-Vol is publicly available at http://jmhl.org."
+    }, {
+      "heading" : "6.1 Experiments with synthetic data",
+      "text" : "We generated ten synthetic datasets of length T = 100 according to (4). The transition function f is sampled from a GP prior specified with a linear mean function and a squared exponential covariance\nAlgorithm 1 RAPCF 1: Input: data x1:T , number of particles N , shrinkage parameter 0 < λ < 1, prior p(θ). 2: Sample N parameter particles from the prior: {θi0}i=1,...,N ∼ p(θ). 3: Set initial importance weights, W i0 = 1/N . 4: for t = 1 to T do 5: Shrink parameter particles towards their empirical mean θ̄t−1 = ∑N i=1W i t−1θ i t−1 by setting\nθ̃it = λθ i t−1 + (1− λ)θ̄t−1 . (6)\n6: Compute the new expected states: µit = E(vt|θ̃it, vi1:t−1, x1:t−1) . (7) 7: Compute importance weights proportional to the likelihood of the new expected states: git ∝W it−1p(xt|µit, θ̃it) . (8) 8: Resample N auxiliary indices {j} according to weights {git}. 9: Propagate the corresponding chains of hidden states forward, that is, {vj1:t−1}j∈J .\n10: Add jitter: θjt ∼ N (θ̃ j t , (1− λ2)Vt−1), where Vt−1 is the empirical covariance of θt−1. 11: Propose new states vjt ∼ p(vt|θ j t , v j 1:t−1, x1:t−1). 12: Compute importance weights adjusting for the modified proposal: W jt ∝ p(xt|v j t ,θ j t )/p(xt|µ j t , θ̃ j t ) , (9) 13: end for 14: Output: particles for chains of states vj1:T , particles for parameters θ j t and particle weightsW j t .\nfunction. The linear mean function is E(vt) = m(vt−1, xt−1) = avt−1 + bxt−1. The squared exponential covariance function is k(y, z) = γ exp(−0.5|y − z|2/l2) where l is the length-scale parameter and γ is the amplitude parameter.\nWe used RAPCF to learn the hidden states v1:T and the hyper-parameters θ = (a, b, σn, γ, l) using non-informative diffuse priors for θ. In these experiments, RAPCF successfully recovered the state and the hyper-parameter values. For the sake of brevity, we only include two typical plots of the 90% posterior intervals for hyper-parameters a and b in the middle and right of Figures 1. The intervals are estimated from the filtered particles for a and b at each time step t. In both plots, the posterior intervals eventually concentrate around the true parameter values, shown as dotted blue lines."
+    }, {
+      "heading" : "6.2 Experiments with real data",
+      "text" : "We compared the predictive performances of GP-Vol, GARCH, EGARCH and GJR-GARCH on real financial datasets. We used GARCH(1,1), EGARCH(1,1) and GJR-GARCH(1,1,1) models since these variants have the least number of parameters and are consequently less affected by overfitting problems. We considered fifty datasets, consisting of thirty daily Equity and twenty daily foreign exchange (FX) time series. For the Equity series, we used daily closing prices. For FX, which operate 24h a day, with no official daily closing prices, we cross-checked different pricing sources and took the consensus price up to 4 decimal places at 10am New York, which is the time with most market liquidity. Each of the resulting time series contains a total of T = 780 observations from January 2008 to January 2011. The price data p1:T was pre-processed to eliminate prices corresponding to times when markets were closed or not liquid. After this, prices were converted into logarithmic returns, xt = log(pt/pt−1). Finally, the resulting returns were standardized to have zero mean and unit standard deviation.\nDuring the experiments, each method receives an initial time series of length 100. The different models are trained on that data and then a one-step forward prediction is made. The performance of each model is measured in terms of the predictive log-likelihood on the first return out of the training set. Then the training set is augmented with the new observation and the training and prediction steps are repeated. The whole process is repeated sequentially until no further data is received.\nGARCH, EGARCH and GJR-GARCH were implemented using numerical optimization routines provided by Kevin Sheppard 1. A relatively long initial time series of length 100 was needed to to train these models. Using shorter initial data resulted in wild jumps in the maximum likelihood\n1http:///www.kevinsheppard.com/wiki/UCSD_GARCH/\nNemenyi Test\nestimates of the model parameters. These large fluctuations produced very poor one-step forward predictions. By contrast, GP-Vol is less susceptible to overfitting since it approximates the posterior distribution using RAPCF instead of finding point estimates of the model parameters. We placed broad non-informative priors on θ = (a, b, σn, γ, l) and used N = 200 particles and shrinkage parameter λ = .95 in RAPCF.\nDataset GARCH EGARCH GJR GP-Vol AUDUSD −1.303 −1.514 −1.305 −1.297 BRLUSD −1.203 −1.227 −1.201 −1.180 CADUSD −1.402 −1.409 −1.402 −1.386 CHFUSD −1.375 −1.404 −1.404 −1.359 CZKUSD −1.422 −1.473 −1.422 −1.456 EURUSD −1.418 −2.120 −1.426 −1.403 GBPUSD −1.382 −3.511 −1.386 −1.385 IDRUSD −1.223 −1.244 −1.209 −1.039 JPYUSD −1.350 −2.704 −1.355 −1.347 KRWUSD −1.189 −1.168 −1.209 −1.154 MXNUSD −1.220 −3.438 −1.278 −1.167 MYRUSD −1.394 −1.412 −1.395 −1.392 NOKUSD −1.416 −1.567 −1.419 −1.416 NZDUSD −1.369 −3.036 −1.379 −1.389 PLNUSD −1.395 −1.385 −1.382 −1.393 SEKUSD −1.403 −3.705 −1.402 −1.407 SGDUSD −1.382 −2.844 −1.398 −1.393 TRYUSD −1.224 −1.461 −1.238 −1.236 TWDUSD −1.384 −1.377 −1.388 −1.294 ZARUSD −1.318 −1.344 −1.301 −1.304\nTable 1: FX series.\nDataset GARCH EGARCH GJR GP-Vol A −1.304 −1.449 −1.281 −1.282 AA −1.228 −1.280 −1.230 −1.218 AAPL −1.234 −1.358 −1.219 −1.212 ABC −1.341 −1.976 −1.344 −1.337 ABT −1.295 −1.527 −1.3003 −1.302 ACE −1.084 −2.025 −1.106 −1.073 ADBE −1.335 −1.501 −1.386 −1.302 ADI −1.373 −1.759 −1.352 −1.356 ADM −1.228 −1.884 −1.223 −1.223 ADP −1.229 −1.720 −1.205 −1.211 ADSK −1.345 −1.604 −1.340 −1.316 AEE −1.292 −1.282 −1.263 −1.166 AEP −1.151 −1.177 −1.146 −1.142 AES −1.237 −1.319 −1.234 −1.197 AET −1.285 −1.302 −1.269 −1.246\nTable 2: Equity series 1-15.\nWe show the average predictive log-likelihood of GP-Vol, GARCH, EGARCH and GJR-GARCH in tables 1, 2 and 3 for the FX series, the first 15 Equity series and the last 15 Equity series, respectively. The results of the best performing method in each dataset have been highlighted in bold. These tables show that GP-Vol obtains the highest predictive log-likelihood in 29 of the 50 analyzed datasets. We perform a statistical test to determine whether differences among GP-Vol, GARCH, EGARCH and GJR-GARCH are significant. These methods are compared against each other using the multiple comparison approach described by [27]. In this comparison framework, all the methods are ranked according to their performance on different tasks. Statistical tests are then applied to determine whether the differences among the average ranks of the methods are significant. In our case, each of the 50 datasets analyzed represents a different task. A Friedman rank sum test rejects the hypothesis that all methods have equivalent performance at α = 0.05 with p-value less than 10−15. Pairwise comparisons between all the methods with a Nemenyi test at a 95% confidence level are summarized in Figure 2. The Nemenyi test shows that GP-Vol is significantly better than the other methods.\nThe other main advantage of GP-Vol over existing models is that it can learn the functional relationship f between the new log variance vt and the previous log variance vt−1 and previous return xt−1. We plot a typical log variance surface in the left of Figure 3. This surface is generated by plotting the mean predicted outputs vt against a grid of inputs for vt−1 and xt−1. For this, we use the functional dynamics learned with RAPCF on the AUDUSD time series. AUDUSD stands for the amount of US dollars that an Australian dollar can buy. The grid of inputs is designed to contain a range of values experienced by AUDUSD from 2008 to 2011, which is the period covered by the data. The surface is colored according to the standard deviation of the posterior predictive distribution for the log variance. Large standard deviations correspond to uncertain predictions, and are redder.\nThe plot in the left of Figure 3 shows several patterns. First, there is an asymmetric effect of positive and negative previous returns xt−1. This can be seen in the skewness and lack of symmetry of the contour lines with respect to the vt−1 axis. Second, the relationship between vt−1 and vt is slightly non-linear because the distance between consecutive contour lines along the vt−1 axis changes as we move across those lines, especially when xt−1 is large. In addition, the relationship between xt−1 and vt is nonlinear, but some sort of skewed quadratic function. These two patterns confirm the asymmetric effect and the nonlinear transition function that EGARCH and GJR-GARCH attempt to model. Third, there is a dip in predicted log variance for vt−1 < −2 and −1 < xt−1 < 2.5. Intuitively this makes sense, as it corresponds to a calm market environment with low volatility. However, as xt−1 becomes more extreme the market becomes more turbulent and vt increases.\nTo further understand the transition function f we study cross sections of the log variance surface. First, vt is predicted for a grid of vt−1 and xt−1 = 0 in the middle plot of Figure 3. Next, vt is predicted for various xt−1 and vt−1 = 0 in the right plot of Figure 3. The confidence bands in the figures correspond to the mean prediction ±2 standard deviations. These cross sections confirm the nonlinearity of the transition function and the asymmetric effect of positive and negative returns on the log variance. The transition function is slightly non-linear as a function of vt−1 as the band in the middle plot of Figure 3 passes through (−2,−2) and (0, 0), but not (2, 2). Surprisingly, we observe in the right plot of Figure 3 that large positive xt−1 produces larger vt when vt−1 = 0 since the band is slightly higher at xt−1 = 6 than at xt−1 = −6. However, globally, the highest predicted vt occurs when vt−1 > 5 and xt−1 < −5, as shown in the surface plot."
+    }, {
+      "heading" : "6.3 Comparison between RAPCF and PGAS",
+      "text" : "We now analyze the potential shortcomings of RAPCF that were discussed in Section 5. For this, we compare RAPCF against PGAS on the twenty FX time series from the previous section in terms of predictive log-likelihood and execution times. The RAPCF setup is the same as in Section 6.2. For PGAS, which is a batch method, the algorithm is run on initial training data x1:L, with L = 100, and a one-step forward prediction is made. The predictive log-likelihood is evaluated on the next observation out of the training set. Then the training set is augmented with the new observation and the batch training and prediction steps are repeated. The process is repeated sequentially until no further data is received. For these experiments we used shorter time series with T = 120 since PGAS is computationally very expensive. Note that we cannot simply learn the GP-SSM dynamics on a small set of training data and then predict on a large test dataset, as it was done in [19]. These authors were able to predict forward as they were using synthetic data with known “hidden” states.\nWe analyze different settings of RAPCF and PGAS. In RAPCF we use N = 200 particles since that number was used to compare against GARCH, EGARCH and GJR-GARCH in the previous section. PGAS has two parameters: a) N , the number of particles and b) M , the number of iterations. Three combinations of these settings were used. The resulting average predictive log-likelihoods for RAPCF and PGAS are shown in Table 4. On each dataset, the results of the best performing method\nhave been highlighted in bold. The average rank of each method across the analyzed datasets is shown in Table 5. From these tables, there is no evidence that PGAS outperforms RAPCF on these financial datasets, since there is no clear predictive edge of any PGAS setting over RAPCF.\nRAPCF PGAS.1 PGAS.2 PGAS.3 N = 200 N = 10 N = 25 N = 10\nDataset M = 100 M = 100 M = 200 AUDUSD −1.1205 −1.0571 −1.0699 −1.0936 BRLUSD −1.0102 −1.0043 −0.9959 −0.9759 CADUSD −1.4174 −1.4778 −1.4514 −1.4077 CHFUSD −1.8431 −1.8536 −1.8453 −1.8478 CZKUSD −1.2263 −1.2357 −1.2424 −1.2093 EURUSD −1.3837 −1.4586 −1.3717 −1.4064 GBPUSD −1.1863 −1.2106 −1.1790 −1.1729 IDRUSD −0.5446 −0.5220 −0.5388 −0.5463 JPYUSD −2.0766 −1.9286 −2.1585 −2.1658 KRWUSD −1.0566 −1.1212 −1.2032 −1.2066 MXNUSD −0.2417 −0.2731 −0.2271 −0.2538 MYRUSD −1.4615 −1.5464 −1.4745 −1.4724 NOKUSD −1.3095 −1.3443 −1.3048 −1.3169 NZDUSD −1.2254 −1.2101 −1.2366 −1.2373 PLNUSD −0.8972 −0.8704 −0.8708 −0.8704 SEKUSD −1.0085 −1.0085 −1.0505 −1.0360 SGDUSD −1.6229 −1.9141 −1.7566 −1.7837 TRYUSD −1.8336 −1.8509 −1.8352 −1.8553 TWDUSD −1.7093 −1.7178 −1.8315 −1.7257 ZARUSD −1.3236 −1.3326 −1.3440 −1.3286\nTable 4: Results for RAPCF vs. PGAS.\nMethod Configuration Rank RAPCF N = 200 2.025 PGAS.1 N = 10, M = 100 2.750 PGAS.2 N = 25, M = 100 2.550 PGAS.3 N = 10, M = 200 2.675\nTable 5: Average ranks.\nMethod Configuration Avg. Time RAPCF N = 200 6 PGAS.1 N = 10, M = 100 732 PGAS.2 N = 25, M = 100 1832 PGAS.3 N = 10, M = 200 1465\nTable 6: Avg. running time.\nAs mentioned above, there is little difference between the predictive accuracies of RAPCF and PGAS. However, PGAS is computationally much more expensive. We show average execution times in minutes for RAPCF and PGAS in Table 6. Note that RAPCF is up to two orders of magnitude faster than PGAS. The cost of this latter method could be reduced by using fewer particles N or fewer iterations M , but this would also reduce its predictive accuracy. Even after doing so, PGAS would still be more costly than RAPCF. RAPCF is also competitive with GARCH, EGARCH and GJR, whose average training times are in this case 2.6, 3.5 and 3.1 minutes, respectively. A naive implementation of RAPCF has cost O(NT 4), since at each time step t there is a O(T 3) cost from the inversion of the GP covariance matrix. On the other hand, the cost of applying PGAS naively is O(NMT 5), since for each batch of data x1:t there is aO(NMT 4) cost. These costs can be reduced to be O(NT 3) and O(NMT 4) for RAPCF and PGAS respectively by doing rank one updates of the inverse of the GP covariance matrix at each time step. The costs can be further reduced by a factor of T 2 by using sparse GPs [28]."
+    }, {
+      "heading" : "7 Summary and discussion",
+      "text" : "We have introduced a novel Gaussian Process Volatility model (GP-Vol) for time-varying variances in financial time series. GP-Vol is an instance of a Gaussian Process State-Space model (GP-SSM) which is highly flexible and can model nonlinear functional relationships and asymmetric effects of positive and negative returns on time-varying variances. In addition, we have presented an online inference method based on particle filtering for GP-Vol called the Regularized Auxiliary Particle Chain Filter (RAPCF). RAPCF is up to two orders of magnitude faster than existing batch Particle Gibbs methods. Results for GP-Vol on 50 financial time series show significant improvements in predictive performance over existing models such as GARCH, EGARCH and GJR-GARCH. Finally, the nonlinear transition functions learned by GP-Vol can be easily analyzed to understand the effect of past volatility and past returns on future volatility.\nFor future work, GP-Vol can be extended to learn the functional relationship between a financial instrument’s volatility, its price and other market factors, such as interest rates. The functional relationship thus learned can be useful in the pricing of volatility derivatives on the instrument. Additionally, the computational efficiency of RAPCF makes it an attractive choice for inference in other GP-SSMs different from GP-Vol. For example, RAPCF could be more generally applied to learn the hidden states and the dynamics in complex control systems."
+    } ],
+    "references" : [ {
+      "title" : "Empirical properties of asset returns: Stylized facts and statistical issues",
+      "author" : [ "R. Cont" ],
+      "venue" : "Quantitative Finance,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : "1",
+      "year" : 2001
+    }, {
+      "title" : "Generalized autoregressive conditional heteroskedasticity",
+      "author" : [ "T. Bollerslev" ],
+      "venue" : "Journal of econometrics,",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 1986
+    }, {
+      "title" : "Multivariate stochastic variance models",
+      "author" : [ "A. Harvey", "E. Ruiz", "N. Shephard" ],
+      "venue" : "The Review of Economic Studies,",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 1994
+    }, {
+      "title" : "Stochastic volatility: likelihood inference and comparison with ARCH models",
+      "author" : [ "S. Kim", "N. Shephard", "S. Chib" ],
+      "venue" : "The Review of Economic Studies,",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : "4",
+      "year" : 1998
+    }, {
+      "title" : "Practical issues in forecasting volatility",
+      "author" : [ "S.H. Poon", "C. Granger" ],
+      "venue" : "Financial Analysts Journal,",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : "5",
+      "year" : 2005
+    }, {
+      "title" : "Dynamic covariance models for multivariate financial time series",
+      "author" : [ "Y. Wu", "J.M. Hernández-Lobato", "Z. Ghahramani" ],
+      "venue" : "In ICML,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : "6",
+      "year" : 2013
+    }, {
+      "title" : "All in the family nesting symmetric and asymmetric GARCH models",
+      "author" : [ "L. Hentschel" ],
+      "venue" : "Journal of Financial Economics,",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : "7",
+      "year" : 1995
+    }, {
+      "title" : "Asymmetric volatility and risk in equity markets",
+      "author" : [ "G. Bekaert", "G. Wu" ],
+      "venue" : "Review of Financial Studies,",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : "8",
+      "year" : 2000
+    }, {
+      "title" : "No news is good news: An asymmetric model of changing volatility in stock returns",
+      "author" : [ "J.Y. Campbell", "L. Hentschel" ],
+      "venue" : "Journal of financial Economics,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 1992
+    }, {
+      "title" : "Volatility forecasting with range-based EGARCH models",
+      "author" : [ "M.W. Brandt", "C.S. Jones" ],
+      "venue" : "Journal of Business & Economic Statistics,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : "10",
+      "year" : 2006
+    }, {
+      "title" : "Copula processes",
+      "author" : [ "A. Wilson", "Z. Ghahramani" ],
+      "venue" : "In Advances in Neural Information Processing Systems",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 2010
+    }, {
+      "title" : "Variational heteroscedastic Gaussian process regression",
+      "author" : [ "M. Lázaro-Gredilla", "M.K. Titsias" ],
+      "venue" : "In ICML,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 2011
+    }, {
+      "title" : "Gaussian processes for machine",
+      "author" : [ "C.E. Rasmussen", "C.K.I. Williams" ],
+      "venue" : null,
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 2006
+    }, {
+      "title" : "Conditional heteroskedasticity in asset returns: A new approach",
+      "author" : [ "D.B. Nelson" ],
+      "venue" : null,
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 1991
+    }, {
+      "title" : "On the relation between the expected value and the volatility of the nominal excess return on stocks",
+      "author" : [ "L.R. Glosten", "R. Jagannathan", "D.E. Runkle" ],
+      "venue" : "The Journal of Finance,",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : "15",
+      "year" : 1993
+    }, {
+      "title" : "GP-BayesFilters: Bayesian filtering using Gaussian process prediction and observation models",
+      "author" : [ "J. Ko", "D. Fox" ],
+      "venue" : "Autonomous Robots,",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : "16",
+      "year" : 2009
+    }, {
+      "title" : "Analytic moment-based Gaussian process filtering",
+      "author" : [ "M.P. Deisenroth", "M.F. Huber", "U.D. Hanebeck" ],
+      "venue" : "In ICML,",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : "17",
+      "year" : 2009
+    }, {
+      "title" : "Expectation Propagation in Gaussian Process Dynamical Systems",
+      "author" : [ "M. Deisenroth", "S. Mohamed" ],
+      "venue" : "In Advances in Neural Information Processing Systems",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : "18",
+      "year" : 2012
+    }, {
+      "title" : "Bayesian inference and learning in Gaussian process state-space models with particle MCMC",
+      "author" : [ "R. Frigola", "F. Lindsten", "T.B. Schön", "C.E. Rasmussen" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : "19",
+      "year" : 2013
+    }, {
+      "title" : "Ancestor Sampling for Particle Gibbs",
+      "author" : [ "F. Lindsten", "M. Jordan", "T. Schön" ],
+      "venue" : "In Advances in Neural Information Processing Systems",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : "20",
+      "year" : 2012
+    }, {
+      "title" : "Statistical inference for probabilistic functions of finite state Markov chains",
+      "author" : [ "L.E. Baum", "T. Petrie" ],
+      "venue" : "The Annals of Mathematical Statistics,",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : "21",
+      "year" : 1966
+    }, {
+      "title" : "Sequential Monte Carlo methods in practice",
+      "author" : [ "A. Doucet", "N. De Freitas", "N. Gordon" ],
+      "venue" : null,
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : "22",
+      "year" : 2001
+    }, {
+      "title" : "State-space inference and learning with Gaussian processes",
+      "author" : [ "R.D. Turner", "M.P. Deisenroth", "C.E. Rasmussen" ],
+      "venue" : "In AISTATS,",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : "23",
+      "year" : 2010
+    }, {
+      "title" : "Particle Markov chain Monte Carlo methods",
+      "author" : [ "C. Andrieu", "A. Doucet", "R. Holenstein" ],
+      "venue" : "Journal of the Royal Statistical Society: Series B (Statistical Methodology),",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : "24",
+      "year" : 2010
+    }, {
+      "title" : "Combined parameter and state estimation in simulation-based filtering",
+      "author" : [ "J. Liu", "M. West" ],
+      "venue" : "Institute of Statistics and Decision Sciences, Duke University,",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : "25",
+      "year" : 1999
+    }, {
+      "title" : "Filtering via simulation: Auxiliary particle filters",
+      "author" : [ "M.K. Pitt", "N. Shephard" ],
+      "venue" : "Journal of the American Statistical Association,",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : "26",
+      "year" : 1999
+    }, {
+      "title" : "Statistical comparisons of classifiers over multiple data sets",
+      "author" : [ "J. Demšar" ],
+      "venue" : "Journal of Machine Learning Research,",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : "27",
+      "year" : 2006
+    }, {
+      "title" : "A unifying view of sparse approximate Gaussian process regression",
+      "author" : [ "J. Quiñonero-Candela", "C.E. Rasmussen" ],
+      "venue" : "The Journal of Machine Learning Research,",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : "28",
+      "year" : 2005
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 0,
+      "context" : "This phenomenon is known as volatility clustering [1].",
+      "startOffset" : 50,
+      "endOffset" : 53
+    }, {
+      "referenceID" : 1,
+      "context" : "The best known and most popular is the Generalised Autoregressive Conditional Heteroscedasticity model (GARCH) [2].",
+      "startOffset" : 111,
+      "endOffset" : 114
+    }, {
+      "referenceID" : 2,
+      "context" : "An alternative to GARCH are stochastic volatility models [3].",
+      "startOffset" : 57,
+      "endOffset" : 60
+    }, {
+      "referenceID" : 3,
+      "context" : "However, there is no evidence that SV models have better predictive performance than GARCH [4, 5, 6].",
+      "startOffset" : 91,
+      "endOffset" : 100
+    }, {
+      "referenceID" : 4,
+      "context" : "However, there is no evidence that SV models have better predictive performance than GARCH [4, 5, 6].",
+      "startOffset" : 91,
+      "endOffset" : 100
+    }, {
+      "referenceID" : 5,
+      "context" : "However, there is no evidence that SV models have better predictive performance than GARCH [4, 5, 6].",
+      "startOffset" : 91,
+      "endOffset" : 100
+    }, {
+      "referenceID" : 6,
+      "context" : "A review of many of these models can be found in [7].",
+      "startOffset" : 49,
+      "endOffset" : 52
+    }, {
+      "referenceID" : 7,
+      "context" : "Asymmetric effects are often observed, as large negative returns often send measures of volatility soaring, while this effect is smaller for large positive returns [8, 9].",
+      "startOffset" : 164,
+      "endOffset" : 170
+    }, {
+      "referenceID" : 8,
+      "context" : "Asymmetric effects are often observed, as large negative returns often send measures of volatility soaring, while this effect is smaller for large positive returns [8, 9].",
+      "startOffset" : 164,
+      "endOffset" : 170
+    }, {
+      "referenceID" : 9,
+      "context" : "Finally, there are also extensions that use additional data besides daily closing prices to improve volatility predictions [10].",
+      "startOffset" : 123,
+      "endOffset" : 127
+    }, {
+      "referenceID" : 10,
+      "context" : "More recently, volatility modeling has received attention within the machine learning community, with the development of copula processes [11] and heteroscedastic Gaussian processes [12].",
+      "startOffset" : 138,
+      "endOffset" : 142
+    }, {
+      "referenceID" : 11,
+      "context" : "More recently, volatility modeling has received attention within the machine learning community, with the development of copula processes [11] and heteroscedastic Gaussian processes [12].",
+      "startOffset" : 182,
+      "endOffset" : 186
+    }, {
+      "referenceID" : 12,
+      "context" : "models leverage the flexibility of Gaussian Processes [13] to model the unknown relationship between the variances.",
+      "startOffset" : 54,
+      "endOffset" : 58
+    }, {
+      "referenceID" : 13,
+      "context" : "Our new volatility model is evaluated in a series of experiments with real financial returns, and compared against popular econometric models, namely, GARCH, EGARCH [14] and GJR-GARCH [15].",
+      "startOffset" : 165,
+      "endOffset" : 169
+    }, {
+      "referenceID" : 14,
+      "context" : "Our new volatility model is evaluated in a series of experiments with real financial returns, and compared against popular econometric models, namely, GARCH, EGARCH [14] and GJR-GARCH [15].",
+      "startOffset" : 184,
+      "endOffset" : 188
+    }, {
+      "referenceID" : 15,
+      "context" : "Previous work on GP-SSMs [16, 17, 18] has mainly focused on developing approximation methods for filtering and smoothing the hidden states in GP-SSM, without jointly learning the GP transition dynamics.",
+      "startOffset" : 25,
+      "endOffset" : 37
+    }, {
+      "referenceID" : 16,
+      "context" : "Previous work on GP-SSMs [16, 17, 18] has mainly focused on developing approximation methods for filtering and smoothing the hidden states in GP-SSM, without jointly learning the GP transition dynamics.",
+      "startOffset" : 25,
+      "endOffset" : 37
+    }, {
+      "referenceID" : 17,
+      "context" : "Previous work on GP-SSMs [16, 17, 18] has mainly focused on developing approximation methods for filtering and smoothing the hidden states in GP-SSM, without jointly learning the GP transition dynamics.",
+      "startOffset" : 25,
+      "endOffset" : 37
+    }, {
+      "referenceID" : 18,
+      "context" : "[19] addressed the problem of learning both the hidden states and the transition dynamics by using Particle Gibbs with Ancestor Sampling (PGAS) [20].",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 19,
+      "context" : "[19] addressed the problem of learning both the hidden states and the transition dynamics by using Particle Gibbs with Ancestor Sampling (PGAS) [20].",
+      "startOffset" : 144,
+      "endOffset" : 148
+    }, {
+      "referenceID" : 7,
+      "context" : "However, it is often observed that large negative returns lead to larger rises in volatility than large positive returns [8, 9].",
+      "startOffset" : 121,
+      "endOffset" : 127
+    }, {
+      "referenceID" : 8,
+      "context" : "However, it is often observed that large negative returns lead to larger rises in volatility than large positive returns [8, 9].",
+      "startOffset" : 121,
+      "endOffset" : 127
+    }, {
+      "referenceID" : 13,
+      "context" : "A more flexible and often cited GARCH extension is Exponential GARCH (EGARCH) [14].",
+      "startOffset" : 78,
+      "endOffset" : 82
+    }, {
+      "referenceID" : 14,
+      "context" : "Another GARCH extension that models asymmetric effects is GJR-GARCH [15]:",
+      "startOffset" : 68,
+      "endOffset" : 72
+    }, {
+      "referenceID" : 20,
+      "context" : "GARCH, EGARCH and GJR-GARCH can be all represented as General State-Space or Hidden Markov models (HMM) [21, 22], with the unobserved dynamic variances being the hidden states.",
+      "startOffset" : 104,
+      "endOffset" : 112
+    }, {
+      "referenceID" : 21,
+      "context" : "GARCH, EGARCH and GJR-GARCH can be all represented as General State-Space or Hidden Markov models (HMM) [21, 22], with the unobserved dynamic variances being the hidden states.",
+      "startOffset" : 104,
+      "endOffset" : 112
+    }, {
+      "referenceID" : 15,
+      "context" : "Because of this, most of the previous work on GP-SSMs [16, 17, 18] has focused on filtering and smoothing the hidden states in GP-SSM, without jointly learning the GP dynamics.",
+      "startOffset" : 54,
+      "endOffset" : 66
+    }, {
+      "referenceID" : 16,
+      "context" : "Because of this, most of the previous work on GP-SSMs [16, 17, 18] has focused on filtering and smoothing the hidden states in GP-SSM, without jointly learning the GP dynamics.",
+      "startOffset" : 54,
+      "endOffset" : 66
+    }, {
+      "referenceID" : 17,
+      "context" : "Because of this, most of the previous work on GP-SSMs [16, 17, 18] has focused on filtering and smoothing the hidden states in GP-SSM, without jointly learning the GP dynamics.",
+      "startOffset" : 54,
+      "endOffset" : 66
+    }, {
+      "referenceID" : 17,
+      "context" : "Note that in [18], the authors learn the dynamics, but using a separate dataset in which both input and target values for the GP model are observed.",
+      "startOffset" : 13,
+      "endOffset" : 17
+    }, {
+      "referenceID" : 22,
+      "context" : "For example, [23] applied EM to obtain maximum likelihood estimates for parametric systems that can be represented by GPs.",
+      "startOffset" : 13,
+      "endOffset" : 17
+    }, {
+      "referenceID" : 19,
+      "context" : "A general method has been recently proposed for joint inference on the hidden states and the GP dynamics using Particle Gibbs with Ancestor Sampling (PGAS) [20, 19].",
+      "startOffset" : 156,
+      "endOffset" : 164
+    }, {
+      "referenceID" : 18,
+      "context" : "A general method has been recently proposed for joint inference on the hidden states and the GP dynamics using Particle Gibbs with Ancestor Sampling (PGAS) [20, 19].",
+      "startOffset" : 156,
+      "endOffset" : 164
+    }, {
+      "referenceID" : 12,
+      "context" : "In the standard GP regression setting, the inputs and targets are fully observed and f can be learned using exact Bayesian inference [13].",
+      "startOffset" : 133,
+      "endOffset" : 137
+    }, {
+      "referenceID" : 23,
+      "context" : "Fortunately, the posterior p(vt|θ, x1:t), where f has been marginalized out, can be approximated with particles [24].",
+      "startOffset" : 112,
+      "endOffset" : 116
+    }, {
+      "referenceID" : 24,
+      "context" : "To solve this problem, the Regularized Auxiliary Particle Filter (RAPF) regenerates parameter particles by performing kernel smoothing operations [25].",
+      "startOffset" : 146,
+      "endOffset" : 150
+    }, {
+      "referenceID" : 5,
+      "context" : "Nevertheless, RAPF has been shown to produce state-of-the-art inference in multivariate parametric financial models [6].",
+      "startOffset" : 116,
+      "endOffset" : 119
+    }, {
+      "referenceID" : 25,
+      "context" : "First, there is the Auxiliary Particle Filter (APF) part in lines 5, 6 and 7 of the pseudocode [26].",
+      "startOffset" : 95,
+      "endOffset" : 99
+    }, {
+      "referenceID" : 23,
+      "context" : "In particular, Particle Markov Chain Monte Carlo (PMCMC) procedures [24] established a framework for learning the states and the parameters in general state space models.",
+      "startOffset" : 68,
+      "endOffset" : 72
+    }, {
+      "referenceID" : 19,
+      "context" : "Additionally, [20] developed a PMCMC algorithm called Particle Gibbs with ancestor sampling (PGAS) for learning non-Markovian state space models.",
+      "startOffset" : 14,
+      "endOffset" : 18
+    }, {
+      "referenceID" : 18,
+      "context" : "PGAS was applied by [19] to learn GP-SSMs.",
+      "startOffset" : 20,
+      "endOffset" : 24
+    }, {
+      "referenceID" : 26,
+      "context" : "These methods are compared against each other using the multiple comparison approach described by [27].",
+      "startOffset" : 98,
+      "endOffset" : 102
+    }, {
+      "referenceID" : 18,
+      "context" : "Note that we cannot simply learn the GP-SSM dynamics on a small set of training data and then predict on a large test dataset, as it was done in [19].",
+      "startOffset" : 145,
+      "endOffset" : 149
+    }, {
+      "referenceID" : 27,
+      "context" : "The costs can be further reduced by a factor of T 2 by using sparse GPs [28].",
+      "startOffset" : 72,
+      "endOffset" : 76
+    } ],
+    "year" : 2014,
+    "abstractText" : "The prediction of time-changing variances is an important task in the modeling of financial data. Standard econometric models are often limited as they assume rigid functional relationships for the evolution of the variance. Moreover, functional parameters are usually learned by maximum likelihood, which can lead to overfitting. To address these problems we introduce GP-Vol, a novel non-parametric model for time-changing variances based on Gaussian Processes. This new model can capture highly flexible functional relationships for the variances. Furthermore, we introduce a new online algorithm for fast inference in GP-Vol. This method is much faster than current offline inference procedures and it avoids overfitting problems by following a fully Bayesian approach. Experiments with financial data show that GP-Vol performs significantly better than current standard alternatives.",
+    "creator" : null
+  }
+}

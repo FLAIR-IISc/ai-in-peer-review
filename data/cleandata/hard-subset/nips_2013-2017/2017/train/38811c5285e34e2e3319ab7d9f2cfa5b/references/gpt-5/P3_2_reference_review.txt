@@ -1,0 +1,47 @@
+Summary
+The paper proposes the Radon Machine, a black-box parallelization scheme for regularized risk minimization over convex, finite-dimensional hypothesis spaces. The scheme trains a base learner on rh disjoint data shards in parallel, then aggregates hypotheses bottom-up using Radon points (r = Radon number = d+2 in Rd). The core theoretical claim is that Radon aggregation reduces the failure probability doubly exponentially with the height h of the aggregation tree: if the base learner outputs an ε-bad hypothesis with probability δ, one level of Radon aggregation yields failure probability ≤ (rδ)^2, and iterating gives ≤ (rδ)^{2^h}. They argue that, compared to running the base learner sequentially on enough data to reach the target (ε,Δ), the Radon Machine achieves the same guarantee in polylogarithmic time provided one uses quasi-polynomially many processors and consumes more data. Empirically, they show substantial wall-clock speedups versus single-threaded base learners and competitive performance versus Spark MLlib baselines, with minimal communication.
+
+Strengths
+- Conceptually simple, black-box parallelization applicable to a broad class of convex ERM/RRM algorithms (e.g., linear SVM/logistic/Ridge), with minimal implementation burden and low communication.
+- Neat use of Radon points as robust aggregators; Proposition 2 and Theorem 3 are intuitive and provide a clean confidence-boosting mechanism (failure probability squared per level; needs ≥2 bad children to spoil an aggregate), with clear connection to Tukey depth/centerpoint ideas.
+- The link to parallel complexity (NC) and explicit discussion of processor/time trade-offs is thoughtful and situates the contribution relative to known limitations of efficient parallelization.
+- Empirical results are encouraging: consistent speedups and competitive AUC relative to distributed baselines; code is provided.
+
+Weaknesses and concerns
+1) Strength of theoretical conditions and NC relevance:
+- Theorem 4 hinges on r being polylogarithmic in the sample complexity of the base learner. In standard linear models, r = d+2 and N0 typically grows at least linearly with d (often N0 = Θ(d/ε^2)), so r = polylog(N0) is generally false. Thus, the NC-flavored conclusion applies to rather special regimes (very low-dimensional or aggressively reduced representations). The paper should temper claims accordingly; the open problem is not resolved.
+- The number of processors required is rh, which is quasi-polynomial in the target accuracy/confidence in the presented scaling; this is significantly stronger than the “polynomial processors” requirement in NC. The discussion acknowledges this, but the abstract/intro framing may overstate the practical scope of the polylog-time claim.
+
+2) Independence and data usage assumptions:
+- Algorithm 1 states the dataset D is divided into “rh iid subsets” and later partitions S into “iid subsets,” which is not correct when splitting a finite dataset without replacement. The proofs of Prop. 2/Theorem 3 assume independent draws of hypotheses from the same distribution. The paper should either (a) assume fresh iid data per leaf (data-abundant setting), or (b) provide a careful argument that sampling without replacement suffices (e.g., via negative association bounds), and reflect these constraints in the experimental protocol. As written, there is a mismatch between theory and practice.
+
+3) Complexity modeling and derivations:
+- The base sample complexity form NL0(ε,δ) = (αε + βε log(1/δ))^k is unusual and not justified for common learners; the appendices are said to derive αε,βε via VC/Rademacher theory, but in the main text many steps “ignore logarithmic and constant terms,” making the choice of h and the conclusion n ≈ log M somewhat hand-wavy. It would be stronger to instantiate the analysis for specific learners (e.g., linear logistic regression with L2), giving explicit h, c, and N scalings.
+- The requirement δ ≤ 1/(2r) for each leaf is nontrivial for large d; achieving such base confidence may itself be expensive. The empirical section does not calibrate δ nor demonstrate the predicted doubly-exponential reduction.
+
+4) Relation to robust distributed aggregation:
+- The paper compares primarily to averaging, but does not discuss or compare to other robust aggregators used in distributed statistics, such as geometric median/median-of-means (MoM) and their recursive/Byzantine-robust variants, which can also drive down failure exponentially with the number of groups and have favorable breakdown properties. A theoretical/empirical comparison would clarify the advantages of Radon points versus geometric median/MoM, especially since Radon’s “two bad children to fail” guarantee contrasts with majority-based schemes that can be stronger when r is large.
+
+5) Empirical evaluation gaps:
+- The experiments focus on AUC and runtime; they do not probe the central theoretical claim (confidence boosting) by measuring the probability of “bad” hypotheses across repeated runs or presenting confidence intervals.
+- Speedups exceeding the processor count (e.g., 721× with 150 cores) need careful explanation (e.g., sublinear training time scaling with data size). Provide per-learner complexity fits, IO/parallelization overhead analysis, and ensure hyperparameter tuning fairness across baselines (Spark vs Weka/Scikit).
+- High-dimensional scenarios, where r^3 aggregation cost and communication overhead could dominate, are not explored; mitigation via random projections/low-rank approximations is mentioned but not evaluated.
+
+6) Minor issues:
+- “iid subsets” phrasing is inaccurate; use “disjoint subsets” or specify resampling.
+- Prop. 2 bound uses (rδ)^2; the combinatorial factor should be clarified (pairs scale as r(r−1)/2).
+- Numerical stability of Radon point computation (solving r×r linear systems) in high dimensions is not discussed.
+
+Pros for acceptance
+- Simple, generalizable idea with a clean theoretical property (confidence amplification).
+- Low-communication, black-box parallelization with promising empirical speedups.
+- Bridges learning theory and parallel complexity; could spur further work on robust aggregators for distributed ERM.
+
+Cons for acceptance
+- Key theoretical condition (r polylog N0) is unrealistic for many practical settings; NC-leaning message is overstated.
+- Independence assumptions and data usage are insufficiently justified for finite datasets.
+- Missing comparison to robust aggregation baselines and lack of empirical validation of the core probabilistic claim.
+- Some derivations are informal; experimental fairness and scope could be strengthened.
+
+Recommendation: Weak reject
+The paper presents an appealing and potentially useful aggregation scheme with interesting theory, but the strongest claims rely on restrictive assumptions, and the empirical/related-work coverage leaves important gaps. With clarified assumptions, tighter instantiation for common learners, and comparisons to robust aggregators, this could become a solid contribution.

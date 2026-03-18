@@ -1,0 +1,288 @@
+{
+  "name" : "e449b9317dad920c0dd5ad0a2a2d5e49.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Robust Estimation of Neural Signals in Calcium Imaging",
+    "authors" : [ "Hakan Inan", "Murat A. Erdogdu", "Mark J. Schnitzer" ],
+    "emails" : [ "inanh@stanford.edu", "erdogdu@cs.toronto.edu", "mschnitz@stanford.edu" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Calcium imaging has become an indispensable tool in systems neuroscience research. It allows simultaneous imaging of the activity of very large ensembles of neurons in awake and even freely behaving animals [3, 4, 6]. It relies on fluorescence imaging of intracellular calcium activity reported by genetically encoded calcium indicators. A crucial task for a neuroscientist working with calcium imaging is to extract signals (i.e. temporal traces and spatial footprints of regions of interest) from the imaging dataset. This allows abstraction of useful information from a large dataset in a highly compressive manner, losing little to no information. Automating this process is highly desirable, as manual extraction of cells and their activities in large-scale datasets is prohibitively laborious, and prone to flawed outcomes.\nA variety of methods have been proposed for automated signal extraction in calcium imaging datasets, including the ones based on matrix factorization [13, 14, 15, 16], and image segmentation [1, 10]. Some of these tools were tailored to two-photon calcium imaging, for which signal-to-noise ratio is typically high, and the fluorescence background is fairly stable [3], whereas some targeted one-photon and microendoscopic calcium imaging [4, 5], which are often characterized by low SNR and large background fluctuations. Interestingly, least squares estimation has been a predominant paradigm among previous methods; yet there is no previous work addressing statistically the generic nature of calcium imaging datasets, which includes non-gaussian noise, non-cell background activity (e.g. neuropil), and overlapping cells not captured by algorithms (out-of-focus or foreground). As a consequence, the impact of such impurities inherent in calcium imaging on the accuracy of extracted signals has not been thoroughly investigated previously. This lack of focus on signal accuracy is worrisome as cell extraction is a fairly early step in the research pipeline, and flawed signals may lead to incorrect scientific outcomes.\n31st Conference on Neural Information Processing Systems (NIPS 2017), Long Beach, CA, USA.\nIn this work, we propose an approach which takes into account the practical nature of calcium imaging, and solves the signal extraction problem through robust estimation. First, we offer a mathematical abstraction of imaging datasets, and arrive at an estimator which is minimax robust, in the sense that is prevalent in the field of robust estimation. We then use this M-estimator to solve a matrix factorization problem, jointly yielding the temporal and spatial components of the extracted signals.\nThe main insight behind our robust estimation framework is that the signals present in imaging data are the superposition of many positive amplitude sources, and a lower amplitude noise component which could be well modeled by a normal distribution. That the majority of the components is positive stems from the fact that the underlying signals in calcium imaging are all made up of photons, and they elicit activity above a baseline as opposed to fluctuating around it. However, not all positive sources are cells that could be extracted by an algorithm (some could be neuropil, other noise, or non-captured cells); hence we model them as generic gross non-negative contamination sources. By using the machinery of robust estimation [7], we propose an M-estimator which is asymptotically minimax optimal for our setting.\nWe also propose a fast fixed-point optimization routine for solving our robust estimation problem. We show local linear convergence guarantees for our routine, and we demonstrate numerically that it converges very fast while only having the same per-step cost with gradient descent. The fast optimizer allows for very fast automated cell extraction in large-scale datasets. Further, since the final form for our loss function is simple and optimization only depends on matrix algebra, it is highly amenable to GPU implementation providing additional improvements.\nWe validate our robust estimation-based cell extraction algorithm on both synthetic and real datasets. We show that our method offers large accuracy improvements over non-robust techniques in realistic settings, which include classical scenarios such as overlapping cells and neuropil contamination. Particularly, our method significantly outperforms methods with non-robust reconstruction routines in metrics such as signal fidelity and crosstalk, which are crucial for steps subsequent to cell extraction."
+    }, {
+      "heading" : "2 M-Estimation under Gross Non-negative Contamination",
+      "text" : "In this section, we introduce our signal estimation machinery, based on the literature of robust M-estimation. The theory of M-estimation is well-developed for symmetric and certain asymmetric contamination regimes [2, 7, 9, 12]; however the existing theory does not readily suggest an optimal estimator suitable for finding the kind of signals present in fluorescence imaging of calcium in the brain. We first motivate and introduce a simple mathematical abstraction for this new regime, and then derive a minimax optimal M-estimator."
+    }, {
+      "heading" : "2.1 Noise Model & Mathematical Setting",
+      "text" : "For simplicity, we consider the setting of location estimation, which straightforwardly generalizes to multivariate regression.\nConsidering the nature of contamination in calcium imaging datasets, we base our noise model on the following observation: The signal background is dominated by the baseline activity which is well modeled by a normal distribution. This type of noise stems from the random arrivals of photons from the background in the imaging setup governed by a poisson process; this distribution very rapidly converges to a normal distribution. However, the signal background also contains other sources of noise such as neuropil activity, out-of-focus cells, and residual activity of overlapping cells not accounted for by the cell extraction method. The latter kind of contamination is very distinct from a normal-type noise; it is non-negative (or above the signal baseline), its characteristics are rather irregular and it may take on arbitrarily large values.\nConsequently, we model the data generation through an additive noise source which is normally distributed 1 − fraction of the time, and free to be any positive value greater than a threshold otherwise:\nyi = β ∗ + σi (1) σi ∼ { N (0, 1), w.p. 1− Hα, w.p. (2)\nHα ∈ Hα = {All distributions with support [α,∞)}, α ≥ 0.\nIn above, β∗ is the true parameter, and is corrupted additively as in (1); σi is a standard normal with 1− probability, and distributed according to an unknown distribution Hα with probability . In the spirit of full generality, we allow Hα to be any probability distribution with support greater than a set value α; particularly, it could be nonzero at arbitrarily large values. Therefore, could be interpreted as the gross contamination level. The parameter α could be interpreted as the minimum observed value of the positive contamination, although its exact value is insignificant outside our theoretical analysis. We denote the full noise distribution by FHα , subscripted by Hα.\nGiven the observations {yi}ni=1, we estimate the true parameter β∗ with β̂ by considering an equivariant M-estimator as follows\nβ̂ = argmin β n∑ i=1 ρ(yi − β). (3)\nTypically, M-estimators are characterized by ψ , ρ′. In this paper, we are going to consider ψ’s with specific properties that allow for efficient optimization and more general theoretical guarantees. Let’s define a set Ψ = {ψ | ψ is non-decreasing} . If we choose an estimator ψ ∈ Ψ, finding a point estimate β̂ through (3) becomes equivalent to solving the first order condition:\nn∑ i=1 ψ(yi − β̂) = 0. (4)\nThis is simply because the members of Ψ correspond to convex loss functions. Our focus is on such functions since they are typically easier to optimize, and offer global optimality guarantees."
+    }, {
+      "heading" : "2.2 One-Sided Huber Estimator and its Asymptotic Minimax Optimality",
+      "text" : "We are interested in finding an M-estimator for our noise model which is robust to the variation in the noise distribution (Hα in particular) in the sense of minimizing the worst-case deviation from the true parameter, as measured by the mean squared error. We first introduce our proposed estimator, and then show that it is exactly optimal in the aforementioned minimax sense. Definition 1 (One-sided Huber). Define an estimator ψ0 as follows:\nψ0(y, κ) = { y, if y < κ κ, if y ≥ κ, (5)\nwhere κ is defined in terms of the contamination level, , according to\nΦ(κ) + g(κ)\nκ =\n1\n(1− ) ,\nwith Φ(·) and g(·) denoting the distribution and the density functions for a standard normal variable, respectively.\nWe shall refer to ψ0 as one-sided Huber, and denote with ρ0(·, κ) its loss function (see Figure 1 for visualization). Clearly, ψ0 ∈ Ψ, and therefore the loss function ρ0 is convex. Under the data generation model introduced in the previous section, we can now state an asymptotic minimax result for ψ0.\nAlgorithm 1 Fast Solver for one-sided Huber Loss function fp_solve(X,Y, k, δ) // X = [x1, . . . , xn]T , Y = [y1, . . . , yn]T\n1. Compute: X+ = (XTX)−1XT , βLS = X+Y 2. Initialize β(0) at random, set t = 0. 3. while\n∥∥β(t+1) − β(t)‖2 ≥ δ do β(t+1) = βLS −X+ max(0,Y −Xβ(t) − κ) t← t+ 1.\n4. end while return β(t).\nProposition 2.1. One-sided Huber ψ0 yields an asymptotically unbiased M-estimator for FHκ = {(1− )Φ + Hκ}. Further, ψ0 minimizes the worst case asymptotic variance in FHκ , i.e.\nψ0 = arg inf ψ∈Ψ sup F∈FHκ V (ψ,F ).\nA proof for Proposition 2.1 is given in the supplementary material. Proposition 2.1 establishes that that one-sided Huber estimator has zero bias as long as the non-zero contamination is sufficiently larger than zero, and it also achieves the best worst-case asymptotic variance.\nWe would like to offer a discussion for a comparison between one-sided Huber and some other popular M-estimators, such as the sample mean (`2 loss), the sample median (`1 loss), Huber [7], and the sample quantile. First of all, the sample mean, the sample median, and Huber estimators all have symmetric loss functions and therefore suffer from bias. This is particularly detrimental for the sample mean and leads to unbounded MSE as the gross contamination tends to very large values. The bias problem may be eliminated using a quantile estimator whose quantile level is set according to . However, this estimator has higher asymptotic variance than the one-sided Huber. We present in Figure 1b comparison of empirical mean square errors for different estimators under the noise distribution which causes the worst asymptotic variance among distributions in FHκ1. The MSEs of the sample mean and the sample median quickly become dominated by their bias with increasing n2. Although the quantile estimator was set up to be unbiased, its MSE (or equivalently, variance) is greater than the one-sided Huber. These results corroborate the theoretical properties of one-sided Huber, and affirm it as a good fit for our setting.\nAlthough we have not come across a previous study of one-sided Huber estimator in this context, we should note that it is related to the technique in [11], where samples are assumed to be nonnegative, and in the sample mean estimator summands are shrunk when they are above a certain threshold (this technique is called winsorizing). However, their model and application are quite different than what we consider in this paper."
+    }, {
+      "heading" : "2.3 Generalization to Regression Setting",
+      "text" : "Here we introduce the regression setting which we will use for the remainder of the paper. We observe {yi,xi}ni=1, where xi ∈ Rp could be either fixed or random, and yi’s are generated according to yi = 〈xi,β∗〉 + σgi + σhi , where β∗ ∈ Rp is the true parameter, and σhi and σ g i are as previously defined. We estimate β∗ with\nβ̂ = argmin β fκ(β) := n∑ i=1 ρ0(yi − 〈xi,β〉 , κ). (6)\nClassical M-estimation theory establishes –under certain regularity conditions– that the minimax optimality in Section 2.2 carries over to regression; we refer reader to [8] for details."
+    }, {
+      "heading" : "3 Fast Fixed-point Solver for One-Sided Huber Loss",
+      "text" : "We are interested in solving the robust regression problem in (6) in the large-scale setting due to the large field of view and length of most calcium imaging recordings. Hence, the solver for our problem\n1Refer to the proof of Proposition 2.1 for the form of this distribution. 2We omit Huber in this comparison since its MSE is also bias-dominated.\nAlgorithm 2 Tractable and Robust Automated Cell Extraction function EXTRACT(M, N, κ, δ)\n1. Initialize S(0),T(0), set t = 0. 2. for t=1 to N do\nT(t+1) = fp_solve_nonneg(S(t),M, κ, δ) S(t+1) = fp_solve_nonneg(T(t) T ,MT , κ, δ)T\nS(t+1), T(t+1) = remove_redundant ( S(t+1),T(t+1) ) 3. end for\nreturn S(t), T(t).\nshould ideally be tractable for large n and also give as accurate an output as possible. To this end, we propose a fixed point optimization method (Algorithm 1), which has a step cost equal to that of gradient descent, while converging to the optimum at rates more similar to Newton’s method. The following proposition establishes the convergence of our solver. Proposition 3.1. Let β∗ be the fixed point of Algorithm 1 for the problem (6), and let λmax and λmin > 0 denote the extreme eigenvalues of ∑n i=1 xix T i , and let maxi ‖xi‖ ≤ k. Assume that for a subset of indeces s ⊂ {1, 2, ..., n}, ∃∆s > 0 such that yi − 〈xi, β∗〉 ≤ κ − ∆s and denote the extreme eigenvalues of ∑ i∈s xix T i by γmax and γmin > 0 satisfying λmaxγmax/λ 2 min < 2. If the initial point β0 is close to the true minimizer, i.e., ‖β0− β∗‖2 ≤ k/∆s, then Algorithm 1 converges linearly,\nfκ(β t)− fκ(β∗) ≤ ( 1− 2 γmin\nλmax + γmaxγmin λ2min\n)t [ fκ(β 0)− fκ(β∗) ] . (7)\nA proof for Proposition 3.1 is given in the supplementary material.\nOur solver is second order in nature3, hence its convergence behavior should be close to that of Newton’s method. However, there is one caveat: the second derivative of the one-sided Huber loss is not continuous. Therefore, one cannot expect to achieve a quadratic rate of convergence; this issue is commonly encountered in M-estimation. Nevertheless, Algorithm 1 converges very fast in practice.\nWe compare our solver to Newton’s method and gradient descent by simulating a regression setting where we synthesize a 100 x 100 movie frame (Y) with 100 neurons (see Section 5 for details). Then, given the ground truth cell images (X), we optimize for the fluorescence traces for the single frame (β) using the three algorithms. For our fixed-point solver, we use κ = 1. For gradient descent, we set the step size to the reciprocal of the largest eigenvalue of the hessian (while not taking into account the time taken to compute it). Results are shown in Figure 2. Our solver has close convergence behavior to that of Newton’s method, while taking much less time to achieve the same accuracy due to its small per-step cost. We would like to also note that estimating the entire matrix of fluorescence traces (or cell images) does not require any modification of Algorithm 1; hence, in practice estimating entire matrices of components at once does not cause much computational burden. For Newton’s method, every frame (or every pixel) requires a separate hessian; runtime in this case scales at least linearly."
+    }, {
+      "heading" : "4 Robust Automated Cell Extraction",
+      "text" : "We now introduce our proposed method for automated cell extraction via robust estimation. Our method is based on a matrix factorization framework, where we model the imaging data as the matrix product of a spatial and a temporal matrix with additive noise:\nM = ST + Σ.\nIn above, M ∈ RdS×dT is the movie matrix, S ∈ RdS×m+ and T ∈ R m×dT + are the nonnegative spatial and temporal matrices, respectively. Σ ∈ RdS×dT is meant to model the normal noise corrupted with non-negative contamination, and Σij has the same distribution with σ in (2) (up to the noise standard deviation). Our main contribution in this work is that we offer a method which estimates S and T using the one-sided Huber estimator, which provides the optimal robustness against the non-negative contamination inherent in calcium imaging, as discussed in Section 2.\n3Interested reader is referred to the supplementary material for a more rigorous argument.\nOur cell extraction algorithm starts by computing initial estimates for the matrices S and T. This is done by (1) detecting a cell peak from the time maximum of the movie one cell at a time (2) solving for the current cell’s spatial and the temporal components using the one-sided Huber estimator (3) repeating until a stopping criterion is reached. We detail this step in the supplementary material.\nAfter initial guesses for S and T are computed, the main update algorithm proceeds in a straightforward manner, where multiple alternating robust regression steps are performed using the one-sided Huber loss. At each step, new estimates of S and T are computed based on M and the current estimate of the other matrix. For computing the estimates, we use the fast fixed-point algorithm derived in Section 3. However, since we constrain S and T to be nonnegative matrices, the fixed-point solver cannot be used without constraints that enforce non-negativity. To this end, we combine our solver with the alternating directions method of multipliers(ADMM), a dual ascent method which solves for multiple objectives by consensus. We call the combined solver fp_solve_nonneg(). Note that, due to the symmetry between the two alternating steps, we use the same solver for computing both S and T.\nWe do minimal post-processing at the end of each step to remove redundant components. Specifically, we identify and remove near duplicate components in S or T, and we then eliminate components which have converged to zero. We repeat these steps alternatingly for a desired number of steps N .\nSelection of κ depends on the positive contamination level; nevertheless, we have observed that precise tuning of κ is not necessary in practice. A range of [0.5, 1] times the standard deviation of the normally distributed noise is reasonable for κ for most practices. One should note, however, that although the robust estimator has favorable mis-specification bias, it might become significant under crucially low SNR conditions. For instance, setting a small κ in such cases will likely lead to detrimental under-estimation. On the other hand, setting high κ values decreases the estimator robustness ( this makes the loss function approach the `2 loss). Consequently, the advantage of robust estimation is expected to diminish in extremely low SNR regimes.\nOur algorithm has a highly favorable runtime in practice owing to the simplicity of its form. Furthermore, since the solver we use relies on basic matrix operations, we were able to produce a GPU implementation, allowing for further reduction in runtime. Comparison of our GPU implementation to other algorithms in their canonical forms naturally causes bias; therefore, we defer our runtime comparison results to the supplementary material.\nFrom here on, we shall call our algorithm EXTRACT."
+    }, {
+      "heading" : "5 Experiments",
+      "text" : "In this section, we perform experiments on both simulated and real data in order to establish the improved signal accuracy obtained using EXTRACT. We represent the signal accuracy with two quantities: (1) signal fidelity, which measures how closely a temporal (fluorescence trace) or spatial (cell image) signal matches its underlying ground truth, and (2) signal crosstalk, which quantifies interference from other sources, or noise. We primarily focus on temporal signals since they typically\nrepresent the entirety of the calcium movie for the steps subsequent to cell extraction. As opposed to using simple correlation based metrics, we compute true and false positive detection rates based on estimated calcium events found via simple amplitude thresholding. We then present receiver operating characteristics (ROC) based metrics. We compare EXTRACT to the two dominantly used cell extraction methods: CNMF [15], and spatio-temporal ICA [13], the latter of which we will simply refer to as ICA. Both methods are matrix factorization methods like EXTRACT; CNMF estimates its temporal and spatial matrices alternatingly, and jointly estimates traces and its underlying calcium event peaks, and ICA finds a single unmixing matrix which is then applied to the singular value decomposition (SVD) of the movie to jointly obtain traces and images. CNMF uses quadratic reconstruction loss with `1 penalty, whereas ICA uses a linear combination of movie data guided by high order pixel statistics for reconstruction; hence they both can be considered as non-robust estimation techniques.\nSimulated data. For simulated movies, we use a field of view of size 50 by 50 pixels, and produce data with 1000 time frames. We simulate 30 neurons with gaussian shaped images with standard deviations drawn from [3, 4.8] uniformly. We simulate the fluorescence traces using a Poisson process with rate 0.01 convolved with an exponential kernel with a time constant of 10 frames. We corrupt the movie with independent and normally distributed noise whose power is matched to the power of the neural activity so that average pixel-wise SNR in cell regions is 1. We have re-run our experiments with different SNR levels in order to establish the independence of our key results from noise level; we report them in the supplementary material."
+    }, {
+      "heading" : "5.1 Crosstalk between cells for robust vs. non-robust methods",
+      "text" : "As a first experiment, we demonstrate consequences of a common phenomenon, namely cells with overlapping spatial weights. Overlapping cells do not pose a significant problem when their spatial components are correctly estimated; however, in reality, estimated images typically do not perfectly match their underlying excitation, or some overlapping cells might not even be captured by the extraction algorithm. In the latter two cases, crosstalk becomes a major issue, causing captured cells to carry false calcium activity in their fluorescence traces.\nWe try to reproduce the aforementioned scenarios by simulating movies, and initializing the algorithms of interest with a fraction of the ground truth cells. Our aim is to set up a controlled environment to (1) quantitatively investigate the crosstalk in the captured cell traces due to missing cells, (2) observe the effect of alternating estimation on the final accuracy of estimates. In this case, the outputs of\nalternating estimation algorithms should deteriorate through the iteration loop since they estimate their components based on imperfect estimates of each other. We select EXTRACT and CNMF for this experiment since they are both alternating estimation algorithms.\nWe initialize the algorithms with 4 different fractions of ground truth cells: X = {0.2, 0.4, 0.6, 0.8}. We carry out 20 experiments for each X , and we perform a 3 alternating estimation iterations for each algorithm. This number was chosen with the consideration that CNMF canonically performs 2 iterations on its initialized components. We report results for 6 iterations in the supplementary material. At the end of each iteration, we detect calcium events from the algorithms’ fluorescence traces, and match them with the ground truth spikes to compute event true positive rate (TPR) and event false positive rate (FPR).\nFigure 3 summarizes the results of this experiment. At the end of the 3 iterations, EXTRACT produces images and traces that are visually closer to ground truth in the existence of non-captured neighboring cells with overlapping images (Figure 3a). Figure 3c shows the ROC curve from one instance of the experiment, computed by varying the threshold amplitude for detecting calcium events, and plotting FPR against TPR for each threshold. We report quantitative performance by the area under the ROC curve (AUC). We average the AUCs over all the experiments performed for each condition, and report it separately for each iteration in Figure 3d. EXTRACT outperforms CNMF uniformly, and the performance gap becomes pronounced with very low fraction of initially provided cells. This boost in the signal accuracy over non-robust estimators (e.g. ones with quadratic penalty) stands to validate our proposed robust estimator and its underlying model assumptions."
+    }, {
+      "heading" : "5.2 Cell extraction with neuropil contamination",
+      "text" : "In most calcium imaging datasets, data is contaminated with non-cellular calcium activity caused by neuropil. This may interfere with cell extraction by contaminating the cell traces, and by making it difficult to accurately locate spatial components of cells. We study the effect of such contamination by simulating neural data and combining it with neuropil activity extracted from real two-photon imaging datasets. For this experiment, we use EXTRACT, CNMF and ICA.\nIn order for a fair comparison, we initialize all algorithms with the same set of initial estimates. We choose to use the greedy initializer of CNMF to eliminate any competitive advantage EXTRACT might have due to using its native initializer. We perform 15 experiments with no neuropil, and 15 with added neuropil. We match the variance of the neuropil activity to that of the gaussian noise while keeping SNR constant. For each experiment, we compute (1) cell trace statistics based on the ROC curve as previously described, (2) cell finding statistics based on precision, recall, and F1 metrics.\nEXTRACT produces qualitatively more accurate fluorescence traces (Figure 4a), and it outperforms both CNMF and ICA quantitatively (Figure 4b,c), with the performance gap becoming more significant in the existence of neuropil contamination. Further, EXTRACT yields more true cells than the other methods with less false positives when there is neuropil (Figure 4d)."
+    }, {
+      "heading" : "5.3 Cell extraction from microendoscopic single-photon imaging data",
+      "text" : "Data generated using microendoscopic single-photon calcium imaging could be quite challenging due to low SNR, and fluctuating background (out of focus fluorescence activity etc.). We put EXTRACT to test in this data regime, using an imaging dataset recorded from the dorsal CA1 region of the mouse hippocampus [17], an area known to have high cell density. We compare EXTRACT with CNMF and ICA. For this experiment, the output of each algorithm was checked by human annotators and cells were manually classified to be true cells or false positives judging from the match of their temporal signal to the activity in the movie.\nEXTRACT successfully extracts the majority of the cells apparent in the maximum image of the movie in time dimension, and is able to capture highly overlapping cells (Figure 5a). EXTRACT also accurately estimates the temporal activity. Figure 5b shows an instance of a dim cell with a high SNR neighboring cell, both of which are captured by all three algorithms. While CNMF and ICA both falsely show activity when the neighbor is active, EXTRACT trace seems immune to this type of contamination and is silent at such instants."
+    }, {
+      "heading" : "6 Conclusion",
+      "text" : "We presented an automated cell extraction algorithm for calcium imaging which uses a novel robust estimator. We arrived at our estimator by defining a generic data model and optimizing its worst-case performance. We proposed a fast solver for our estimation problem, which allows for tractable cell extraction in practice. As we have demonstrated in our experiments, our cell extraction algorithm, EXTRACT, is a powerful competitor for the existing methods, performing well under different imaging modalities due to its generic nature."
+    }, {
+      "heading" : "Acknowledgements",
+      "text" : "We gratefully acknowledge support from DARPA and technical assistance from Biafra Ahanonu, Lacey Kitch, Yaniv Ziv, Elizabeth Otto and Margaret Carr."
+    } ],
+    "references" : [ {
+      "title" : "Automatic neuron detection in calcium imaging data using convolutional networks",
+      "author" : [ "N.J. Apthorpe", "A.J. Riordan", "R.E. Aguilar", "J. Homann", "Y. Gu", "D.W. Tank", "H.S. Seung" ],
+      "venue" : "arXiv preprint arXiv:1606.07372,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : "1",
+      "year" : 2016
+    }, {
+      "title" : "Robust estimation of a location parameter in the presence of asymmetry",
+      "author" : [ "J.R. Collins" ],
+      "venue" : "The Annals of Statistics,",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 1976
+    }, {
+      "title" : "Two-photon laser scanning fluorescence microscopy",
+      "author" : [ "W. Denk", "J.H. Strickler", "W.W. Webb" ],
+      "venue" : null,
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 1990
+    }, {
+      "title" : "High-speed, miniaturized fluorescence microscopy in freely moving mice",
+      "author" : [ "B.A. Flusberg", "A. Nimmerjahn", "E.D. Cocker", "E.A. Mukamel", "R.P. Barretto", "T.H. Ko", "L.D. Burns", "J.C. Jung", "M.J. Schnitzer" ],
+      "venue" : "Nature methods,",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : "4",
+      "year" : 2008
+    }, {
+      "title" : "Miniaturized integration of a fluorescence microscope",
+      "author" : [ "K.K. Ghosh", "L.D. Burns", "E.D. Cocker", "A. Nimmerjahn", "Y. Ziv", "A. El Gamal", "M.J. Schnitzer" ],
+      "venue" : "Nature methods,",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : "5",
+      "year" : 2011
+    }, {
+      "title" : "Deep tissue two-photon microscopy",
+      "author" : [ "F. Helmchen", "W. Denk" ],
+      "venue" : "Nature methods,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : "6",
+      "year" : 2005
+    }, {
+      "title" : "Robust estimation of a location parameter",
+      "author" : [ "P.J. Huber" ],
+      "venue" : "The Annals of Mathematical Statistics,",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : "7",
+      "year" : 1964
+    }, {
+      "title" : "Robust regression: asymptotics, conjectures and monte carlo",
+      "author" : [ "P.J. Huber" ],
+      "venue" : "The Annals of Statistics,",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : "8",
+      "year" : 1973
+    }, {
+      "title" : "Robust estimates of location: Symmetry and asymmetric contamination",
+      "author" : [ "L.A. Jaeckel" ],
+      "venue" : "The Annals of Mathematical Statistics,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 1971
+    }, {
+      "title" : "Sima: Python software for analysis of dynamic fluorescence imaging data",
+      "author" : [ "P. Kaifosh", "J.D. Zaremba", "N.B. Danielson", "A. Losonczy" ],
+      "venue" : "Frontiers in neuroinformatics,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : "10",
+      "year" : 2014
+    }, {
+      "title" : "Optimal winsorizing cutoffs for a stratified finite population estimator",
+      "author" : [ "P. Kokic", "P. Bell" ],
+      "venue" : "Journal of Official Statistics,",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 1994
+    }, {
+      "title" : "Efficiency-constrained bias-robust estimation of location",
+      "author" : [ "R.D. Martin", "R.H. Zamar" ],
+      "venue" : "The Annals of Statistics,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 1993
+    }, {
+      "title" : "Automated analysis of cellular signals from large-scale calcium imaging",
+      "author" : [ "E.A. Mukamel", "A. Nimmerjahn", "M.J. Schnitzer" ],
+      "venue" : "data. Neuron,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 2009
+    }, {
+      "title" : "Extracting regions of interest from biological images with convolutional sparse block coding",
+      "author" : [ "M. Pachitariu", "A.M. Packer", "N. Pettit", "H. Dalgleish", "M. Hausser", "M. Sahani" ],
+      "venue" : "In Advances in Neural Information Processing Systems,",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 2013
+    }, {
+      "title" : "Simultaneous denoising, deconvolution, and demixing of calcium imaging",
+      "author" : [ "E.A. Pnevmatikakis", "D. Soudry", "Y. Gao", "T.A. Machado", "J. Merel", "D. Pfau", "T. Reardon", "Y. Mu", "C. Lacefield", "W. Yang" ],
+      "venue" : "data. Neuron,",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : "15",
+      "year" : 2016
+    }, {
+      "title" : "Efficient and accurate extraction of in vivo calcium signals from microendoscopic video data",
+      "author" : [ "P. Zhou", "S.L. Resendez", "G.D. Stuber", "R.E. Kass", "L. Paninski" ],
+      "venue" : "arXiv preprint arXiv:1605.07266,",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : "16",
+      "year" : 2016
+    }, {
+      "title" : "Long-term dynamics of ca1 hippocampal place codes",
+      "author" : [ "Y. Ziv", "L.D. Burns", "E.D. Cocker", "E.O. Hamel", "K.K. Ghosh", "L.J. Kitch", "A. El Gamal", "M.J. Schnitzer" ],
+      "venue" : "Nature neuroscience,",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : "17",
+      "year" : 2013
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 2,
+      "context" : "It allows simultaneous imaging of the activity of very large ensembles of neurons in awake and even freely behaving animals [3, 4, 6].",
+      "startOffset" : 124,
+      "endOffset" : 133
+    }, {
+      "referenceID" : 3,
+      "context" : "It allows simultaneous imaging of the activity of very large ensembles of neurons in awake and even freely behaving animals [3, 4, 6].",
+      "startOffset" : 124,
+      "endOffset" : 133
+    }, {
+      "referenceID" : 5,
+      "context" : "It allows simultaneous imaging of the activity of very large ensembles of neurons in awake and even freely behaving animals [3, 4, 6].",
+      "startOffset" : 124,
+      "endOffset" : 133
+    }, {
+      "referenceID" : 12,
+      "context" : "A variety of methods have been proposed for automated signal extraction in calcium imaging datasets, including the ones based on matrix factorization [13, 14, 15, 16], and image segmentation [1, 10].",
+      "startOffset" : 150,
+      "endOffset" : 166
+    }, {
+      "referenceID" : 13,
+      "context" : "A variety of methods have been proposed for automated signal extraction in calcium imaging datasets, including the ones based on matrix factorization [13, 14, 15, 16], and image segmentation [1, 10].",
+      "startOffset" : 150,
+      "endOffset" : 166
+    }, {
+      "referenceID" : 14,
+      "context" : "A variety of methods have been proposed for automated signal extraction in calcium imaging datasets, including the ones based on matrix factorization [13, 14, 15, 16], and image segmentation [1, 10].",
+      "startOffset" : 150,
+      "endOffset" : 166
+    }, {
+      "referenceID" : 15,
+      "context" : "A variety of methods have been proposed for automated signal extraction in calcium imaging datasets, including the ones based on matrix factorization [13, 14, 15, 16], and image segmentation [1, 10].",
+      "startOffset" : 150,
+      "endOffset" : 166
+    }, {
+      "referenceID" : 0,
+      "context" : "A variety of methods have been proposed for automated signal extraction in calcium imaging datasets, including the ones based on matrix factorization [13, 14, 15, 16], and image segmentation [1, 10].",
+      "startOffset" : 191,
+      "endOffset" : 198
+    }, {
+      "referenceID" : 9,
+      "context" : "A variety of methods have been proposed for automated signal extraction in calcium imaging datasets, including the ones based on matrix factorization [13, 14, 15, 16], and image segmentation [1, 10].",
+      "startOffset" : 191,
+      "endOffset" : 198
+    }, {
+      "referenceID" : 2,
+      "context" : "Some of these tools were tailored to two-photon calcium imaging, for which signal-to-noise ratio is typically high, and the fluorescence background is fairly stable [3], whereas some targeted one-photon and microendoscopic calcium imaging [4, 5], which are often characterized by low SNR and large background fluctuations.",
+      "startOffset" : 165,
+      "endOffset" : 168
+    }, {
+      "referenceID" : 3,
+      "context" : "Some of these tools were tailored to two-photon calcium imaging, for which signal-to-noise ratio is typically high, and the fluorescence background is fairly stable [3], whereas some targeted one-photon and microendoscopic calcium imaging [4, 5], which are often characterized by low SNR and large background fluctuations.",
+      "startOffset" : 239,
+      "endOffset" : 245
+    }, {
+      "referenceID" : 4,
+      "context" : "Some of these tools were tailored to two-photon calcium imaging, for which signal-to-noise ratio is typically high, and the fluorescence background is fairly stable [3], whereas some targeted one-photon and microendoscopic calcium imaging [4, 5], which are often characterized by low SNR and large background fluctuations.",
+      "startOffset" : 239,
+      "endOffset" : 245
+    }, {
+      "referenceID" : 6,
+      "context" : "By using the machinery of robust estimation [7], we propose an M-estimator which is asymptotically minimax optimal for our setting.",
+      "startOffset" : 44,
+      "endOffset" : 47
+    }, {
+      "referenceID" : 1,
+      "context" : "The theory of M-estimation is well-developed for symmetric and certain asymmetric contamination regimes [2, 7, 9, 12]; however the existing theory does not readily suggest an optimal estimator suitable for finding the kind of signals present in fluorescence imaging of calcium in the brain.",
+      "startOffset" : 104,
+      "endOffset" : 117
+    }, {
+      "referenceID" : 6,
+      "context" : "The theory of M-estimation is well-developed for symmetric and certain asymmetric contamination regimes [2, 7, 9, 12]; however the existing theory does not readily suggest an optimal estimator suitable for finding the kind of signals present in fluorescence imaging of calcium in the brain.",
+      "startOffset" : 104,
+      "endOffset" : 117
+    }, {
+      "referenceID" : 8,
+      "context" : "The theory of M-estimation is well-developed for symmetric and certain asymmetric contamination regimes [2, 7, 9, 12]; however the existing theory does not readily suggest an optimal estimator suitable for finding the kind of signals present in fluorescence imaging of calcium in the brain.",
+      "startOffset" : 104,
+      "endOffset" : 117
+    }, {
+      "referenceID" : 11,
+      "context" : "The theory of M-estimation is well-developed for symmetric and certain asymmetric contamination regimes [2, 7, 9, 12]; however the existing theory does not readily suggest an optimal estimator suitable for finding the kind of signals present in fluorescence imaging of calcium in the brain.",
+      "startOffset" : 104,
+      "endOffset" : 117
+    }, {
+      "referenceID" : 6,
+      "context" : "We would like to offer a discussion for a comparison between one-sided Huber and some other popular M-estimators, such as the sample mean (`2 loss), the sample median (`1 loss), Huber [7], and the sample quantile.",
+      "startOffset" : 184,
+      "endOffset" : 187
+    }, {
+      "referenceID" : 10,
+      "context" : "Although we have not come across a previous study of one-sided Huber estimator in this context, we should note that it is related to the technique in [11], where samples are assumed to be nonnegative, and in the sample mean estimator summands are shrunk when they are above a certain threshold (this technique is called winsorizing).",
+      "startOffset" : 150,
+      "endOffset" : 154
+    }, {
+      "referenceID" : 7,
+      "context" : "2 carries over to regression; we refer reader to [8] for details.",
+      "startOffset" : 49,
+      "endOffset" : 52
+    }, {
+      "referenceID" : 14,
+      "context" : "We compare EXTRACT to the two dominantly used cell extraction methods: CNMF [15], and spatio-temporal ICA [13], the latter of which we will simply refer to as ICA.",
+      "startOffset" : 76,
+      "endOffset" : 80
+    }, {
+      "referenceID" : 12,
+      "context" : "We compare EXTRACT to the two dominantly used cell extraction methods: CNMF [15], and spatio-temporal ICA [13], the latter of which we will simply refer to as ICA.",
+      "startOffset" : 106,
+      "endOffset" : 110
+    }, {
+      "referenceID" : 16,
+      "context" : "We put EXTRACT to test in this data regime, using an imaging dataset recorded from the dorsal CA1 region of the mouse hippocampus [17], an area known to have high cell density.",
+      "startOffset" : 130,
+      "endOffset" : 134
+    } ],
+    "year" : 2017,
+    "abstractText" : "Calcium imaging is a prominent technology in neuroscience research which allows for simultaneous recording of large numbers of neurons in awake animals. Automated extraction of neurons and their temporal activity from imaging datasets is an important step in the path to producing neuroscience results. However, nearly all imaging datasets contain gross contaminating sources which could originate from the technology used, or the underlying biological tissue. Although past work has considered the effects of contamination under limited circumstances, there has not been a general framework treating contamination and its effects on the statistical estimation of calcium signals. In this work, we proceed in a new direction and propose to extract cells and their activity using robust statistical estimation. Using the theory of M-estimation, we derive a minimax optimal robust loss, and also find a simple and practical optimization routine for this loss with provably fast convergence. We use our proposed robust loss in a matrix factorization framework to extract the neurons and their temporal activity in calcium imaging datasets. We demonstrate the superiority of our robust estimation approach over existing methods on both simulated and real datasets.",
+    "creator" : null
+  }
+}

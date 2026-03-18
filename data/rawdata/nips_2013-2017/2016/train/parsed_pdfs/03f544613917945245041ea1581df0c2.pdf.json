@@ -1,0 +1,407 @@
+{
+  "name" : "03f544613917945245041ea1581df0c2.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Stochastic Gradient Richardson-Romberg Markov Chain Monte Carlo",
+    "authors" : [ "Alain Durmus", "Umut Şimşekli", "Éric Moulines", "Roland Badeau", "Gaël Richard" ],
+    "emails" : [ ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Markov Chain Monte Carlo (MCMC) techniques are one of the most popular family of algorithms in Bayesian machine learning. Recently, novel MCMC schemes that are based on stochastic optimization have been proposed for scaling up Bayesian inference to large-scale applications. These so-called Stochastic Gradient MCMC (SG-MCMC) methods provide a fruitful framework for Bayesian inference, well adapted to massively parallel and distributed architecture. In this domain, a first and important attempt was made by Welling and Teh [1], where the authors combined ideas from the Unadjusted Langevin Algorithm (ULA) [2] and Stochastic Gradient Descent (SGD) [3]. They proposed a scalable MCMC framework referred to as Stochastic Gradient Langevin Dynamics (SGLD). Unlike conventional batch MCMC methods, SGLD uses subsamples of the data per iteration similar to SGD.\nSeveral extensions of SGLD have been proposed [4–12]. Recently, in [10] it has been shown that under certain assumptions and with sufficiently large number of iterations, the bias and the meansquared-error (MSE) of a general class of SG-MCMC methods can be bounded as O(γ) and O(γ2), respectively, where γ is the step size of the Euler-Maruyama integrator. The authors have also shown that these bounds can be improved by making use of higher-order integrators.\nIn this paper, we propose a novel SG-MCMC algorithm, called Stochastic Gradient RichardsonRomberg Langevin Dynamics (SGRRLD) that aims to reduce the bias of SGLD by applying a numerical sequence acceleration method, namely the Richardson-Romberg (RR) extrapolation, which requires running two chains with different step sizes in parallel. While reducing the bias, SGRRLD also keeps the variance of the estimator at a reasonable level by using correlated Brownian motions.\n30th Conference on Neural Information Processing Systems (NIPS 2016), Barcelona, Spain.\nWe show that the asymptotic bias and variance of SGRRLD can be bounded as O(γ2) and O(γ4), respectively. We also show that after K iterations, our algorithm achieves a rate of convergence for the MSE of order O(K−4/5), whereas this rate for SGLD and its extensions with first-order integrators is of order O(K−2/3). Our results show that by only using a first-order numerical integrator, the proposed approach can achieve the theoretical accuracy of methods that are based on higher-order integrators, such as the ones given in [10]. This accuracy can be improved even more by applying the RR extrapolation multiple times in a recursive manner [13]. On the other hand, since the two chains required by the RR extrapolation can be generated independently, the SGRRLD algorithm is well adapted to parallel and distributed architectures. It is also worth to note that our technique is quite generic and can be virtually applied to all the current SG-MCMC algorithms besides SGLD, provided that they satisfy rather technical weak error and ergodicity conditions.\nIn order to assess the performance of the proposed method, we conduct several experiments on both synthetic and real datasets. We first apply our method on a rather simple Gaussian model whose posterior distribution is analytically available and compare the performance of SGLD and SGRRLD. In this setting, we also illustrate the generality of our technique by applying the RR extrapolation on Stochastic Gradient Hamiltonian Monte Carlo (SGHMC) [6]. Then, we apply our method on a large-scale matrix factorization problem for a movie recommendation task. Numerical experiments support our theoretical results: our approach achieves improved accuracy over SGLD and SGHMC."
+    }, {
+      "heading" : "2 Preliminaries",
+      "text" : ""
+    }, {
+      "heading" : "2.1 Stochastic Gradient Langevin Dynamics",
+      "text" : "In MCMC, one aims at generating samples from a target probability measure π that is known up to a multiplicative constant. Assume that π has a density with respect to the Lebesgue measure that is still denoted by π and given by π : θ → e−U(θ)/ ∫ Rd e −U(θ̃)dθ̃ where U : Rd → R is called the potential energy function. In practice, directly generating samples from π turns out to be intractable except for very few special cases, therefore one often needs to resort to approximate methods. A popular way to approximately generate samples from π is based on discretizations of a stochastic differential equation (SDE) that has π as an invariant distribution [14]. A common choice is the over-damped Langevin equation associated with π, that is the stochastic differential equation (SDE) given by\ndϑt = −∇U(ϑt)dt+ √ 2dBt , (1)\nwhere (Bt)t≥0 is the standard d-dimensional Brownian motion. Under mild assumptions on U (cf. [2]), (ϑt)t≥0 is a well defined Markov process which is geometrically ergodic with respect to π. Therefore, if continuous sample paths from (ϑt)t≥0 could be generated, they could be used as approximate samples from π. However, this is not possible and therefore in practice we need to use a discretization of (1). The most common discretization is the Euler-Maruyama scheme, which boils down to applying the following update equation iteratively: θk+1 = θk − γk+1∇U(θk) +√\n2γk+1Zk+1, for k ≥ 0 with initial state θ0. Here, (γk)k≥1 is a sequence of non-increasing step sizes and (Zk)k≥1 is a sequence of independent and identically distributed (i.i.d.) d-dimensional standard normal random variables. This schema is called the Unadjusted Langevin Algorithm (ULA) [2]. When the sequence of the step sizes (γk)k≥0 goes to 0 as k goes to infinity, it has been shown in [15] and [16] that the empirical distribution of (θk)k≥0 weakly converges to π under certain assumptions. A central limit theorem for additive functionals has also been obtained in [17] and [16].\nIn Bayesian machine learning, π is often chosen as the Bayesian posterior, which imposes the following form on the potential energy: U(θ) = −( ∑N n=1 log p(xn|θ) + log p(θ)) for all θ ∈ Rd, where x ≡ {xn}Nn=1 is a set of observed i.i.d. data points, belonging to Rm, for m ≥ 1, p(xn|·) : Rd → R∗+ is the likelihood function, and p(θ) : Rd → R∗+ is the prior distribution. In large scale settings, N becomes very large and therefore computing∇U can be computationally very demanding, limiting the applicability of ULA. Inspired by stochastic optimization techniques, in [1], the authors have proposed replacing the exact gradient∇U with an unbiased estimator and presented the SGLD algorithm that iteratively applies the following update equation:\nθk+1 = θk − γk+1∇Ũk+1(θk) + √ 2γk+1Zk+1 , (2)\nwhere (∇Ũk)k≥1 is a sequence of i.i.d. unbiased estimators of∇U . In the following, the common distribution of (∇Ũk)k≥1 will be denoted by L. A typical choice for the sequence of estimators (∇Ũk)k≥1 of ∇U is to randomly draw an i.i.d. sequence of data subsample (Rk)k≥1 with Rk ⊂ [N ] = {1, . . . , N} having a fixed number of elements |Rk| = B for all k ≥ 1. Then, set for all θ ∈ Rd, k ≥ 1\n∇Ũk(θ) = −[∇ log p(θ) + N\nB ∑ i∈Rk ∇ log p(xi|θ)] . (3)\nConvergence analysis of SGLD has been studied in [18, 19] and it has been shown in [20] that for constant step sizes γk = γ > 0 for all k ≥ 1, the bias and the MSE of SGLD are of order O(γ + 1/(γK)) and O(γ2 + 1/(γK)), respectively. Recently, it has been shown that these bounds are also valid in a more general family of SG-MCMC methods [10]."
+    }, {
+      "heading" : "2.2 Richardson-Romberg Extrapolation for SDEs",
+      "text" : "Richardson-Romberg extrapolation is a well-known method in numerical analysis, which aims to improve the rate of convergence of a sequence. Talay and Tubaro [21] showed that the rate of convergence of Monte Carlo estimates on certain SDEs can be radically improved by using an RR extrapolation that can be described as follows. Let us consider the SDE in (1) and its Euler discretization with exact gradients and fixed step size, i.e. γk = γ > 0 for all k ≥ 1. Under mild assumptions on U (cf. [22]), the homogeneous Markov chain (θk)k≥0 is ergodic with a unique invariant distribution πγ , which is different from the target distribution π. However, [21] showed that for f sufficiently smooth with polynomial growth, there exists a constant C, which only depends on π and f such that πγ(f) = π(f) + Cγ +O(γ2), where π(f) = ∫ Rd f(x)π(dx). By exploiting this result, RR extrapolation suggests considering two different discretizations of the same SDE with two different step sizes γ and γ/2. Then instead of πγ(f), if we consider 2πγ/2(f)− πγ(f) as the estimator, we obtain π(f)− (2πγ/2(f)− πγ(f)) = O(γ2). In the case where the sequence (γk)k≥0 goes to 0 as k → +∞, it has been observed in [23] that the estimator defined by RR extrapolation satisfies a CLT. The applications of RR extrapolation to SG-MCMC have not yet been explored."
+    }, {
+      "heading" : "3 Stochastic Gradient Richardson-Romberg Langevin Dynamics",
+      "text" : "In this study, we explore the use of RR extrapolation in SG-MCMC algorithms for improving their rates of convergence. In particular, we focus on the applications of RR extrapolation on the SGLD estimator and present a novel SG-MCMC algorithm referred to as Stochastic Gradient RichardsonRomberg Langevin Dynamics (SGRRLD).\nThe proposed algorithm applies RR extrapolation on SGLD by considering two SGLD chains applied to the SDE (1), with two different sequences of step sizes satisfying the following relation. For the first chain, we consider a sequence of non-increasing step sizes (γk)k≥1 and for the second chain, we use the sequence of step sizes (ηk)k≥1 defined by η2k−1 = η2k = γk/2 for k ≥ 1. These two chains are started at the same point θ0 ∈ Rd, and are run accordingly to (2) but the chain with the smallest step size is run twice more time than the other one. In other words, these two discretizations are run until the same time horizon ∑K k=1 γk, where K is the number of iterations. Finally, we extrapolate the two SGLD estimators in order to construct the new one. Each iteration of SGRRLD will consist of one step of the first SGLD chain with (γk)k≥1 and two steps of the second SGLD chain with (ηk)k≥1. More formally the proposed algorithm is defined by: consider a starting point θ(γ)0 = θ (γ/2) 0 = θ0 and for k ≥ 0,\nChain 1 : θ (γ) k+1 = θ (γ) k − γk+1∇Ũ (γ) k+1 ( θ (γ) k ) + √ 2γk+1Z (γ) k+1 , (4)\nChain 2 : θ (γ/2) 2k+1 = θ (γ/2) 2k − γk+1 2 ∇Ũ (γ/2) 2k+1 ( θ (γ/2) 2k+1 ) + √ γk+1Z (γ/2) 2k+1\nθ (γ/2) 2k+2 = θ (γ/2) 2k+1 − γk+1 2 ∇Ũ (γ/2) 2k+2 ( θ (γ/2) 2k+1 ) + √ γk+1Z (γ/2) 2k+2\n(5)\nwhere (Z(γ/2)k )k≥1 and (Z (γ) k )k≥1 are two sequences of d-dimensional i.i.d. standard Gaussian random variables and (∇Ũ (γ/2)k )k≥1, (∇Ũ (γ) k )k≥1 are two sequences of i.i.d. unbiased estimators of ∇U with the same common distribution L, meaning that the mini-batch size has to be the same.\nFor a test function f : Rd → R, we then define the estimator of π(f) based on RR extrapolation as follows: (for all K ∈ N∗)\nπ̂RK(f) = ( K+1∑ k=2 γk )−1 K∑ k=1 γk+1 [ {f(θ(γ/2)2k−1) + f(θ (γ/2) 2k )} − f(θ (γ) k ) ] , (6)\nWe provide a pseudo-code of SGRRLD in the supplementary document.\nUnder mild assumptions on ∇U and the law L (see the conditions in the Supplement), by [19, Theorem 7] we can show that π̂RK(f) is a consistent estimator of π(f): when limk→+∞ γk = 0 and limK→+∞ ∑K k=1 γk+1 = +∞, then limK→+∞ π̂RK(f) = π(f) almost surely. However, it is not immediately clear whether applying an RR extrapolation would provide any advantage over SGLD in terms of the rate of convergence. Even if RR extrapolation were to reduce the bias of the SGLD estimator, this improvement could be offset by an increase of variace. In the context of a general class of SDEs, in [13] it has been shown that the variance of estimator based on RR extrapolation can be controlled by using correlated Brownian increments and the best choice in this sense is in fact taking the two sequences (Z(γ/2)k )k≥1 and (Z (γ) k )k≥1 perfectly correlated, i.e. for all k ≥ 1,\nZ (γ) k = (Z (γ/2) 2k−1 + Z (γ/2) 2k )/\n√ 2 . (7)\nThis choice has also been justified in the context of the sampling of the stationary distribution of a diffusion in [23] through a central limit theorem.\nInspired by [23], in order to be able to control the variance of the SGRRLD estimator, we consider correlated Brownian increments. In particular, we assume that the Brownian increments in (4) and (5) satisfy the following relationship: there exist a matrix Σ ∈ Rd×d, a sequence (Wk)k≥1 of d dimensional i.i.d. standard Gaussian random variables, independent of (Z(γ/2)k )k≥1 such that Id−Σ>Σ is a positive semidefinite matrix and for all k ≥ 0,\nZ (γ) k+1 = Σ >(Z (γ/2) 2k+1 + Z (γ/2) 2(k+1))/ √ 2 + (Id−Σ>Σ)1/2Wk+1 , (8)\nwhere Id denotes the identity matrix. In Section 4, we will show that the properly scaled SGRRLD estimator converges to a Gaussian random variable whose variance is minimal when Σ = Id, and therefore Z(γ)k+1 should be chosen as in (7). Accordingly, (8) justifies the choice of using the same Brownian motion in the two discretizations, extending the results of [23] to SG-MCMC. On the other hand, regarding the sequences of estimators for ∇U , we assume that they can also be correlated but do not assume an explicit form on their relation. However, it is important to note that if the two sequences (∇Ũ (γ/2)k )k≥1 and (∇Ũ (γ) k )k≥1 do not have the same common distribution, then the SGRRLD estimator can have a bias, which would have the same order as of vanilla SGLD (with the same sequence of step sizes). In the particular case of (3), in order for SGRRLD to gain efficiency compared to SGLD, the mini-batch size has to be the same for the two chains."
+    }, {
+      "heading" : "4 Convergence Analysis",
+      "text" : "We analyze asymptotic and non-asymptotic properties of SGRRLD. In order to save space and avoid obscuring the results, we present the technical conditions under which the theorems hold, and the full proofs in the supplementary document.\nWe first present a central limit theorem for the estimator π̂RK(f) of π(f) (see (6)) for a smooth function f . Let us define Γ(n)K = ∑K k=1 γ n k+1 and ΓK = Γ (1) K , for all n ∈ N.\nTheorem 1. Let f : Rd → R be a smooth function and (γk)k≥1 be a nonincreasing sequence satisfying limk→+∞ γk = 0 and limK→+∞ ΓK = +∞. Let (θ(γ)k , θ (γ/2) k )k≥0 be defined by (4)- (5), started at θ0 ∈ Rd and assume that the relation (8) holds for Σ ∈ Rd×d. Under appropriate conditions on U , f and L, then the following statements hold: a) If limK→+∞ Γ (3) K / √ ΓK = 0, then √ ΓK ( π̂RK(f)− π(f) ) converges in law as K goes to infinity to a zero-mean Gaussian random variable with variance σ2R, which is minimized when Σ = Id. b) If limK→+∞ Γ (3) K / √ ΓK = κ ∈ (0,+∞), then √ ΓK ( π̂RK(f) − π(f) ) converges in law as K goes to infinity to a Gaussian random variable with variance σ2R and mean κµR.\nc) If limK→+∞ Γ (3) K / √ ΓK = +∞, then (ΓK/Γ(3)k ) ( π̂RK(f) − π(f) ) converges in probability as"
+    }, {
+      "heading" : "K goes to infinity to µR. The expressions of σ2R and µR are given in the supplementary document.",
+      "text" : "Proof (Sketch). The proof follows the same strategy as the one in [23, Theorem 4.3] for ULA. We assume that the Poisson equation associated with f has a solution g ∈ C9(Rd). Then, the proof consists in making a 7th order Taylor expansion for g(θ(γ)k+1), g(θ (γ/2) 2k ) and g(θ (γ) 2k+1) at θ (γ) k , θ (γ/2) 2k−1 and θ (γ/2) 2k , respectively. Then π̂ R K(f) − π(f) is decomposed as a sum of three terms A1,K +A2,K +A3,K . A1,K is the fluctuation term and Γ 1/2 K A1,K converges to a zero-mean Gaussian random variable with variance σ2R. A2,K is the bias term, and ΓKA2,K/Γ (3) K converges in probability to µR as K goes to +∞ if limK→+∞ Γ(3)K = +∞. Finally the last term Γ 1/2 K A3,K goes to 0 as K goes to +∞. The detailed proof is given in the supplementary document.\nThese results state that the Gaussian noise dominates the stochastic gradient noise. Moreover, we also observe that the correlation between the two sequences of Gaussian random variables (Z(γ)k )k≥1 and (Z(γ/2)k )k≥1 has an important impact on the asymptotic convergence of π̂\nR(f), whereas the correlation of the two sequences of stochastic gradients does not.\nA typical choice of decreasing sequence (γk)k≥1 is of the form γk = γ1k−α for α ∈ (0, 1]. With such a choice, Theorem 1 states that π̂R(f) converges to π(f) at a rate of convergence of order O(K−((1−α)/2)∧(2α)), where a ∧ b = min(a, b). Therefore, the optimal choice for the exponent α for obtaining the fastest convergence turns out to be α = 1/5, which implies a rate of convergence of order O(K−2/5). Note that this rate is higher than SGLD whose optimal rate is of order O(K−1/3). Besides, α = 1/5 corresponds to the second point of Theorem 1, in which there is an equal contribution of the bias and the fluctuation at an asymptotic level. Futher discussions and detailed calculations can be found in the supplementary document.\nWe now derive non-asymptotic bounds for the bias and the MSE of the estimator π̂R(f).\nTheorem 2. Let f : Rd → R be a smooth function and (γk)k≥1 be a nonincreasing sequence such that there exists K1 ≥ 1, γK1 ≤ 1 and limK→+∞ ΓK = +∞. Let (θ (γ) k , θ (γ/2) k )k≥0 be defined by (4)-(5), started at θ0 ∈ Rd. Under appropriate conditions on U , f and L, then there exists C ≥ 0 such that for all K ∈ N, K ≥ 1:\nBIAS: ∣∣E [π̂RK(f)− π(f)]∣∣ ≤ (C/ΓK){Γ(3)K + 1}\nMSE: E [{ π̂RK(f)− π(f) }2] ≤ C{(Γ(3)K /ΓK)2 + 1/ΓK} . Proof (Sketch). The proof follows the same strategy as the one of Theorem 1, but instead of establishing the exact convergence of the fluctuation and the bias terms, we just give an upper bound for these two terms. The detailed proof is given in the supplementary document.\nIt is important to observe that the constant C which appears in Theorem 2 depends on moments of the estimator of the gradient. For fixed step size γk = γ for all k ≥ 1, Theorem 2 shows that the bias is of order O(γ2 + 1/(Kγ)). Therefore, if the number of iterations K is fixed then the choice of γ which minimizes this bound is γ ∝ K−1/3, obtained by differentiating x 7→ x2 + (xK)−1. Choosing this value for γ leads to the optimal rate for the bias of order O(K−2/3). Note that this bound is better than SGLD for which the optimal bound of the bias at fixed K is of order O(K−1/2). The same approach can be applied to the MSE which is of orderO(γ4 + 1/(Kγ)). Then, the optimal choice of the step size is γ = O(K−1/5), leading to a bound of order O(K−4/5). Similar to the previous case, this bound is smaller than the bound obtained with SGLD, which is O(K−2/3). If we choose γk = γ1k−α for α ∈ (0, 1], Theorem 2 shows that the bias and the MSE go to 0 as K goes to infinity. More precisely for α ∈ (0, 1), the bound for the bias is O(K−(2α)∧(1−α)), and is therefore minimal for α = 1/3. As for the MSE, the bound provided by Theorem 2 is O(K−(4α)∧(1−α)) which is consistent with Theorem 1, leading to an optimal bound of order O(K−4/5) as α = 1/5."
+    }, {
+      "heading" : "5 Experiments",
+      "text" : ""
+    }, {
+      "heading" : "5.1 Linear Gaussian Model",
+      "text" : "We conduct our first set of experiments on synthetic data where we consider a simple Gaussian model whose posterior distribution is analytically available. The model is given as follows:\nθ ∼ N (0, σ2θ Id) , xn|θ ∼ N (a>n θ, σ2x) , for all n . (9)\nHere, we assume that the explanatory variables {an}Nn=1 ∈ RN×d, σ2θ and σ2x are known and we aim to draw samples from the posterior distribution p(θ|x). In all the experiments, we first randomly generate an ∼ N (0, 0.5 Id) and we generate the true θ and the response variables x by using the generative model given in (9). All our experiments are conducted on a standard laptop computer with 2.5GHz Quad-core Intel Core i7 CPU, and in all settings, the two chains of SGRRLD are run in parallel.\nIn our first experiment, we set d = 1, σ2θ = 10, σ 2 x = 1, N = 1000, and the size of each minibatch B = N/10. We fix the step size to γ = 10−3. In order to ensure that both algorithms are run for a fixed computation time, we run SGLD for K = 21000 iterations where we discard the first 1000 samples as burn-in, and we run SGRRLD for K = 10500 iterations accordingly, where we discard the samples generated in the first 500 iterations as burn-in. Figure 1(a) shows the typical results of this experiment. In particular, in the left figure, we illustrate the true posterior distribution and the Gaussian density N (µ̂post, σ̂2post) for both algorithms, where µ̂post and σ̂2post denote the empirical posterior mean and variance, respectively. In the right figure, we monitor the bias of the estimated variance as a function of computation time. The results show that SGLD overestimates the posterior variance, whereas SGRRLD is able to reduce this error significantly. We also observe that the results support our theory: the bias of the estimated variance is ≈ 10−2 for SGLD whereas this bias is reduced to ≈ 10−4 with SGRRLD.\nIn our second experiment, we fix γ and K and monitor the MSE of the posterior covariance as a function of the dimension d of the problem. In order to measure the MSE, we compute the squared Frobenius norm of the difference between the true posterior covariance and the estimated covariance. Similarly to the previous experiment, we average 100 runs that are initialized randomly. The results are shown in Figure 1(b). The re-\nsults clearly show that SGRRLD provides significant performance improvement over SGLD, where the MSE of SGRRLD is in the order of the square of the MSE of SGLD for all values of d.\nIn our next experiment, we use the same setting as in the first experiment and we monitor the bias and the MSE of the estimated variance as a function of the step size γ. For evaluation, we average 100 runs that are initialized randomly. As depicted in Figure 2, the results show that SGRRLD yields\nsignificantly better results than SGLD in terms of both the bias and MSE. Note that for very small γ, the bias and MSE increase. This is due to the term 1/(Kγ) in the bounds of Theorem 2 dominates both the bias and the MSE as expected since K is fixed. Therefore, we observe a drop in the bias and the MSE as we increase γ up to ≈ 8× 10−5, and then they gradually increase along with γ.\nWe conduct the next experiment in order to check the rate of convergence that we have derived in Theorem 2 for fixed step size γk = γ for all k ≥ 1. We observe that the optimal choice for the step size is of the form γ = γ?bK −1/3 and γ = γ?MK −0.2 for the bias and MSE, respectively. To confirm our findings, we first need to determine the constants γ?b and γ ? M, which can be done by using the results from the previous experiment. Accordingly, we observe that γ?b ≈ 8.5 ·10−5 ·\n(20000)1/3 ≈ 2 · 10−3 and γ?M ≈ 1.7 · 10−4 · (20000)0.2 ≈ 10−3. Then, to confirm the right dependency of γ on K, we fix K = 106 and monitor the bias with the sequence of step sizes γ = γ?bK −α and the MSE with γ = γMK−α for several values of α as given in Figure 3. It can be observed that the optimal convergence rate is still obtained for α = 1/3 for the bias and α = 0.2 for the MSE, which confirms the results of Theorem 2. For a decreasing sequence of step sizes γk = γ?1k\nα for α ∈ (0, 1], we conduct a similar experiment to confirm that the best convergence rate is achieved choosing α = 1/3 in the case of the bias and α = 0.2 in the case of the MSE. The resulting figures can be found in the supplementary document.\nIn our last synthetic data experiment, instead of SGLD, we consider another SG-MCMC algorithm, namely the Stochastic Gradient Hamiltonian Monte Carlo (SGHMC) [6]. We apply the proposed extrapolation scheme described in Section 3 to SGHMC and call the resulting algorithm Stochastic Gradient RichardsonRomberg Hamiltonian Monte Carlo (SGRRHMC). In this experiment, we use the same setting as we use in Figure 2, and\nwe monitor the bias and the MSE of the estimated variance as a function of γ. We compare SGRRHMC against SGHMC with Euler discretization [6] and SGHMC with an higher-order splitting integrator (SGHMC-s) [10] (we describe SGHMC, SGHMC-s, and SGRRHMC in more detail in the supplementary document). We average 100 runs that are initialized randomly. As given in Figure 4, the results are similar to the ones obtained in Figure 2: for large enough γ, SGRRHMC yields significantly better results than SGHMC. For small γ, the term 1/(Kγ) in the bound derived in Theorem 2 dominates the MSE and therefore SGRRHMC requires a larger K for improving over SGHMC. For large enough values of γ, we observe that SGRRHMC obtains an MSE similar to that of SGHMC-s with small γ, which confirms our claim that the proposed approach can achieve the accuracy of the methods that are based on higher-order integrators."
+    }, {
+      "heading" : "5.2 Large-Scale Matrix Factorization",
+      "text" : "In our second set of experiments, we evaluate our approach on a large-scale matrix factorization problem for a link prediction application, where we consider the following probabilistic model: Wip ∼ N (0, σ2w), Hpj ∼ N (0, σ2h), Xij |W,H ∼ N (∑ pWipHpj , σ 2 x ) , where X ∈ RI×J is the observed data matrix with missing entries, and W ∈ RI×P and H ∈ RD×P are the latent factors,\nwhose entries are i.i.d. distributed. The aim in this application is to predict the missing values of X by using a low-rank approximation. This model is similar to the Bayesian probabilistic matrix factorization model [24] and it is often used in large-scale matrix factorization problems [25], in which SG-MCMC has been shown to outperform optimization methods such as SGD [26].\nIn this experiment, we compare SGRRLD against SGLD on three large movie ratings datasets, namely the MovieLens 1Million (ML-1M), MovieLens 10Million (ML-10M), and MovieLens 20Million (ML-20M) (grouplens.org). The ML-1M dataset contains about 1 million ratings applied to I = 3883 movies by J = 6040 users, resulting in a sparse observed matrix X with 4.3% non-zero entries. The ML-10M dataset contains about 10 million ratings applied to I = 10681 movies by J = 71567 users, resulting in a sparse observed matrix X with 1.3% non-zero entries. Finally, The ML-20M dataset contains about 20 million ratings applied to I = 27278 movies by J = 138493 users, resulting in a sparse observed matrix X with 0.5% non-zero entries. We randomly select 10% of the data as the test set and use the remaining data for generating the samples. The rank of the factorization is chosen as P = 10. We set σ2w = σ 2 h = σ 2 x = 1. For all datasets, we use a constant step size. We run SGLD for K = 10500 iterations where we discard the first 500 samples as burn-in. In order to keep the computation time the same, we run SGRRLD for K = 5250 iterations where we discard the first 250 iterations as burn-in. For ML-1M we set γ = 2 × 10−6 and for ML-10M and ML-20M we set γ = 2 × 10−5. The size of the subsamples B is selected as N/10, N/50, and N/500 for ML-1M, ML-10M and ML-20M, respectively. We have implemented SGLD and SGRRLD in C by using the GNU Scientific Library for efficient matrix computations. We fully exploit the inherently parallel structure of SGRRLD by running the two chains in parallel as two independent processes, whereas SGLD cannot benefit from this parallel computation architecture due to its inherently sequential nature. Therefore their wall-clock times are nearly exactly the same.\nFigure 5 shows the comparison of SGLD and SGRRLD in terms of the root mean squared-errors (RMSE) that are obtained on the test sets as a function of wall-clock time. The results clearly show that in all datasets SGRRLD yields significant performance improvements. We observe that in the ML-1M experiment SGRRLD requires only ≈ 200 seconds for achieving the accuracy that SGLD provides after ≈ 400 seconds. We see similar behaviors in the ML-10M and ML-20M experiments: SGRRLD appears to be more efficient than SGLD. The results indicate that by using our approach, we either obtain the same accuracy of SGLD in shorter time or we obtain a better accuracy by spending the same amount of time as SGLD."
+    }, {
+      "heading" : "6 Conclusion",
+      "text" : "We presented SGRRLD, a novel scalable sampling algorithm that aims to reduce the bias of SGMCMC while keeping the variance at a reasonable level by using RR extrapolation. We provided formal theoretical analysis and showed that SGRRLD is asymptotically consistent and satisfies a central limit theorem. We further derived bounds for its non-asymptotic bias and the mean squarederror, and showed that SGRRLD attains higher rates of convergence than all known SG-MCMC methods with first-order integrators in both finite-time and asymptotically. We supported our findings using both synthetic and real data experiments, where SGRRLD appeared to be more efficient than SGLD in terms of computation time on a large-scale matrix factorization application. As a next step, we plan to explore the use of the multi-level Monte Carlo approaches [27] in our framework.\nAcknowledgements: This work is partly supported by the French National Research Agency (ANR) as a part of the EDISON 3D project (ANR-13-CORD-0008-02)."
+    } ],
+    "references" : [ {
+      "title" : "Bayesian learning via Stochastic Gradient Langevin Dynamics",
+      "author" : [ "M. Welling", "Y. W Teh" ],
+      "venue" : "ICML, 2011, pp. 681–688.",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Exponential convergence of Langevin distributions and their discrete approximations",
+      "author" : [ "G.O. Roberts", "R.L. Tweedie" ],
+      "venue" : "Bernoulli, vol. 2, no. 4, pp. 341–363, 1996.",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : null,
+      "year" : 1996
+    }, {
+      "title" : "A stochastic approximation method",
+      "author" : [ "H. Robbins", "S. Monro" ],
+      "venue" : "Ann. Math. Statist., vol. 22, no. 3, pp. 400–407, 1951.",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : null,
+      "year" : 1951
+    }, {
+      "title" : "Bayesian posterior sampling via stochastic gradient Fisher scoring",
+      "author" : [ "S. Ahn", "A. Korattikara", "M. Welling" ],
+      "venue" : "ICML, 2012.",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Stochastic gradient Riemannian Langevin dynamics on the probability simplex",
+      "author" : [ "S. Patterson", "Y.W. Teh" ],
+      "venue" : "NIPS, 2013.",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Stochastic gradient Hamiltonian Monte Carlo",
+      "author" : [ "T. Chen", "E.B. Fox", "C. Guestrin" ],
+      "venue" : "ICML, 2014.",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Bayesian sampling using stochastic gradient thermostats",
+      "author" : [ "N. Ding", "Y. Fang", "R. Babbush", "C. Chen", "R.D. Skeel", "H. Neven" ],
+      "venue" : "NIPS, 2014, pp. 3203–3211.",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Covariance-controlled adaptive Langevin thermostat for large-scale Bayesian sampling",
+      "author" : [ "X. Shang", "Z. Zhu", "B. Leimkuhler", "A.J. Storkey" ],
+      "venue" : "NIPS, 2015, pp. 37–45.",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "A complete recipe for stochastic gradient MCMC",
+      "author" : [ "Y.A. Ma", "T. Chen", "E. Fox" ],
+      "venue" : "NIPS, 2015, pp. 2899–2907.",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "On the convergence of stochastic gradient MCMC algorithms with high-order integrators",
+      "author" : [ "C. Chen", "N. Ding", "L. Carin" ],
+      "venue" : "NIPS, 2015, pp. 2269–2277.",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Preconditioned stochastic gradient Langevin dynamics for deep neural networks",
+      "author" : [ "C. Li", "C. Chen", "D. Carlson", "L. Carin" ],
+      "venue" : "AAAI Conference on Artificial Intelligence, 2016.",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Stochastic quasi-Newton Langevin Monte Carlo",
+      "author" : [ "U. Şimşekli", "R. Badeau", "A.T. Cemgil", "G. Richard" ],
+      "venue" : "ICML, 2016.",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Multi-step Richardson-Romberg extrapolation: remarks on variance control and complexity",
+      "author" : [ "G. Pages" ],
+      "venue" : "Monte Carlo Methods and Applications, vol. 13, no. 1, pp. 37, 2007.",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : null,
+      "year" : 2007
+    }, {
+      "title" : "Tutorial in pattern theory",
+      "author" : [ "U. Grenander" ],
+      "venue" : "Division of Applied Mathematics, Brown University, Providence, 1983.",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : null,
+      "year" : 1983
+    }, {
+      "title" : "Recursive computation of the invariant distribution of a diffusion: the case of a weakly mean reverting drift",
+      "author" : [ "D. Lamberton", "G. Pagès" ],
+      "venue" : "Stoch. Dyn., vol. 3, no. 4, pp. 435–451, 2003.",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : null,
+      "year" : 2003
+    }, {
+      "title" : "Estimation de la mesure invariante d’un processus de diffusion",
+      "author" : [ "V. Lemaire" ],
+      "venue" : "Ph.D. thesis, Université Paris-Est,",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : "16",
+      "year" : 2005
+    }, {
+      "title" : "Recursive computation of the invariant distribution of a diffusion",
+      "author" : [ "D. Lamberton", "G. Pagès" ],
+      "venue" : "Bernoulli, vol. 8, no. 3, pp. 367–405, 2002.",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : null,
+      "year" : 2002
+    }, {
+      "title" : "Approximation analysis of stochastic gradient Langevin dynamics by using Fokker-Planck equation and Ito process",
+      "author" : [ "I. Sato", "H. Nakagawa" ],
+      "venue" : "ICML, 2014, pp. 982–990.",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Consistency and fluctuations for stochastic gradient Langevin dynamics",
+      "author" : [ "Y.W. Teh", "A.H. Thiéry", "S.J. Vollmer" ],
+      "venue" : "Journal of Machine Learning Research, vol. 17, no. 7, pp. 1–33, 2016.",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Non-)asymptotic properties of Stochastic Gradient Langevin Dynamics",
+      "author" : [ "Y.W. Teh", "S.J. Vollmer", "K.C. Zygalakis" ],
+      "venue" : "arXiv preprint arXiv:1501.00438, 2015.",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Expansion of the global error for numerical schemes solving stochastic differential equations",
+      "author" : [ "D. Talay", "L. Tubaro" ],
+      "venue" : "Stochastic Anal. Appl., vol. 8, no. 4, pp. 483–509 (1991), 1990.",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : null,
+      "year" : 1991
+    }, {
+      "title" : "Ergodicity for SDEs and approximations: locally Lipschitz vector fields and degenerate noise",
+      "author" : [ "J.C. Mattingly", "A.M. Stuart", "D.J. Higham" ],
+      "venue" : "Stochastic Process. Appl., vol. 101, no. 2, pp. 185–232, 2002.",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : null,
+      "year" : 2002
+    }, {
+      "title" : "Invariant measure of duplicated diffusions and application to Richardson–Romberg extrapolation",
+      "author" : [ "V. Lemaire", "G. Pagès", "F. Panloup" ],
+      "venue" : "Ann. Inst. H. Poincaré Probab. Statist., vol. 51, no. 4, pp. 1562–1596, 11 2015.",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Bayesian probabilistic matrix factorization using Markov Chain Monte Carlo",
+      "author" : [ "R. Salakhutdinov", "A. Mnih" ],
+      "venue" : "ICML, 2008, pp. 880–887.",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : null,
+      "year" : 2008
+    }, {
+      "title" : "Large-scale matrix factorization with distributed stochastic gradient descent",
+      "author" : [ "R. Gemulla", "E. Nijkamp", "Haas. P.J.", "Y. Sismanis" ],
+      "venue" : "ACM SIGKDD, 2011.",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Large-scale distributed Bayesian matrix factorization using stochastic gradient MCMC",
+      "author" : [ "S. Ahn", "A. Korattikara", "N. Liu", "S. Rajan", "M. Welling" ],
+      "venue" : "KDD, 2015.",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Multilevel Richardson-Romberg extrapolation",
+      "author" : [ "V. Lemaire", "G. Pages" ],
+      "venue" : "arXiv preprint arXiv:1401.1177, 2014. 9",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 0,
+      "context" : "In this domain, a first and important attempt was made by Welling and Teh [1], where the authors combined ideas from the Unadjusted Langevin Algorithm (ULA) [2] and Stochastic Gradient Descent (SGD) [3].",
+      "startOffset" : 74,
+      "endOffset" : 77
+    }, {
+      "referenceID" : 1,
+      "context" : "In this domain, a first and important attempt was made by Welling and Teh [1], where the authors combined ideas from the Unadjusted Langevin Algorithm (ULA) [2] and Stochastic Gradient Descent (SGD) [3].",
+      "startOffset" : 157,
+      "endOffset" : 160
+    }, {
+      "referenceID" : 2,
+      "context" : "In this domain, a first and important attempt was made by Welling and Teh [1], where the authors combined ideas from the Unadjusted Langevin Algorithm (ULA) [2] and Stochastic Gradient Descent (SGD) [3].",
+      "startOffset" : 199,
+      "endOffset" : 202
+    }, {
+      "referenceID" : 9,
+      "context" : "Recently, in [10] it has been shown that under certain assumptions and with sufficiently large number of iterations, the bias and the meansquared-error (MSE) of a general class of SG-MCMC methods can be bounded as O(γ) and O(γ(2)), respectively, where γ is the step size of the Euler-Maruyama integrator.",
+      "startOffset" : 13,
+      "endOffset" : 17
+    }, {
+      "referenceID" : 9,
+      "context" : "Our results show that by only using a first-order numerical integrator, the proposed approach can achieve the theoretical accuracy of methods that are based on higher-order integrators, such as the ones given in [10].",
+      "startOffset" : 212,
+      "endOffset" : 216
+    }, {
+      "referenceID" : 12,
+      "context" : "This accuracy can be improved even more by applying the RR extrapolation multiple times in a recursive manner [13].",
+      "startOffset" : 110,
+      "endOffset" : 114
+    }, {
+      "referenceID" : 5,
+      "context" : "In this setting, we also illustrate the generality of our technique by applying the RR extrapolation on Stochastic Gradient Hamiltonian Monte Carlo (SGHMC) [6].",
+      "startOffset" : 156,
+      "endOffset" : 159
+    }, {
+      "referenceID" : 13,
+      "context" : "A popular way to approximately generate samples from π is based on discretizations of a stochastic differential equation (SDE) that has π as an invariant distribution [14].",
+      "startOffset" : 167,
+      "endOffset" : 171
+    }, {
+      "referenceID" : 1,
+      "context" : "[2]), (θt)t≥0 is a well defined Markov process which is geometrically ergodic with respect to π.",
+      "startOffset" : 0,
+      "endOffset" : 3
+    }, {
+      "referenceID" : 1,
+      "context" : "This schema is called the Unadjusted Langevin Algorithm (ULA) [2].",
+      "startOffset" : 62,
+      "endOffset" : 65
+    }, {
+      "referenceID" : 14,
+      "context" : "When the sequence of the step sizes (γk)k≥0 goes to 0 as k goes to infinity, it has been shown in [15] and [16] that the empirical distribution of (θk)k≥0 weakly converges to π under certain assumptions.",
+      "startOffset" : 98,
+      "endOffset" : 102
+    }, {
+      "referenceID" : 15,
+      "context" : "When the sequence of the step sizes (γk)k≥0 goes to 0 as k goes to infinity, it has been shown in [15] and [16] that the empirical distribution of (θk)k≥0 weakly converges to π under certain assumptions.",
+      "startOffset" : 107,
+      "endOffset" : 111
+    }, {
+      "referenceID" : 16,
+      "context" : "A central limit theorem for additive functionals has also been obtained in [17] and [16].",
+      "startOffset" : 75,
+      "endOffset" : 79
+    }, {
+      "referenceID" : 15,
+      "context" : "A central limit theorem for additive functionals has also been obtained in [17] and [16].",
+      "startOffset" : 84,
+      "endOffset" : 88
+    }, {
+      "referenceID" : 0,
+      "context" : "Inspired by stochastic optimization techniques, in [1], the authors have proposed replacing the exact gradient∇U with an unbiased estimator and presented the SGLD algorithm that iteratively applies the following update equation:",
+      "startOffset" : 51,
+      "endOffset" : 54
+    }, {
+      "referenceID" : 17,
+      "context" : "Convergence analysis of SGLD has been studied in [18, 19] and it has been shown in [20] that for constant step sizes γk = γ > 0 for all k ≥ 1, the bias and the MSE of SGLD are of order O(γ + 1/(γK)) and O(γ(2) + 1/(γK)), respectively.",
+      "startOffset" : 49,
+      "endOffset" : 57
+    }, {
+      "referenceID" : 18,
+      "context" : "Convergence analysis of SGLD has been studied in [18, 19] and it has been shown in [20] that for constant step sizes γk = γ > 0 for all k ≥ 1, the bias and the MSE of SGLD are of order O(γ + 1/(γK)) and O(γ(2) + 1/(γK)), respectively.",
+      "startOffset" : 49,
+      "endOffset" : 57
+    }, {
+      "referenceID" : 19,
+      "context" : "Convergence analysis of SGLD has been studied in [18, 19] and it has been shown in [20] that for constant step sizes γk = γ > 0 for all k ≥ 1, the bias and the MSE of SGLD are of order O(γ + 1/(γK)) and O(γ(2) + 1/(γK)), respectively.",
+      "startOffset" : 83,
+      "endOffset" : 87
+    }, {
+      "referenceID" : 9,
+      "context" : "Recently, it has been shown that these bounds are also valid in a more general family of SG-MCMC methods [10].",
+      "startOffset" : 105,
+      "endOffset" : 109
+    }, {
+      "referenceID" : 20,
+      "context" : "Talay and Tubaro [21] showed that the rate of convergence of Monte Carlo estimates on certain SDEs can be radically improved by using an RR extrapolation that can be described as follows.",
+      "startOffset" : 17,
+      "endOffset" : 21
+    }, {
+      "referenceID" : 21,
+      "context" : "[22]), the homogeneous Markov chain (θk)k≥0 is ergodic with a unique invariant distribution πγ , which is different from the target distribution π.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 20,
+      "context" : "However, [21] showed that for f sufficiently smooth with polynomial growth, there exists a constant C, which only depends on π and f such that πγ(f) = π(f) + Cγ +O(γ(2)), where π(f) = ∫ Rd f(x)π(dx).",
+      "startOffset" : 9,
+      "endOffset" : 13
+    }, {
+      "referenceID" : 22,
+      "context" : "In the case where the sequence (γk)k≥0 goes to 0 as k → +∞, it has been observed in [23] that the estimator defined by RR extrapolation satisfies a CLT.",
+      "startOffset" : 84,
+      "endOffset" : 88
+    }, {
+      "referenceID" : 12,
+      "context" : "In the context of a general class of SDEs, in [13] it has been shown that the variance of estimator based on RR extrapolation can be controlled by using correlated Brownian increments and the best choice in this sense is in fact taking the two sequences (Z k )k≥1 and (Z (γ) k )k≥1 perfectly correlated, i.",
+      "startOffset" : 46,
+      "endOffset" : 50
+    }, {
+      "referenceID" : 22,
+      "context" : "This choice has also been justified in the context of the sampling of the stationary distribution of a diffusion in [23] through a central limit theorem.",
+      "startOffset" : 116,
+      "endOffset" : 120
+    }, {
+      "referenceID" : 22,
+      "context" : "Inspired by [23], in order to be able to control the variance of the SGRRLD estimator, we consider correlated Brownian increments.",
+      "startOffset" : 12,
+      "endOffset" : 16
+    }, {
+      "referenceID" : 22,
+      "context" : "Accordingly, (8) justifies the choice of using the same Brownian motion in the two discretizations, extending the results of [23] to SG-MCMC.",
+      "startOffset" : 125,
+      "endOffset" : 129
+    }, {
+      "referenceID" : 5,
+      "context" : "In our last synthetic data experiment, instead of SGLD, we consider another SG-MCMC algorithm, namely the Stochastic Gradient Hamiltonian Monte Carlo (SGHMC) [6].",
+      "startOffset" : 158,
+      "endOffset" : 161
+    }, {
+      "referenceID" : 5,
+      "context" : "We compare SGRRHMC against SGHMC with Euler discretization [6] and SGHMC with an higher-order splitting integrator (SGHMC-s) [10] (we describe SGHMC, SGHMC-s, and SGRRHMC in more detail in the supplementary document).",
+      "startOffset" : 59,
+      "endOffset" : 62
+    }, {
+      "referenceID" : 9,
+      "context" : "We compare SGRRHMC against SGHMC with Euler discretization [6] and SGHMC with an higher-order splitting integrator (SGHMC-s) [10] (we describe SGHMC, SGHMC-s, and SGRRHMC in more detail in the supplementary document).",
+      "startOffset" : 125,
+      "endOffset" : 129
+    }, {
+      "referenceID" : 23,
+      "context" : "This model is similar to the Bayesian probabilistic matrix factorization model [24] and it is often used in large-scale matrix factorization problems [25], in which SG-MCMC has been shown to outperform optimization methods such as SGD [26].",
+      "startOffset" : 79,
+      "endOffset" : 83
+    }, {
+      "referenceID" : 24,
+      "context" : "This model is similar to the Bayesian probabilistic matrix factorization model [24] and it is often used in large-scale matrix factorization problems [25], in which SG-MCMC has been shown to outperform optimization methods such as SGD [26].",
+      "startOffset" : 150,
+      "endOffset" : 154
+    }, {
+      "referenceID" : 25,
+      "context" : "This model is similar to the Bayesian probabilistic matrix factorization model [24] and it is often used in large-scale matrix factorization problems [25], in which SG-MCMC has been shown to outperform optimization methods such as SGD [26].",
+      "startOffset" : 235,
+      "endOffset" : 239
+    }, {
+      "referenceID" : 26,
+      "context" : "As a next step, we plan to explore the use of the multi-level Monte Carlo approaches [27] in our framework.",
+      "startOffset" : 85,
+      "endOffset" : 89
+    } ],
+    "year" : 2016,
+    "abstractText" : "Stochastic Gradient Markov Chain Monte Carlo (SG-MCMC) algorithms have become increasingly popular for Bayesian inference in large-scale applications. Even though these methods have proved useful in several scenarios, their performance is often limited by their bias. In this study, we propose a novel sampling algorithm that aims to reduce the bias of SG-MCMC while keeping the variance at a reasonable level. Our approach is based on a numerical sequence acceleration method, namely the Richardson-Romberg extrapolation, which simply boils down to running almost the same SG-MCMC algorithm twice in parallel with different step sizes. We illustrate our framework on the popular Stochastic Gradient Langevin Dynamics (SGLD) algorithm and propose a novel SG-MCMC algorithm referred to as Stochastic Gradient Richardson-Romberg Langevin Dynamics (SGRRLD). We provide formal theoretical analysis and show that SGRRLD is asymptotically consistent, satisfies a central limit theorem, and its non-asymptotic bias and the mean squared-error can be bounded. Our results show that SGRRLD attains higher rates of convergence than SGLD in both finite-time and asymptotically, and it achieves the theoretical accuracy of the methods that are based on higher-order integrators. We support our findings using both synthetic and real data experiments.",
+    "creator" : null
+  }
+}

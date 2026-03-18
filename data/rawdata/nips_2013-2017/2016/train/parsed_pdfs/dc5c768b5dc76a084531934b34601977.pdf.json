@@ -1,0 +1,254 @@
+{
+  "name" : "dc5c768b5dc76a084531934b34601977.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Launch and Iterate: Reducing Prediction Churn",
+    "authors" : [ "Q. Cormier" ],
+    "emails" : [ "quentin.cormier@ens-lyon.fr", "mmilanifard@google.com", "canini@google.com", "mayagupta@google.com" ],
+    "sections" : [ {
+      "heading" : "1 The Curse of Version 2.0",
+      "text" : "In most practical settings, training and launching an initial machine-learned model is only the first step: as new and improved features are created, additional training data is gathered, and the model and learning algorithm are improved, it is natural to launch a series of ever-improving models. Each new candidate may bring wins, but also unnecessary changes. In practice, it is desirable to minimize any unnecessary changes for two key reasons. First, unnecessary changes can hinder usability and debugability as they can be disorienting to users and follow-on system components. Second, unnecessary changes make it more difficult to measure with statistical confidence whether the change is truly an improvement. For both these reasons, there is great interest in making only those changes that are wins, and minimizing any unnecessary changes, while making sure such process does not hinder the overall accuracy objective.\nThere is already a large body of work in machine learning that treats the stability of learning algorithms. These range from the early works of Devroye and Wagner [1] and Vapnik [2, 3] to more recent studies of learning stability in more general hypothesis spaces [4, 5, 6]. Most of the literature on this topic focus on stability of the learning algorithm in terms of the risk or loss function and how such properties translate into uniform generalization with specific convergence rates. We build on these notions, but the problem treated here is substantively different.\nWe address the problem of training consecutive classifiers to reduce unnecessary changes in the presence of realistic evolution of the problem domain and the training sets over time. The main contributions of this paper include: (I) discussion and formulation of the “churn” metric between trained models, (II) design of stabilization operators for regularization towards a previous model, (III) proposing a Markov chain Monte Carlo (MCMC) stabilization technique, (VI) theoretical analysis of the proposed stabilization in terms of churn, and (V) empirical analysis of the proposed methods on benchmark datasets with different classification algorithms.\n30th Conference on Neural Information Processing Systems (NIPS 2016), Barcelona, Spain."
+    }, {
+      "heading" : "1.1 Testing for Improvements",
+      "text" : "In the machine learning literature, it is common to compare classifiers on a fixed pre-labeled test set. However, a fixed test set has a few practical downsides. First, if many potential changes to the model are evaluated on the same dataset, it becomes difficult to avoid observing spurious positive effects that are actually due to chance. Second, the true test distribution may be evolving over time, meaning that a fixed test set will eventually diverge from the true distribution of interest. Third, and most important to our discussion, any particular change may affect only a small subset of the test examples, leaving too small a sample of differences (diffs) to determine whether a change is statistically significant.\nFor example, suppose one has a fixed test set of 10,000 samples with which to evaluate a classifier. Consider a change to one of the features, say a Boolean string-similarity feature that causes the feature to match more synonyms, and suppose that re-training a classifier with this small change to this one feature impacts only 0.1% of random examples. Then only 10 of the 10,000 test examples would be affected. As shown in the first row of Table 1, given only 10 diffs, there must be 9 or more wins to declare the change statistically significantly positive for p = 0.05.\nNote that cross-validation (CV), even in leave-one-out form, does not solve this issue. First, we are still bound by the size of the training set which might not include enough diffs between the two models. Second, and more importantly, the model in the previous iteration has likely seen the entire dataset, which breaks the independence assumption needed for the statistical test.\nTo address these problems and ensure a fresh, sufficiently large test set for each comparison, practitioners often instead measure changes on a set of diffs for the proposed change. For example, to compare classifier A and B, each classifier is evaluated on a billion unlabeled examples, and then the set of diffs is defined as those examples for which classifiers A and B predict a different class."
+    }, {
+      "heading" : "1.2 Churn",
+      "text" : "We define the churn between two models as the expected percent of diffs sampled from the test distribution. For a fixed accuracy gain, less churn is better. For example, if classifier A has accuracy 90% and classifier B has accuracy 91%, then the best case is if classifier B gets the same 90% of examples correct as classifier A, while correcting A’s errors on 1% of the data. Churn is thus only 1% in this case, and all diffs between A and B will be wins for B. Therefore the improvement of B over A will achieve statistical significance after labelling a mere 10 diffs. The worst case is if classifier A is right on the 9% of examples that B gets wrong, and B is right on the 10% of examples that A gets wrong. In this case, churn is 19%, and a given diff will only have probability of 10/19 of being a win for B, and almost 1,000 diffs will have to be labeled to be confident that B is better.\nOn Statistical Significance: Throughout this paper, we assume that every diff is independent and identically distributed with some probability of being a win for the test model vs. the base model. Thus, the probability of k wins in n trials follows a binomial distribution. Confidence intervals can provide more information than a p-value, but p-values are a useful summary statistic to motivate the problem and proposed solution, and are relevant in practice; for a longer discussion see e.g. [7]."
+    }, {
+      "heading" : "2 Reducing Churn for Classifiers",
+      "text" : "In this paper, we propose a new training strategy for reducing the churn between classifiers. One special case is how to train a classifier B to be low-churn given a fixed classifier A. We treat that\nspecial case as well as a broader problem: a framework for training both classifiers A and B so that classifier B is expected to have low-churn relative to classifier A, though when we train A we do not yet know exactly the changes B will incorporate. We place no constraints on the kind of classifiers or the kind of future changes allowed.\nOur solution consists of two components: a stabilization operator that regularizes classifier B to be closer in predictions to classifier A; and a randomization of the training set that attempts to mimic expected future changes.\nWe consider a training set T = {(xi, yi)}mi=1 of m samples with each D-dimensional feature vector xi ∈ X ⊆ RD and each label yi ∈ Y = {−1, 1}. Samples are drawn i.i.d. from distribution D. Define a classifier f : RD → {−1, 1}, and the churn between two classifiers f1 and f2 as:\nC(f1, f2) = E (X,Y )∼D [1f1(X)f2(X)<0], (1)\nwhere 1 is the indicator function. We are given training sets TA and TB to train the first and second version of the model respectively. TB might add or drop features or examples compared to TA."
+    }, {
+      "heading" : "2.1 Perturbed Training to Imitate Future Changes",
+      "text" : "Consider a random training set drawn from a distribution P(TA), such that different draws may have different training samples and different features. We show that one can train an initial classifier to be more consistent in predictions for different realizations of the perturbed training set by iteratively training on a series of i.i.d. random draws T1, T2, . . . from P(TA). We choose P(TA) to model a typical expected future change to the dataset. For example, if we think a likely future change will add 5% more training data and one new feature, then we would define a random training set to be a random 95% of the m examples in TA, while dropping a feature at random."
+    }, {
+      "heading" : "2.2 Stabilized Training Based On A Previous Model using a Markov Chain",
+      "text" : "We propose a Markov chain Monte Carlo (MCMC) approach to form a distribution over classifiers that are consistent in predictions w.r.t. the distribution P(TA) on the training set. Let S denote a regularized training that outputs a new classifier F ∗t+1 = S(F ∗t , Tt+1) where F ∗t is a previous classifier and Tt+1 is the current training set. Applying S repeatedly to random training sets Tt forms a Markov chain as shown in Figure 1. We expect this chain to produce a stationary peaked distribution on classifiers robust to the perturbation P(TA). We sample a model from this resulting distribution after K steps.\nWe end the proposed Markov chain with a classifier A∗ trained on the full training set TA, that is, A∗ = S(F ∗K , TA). Classifier A∗ is the initial launched model, and has been pre-trained to be robust to the kind of changes we expect to see in some future training set TB . Later, classifier B∗ should be trained as B∗ = S(A∗, TB). We expect the chain to have reduced the churn C(A∗, B∗) compared to the churn C(A,B) that would have resulted from training classifiers A and B without the proposed stabilization. See Figure 1 for an illustration. Note that this chain only needs to be run for the first version of the model.\nOn Regularization Effect of Perturbed Training: One can view the perturbation of the dataset and random feature drops during the MCMC run as a form of regularization, resembling the dropout technique [8] now popular in deep, convolutional and recurrent neural networks (see e.g. [9] for a recent survey). Such regularization can result in better generalization error, and our empirical results show some evidence of such an effect. See further discussion in the experiments section.\nPerturbation Chain as Longitudinal Study: The chain in Figure 1 can also be viewed as a study of the stabilization operator upon several iterations of the model, with each trained and anchored on the previous version. It can help us assess if the successive application of the operator has any adverse effect on the accuracy or if the resulting churn reduction diminishes over time."
+    }, {
+      "heading" : "3 Stabilization Operators",
+      "text" : "We propose two stabilization operators: (I) Regress to Corrected Prediction (RCP) which turns the classification problem into a regression towards corrected predictions of an older model, and (II) the Diplopia operator which regularizes the new model towards the older model using example weights."
+    }, {
+      "heading" : "3.1 RCP Stabilization Operator",
+      "text" : "We propose a stabilization operator S(f, T ) that can be used with almost any regression algorithm and any type of change. The RCP operator re-labels each classification training label yj ∈ {−1, 1} in T with a regularized label ỹj ∈ R, using an anchor model f :\nỹj = { αf(xj) + (1− α)yj if yjf(xj) ≥ 0 yj otherwise,\n(2)\nwhere α, ∈ [0, 1] are hyperparameters of S that control the churn-accuracy trade-off, with larger α corresponding to lower churn but less sensitive to good changes. Denote the set of all re-labeled examples T̃ . The RCP stabilization operator S trains a regression model on T̃ , using the user’s choice of regression algorithm."
+    }, {
+      "heading" : "3.2 Diplopia Stabilization Operator",
+      "text" : "The second stabilization operator, which we term Diplopia (double-vision), can be used with any classification strategy that can output a probability estimate for each class, including algorithms like SVMs and random forests (calibrated with a method like Platt scaling [10] or isotonic regression [11]). This operator can be easily extended to multi-class problems.\nFor binary classification, the Diplopia operator copies each training example into two examples with labels ±1, and assigns different weights to the two contradictorily labeled copies. If f(.) is the probability estimate of class +1:\n(xi, yi)→ {\n(xi,+1) with weight Λi (xi,−1) with weight 1− Λi Λi = { αf(xi) + (1− α)1yi≥0 if yi(f(xi)− 12 ) ≥ 0 1/2 + yi otherwise.\nThe formula always assigns the higher weight to the copy with the correct label. Notice that the roles of α and are very similar than to those in (2). To see the intuition behind this operator, note that with α = 1 and without the -correction, stochastic f(.) maximizes the likelihood of the new dataset.\nThe RCP operator requires using a regressor, but our preliminary experiments showed that it often trains faster (without the need to double the dataset size) and reduces churn better than the Diplopia operator. We therefore focus on the RCP operator for theoretical and empirical analysis."
+    }, {
+      "heading" : "4 Theoretical Results",
+      "text" : "In this section we present some general bounds on smoothed churn, assuming that the perturbation does not remove any features, and that the training algorithm is symmetric in training examples (i.e. independent of the order of the dataset). The analysis here assumes datasets for different models are sampled i.i.d., ignoring the dependency between consecutive re-labeled datasets (through the intermediate model). Proofs and further technical details are given in the supplemental material.\nFirst, note that we can rewrite the definition of the churn in terms of zero-one loss:\nC(f1, f2) = E (X,Y )∼D [`0,1(f1(X), f2(X))] = E (X,Y )∼D [|`0,1(f1(X), Y )− `0,1(f2(X), Y )|] . (3)\nWe define a relaxation of C that is similar to the loss used by [5] to study the stability of classification algorithms, we call it smooth churn and it is parameterized by the choice of γ:\nCγ(f1, f2) = E (X,Y )∼D [|`γ(f1(X), Y )− `γ(f2(X), Y )|] , (4)\nwhere `γ(y, y′) = 1 if yy′ ≤ 0, `γ(y, y′) = 1− yy′/γ for 0 ≤ yy′ ≤ γ, and `γ(y, y′) = 0 otherwise. Smooth churn can be interpreted as γ playing the role of a “confidence threshold” of the classifier f such that |f(x)| γ means the classifier is not confident in its prediction. It is easy to verify that `γ is (1/γ)-Lipschitz continuous with respect to y, when y′ ∈ {−1, 1}. Let fT (x)→ R be a classifier discriminant function (which can be thresholded to form a classifier) trained on set T . Let T i be the same as T except with the ith training sample (xi, yi) replaced by another sample. Then, as in [4], define training algorithm f.(.) to be β-stable if:\n∀x, T, T i : |fT (x)− fT i(x)|≤ β. (5)\nMany algorithms such as SVM and classical regularization networks have been shown to be β-stable with β = O(1/m) [4, 5]. We can use β-stability of learning algorithms to get a bound on the expected churn between independent runs of the algorithms on i.i.d. datasets: Theorem 1 (Expected Churn). Suppose f is β-stable, and is used to train classifiers on i.i.d. training sets T and T ′ sampled from Dm. We have:\nE T,T ′∼Dm\n[Cγ(fT , fT ′)] ≤ β √ πm\nγ . (6)\nAssuming β = O(1/m) this bound is of order O(1/ √ m), in line with most concentration bounds on the generalization error. We can further show that churn is concentrated around its expectation: Theorem 2 (Concentration Bound on Churn). Suppose f is β-stable, and is used to train classifiers on i.i.d. training sets T and T ′ sampled from Dm. We have:\nPr T,T ′∼Dm\n{ Cγ(fT , fT ′) > + √ πmβ\nγ\n} ≤ e− 2γ2 mβ2 . (7)\nβ-stability for learning algorithms often includes worst case bound on loss or Lipschitz-constant of the loss function. Assuming we use the RCP operator with squared loss in a reproducing kernel Hilbert space (RKHS), we can derive a distribution-dependent bound on the expected squared churn: Theorem 3 (Expected Squared Churn). Let F be a reproducing kernel Hilbert space with kernel k such that ∀x ∈ X : k(x, x) ≤ κ2 <∞. Let fT be a model trained on T = {(xi, yi)}mi=1 defined by:\nfT = arg min g∈F\n1\nm m∑ 1 (g(xi)− yi)2 + λ‖g‖2k. (8)\nFor models trained on i.i.d. training sets T and T ′:\nE T,T ′∼Dm (X,Y )∼D\n[ (`γ(fT (X), Y )− `γ(fT ′(X), Y ))2 ] ≤ 2κ 4\nmλ2γ2 E T∼Dm\n[ 1\nm m∑ i=1\n(fT (xi)− yi)2 ] . (9)\nWe can further use Chebyshev’s inequality to get a concentration bound on the smooth churn Cγ . Unlike the bounds in [4] and [5], the bound of Theorem 3 scales with the expected training error (note that we must use ỹi in place of of yi when applying the theorem, since training data is re-labeled by the stabilization operator). We can thus use the above bound to analyse the effect of α and on the churn, through their influence on the training error.\nSuppose the Markov chain described in Section 2.2 has reached a stationary distribution. Let F ∗k be a model sampled from the resulting stationary distribution, used with the RCP operator defined in (2)\nto re-label the dataset Tk+1. Since F ∗k+1 is the minimizer of objective in (8) on the re-labeled dataset we have:\nE Tk+1\n[ 1\nm m∑ i=1 (F ∗k+1(xi)− ỹi)2 ] ≤ E Tk+1 [ 1 m m∑ i=1 (F ∗k (xi)− ỹi)2 + λ(‖F ∗k ‖2k−‖F ∗k+1‖2k) ]\n= E Tk+1\n[ 1\nm m∑ i=1 (F ∗k (xi)− ỹi)2 ] , (10)\nwhere line (10) is by the assumptions of stationary regime on F ∗k and F ∗ k+1 with similar dataset sampling distributions for Tk and Tk+1. If E is the set of examples that F ∗k got wrong, using the definition of the RCP operator we can replace ỹi to get this bound on the squared churn:\nκ4\nmλ2γ2 E Tk+1 [ 1− α m ∑ i/∈E (F ∗k (xi)− yi)2 + 1 m ∑ i∈E (F ∗k (xi) + ) 2 ] . (11)\nWe can see in Eqn. (11) that using an α close to 1 can decrease the first part of the bound, but at the same time it can negatively affect the error rate of the classifier, resulting in more samples in E and consequently a larger second term. Decreasing can reduce the (F ∗k (xi) + )\n2 term of the bound, but can again cause an increase in the error rate. As shown in the experimental results, there is often a trade-off between the amount of churn reduction and the accuracy of the resulting model. We can measure the accuracy on the training set or a validation set to make sure the choice of α and does not degrade the accuracy. To estimate churn reduction, we can use an un-labeled dataset."
+    }, {
+      "heading" : "5 Experiments",
+      "text" : "This section demonstrates the churn reduction effect of the RCP operator for three UCI benchmark datasets (see Table 2) with three regression algorithms: ridge regression, random forest regression, and support vector machine regression with RBF kernel, all implemented in Scikit-Learn [12] (additional results for boosted stumps and linear SVM in the appendix). We randomly split each dataset into three fixed parts: a training set, a validation set on which we optimized the hyper-parameters for all algorithms, and a testing set. We impute any missing values by the corresponding mean, and normalize the data to have zero mean and variance 1 on the training set. See the supplementary material for more experimental details.\nTo compare two models by computing the WLR on a reasonable number of diffs, we have made the testing sets as large as possible, so that the expected number of diffs between two different models is large enough to derive accurate and statistically significant conclusions. Lastly, we note that the churn metric does not require labels, so it can be computed on an unlabeled dataset."
+    }, {
+      "heading" : "5.1 Experimental Set-up and Metrics",
+      "text" : "We assume an initial classifier is to be trained on TA, and a later candidate trained on TB will be tested against the initial classifier. For the baseline of our experiments, we train classifier A on TA and classifier B on TB independently and without any stabilization, as shown in Figure 1.\nFor the RCP operator comparison, we train A on TA, then train B+= S(A, TB). For the MCMC operator comparison, we run the MCMC chain for k = 30 steps—empirically enough for convergence\nfor the datasets we considered as seen in Figure 2—and set A∗= S(F ∗k , TA) and B∗= S(A∗, TA). The dataset perturbation sub-samples 80% of the examples in TA and randomly drops 3-7 features.\nWe run 40 independent chains to measure the variability, and report the average outcome and standard deviation. Figure 2 (left) plots the average and standard deviation of the churn along the 40 traces, and Figure 2 (right) shows the accuracy.\nFor each experiment we report the churn ratio Cr between the initial classifier and candidate change, that is, Cr = C(B+, A)/C(B,A) for the RCP operator, and Cr = C(B∗, A∗)/C(B,A) for the MCMC operator, and Cr = C(B,A)/C(B,A) = 1 for the baseline experiment. The most important metric in practice is how easy it is to tell if B is an improvement over A, which we quantify by the WLR between the candidate and initial classifier for each experiment. To help interpret the WLR, we also report the resulting probability pwin that we would conclude that the candidate change is positive (p ≤ 0.05) with a random 100-example set of differences. Lastly, to demonstrate that the proposed methods reduce the churn without adversely impacting the accuracy of the models, we also report the accuracy of the different trained models for a large test set, though the point of this work is that a sufficiently-large labeled test set may not be available in a real setting (see Section 1.1), and note that even if available, using a fixed test set to test many different changes will lead to overfitting."
+    }, {
+      "heading" : "5.2 Results",
+      "text" : "Table 3 shows results using reasonable default values of α = 0.5 and = 0.5 for both RCP and the MCMC (for results with other values of α and see Appendix D). As seen in the Cr rows of the table, RCP reduces churn over the baseline in all 9 cases, generally by 20%, but as much as 46% for ridge regression on the Nomao dataset. Similarly, running RCP in the Markov Chain also reduces the churn compared to the baseline in all 9 cases, and by slightly more on average than with the one-step RCP.\nIn some cases, the reduced churn has a huge impact on the WLR. For example, for the SVM on Twitter, the 30% churn reduction by RCP raised the WLR from 1.35 to 1.77, making it twice as likely that labelling 100 differences would have verified the change was good (compare pwin values). MCMC provides a similar churn reduction, but the WLR increase is not as large.\nIn addition to the MCMC providing slightly more churn reduction on average than RCP, running the Markov chain provides slightly higher accuracy on average as well, most notably for the ridge classifier on the Twitter dataset, raising initial classifier accuracy by 2.3% over the baseline. We hypothesize this is due to the regularization effect of the perturbed training during the MCMC run, resembling the effect of dropout in neural networks.\nWe used fixed values of α = 0.5 and = 0.5 for all the experiments in Table 3, but note that results will vary with the choice of α and , and if they can be tuned with cross-validation or otherwise, results can be substantially improved. Figure 3 illustrates the dependence on these hyper-parameters: the left plot shows that small values of result in lower churn with reduced improvement on accuracy, and the right plot shows that increasing α reduces churn, and also helps increase accuracy, but at values larger than 0.8 causes the Markov chain to diverge."
+    } ],
+    "references" : [ {
+      "title" : "Distribution-free performance bounds for potential function rules",
+      "author" : [ "L. Devroye", "T. Wagner" ],
+      "venue" : "Information Theory, IEEE Transactions on,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : "1",
+      "year" : 1979
+    }, {
+      "title" : "The Nature of Statistical Learning Theory",
+      "author" : [ "V.N. Vapnik" ],
+      "venue" : "Springer-Verlag: New York,",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 1995
+    }, {
+      "title" : "Statistical Learning Theory",
+      "author" : [ "V.N. Vapnik" ],
+      "venue" : "John Wiley: New York,",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 1998
+    }, {
+      "title" : "Algorithmic stability and generalization performance",
+      "author" : [ "O. Bousquet", "A. Elisseeff" ],
+      "venue" : "In Advances in Neural Information Processing Systems 13: Proceedings of the 2000 Conference,",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : "4",
+      "year" : 2001
+    }, {
+      "title" : "Stability and generalization",
+      "author" : [ "O. Bousquet", "A. Elisseeff" ],
+      "venue" : "Journal of Machine Learning Research,",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : "5",
+      "year" : 2002
+    }, {
+      "title" : "Learning theory: stability is sufficient for generalization and necessary and sufficient for consistency of empirical risk minimization",
+      "author" : [ "S. Mukherjee", "P. Niyogi", "T. Poggio", "R. Rifkin" ],
+      "venue" : "Advances in Computational Mathematics,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : "6",
+      "year" : 2006
+    }, {
+      "title" : "Statistics Done Wrong: The Woefully Complete Guide",
+      "author" : [ "A. Reinart" ],
+      "venue" : null,
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : "7",
+      "year" : 2015
+    }, {
+      "title" : "Dropout: A simple way to prevent neural networks from overfitting",
+      "author" : [ "N. Srivastava", "G. Hinton", "A. Krizhevsky", "I. Sutskever", "R. Salakhutdinov" ],
+      "venue" : "The Journal of Machine Learning Research,",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : "8",
+      "year" : 1929
+    }, {
+      "title" : "A survey of randomized algorithms for training neural networks",
+      "author" : [ "L. Zhang", "P.N. Suganthan" ],
+      "venue" : "Information Sciences,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 2016
+    }, {
+      "title" : "Probabilistic outputs for support vector machines and comparisons to regularized likelihood methods",
+      "author" : [ "J. Platt" ],
+      "venue" : "Advances in Large Margin Classifiers,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : "10",
+      "year" : 1999
+    }, {
+      "title" : "Predicting good probabilities with supervised learning",
+      "author" : [ "A. Niculescu-Mizil", "R. Caruana" ],
+      "venue" : "In Proceedings of the 22nd International Conference on Machine Learning,",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 2005
+    }, {
+      "title" : "Scikit-learn: Machine learning in Python",
+      "author" : [ "F. Pedregosa", "G. Varoquaux", "A. Gramfort", "V. Michel", "B. Thirion", "O. Grisel", "M. Blondel", "P. Prettenhofer", "R. Weiss", "V. Dubourg", "J. Vanderplas", "A. Passos", "D. Cournapeau", "M. Brucher", "M. Perrot", "E. Duchesnay" ],
+      "venue" : "Journal of Machine Learning Research,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 2011
+    }, {
+      "title" : "Design and analysis of the Nomao challenge active learning in the real-world",
+      "author" : [ "L. Candillier", "V. Lemaire" ],
+      "venue" : "In Proceedings of the ALRA: Active Learning in Real-world Applications, Workshop ECML-PKDD,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 2012
+    }, {
+      "title" : "Progress in Artificial Intelligence: 17th Portuguese",
+      "author" : [ "K. Fernandes", "P. Vinagre", "P. Cortez" ],
+      "venue" : "Conference on Artificial Intelligence,",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 2015
+    }, {
+      "title" : "Apprentissage d’ordonnancement et influence de l’ambiguïté pour la prédiction d’activité sur les réseaux sociaux",
+      "author" : [ "F. Kawala", "E. Gaussier", "A. Douzal-Chouakria", "E. Diemert" ],
+      "venue" : null,
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : "15",
+      "year" : 2014
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 0,
+      "context" : "These range from the early works of Devroye and Wagner [1] and Vapnik [2, 3] to more recent studies of learning stability in more general hypothesis spaces [4, 5, 6].",
+      "startOffset" : 55,
+      "endOffset" : 58
+    }, {
+      "referenceID" : 1,
+      "context" : "These range from the early works of Devroye and Wagner [1] and Vapnik [2, 3] to more recent studies of learning stability in more general hypothesis spaces [4, 5, 6].",
+      "startOffset" : 70,
+      "endOffset" : 76
+    }, {
+      "referenceID" : 2,
+      "context" : "These range from the early works of Devroye and Wagner [1] and Vapnik [2, 3] to more recent studies of learning stability in more general hypothesis spaces [4, 5, 6].",
+      "startOffset" : 70,
+      "endOffset" : 76
+    }, {
+      "referenceID" : 3,
+      "context" : "These range from the early works of Devroye and Wagner [1] and Vapnik [2, 3] to more recent studies of learning stability in more general hypothesis spaces [4, 5, 6].",
+      "startOffset" : 156,
+      "endOffset" : 165
+    }, {
+      "referenceID" : 4,
+      "context" : "These range from the early works of Devroye and Wagner [1] and Vapnik [2, 3] to more recent studies of learning stability in more general hypothesis spaces [4, 5, 6].",
+      "startOffset" : 156,
+      "endOffset" : 165
+    }, {
+      "referenceID" : 5,
+      "context" : "These range from the early works of Devroye and Wagner [1] and Vapnik [2, 3] to more recent studies of learning stability in more general hypothesis spaces [4, 5, 6].",
+      "startOffset" : 156,
+      "endOffset" : 165
+    }, {
+      "referenceID" : 7,
+      "context" : "On Regularization Effect of Perturbed Training: One can view the perturbation of the dataset and random feature drops during the MCMC run as a form of regularization, resembling the dropout technique [8] now popular in deep, convolutional and recurrent neural networks (see e.",
+      "startOffset" : 200,
+      "endOffset" : 203
+    }, {
+      "referenceID" : 9,
+      "context" : "The second stabilization operator, which we term Diplopia (double-vision), can be used with any classification strategy that can output a probability estimate for each class, including algorithms like SVMs and random forests (calibrated with a method like Platt scaling [10] or isotonic regression [11]).",
+      "startOffset" : 270,
+      "endOffset" : 274
+    }, {
+      "referenceID" : 10,
+      "context" : "The second stabilization operator, which we term Diplopia (double-vision), can be used with any classification strategy that can output a probability estimate for each class, including algorithms like SVMs and random forests (calibrated with a method like Platt scaling [10] or isotonic regression [11]).",
+      "startOffset" : 298,
+      "endOffset" : 302
+    }, {
+      "referenceID" : 4,
+      "context" : "We define a relaxation of C that is similar to the loss used by [5] to study the stability of classification algorithms, we call it smooth churn and it is parameterized by the choice of γ: Cγ(f1, f2) = E (X,Y )∼D [|`γ(f1(X), Y )− `γ(f2(X), Y )|] , (4)",
+      "startOffset" : 64,
+      "endOffset" : 67
+    }, {
+      "referenceID" : 3,
+      "context" : "Then, as in [4], define training algorithm f.",
+      "startOffset" : 12,
+      "endOffset" : 15
+    }, {
+      "referenceID" : 3,
+      "context" : "(5) Many algorithms such as SVM and classical regularization networks have been shown to be β-stable with β = O(1/m) [4, 5].",
+      "startOffset" : 117,
+      "endOffset" : 123
+    }, {
+      "referenceID" : 4,
+      "context" : "(5) Many algorithms such as SVM and classical regularization networks have been shown to be β-stable with β = O(1/m) [4, 5].",
+      "startOffset" : 117,
+      "endOffset" : 123
+    }, {
+      "referenceID" : 3,
+      "context" : "Unlike the bounds in [4] and [5], the bound of Theorem 3 scales with the expected training error (note that we must use ỹi in place of of yi when applying the theorem, since training data is re-labeled by the stabilization operator).",
+      "startOffset" : 21,
+      "endOffset" : 24
+    }, {
+      "referenceID" : 4,
+      "context" : "Unlike the bounds in [4] and [5], the bound of Theorem 3 scales with the expected training error (note that we must use ỹi in place of of yi when applying the theorem, since training data is re-labeled by the stabilization operator).",
+      "startOffset" : 29,
+      "endOffset" : 32
+    }, {
+      "referenceID" : 12,
+      "context" : "Nomao [13] News Popularity [14] Twitter Buzz [15] # Features 89 61 77 TA 4000 samples, 84 features 8000 samples, 58 features 4000 samples, 70 features TB 5000 samples, 89 features 10000 samples, 61 features 5000 samples, 77 features Validation set 1000 samples 1000 samples 1000 samples Testing set 28465 samples 28797 samples 45402 samples",
+      "startOffset" : 6,
+      "endOffset" : 10
+    }, {
+      "referenceID" : 13,
+      "context" : "Nomao [13] News Popularity [14] Twitter Buzz [15] # Features 89 61 77 TA 4000 samples, 84 features 8000 samples, 58 features 4000 samples, 70 features TB 5000 samples, 89 features 10000 samples, 61 features 5000 samples, 77 features Validation set 1000 samples 1000 samples 1000 samples Testing set 28465 samples 28797 samples 45402 samples",
+      "startOffset" : 27,
+      "endOffset" : 31
+    }, {
+      "referenceID" : 14,
+      "context" : "Nomao [13] News Popularity [14] Twitter Buzz [15] # Features 89 61 77 TA 4000 samples, 84 features 8000 samples, 58 features 4000 samples, 70 features TB 5000 samples, 89 features 10000 samples, 61 features 5000 samples, 77 features Validation set 1000 samples 1000 samples 1000 samples Testing set 28465 samples 28797 samples 45402 samples",
+      "startOffset" : 45,
+      "endOffset" : 49
+    }, {
+      "referenceID" : 11,
+      "context" : "This section demonstrates the churn reduction effect of the RCP operator for three UCI benchmark datasets (see Table 2) with three regression algorithms: ridge regression, random forest regression, and support vector machine regression with RBF kernel, all implemented in Scikit-Learn [12] (additional results for boosted stumps and linear SVM in the appendix).",
+      "startOffset" : 285,
+      "endOffset" : 289
+    } ],
+    "year" : 2016,
+    "abstractText" : "Practical applications of machine learning often involve successive training iterations with changes to features and training examples. Ideally, changes in the output of any new model should only be improvements (wins) over the previous iteration, but in practice the predictions may change neutrally for many examples, resulting in extra net-zero wins and losses, referred to as unnecessary churn. These changes in the predictions are problematic for usability for some applications, and make it harder and more expensive to measure if a change is statistically significant positive. In this paper, we formulate the problem and present a stabilization operator to regularize a classifier towards a previous classifier. We use a Markov chain Monte Carlo stabilization operator to produce a model with more consistent predictions without adversely affecting accuracy. We investigate the properties of the proposal with theoretical analysis. Experiments on benchmark datasets for different classification algorithms demonstrate the method and the resulting reduction in churn. 1 The Curse of Version 2.0 In most practical settings, training and launching an initial machine-learned model is only the first step: as new and improved features are created, additional training data is gathered, and the model and learning algorithm are improved, it is natural to launch a series of ever-improving models. Each new candidate may bring wins, but also unnecessary changes. In practice, it is desirable to minimize any unnecessary changes for two key reasons. First, unnecessary changes can hinder usability and debugability as they can be disorienting to users and follow-on system components. Second, unnecessary changes make it more difficult to measure with statistical confidence whether the change is truly an improvement. For both these reasons, there is great interest in making only those changes that are wins, and minimizing any unnecessary changes, while making sure such process does not hinder the overall accuracy objective. There is already a large body of work in machine learning that treats the stability of learning algorithms. These range from the early works of Devroye and Wagner [1] and Vapnik [2, 3] to more recent studies of learning stability in more general hypothesis spaces [4, 5, 6]. Most of the literature on this topic focus on stability of the learning algorithm in terms of the risk or loss function and how such properties translate into uniform generalization with specific convergence rates. We build on these notions, but the problem treated here is substantively different. We address the problem of training consecutive classifiers to reduce unnecessary changes in the presence of realistic evolution of the problem domain and the training sets over time. The main contributions of this paper include: (I) discussion and formulation of the “churn” metric between trained models, (II) design of stabilization operators for regularization towards a previous model, (III) proposing a Markov chain Monte Carlo (MCMC) stabilization technique, (VI) theoretical analysis of the proposed stabilization in terms of churn, and (V) empirical analysis of the proposed methods on benchmark datasets with different classification algorithms. 30th Conference on Neural Information Processing Systems (NIPS 2016), Barcelona, Spain. Table 1: Win-loss ratio (WLR) needed to establish a change is statistically significant at the p = 0.05 level for k wins out of n diffs from a binomial distribution. The empirical WLR column shows the WLR one must actually see in the diffs. The true WLR column is the WLR the change must have so that any random draw of diffs has at least a 95% chance of producing the needed empirical WLR. # Diffs Min # Wins Max # Losses Empirical WLR True WLR Needed Allowed Needed Needed 10 9 1 9.000 26.195 100 59 41 1.439 1.972 1,000 527 473 1.114 1.234 10,000 5,083 4,917 1.034 1.068 1.1 Testing for Improvements In the machine learning literature, it is common to compare classifiers on a fixed pre-labeled test set. However, a fixed test set has a few practical downsides. First, if many potential changes to the model are evaluated on the same dataset, it becomes difficult to avoid observing spurious positive effects that are actually due to chance. Second, the true test distribution may be evolving over time, meaning that a fixed test set will eventually diverge from the true distribution of interest. Third, and most important to our discussion, any particular change may affect only a small subset of the test examples, leaving too small a sample of differences (diffs) to determine whether a change is statistically significant. For example, suppose one has a fixed test set of 10,000 samples with which to evaluate a classifier. Consider a change to one of the features, say a Boolean string-similarity feature that causes the feature to match more synonyms, and suppose that re-training a classifier with this small change to this one feature impacts only 0.1% of random examples. Then only 10 of the 10,000 test examples would be affected. As shown in the first row of Table 1, given only 10 diffs, there must be 9 or more wins to declare the change statistically significantly positive for p = 0.05. Note that cross-validation (CV), even in leave-one-out form, does not solve this issue. First, we are still bound by the size of the training set which might not include enough diffs between the two models. Second, and more importantly, the model in the previous iteration has likely seen the entire dataset, which breaks the independence assumption needed for the statistical test. To address these problems and ensure a fresh, sufficiently large test set for each comparison, practitioners often instead measure changes on a set of diffs for the proposed change. For example, to compare classifier A and B, each classifier is evaluated on a billion unlabeled examples, and then the set of diffs is defined as those examples for which classifiers A and B predict a different class.",
+    "creator" : null
+  }
+}

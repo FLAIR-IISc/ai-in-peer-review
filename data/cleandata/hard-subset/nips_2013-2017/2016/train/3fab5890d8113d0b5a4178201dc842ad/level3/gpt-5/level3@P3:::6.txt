@@ -1,0 +1,58 @@
+Summary and relation to prior work:
+This paper tackles the core scalability bottleneck of memory-augmented neural networks (MANNs), especially Neural Turing Machines (NTMs) and related architectures, by introducing Sparse Access Memory (SAM). The key idea is to constrain both reads and writes to a constant number K of memory locations per timestep, while using approximate nearest-neighbor (ANN) indexing to implement content-based addressing in O(log N) time. Writes are restricted to a mix of previously read locations and the least-recently-used slot, yielding constant-time and constant-space updates per step. Backpropagation is made memory efficient by storing and reverting sparse modifications rather than full memory snapshots, bringing the per-step training overhead down to O(1) space and O(log N) time (amortized).
+
+The work is positioned against NTMs and Memory Networks, and connects to subsequent scalable variants such as the Differentiable Neural Computer (DNC). It also contrasts to reinforcement-learning-based discrete addressing (e.g., RL-NTM), arguing for lower-variance optimization via end-to-end differentiability. Empirically, SAM shows large speed and memory savings (up to ~1000× faster and ~3000× less physical memory than dense models), comparable data efficiency on standard NTM tasks, strong scaling under curriculum learning (thousands of steps and up to millions of slots), competitive bAbI performance, and improved one-shot Omniglot results. Supplementary material extends the approach to a Sparse DNC (SDNC) with strong results.
+
+Quality:
+- Technical soundness: The complexity claims are well argued and supported by careful engineering choices (ANN indexing, LRU allocation, sparse CSR ops, and backward-time rollback). The assertion of asymptotic optimality under content-based access is plausible and documented in the supplement. The paper is honest about the fixed, non-differentiable role of the ANN index.
+- Empirical support: Benchmarks convincingly show the intended regime (large N, long T) where dense models break. Synthetic tasks indicate that sparsity does not harm (and sometimes helps) data efficiency. The bAbI and Omniglot evaluations demonstrate practical relevance.
+- Caveats: The sparse top-K read introduces a biased gradient relative to dense soft attention; while this is the point, the paper could analyze approximation error vs K or ANN recall, and its effect on training stability. The amortized vs worst-case costs of ANN maintenance and periodic rebuilds deserve clearer accounting. Finally, some comparisons could be more controlled (see fairness concern below).
+
+Clarity:
+The paper is well structured and easy to read. The main mechanisms (sparse read, sparse write via previous-read/LRU, rollback BPTT, ANN integration) are explained clearly, with helpful intuition. To make the paper more self-contained, consider:
+- Adding a brief background section on MANNs and content-based read/write (esp. the write operator), possibly with a compact figure/pseudocode in the main text rather than deferring key details to the supplement.
+- Explicitly stating the impact of pruning to top-K on the read distribution and gradients, and clarifying the threshold parameter used for “non-negligible” accesses in usage tracking.
+
+Originality:
+The combination of (i) enforcing K-sparse read/write with (ii) efficient sparse backprop bookkeeping and (iii) in-network ANN-based content addressing is novel and well integrated. Compared to prior scaling efforts (e.g., RL-based discrete addressing), this offers a different trade-off—keeping end-to-end differentiability while achieving near-optimal asymptotics. The extension to SDNC underscores generality.
+
+Significance:
+Addressing the time/space explosion in MANNs is a central obstacle to adoption in real domains. Achieving O(1) per-step space and O(log N) per-step time with competitive accuracy is a substantial contribution. The empirical results are interesting, and the algorithm performs close to theoretical bounds in the intended scaling regime. Given the growing interest in retrieval-augmented models and long-context reasoning, this work is likely to influence future architectures and tooling.
+
+Strengths:
+- Clear, principled design achieving strong asymptotic and practical gains.
+- End-to-end differentiable pipeline with careful systems engineering (rollback BPTT, CSR, ANN).
+- Broad and relevant empirical evaluation, including large-T curricula and MANN baselines.
+- Generalization to SDNC with state-of-the-art bAbI results (without supervision).
+- Paper is well organized and readable.
+
+Weaknesses and concerns:
+- Fairness of Figure 4 (Omniglot) comparison: Matching physical memory usage is one choice, but gives SAM a vastly larger logical memory than dense baselines. A complementary comparison at equal logical memory (same number of slots) would better isolate the benefit of sparse access vs sheer capacity. Alternatively, fix accuracy and compare wall-clock/peak memory across models.
+- Limited analysis of approximation effects: No systematic ablation of K, ANN type/recall, or the impact of pruning on gradient bias/variance and stability.
+- Write policy design: The previous-read/LRU blend is reasonable, but the paper could study alternatives (e.g., sparse content-based writes) and report sensitivity to the interpolation/write gates and the “non-negligible access” threshold.
+- ANN maintenance costs and amortization: The paper mentions periodic rebuilds; a more explicit accounting of amortized complexity and worst-case latency would help.
+
+Questions for the authors:
+- How sensitive are results to K (e.g., K=2,4,8) and to the choice of ANN (k-d trees vs LSH) across tasks?
+- Can you report accuracy vs compute trade-offs at fixed logical memory sizes to complement the physical-memory-matched setup in Figure 4?
+- What is the empirical overhead of ANN rebuilds and their frequency at scale? Do imbalanced trees materially affect training?
+- Have you observed failure modes where LRU overwrites still-useful content due to delayed revisits? Would a small learned usage gate help?
+
+Suggestions for improvement:
+- Add a concise background on MANNs and a clearer explanation of the write operator in the main text.
+- Include controlled comparisons at fixed logical memory sizes (and/or fixed accuracy targets) for Omniglot.
+- Provide ablations on K, ANN type, and write policy; report ANN recall during training.
+- Clarify amortized vs worst-case time of queries/inserts and the cost of periodic ANN rebuilds.
+
+Recommendation: Accept
+
+Pros for acceptance:
+- Strong, well-motivated solution to a key scalability barrier with clear theoretical and empirical support.
+- Elegant engineering that reduces per-step training space to O(1) and time to O(log N).
+- Competitive or superior performance on synthetic and real tasks while scaling to regimes infeasible for dense MANNs.
+- General approach applicable to multiple memory architectures (NTM, DNC).
+
+Cons against acceptance:
+- Some comparisons (notably Figure 4) could be more controlled; lack of equal-logical-memory baselines.
+- Limited analysis of approximation error and sensitivity to K/ANN choices.
+- Write policy alternatives and thresholds not thoroughly ablated.

@@ -1,0 +1,369 @@
+{
+  "name" : "e94f63f579e05cb49c05c2d050ead9c0.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Sampling for Inference in Probabilistic Models with Fast Bayesian Quadrature",
+    "authors" : [ "Tom Gunter", "Michael A. Osborne", "Roman Garnett", "Stephen J. Roberts" ],
+    "emails" : [ "tgunter@robots.ox.ac.uk", "mosb@robots.ox.ac.uk", "rgarnett@uni-bonn.de", "phennig@tuebingen.mpg.de", "sjrob@robots.ox.ac.uk" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Bayesian approaches to machine learning problems inevitably call for the frequent approximation of computationally intractable integrals of the form\nZ = 〈`〉 = ∫ `(x)π(x) dx, (1)\nwhere both the likelihood `(x) and prior π(x) are non-negative. Such integrals arise when marginalising over model parameters or variables, calculating predictive test likelihoods and computing model evidences. In all cases the function to be integrated—the integrand—is naturally constrained to be non-negative, as the functions being considered define probabilities.\nIn what follows we will primarily consider the computation of model evidence, Z. In this case `(x) defines the unnormalised likelihood over a D-dimensional parameter set, x1, ..., xD, and π(x) defines a prior density over x. Many techniques exist for estimating Z, such as annealed importance sampling (AIS) [1], nested sampling [2], and bridge sampling [3]. These approaches are based around a core Monte Carlo estimator for the integral, and make minimal effort to exploit prior information about the likelihood surface. Monte Carlo convergence diagnostics are also unreliable for partition function estimates [4, 5, 6]. More advanced methods—e.g., AIS—also require parameter tuning, and will yield poor estimates with misspecified parameters.\nThe Bayesian quadrature (BQ) [7, 8, 9, 10] approach to estimating model evidence is inherently model based. That is, it involves specifying a prior distribution over likelihood functions in the form of a Gaussian process (GP) [11]. This prior may be used to encode beliefs about the likelihood surface, such as smoothness or periodicity. Given a set of samples from `(x), posteriors over both the integrand and the integral may in some cases be computed analytically (see below for discussion on other generalisations). Active sampling [12] can then be used to select function evaluations so as to maximise the reduction in entropy of either the integrand or integral. Such an approach has been demonstrated to improve sample efficiency, relative to naı̈ve randomised sampling [12].\nIn a big-data setting, where likelihood function evaluations are prohibitively expensive, BQ is demonstrably better than Monte Carlo approaches [10, 12]. As the cost of the likelihood decreases, however, BQ no longer achieves a higher effective sample rate per second, because the computational cost of maintaining the GP model and active sampling becomes relevant, and many Monte Carlo samples may be generated for each new BQ sample. Our goal was to develop a cheap and accurate BQ model alongside an efficient active sampling scheme, such that even for low cost likelihoods BQ would be the scheme of choice. Our contributions extend existing work in two ways:\nSquare-root GP: Foundational work [7, 8, 9, 10] on BQ employed a GP prior directly on the likelihood function, making no attempt to enforce non-negativity a priori. [12] introduced an approximate means of modelling the logarithm of the integrand with a GP. This involved making a first-order approximation to the exponential function, so as to maintain tractability of inference in the integrand model. In this work, we choose another classical transformation to preserve non-negativity—the square-root. By placing a GP prior on the square-root of the integrand, we arrive at a model which both goes some way towards dealing with the high dynamic range of most likelihoods, and enforces non-negativity without the approximations resorted to in [12].\nFast Active Sampling: Whereas most approaches to BQ use either a randomised or fixed sampling scheme, [12] targeted the reduction in the expected variance of Z. Here, we sample where the expected posterior variance of the integrand after the quadratic transform is at a maximum. This is a cheap way of balancing exploitation of known probability mass and exploration of the space in order to approximately minimise the entropy of the integral.\nWe compare our approach, termed warped sequential active Bayesian integration (WSABI), to nonnegative integration with standard Monte Carlo techniques on simulated and real examples. Crucially, we make comparisons of error against ground truth given a fixed compute budget."
+    }, {
+      "heading" : "2 Bayesian Quadrature",
+      "text" : "Given a non analytic integral 〈`〉 := ∫ `(x)π(x) dx on a domain X = RD, Bayesian quadrature is a model based approach of inferring both the functional form of the integrand and the value of the integral conditioned on a set of sample points. Typically the prior density is assumed to be a Gaussian, π(x) := N (x;ν,Λ); however, via the use of an importance re-weighting trick, q(x) = (q(x)/π(x))π(x), any prior density q(x) may be integrated against. For clarity we will henceforth notationally consider only the X = R case, although all results trivially extend to X = Rd. Typically a GP prior is chosen for `(x), although it may also be directly specified on `(x)π(x). This is parameterised by a mean µ(x) and scaled Gaussian covariance K(x, x′) := λ2 exp ( − 12 (x−x′)2 σ2 ) . The output length-scale λ and input length-scale σ control the standard deviation of the output and the autocorrelation range of each function evaluation respectively, and will be jointly denoted as θ = {λ, σ}. Conditioned on samples xd = {x1, ..., xN} and associated function values `(xd), the posterior mean is mD(x) := µ(x) +K(x, xd)K−1(xd, xd) ( `(xd)− µ(xd) ) , and the posterior covariance is CD(x, x′) := K(x, x) − K(x, xd)K(xd, xd)−1K(xd, x), where D := { xd, `(xd), θ } . For an extensive review of the GP literature and associated identities, see [11].\nWhen a GP prior is placed directly on the integrand in this manner, the posterior mean and variance of the integral can be derived analytically through the use of Gaussian identities, as in [10]. This is because the integration is a linear projection of the function posterior onto π(x), and joint Gaussianity is preserved through any arbitrary affine transformation. The mean and variance estimate of the integral are given as follows: E`|D [ 〈`〉 ] = ∫ mD(x)π(x) dx (2), and\nV`|D [ 〈`〉 ] = ∫∫ CD(x, x ′)π(x) dxπ(x′) dx′ (3). Both mean and variance are analytic when π(x) is Gaussian, a mixture of Gaussians, or a polynomial (amongst other functional forms).\nIf the GP prior is placed directly on the likelihood in the style of traditional Bayes–Hermite quadrature, the optimal point to add a sample (from an information gain perspective) is dependent only on xd—the locations of the previously sampled points. This means that given a budget of N samples, the most informative set of function evaluations is a design that can be pre-computed, completely uninfluenced by any information gleaned from function values [13]. In [12], where the log-likelihood is modelled by a GP, a dependency is introduced between the uncertainty over the function at any point and the function value at that point. This means that the optimal sample placement is now directly influenced by the obtained function values.\nAn illustration of Bayes–Hermite quadrature is given in Figure 1a. Conditioned on a grid of 15 samples, it is visible that any sample located equidistant from two others is equally informative in reducing our uncertainty about `(x). As the dimensionality of the space increases, exploration can be increasingly difficult due to the curse of dimensionality. A better designed BQ strategy would create a dependency structure between function value and informativeness of sample, in such a way as to appropriately express prior bias towards exploitation of existing probability mass."
+    }, {
+      "heading" : "3 Square-Root Bayesian Quadrature",
+      "text" : "Crucially, likelihoods are non-negative, a fact neglected by traditional Bayes–Hermite quadrature. In [12] the logarithm of the likelihood was modelled, and approximate the posterior of the integral, via a linearisation trick. We choose a different member of the power transform family—the square-root.\nThe square-root transform halves the dynamic range of the function we model. This helps deal with the large variations in likelihood observed in a typical model, and has the added benefit of extending the autocorrelation range (or the input length-scale) of the GP, yielding improved predictive power when extrapolating away from existing sample points.\nLet ˜̀(x) := √ 2 ( `(x)− α ) , such that `(x) = α+ 1/2 ˜̀(x)2, where α is a small positive scalar.1 We\nthen take a GP prior on ˜̀(x): ˜̀∼ GP(0,K). We can then write the posterior for ˜̀as p(˜̀ | D) = GP ( ˜̀; m̃D(·), C̃D(·, ·) ) ; (4)\nm̃D(x) := K(x, xd)K(xd, xd) −1 ˜̀(xd); (5)\nC̃D(x, x ′) := K(x, x′)−K(x, xd)K(xd, xd)−1K(xd, x′). (6)\nThe square-root transformation renders analysis intractable with this GP: we arrive at a process whose marginal distribution for any `(x) is a non-central χ2 (with one degree of freedom). Given this process, the posterior for our integral is not closed-form. We now describe two alternative approximation schemes to resolve this problem.\n1α was taken as 0.8 ×min `(xd) in all experiments; our investigations found that performance was insensitive to the choice of this parameter."
+    }, {
+      "heading" : "3.1 Linearisation",
+      "text" : "We firstly consider a local linearisation of the transform f : ˜̀ 7→ ` = α + 1/2 ˜̀2. As GPs are closed under linear transformations, this linearisation will ensure that we arrive at a GP for ` given our existing GP on ˜̀. Generically, if we linearise around ˜̀0, we have ` ' f(˜̀0) + f ′(˜̀0)(˜̀− ˜̀0). Note that f ′(˜̀) = ˜̀: this simple gradient is a further motivation for our transform, as described further in Section 3.3. We choose ˜̀0 = m̃D; this represents the mode of p(˜̀ | D). Hence we arrive at\n`(x) ' ( α+ 1/2 m̃D(x) 2 ) + m̃D(x) ( ˜̀(x)− m̃D(x) ) = α− 1/2 m̃D(x)2 + m̃D(x) ˜̀(x). (7)\nUnder this approximation, in which ` is a simple affine transformation of ˜̀, we have p(` | D) ' GP ( `;mLD(·), CLD(·, ·) ) ; (8)\nmLD(x) := α+ 1/2 m̃D(x) 2; (9)\nCLD(x, x ′) := m̃D(x)C̃D(x, x ′)m̃D(x ′). (10)"
+    }, {
+      "heading" : "3.2 Moment Matching",
+      "text" : "Alternatively, we consider a moment-matching approximation: p(` | D) is approximated as a GP with mean and covariance equal to those of the true χ2 (process) posterior. This gives p(` | D) := GP ( `;mMD (·), CMD (·, ·) ) , where\nmMD (x) := α+ 1/2 ( m̃2D(x) + C̃D(x, x) ) ; (11)\nCMD (x, x ′) := 1/2 C̃D(x, x ′)2 + m̃D(x)C̃D(x, x ′)m̃D(x ′). (12)\nWe will call these two approximations WSABI-L (for “linear”) and WSABI-M (for “moment matched”), respectively. Figure 2 shows a comparison of the approximations on synthetic data. The likelihood function, `(x), was defined to be `(x) = exp(−x2), and is plotted in red. We placed a GP prior on ˜̀, and conditioned this on seven observations spanning the interval [−2, 2]. We then drew 50 000 samples from the true χ2 posterior on ˜̀along a dense grid on the interval [−5, 5] and used these to estimate the true density of `(x), shown in blue shading. Finally, we plot the means and 95% confidence intervals for the approximate posterior. Notice that the moment matching results in a higher mean and variance far from observations, but otherwise the approximations largely agree with each other and the true density."
+    }, {
+      "heading" : "3.3 Quadrature",
+      "text" : "m̃D and C̃D are both mixtures of un-normalised Gaussians K. As such, the expressions for posterior mean and covariance under either the linearisation (mLD and C L D, respectively) or the momentmatching approximations (mMD and C M D , respectively) are also mixtures of un-normalised Gaussians. Substituting these expressions (under either approximation) into (2) and (3) yields closedform expressions (omitted due to their length) for the mean and variance of the integral 〈`〉. This result motivated our initial choice of transform: for linearisation, for example, it was only the fact that the gradient f ′(˜̀) = ˜̀ that rendered the covariance in (10) a mixture of un-normalised Gaussians. The discussion that follows is equally applicable to either approximation.\nIt is clear that the posterior variance of the likelihood model is now a function of both the expected value of the likelihood at that point, and the distance of that sample location from the rest of xd. This is visualised in Figure 1b.\nComparing Figures 1a and 1b we see that conditioned on an identical set of samples, WSABI both achieves a closer fit to the true underlying function, and associates minimal probability mass with negative function values. These are desirable properties when modelling likelihood functions—both arising from the use of the square-root transform."
+    }, {
+      "heading" : "4 Active Sampling",
+      "text" : "Given a full Bayesian model of the likelihood surface, it is natural to call on the framework of Bayesian decision theory, selecting the next function evaluation so as to optimally reduce our uncer-\ntainty about either the total integrand surface or the integral. Let us define this next sample location to be x∗, and the associated likelihood to be `∗ := `(x∗). Two utility functions immediately present themselves as natural choices, which we consider below. Both options are appropriate for either of the approximations to p(`) described above."
+    }, {
+      "heading" : "4.1 Minimizing expected entropy",
+      "text" : "One possibility would be to follow [12] in minimising the expected entropy of the integral, by selecting x∗ = argmin\nx\n〈 V`|D,`(x) [ 〈`〉 ]〉\n, where〈 V`|D,`(x) [ 〈`〉 ]〉 = ∫ V`|D,`(x) [ 〈`〉 ] N ( `(x);mD(x), CD(x, x) ) d`(x). (13)"
+    }, {
+      "heading" : "4.2 Uncertainty sampling",
+      "text" : "Alternatively, we can target the reduction in entropy of the total integrand `(x)π(x) instead, by targeting x∗ = argmax\nx V`|D\n[ `(x)π(x) ] (this is known as uncertainty sampling), where\nVM`|D [ `(x)π(x) ] = π(x)CD(x, x)π(x) = π(x) 2C̃D(x, x) ( 1/2 C̃D(x, x) + m̃D(x) 2 ) , (14)\nin the case of our moment matched approximation, and, under the linearisation approximation, VL`|D [ `(x)π(x) ] = π(x)2C̃D(x, x)m̃D(x) 2. (15)\nThe uncertainty sampling option reduces the entropy of our GP approximation to p(`) rather than the true (intractable) distribution. The computation of either (14) or (15) is considerably cheaper and more numerically stable than that of (13). Notice that as our model builds in greater uncertainty in the likelihood where it is high, it will naturally balance sampling in entirely unexplored regions against sampling in regions where the likelihood is expected to be high. Our model (the squareroot transform) is more suited to the use of uncertainty sampling than the model taken in [12]. This is because the approximation to the posterior variance is typically poorer for the extreme logtransform than for the milder square-root transform. This means that, although the log-transform would achieve greater reduction in dynamic range than any power transform, it would also introduce the most error in approximating the posterior predictive variance of `(x). Hence, on balance, we consider the square-root transform superior for our sampling scheme.\nFigures 3–4 illustrate the result of square-root Bayesian quadrature, conditioned on 15 samples selected sequentially under utility functions (14) and (15) respectively. In both cases the posterior mean has not been scaled by the prior π(x) (but the variance has). This is intended to exaggerate the contributions to the mean made by WSABI-M.\nA good posterior estimate of the integral has been achieved, and this set of samples is more informative than a grid under the utility function of minimising the integral error. In all active-learning\nexamples a covariance matrix adaptive evolution strategy (CMA-ES) [14] global optimiser was used to explore the utility function surface before selecting the next sample."
+    }, {
+      "heading" : "5 Results",
+      "text" : "Given this new model and fast active sampling scheme for likelihood surfaces, we now test for speed against standard Monte Carlo techniques on a variety of problems."
+    }, {
+      "heading" : "5.1 Synthetic Likelihoods",
+      "text" : "We generated 16 likelihoods in four-dimensional space by selecting K normal distributions with K drawn uniformly at random over the integers 5–14. The means were drawn uniformly at random over the inner quarter of the domain (by area), and the covariances for each were produced by scaling each axis of an isotropic Gaussian by an integer drawn uniformly at random between 21 and 29. The overall likelihood surface was then given as a mixture of these distributions, with weights given by partitioning the unit interval into K segments drawn uniformly at random—‘stick-breaking’. This procedure was chosen in order to generate ‘lumpy’ surfaces. We budgeted 500 samples for our new method per likelihood, allocating the same amount of time to simple Monte Carlo (SMC).\nNaturally the computational cost per evaluation of this likelihood is effectively zero, which afforded SMC just under 86 000 samples per likelihood on average. WSABI was on average faster to converge to 10−3 error (Figure 5), and it is visible in Figure 6 that the likelihood of the ground truth is larger under this model than with SMC. This concurs with the fact that a tighter bound was achieved."
+    }, {
+      "heading" : "5.2 Marginal Likelihood of GP Regression",
+      "text" : "As an initial exploration into the performance of our approach on real data, we fitted a Gaussian process regression model to the yacht hydrodynamics benchmark dataset [15]. This has a sixdimensional input space corresponding to different properties of a boat hull, and a one-dimensional output corresponding to drag coefficient. The dataset has 308 examples, and using a squared exponential ARD covariance function a single evaluation of the likelihood takes approximately 0.003 seconds.\nMarginalising over the hyperparameters of this model is an eight-dimensional non-analytic integral. Specifically, the hyperparameters were: an output length-scale, six input length-scales, and an output noise variance. We used a zero-mean isotropic Gaussian prior over the hyperparameters in log space with variance of 4. We obtained ground truth through exhaustive SMC sampling, and budgeted 1 250 samples for WSABI. The same amount of compute-time was then afforded to SMC, AIS (which was implemented with a Metropolis–Hastings sampler), and Bayesian Monte Carlo (BMC). SMC achieved approximately 375 000 samples in the same amount of time. We ran AIS in 10 steps, spaced on a log-scale over the number of iterations, hence the AIS plot is more granular than the others (and does not begin at 0). The ‘hottest’ proposal distribution for AIS was a Gaussian centered on the prior mean, with variance tuned down from a maximum of the prior variance.\nFigure 7 shows the speed with which WSABI converges to a value very near ground truth compared to the rest. AIS performs rather disappointingly on this problem, despite our best attempts to tune the proposal distribution to achieve higher acceptance rates.\nAlthough the first datapoint (after 10 000 samples) is the second best performer after WSABI, further compute budget did very little to improve the final AIS estimate. BMC is by far the worst performer. This is because it has relatively few samples compared to SMC, and those samples were selected completely at random over the domain. It also uses a GP prior directly on the likelihood, which due to the large dynamic range will have a poor predictive performance."
+    }, {
+      "heading" : "5.3 Marginal Likelihood of GP Classification",
+      "text" : "We fitted a Gaussian process classification model to both a one dimensional synthetic dataset, as well as real-world binary classification problem defined on the nodes of a citation network [16]. The latter had a four-dimensional input space and 500 examples. We use a probit likelihood model, inferring the function values using a Laplace approximation. Once again we marginalised out the hyperparameters."
+    }, {
+      "heading" : "5.4 Synthetic Binary Classification Problem",
+      "text" : "We generate 500 binary class samples using a 1D input space. The GP classification scheme implemented in Gaussian Processes for Machine Learning Matlab Toolbox (GPML) [17] is employed using the inference and likelihood framework described above. We marginalised over the threedimensional hyperparameter space of: an output length-scale, an input length-scale and a ‘jitter’ parameter. We again tested against BMC, AIS, SMC and, additionally, Doubly-Bayesian Quadrature (BBQ) [12]. Ground truth was found through 100 000 SMC samples.\nThis time the acceptance rate for AIS was significantly higher, and it is visibly converging to the ground truth in Figure 8, albeit in a more noisy fashion than the rest. WSABI-L performed particularly well, almost immediately converging to the ground truth, and reaching a tighter bound than SMC in the long run. BMC performed well on this particular example, suggesting that the active sampling approach did not buy many gains on this occasion. Despite this, the square-root approaches both converged to a more accurate solution with lower variance than BMC. This suggests that the square-root transform model generates significant added value, even without an active sampling scheme. The computational cost of selecting samples under BBQ prevents rapid convergence."
+    }, {
+      "heading" : "5.5 Real Binary Classification Problem",
+      "text" : "For our next experiment, we again used our method to calculate the model evidence of a GP model with a probit likelihood, this time on a real dataset.\nThe dataset, first described in [16], was a graph from a subset of the CiteSeerx citation network. Papers in the database were grouped based on their venue of publication, and papers from the 48 venues with the most associated publications were retained. The graph was defined by having these papers as its nodes and undirected citation relations as its edges. We designated all papers appearing in NIPS proceedings as positive observations. To generate Euclidean input vectors, the authors performed “graph principal component analysis” on this network [18]; here, we used the first four graph principal components as inputs to a GP classifier. The dataset was subsampled down to a set of 500 examples in order to generate a cheap likelihood, half of which were positive.\nAcross all our results, it is noticeable that WSABI-M typically performs worse relative to WSABI-L as the dimensionality of the problem increases. This is due to an increased propensity for exploration as compared to WSABI-L. WSABI-L is the fastest method to converge on all test cases, apart from the synthetic mixture model surfaces where WSABI-M performed slightly better (although this was not shown in Figure 5). These results suggest that an active-sampling policy which aggressively exploits areas of probability mass before exploring further afield may be the most appropriate approach to Bayesian quadrature for real likelihoods."
+    }, {
+      "heading" : "6 Conclusions",
+      "text" : "We introduced the first fast Bayesian quadrature scheme, using a novel warped likelihood model and a novel active sampling scheme. Our method, WSABI, demonstrates faster convergence (in wall-clock time) for regression and classification benchmarks than the Monte Carlo state-of-the-art."
+    } ],
+    "references" : [ {
+      "title" : "Annealed importance sampling",
+      "author" : [ "R.M. Neal" ],
+      "venue" : "Statistics and Computing,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : "1",
+      "year" : 2001
+    }, {
+      "title" : "Nested sampling. Bayesian inference and maximum entropy methods",
+      "author" : [ "J. Skilling" ],
+      "venue" : "in science and engineering,",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 2004
+    }, {
+      "title" : "Simulating ratios of normalizing constants via a simple identity: a theoretical exploration",
+      "author" : [ "X. Meng", "W.H. Wong" ],
+      "venue" : "Statistica Sinica,",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 1996
+    }, {
+      "title" : "Probabilistic inference using Markov chain Monte Carlo methods",
+      "author" : [ "R.M. Neal" ],
+      "venue" : "Technical Report CRG-TR-93-1, University of Toronto,",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : "4",
+      "year" : 1993
+    }, {
+      "title" : "Convergence assessment techniques for Markov chain Monte Carlo",
+      "author" : [ "S.P. Brooks", "G.O. Roberts" ],
+      "venue" : "Statistics and Computing,",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : "5",
+      "year" : 1998
+    }, {
+      "title" : "Possible biases induced by MCMC convergence diagnostics",
+      "author" : [ "M.K. Cowles", "G.O. Roberts", "J.S. Rosenthal" ],
+      "venue" : "Journal of Statistical Computation and Simulation,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : "6",
+      "year" : 1999
+    }, {
+      "title" : "Bayesian numerical analysis",
+      "author" : [ "P. Diaconis" ],
+      "venue" : "Statistical Decision Theory and Related Topics IV,",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : "7",
+      "year" : 1988
+    }, {
+      "title" : "Bayes-Hermite quadrature",
+      "author" : [ "A. O’Hagan" ],
+      "venue" : "Journal of Statistical Planning and Inference,",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : "8",
+      "year" : 1991
+    }, {
+      "title" : "Bayesian quadrature with non-normal approximating functions",
+      "author" : [ "M. Kennedy" ],
+      "venue" : "Statistics and Computing,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 1998
+    }, {
+      "title" : "Bayesian Monte Carlo",
+      "author" : [ "C.E. Rasmussen", "Z. Ghahramani" ],
+      "venue" : "Advances in Neural Information Processing Systems,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : "10",
+      "year" : 2003
+    }, {
+      "title" : "Gaussian Processes for Machine Learning",
+      "author" : [ "C.E. Rasmussen", "C.K.I. Williams" ],
+      "venue" : null,
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 2006
+    }, {
+      "title" : "Active learning of model evidence using Bayesian quadrature",
+      "author" : [ "M.A. Osborne", "D.K. Duvenaud", "R. Garnett", "C.E. Rasmussen", "S.J. Roberts", "Z. Ghahramani" ],
+      "venue" : "Advances in Neural Information Processing Systems",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 2012
+    }, {
+      "title" : "Deriving quadrature rules from Gaussian processes",
+      "author" : [ "T.P. Minka" ],
+      "venue" : "Technical report,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 2000
+    }, {
+      "title" : "Reducing the time complexity of the derandomized evolution strategy with covariance matrix adaptation (CMA-ES)",
+      "author" : [ "N. Hansen", "S.D. Müller", "P. Koumoutsakos" ],
+      "venue" : "Evolutionary Computation,",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 2003
+    }, {
+      "title" : "Onnink, and A Versluis. Geometry, resistance and stability of the delft systematic yacht hull series",
+      "author" : [ "R J Gerritsma" ],
+      "venue" : "International shipbuilding progress,",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : "15",
+      "year" : 1981
+    }, {
+      "title" : "Bayesian optimal active search and surveying",
+      "author" : [ "R. Garnett", "Y. Krishnamurthy", "X. Xiong", "J. Schneider", "R.P. Mann" ],
+      "venue" : "Proceedings of the 29th International Conference on Machine Learning (ICML",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : "16",
+      "year" : 2012
+    }, {
+      "title" : "Gaussian processes for machine learning (GPML) toolbox",
+      "author" : [ "C.E. Rasmussen", "H. Nickisch" ],
+      "venue" : "The Journal of Machine Learning Research,",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : "17",
+      "year" : 2010
+    }, {
+      "title" : "Random-walk computation of similarities between nodes of a graph with application to collaborative recommendation",
+      "author" : [ "F. Fouss", "A. Pirotte", "J-M Renders", "M. Saerens" ],
+      "venue" : "IEEE Transactions on Knowledge and Data Engineering,",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : "18",
+      "year" : 2007
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 0,
+      "context" : "Many techniques exist for estimating Z, such as annealed importance sampling (AIS) [1], nested sampling [2], and bridge sampling [3].",
+      "startOffset" : 83,
+      "endOffset" : 86
+    }, {
+      "referenceID" : 1,
+      "context" : "Many techniques exist for estimating Z, such as annealed importance sampling (AIS) [1], nested sampling [2], and bridge sampling [3].",
+      "startOffset" : 104,
+      "endOffset" : 107
+    }, {
+      "referenceID" : 2,
+      "context" : "Many techniques exist for estimating Z, such as annealed importance sampling (AIS) [1], nested sampling [2], and bridge sampling [3].",
+      "startOffset" : 129,
+      "endOffset" : 132
+    }, {
+      "referenceID" : 3,
+      "context" : "Monte Carlo convergence diagnostics are also unreliable for partition function estimates [4, 5, 6].",
+      "startOffset" : 89,
+      "endOffset" : 98
+    }, {
+      "referenceID" : 4,
+      "context" : "Monte Carlo convergence diagnostics are also unreliable for partition function estimates [4, 5, 6].",
+      "startOffset" : 89,
+      "endOffset" : 98
+    }, {
+      "referenceID" : 5,
+      "context" : "Monte Carlo convergence diagnostics are also unreliable for partition function estimates [4, 5, 6].",
+      "startOffset" : 89,
+      "endOffset" : 98
+    }, {
+      "referenceID" : 6,
+      "context" : "The Bayesian quadrature (BQ) [7, 8, 9, 10] approach to estimating model evidence is inherently model based.",
+      "startOffset" : 29,
+      "endOffset" : 42
+    }, {
+      "referenceID" : 7,
+      "context" : "The Bayesian quadrature (BQ) [7, 8, 9, 10] approach to estimating model evidence is inherently model based.",
+      "startOffset" : 29,
+      "endOffset" : 42
+    }, {
+      "referenceID" : 8,
+      "context" : "The Bayesian quadrature (BQ) [7, 8, 9, 10] approach to estimating model evidence is inherently model based.",
+      "startOffset" : 29,
+      "endOffset" : 42
+    }, {
+      "referenceID" : 9,
+      "context" : "The Bayesian quadrature (BQ) [7, 8, 9, 10] approach to estimating model evidence is inherently model based.",
+      "startOffset" : 29,
+      "endOffset" : 42
+    }, {
+      "referenceID" : 10,
+      "context" : "That is, it involves specifying a prior distribution over likelihood functions in the form of a Gaussian process (GP) [11].",
+      "startOffset" : 118,
+      "endOffset" : 122
+    }, {
+      "referenceID" : 11,
+      "context" : "Active sampling [12] can then be used to select function evaluations so as to maximise the reduction in entropy of either the integrand or integral.",
+      "startOffset" : 16,
+      "endOffset" : 20
+    }, {
+      "referenceID" : 11,
+      "context" : "Such an approach has been demonstrated to improve sample efficiency, relative to naı̈ve randomised sampling [12].",
+      "startOffset" : 108,
+      "endOffset" : 112
+    }, {
+      "referenceID" : 9,
+      "context" : "In a big-data setting, where likelihood function evaluations are prohibitively expensive, BQ is demonstrably better than Monte Carlo approaches [10, 12].",
+      "startOffset" : 144,
+      "endOffset" : 152
+    }, {
+      "referenceID" : 11,
+      "context" : "In a big-data setting, where likelihood function evaluations are prohibitively expensive, BQ is demonstrably better than Monte Carlo approaches [10, 12].",
+      "startOffset" : 144,
+      "endOffset" : 152
+    }, {
+      "referenceID" : 6,
+      "context" : "Our contributions extend existing work in two ways: Square-root GP: Foundational work [7, 8, 9, 10] on BQ employed a GP prior directly on the likelihood function, making no attempt to enforce non-negativity a priori.",
+      "startOffset" : 86,
+      "endOffset" : 99
+    }, {
+      "referenceID" : 7,
+      "context" : "Our contributions extend existing work in two ways: Square-root GP: Foundational work [7, 8, 9, 10] on BQ employed a GP prior directly on the likelihood function, making no attempt to enforce non-negativity a priori.",
+      "startOffset" : 86,
+      "endOffset" : 99
+    }, {
+      "referenceID" : 8,
+      "context" : "Our contributions extend existing work in two ways: Square-root GP: Foundational work [7, 8, 9, 10] on BQ employed a GP prior directly on the likelihood function, making no attempt to enforce non-negativity a priori.",
+      "startOffset" : 86,
+      "endOffset" : 99
+    }, {
+      "referenceID" : 9,
+      "context" : "Our contributions extend existing work in two ways: Square-root GP: Foundational work [7, 8, 9, 10] on BQ employed a GP prior directly on the likelihood function, making no attempt to enforce non-negativity a priori.",
+      "startOffset" : 86,
+      "endOffset" : 99
+    }, {
+      "referenceID" : 11,
+      "context" : "[12] introduced an approximate means of modelling the logarithm of the integrand with a GP.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 11,
+      "context" : "By placing a GP prior on the square-root of the integrand, we arrive at a model which both goes some way towards dealing with the high dynamic range of most likelihoods, and enforces non-negativity without the approximations resorted to in [12].",
+      "startOffset" : 240,
+      "endOffset" : 244
+    }, {
+      "referenceID" : 11,
+      "context" : "Fast Active Sampling: Whereas most approaches to BQ use either a randomised or fixed sampling scheme, [12] targeted the reduction in the expected variance of Z.",
+      "startOffset" : 102,
+      "endOffset" : 106
+    }, {
+      "referenceID" : 10,
+      "context" : "For an extensive review of the GP literature and associated identities, see [11].",
+      "startOffset" : 76,
+      "endOffset" : 80
+    }, {
+      "referenceID" : 9,
+      "context" : "When a GP prior is placed directly on the integrand in this manner, the posterior mean and variance of the integral can be derived analytically through the use of Gaussian identities, as in [10].",
+      "startOffset" : 190,
+      "endOffset" : 194
+    }, {
+      "referenceID" : 12,
+      "context" : "This means that given a budget of N samples, the most informative set of function evaluations is a design that can be pre-computed, completely uninfluenced by any information gleaned from function values [13].",
+      "startOffset" : 204,
+      "endOffset" : 208
+    }, {
+      "referenceID" : 11,
+      "context" : "In [12], where the log-likelihood is modelled by a GP, a dependency is introduced between the uncertainty over the function at any point and the function value at that point.",
+      "startOffset" : 3,
+      "endOffset" : 7
+    }, {
+      "referenceID" : 11,
+      "context" : "In [12] the logarithm of the likelihood was modelled, and approximate the posterior of the integral, via a linearisation trick.",
+      "startOffset" : 3,
+      "endOffset" : 7
+    }, {
+      "referenceID" : 11,
+      "context" : "One possibility would be to follow [12] in minimising the expected entropy of the integral, by selecting x∗ = argmin x 〈 V`|D,`(x) [ 〈`〉 ]〉 , where 〈 V`|D,`(x) [ 〈`〉 ]〉 = ∫ V`|D,`(x) [ 〈`〉 ] N ( `(x);mD(x), CD(x, x) ) d`(x).",
+      "startOffset" : 35,
+      "endOffset" : 39
+    }, {
+      "referenceID" : 11,
+      "context" : "Our model (the squareroot transform) is more suited to the use of uncertainty sampling than the model taken in [12].",
+      "startOffset" : 111,
+      "endOffset" : 115
+    }, {
+      "referenceID" : 13,
+      "context" : "examples a covariance matrix adaptive evolution strategy (CMA-ES) [14] global optimiser was used to explore the utility function surface before selecting the next sample.",
+      "startOffset" : 66,
+      "endOffset" : 70
+    }, {
+      "referenceID" : 14,
+      "context" : "As an initial exploration into the performance of our approach on real data, we fitted a Gaussian process regression model to the yacht hydrodynamics benchmark dataset [15].",
+      "startOffset" : 168,
+      "endOffset" : 172
+    }, {
+      "referenceID" : 15,
+      "context" : "We fitted a Gaussian process classification model to both a one dimensional synthetic dataset, as well as real-world binary classification problem defined on the nodes of a citation network [16].",
+      "startOffset" : 190,
+      "endOffset" : 194
+    }, {
+      "referenceID" : 16,
+      "context" : "The GP classification scheme implemented in Gaussian Processes for Machine Learning Matlab Toolbox (GPML) [17] is employed using the inference and likelihood framework described above.",
+      "startOffset" : 106,
+      "endOffset" : 110
+    }, {
+      "referenceID" : 11,
+      "context" : "We again tested against BMC, AIS, SMC and, additionally, Doubly-Bayesian Quadrature (BBQ) [12].",
+      "startOffset" : 90,
+      "endOffset" : 94
+    }, {
+      "referenceID" : 15,
+      "context" : "The dataset, first described in [16], was a graph from a subset of the CiteSeerx citation network.",
+      "startOffset" : 32,
+      "endOffset" : 36
+    }, {
+      "referenceID" : 17,
+      "context" : "To generate Euclidean input vectors, the authors performed “graph principal component analysis” on this network [18]; here, we used the first four graph principal components as inputs to a GP classifier.",
+      "startOffset" : 112,
+      "endOffset" : 116
+    } ],
+    "year" : 2014,
+    "abstractText" : "We propose a novel sampling framework for inference in probabilistic models: an active learning approach that converges more quickly (in wall-clock time) than Markov chain Monte Carlo (MCMC) benchmarks. The central challenge in probabilistic inference is numerical integration, to average over ensembles of models or unknown (hyper-)parameters (for example to compute the marginal likelihood or a partition function). MCMC has provided approaches to numerical integration that deliver state-of-the-art inference, but can suffer from sample inefficiency and poor convergence diagnostics. Bayesian quadrature techniques offer a model-based solution to such problems, but their uptake has been hindered by prohibitive computation costs. We introduce a warped model for probabilistic integrands (likelihoods) that are known to be non-negative, permitting a cheap active learning scheme to optimally select sample locations. Our algorithm is demonstrated to offer faster convergence (in seconds) relative to simple Monte Carlo and annealed importance sampling on both synthetic and real-world examples.",
+    "creator" : null
+  }
+}

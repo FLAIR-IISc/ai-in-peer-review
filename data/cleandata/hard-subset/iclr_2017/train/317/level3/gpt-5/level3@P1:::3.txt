@@ -1,0 +1,44 @@
+Summary of contributions
+- The paper tackles single-image super-resolution (SR) as an amortized MAP inference problem rather than empirical risk minimization with pixel losses. It argues that MAP better aligns with perceptual plausibility because it prefers high-probability solutions under the natural image prior.
+- Core technical contribution: an affine projection layer that guarantees consistency between the high-resolution prediction and the low-resolution input (Afθ(x)=x). This is implemented via A (downsampling) and its Moore-Penrose pseudoinverse A+ (a learned deconvolution), projecting any network output onto the affine subspace of valid SR solutions. This design elegantly turns the constrained MAP problem into an unconstrained maximization of log pY over the projected outputs.
+- Reformulation: amortized MAP reduces to minimizing H[qθ, pY], where qθ is the distribution of network outputs driven by LR inputs. Hence training becomes akin to unsupervised generative modeling, not requiring paired LR-HR samples in principle.
+- Three practical training strategies:
+  1) AffGAN: a GAN variant that, with a specific generator update, approximates minimization of KL[qθ||pY], plus “instance noise” to stabilize discriminator training by ensuring overlap of supports.
+  2) AffDG: denoiser-guided SR that uses a denoising autoencoder to estimate ∇y log pY(y) and backpropagates these score estimates through the affine-projected network.
+  3) AffLL: density-guided SR using a tractable continuous PixelCNN/MCGSM model to approximate pY and optimize cross-entropy directly.
+- Theory: a proof sketch relating the modified GAN update to KL minimization, and a novel connection between a stochastic version of AffGAN and amortized variational inference (per-example KL to pY|X).
+- Empirical evidence: on a 2D Swiss-roll toy problem, AffGAN and AffDG approach the true MAP cross-entropy; on CelebA, grass textures, and ImageNet (4× SR), the affine projection improves consistency and training speed; AffGAN yields the most perceptually plausible images. Ablations show affine projection outperforms soft LR-consistency penalties.
+
+Decision: Accept
+Key reasons: (1) The affine projection architecture and amortized MAP formulation are original, well-motivated, and broadly useful for inverse problems. (2) Strong empirical and theoretical support, including stability improvements via instance noise and a principled link to amortized VI, with perceptually better SR than MSE baselines.
+
+Supporting arguments
+- Specific problem: SR is underdetermined; pixel MSE pushes to posterior means and blurs. Casting SR as structured MAP is principled and aligns with high-probability solutions under a natural image prior.
+- Motivation and placement: The paper situates itself relative to GAN-based SR and perceptual-loss methods, clarifying that affine projection enforces exact LR-HR consistency unlike soft constraints. The cross-entropy view cleanly connects SR to generative modeling and score-based learning (denoising).
+- Claims and support:
+  - Affine projection: sound linear-algebraic foundation (ΠAx = (I−A+A)fθ(x)+A+x) and practical construction of A+. Empirically yields zero LR-consistency error, faster convergence, and better MSE/SSIM than unconstrained CNNs trained with MSE.
+  - Cross-entropy minimization: On the Swiss-roll, AffGAN/AffDG approach MAP cross-entropy, while MSE/MAE do not; this directly validates the objective.
+  - GAN stability: Instance noise has clear motivation (support overlap) and yields stable training where standard GANs struggled; ablations against soft constraints further support the architectural choice.
+  - Perceptual quality: Qualitative results on grass textures, faces, and ImageNet are compelling for AffGAN; the method produces sharp, plausible detail and maintains LR consistency. The paper is honest about some high-frequency noise and occasional semantic mistakes (e.g., snake→water), consistent with prior GAN observations.
+- Rigor: The derivations are clear, the assumptions are stated (e.g., uniqueness of optimal discriminator), and limitations of MAP are discussed (representation dependence, atypicality in high dimensions). The VI connection is insightful and potentially impactful beyond SR.
+
+Additional feedback to improve the paper
+- Exposition and structure: The paper is dense; clearer signposting and a streamlined narrative would help. Consider an algorithm box for each method (AffGAN, AffDG, AffLL), with training steps and hyperparameters, and a figure summarizing the affine projection pipeline.
+- Clarify the “unpaired” training claim: Although H[qθ,pY] does not require pairs, most experiments construct x by applying A to HR images. Discuss how to obtain pX in practice when A is unknown or when LR data come from a different downsampling process, and evaluate robustness to A mismatch.
+- Quantitative perceptual metrics: In addition to PSNR/SSIM, report perceptual metrics (e.g., VGG-based distances, two-alternative forced-choice user study, or a classifier-based two-sample test) to quantify visual realism and preference, since the core pitch is perceptual fidelity.
+- Ablations:
+  - Instance noise schedule and magnitude; compare to one-sided label smoothing and WGAN-style objectives.
+  - Sensitivity to A+ accuracy (kernel size, optimization objective), and to violations of the assumed A at test time.
+  - Deterministic vs stochastic generators for AffGAN and the effect on diversity and MAP-ness.
+- Analysis of learned representations: Visualize filters/feature maps, spectra of residuals in (I−A+A)fθ(x), and how the model allocates content to the null-space vs baseline A+x. This would help interpret what the network “adds.”
+- AffDG/AffLL: Provide deeper diagnostics on why they underperform (e.g., visualize score fields, likelihood landscapes, gradient norms) and whether capacity or training dynamics limit them. This will make the negative results more informative.
+- Failure modes: Catalog typical errors (hallucinated textures/semantics) and discuss mitigations (e.g., weak content losses, conditional priors).
+
+Questions for the authors
+1) How is pX obtained without paired data in real settings? If A is only approximately known, how sensitive is performance to kernel/stride mismatch, and can A be learned jointly?
+2) Instance noise: What annealing schedule did you use in each dataset, and how sensitive are results to it? Can you quantify stability gains (e.g., discriminator loss behavior, collapse frequency)?
+3) AffDG: What are the learned σ values over training, and how does the gradient quality (fσ(y)−y)/σ2 correlate with improvements in H[qθ,pY]? Could a multiscale or score-matching variant help?
+4) AffLL: How close is the density model to pY (bits/dim vs SOTA)? Do better likelihoods translate to better SR, or is there a mismatch between likelihood and perceptual quality?
+5) Does AffGAN’s deterministic mapping approximate the posterior mode for a given x, or does the KL term plus entropy favor a different operating point? Have you measured sensitivity across random initializations for the same x?
+6) Runtime and memory: What are training/inference costs vs standard SR CNNs? Does affine projection add overhead, and is it amortized by faster convergence?
+7) Could you release code and A/A+ parameters to facilitate reproducibility?

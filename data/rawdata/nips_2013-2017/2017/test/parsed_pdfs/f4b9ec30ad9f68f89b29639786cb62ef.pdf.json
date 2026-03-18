@@ -1,0 +1,522 @@
+{
+  "name" : "f4b9ec30ad9f68f89b29639786cb62ef.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Machine Learning with Adversaries: Byzantine Tolerant Gradient Descent",
+    "authors" : [ "Peva Blanchard", "Mahdi El Mhamdi" ],
+    "emails" : [ "peva.blanchard@epfl.ch", "elmahdi.elmhamdi@epfl.ch", "rachid.guerraoui@epfl.ch", "julien.stainer@epfl.ch" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "The increasing amount of data available [6], together with the growing complexity of machine learning models [27], has led to learning schemes that require a lot of computational resources. As a consequence, most industry-grade machine-learning implementations are now distributed [1]. For example, as of 2012, Google reportedly used 16.000 processors to train an image classifier [22]. More recently, attention has been given to federated learning and federated optimization settings [15, 16, 23] with a focus on communication efficiency. However, distributing a computation over several machines (worker processes) induces a higher risk of failures. These include crashes and computation errors, stalled processes, biases in the way the data samples are distributed among the processes, but also, in the worst case, attackers trying to compromise the entire system. The most robust system is one that tolerates Byzantine failures [17], i.e., completely arbitrary behaviors of some of the processes.\nA classical approach to mask failures in distributed systems is to use a state machine replication protocol [26], which requires however state transitions to be applied by all worker processes. In the case of distributed machine learning, this constraint can be translated in two ways: either (a) the processes agree on a sample of data based on which they update their local parameter vectors, or (b) they agree on how the parameter vector should be updated. In case (a), the sample of data has to be transmitted to each process, which then has to perform a heavyweight computation to update its local\n∗contact author\n31st Conference on Neural Information Processing Systems (NIPS 2017), Long Beach, CA, USA.\nparameter vector. This entails communication and computational costs that defeat the entire purpose of distributing the work. In case (b), the processes have no way to check if the chosen update for the parameter vector has indeed been computed correctly on real data: a Byzantine process could have proposed the update and may easily prevent the convergence of the learning algorithm. Neither of these solutions is satisfactory in a realistic distributed machine learning setting.\nIn fact, most learning algorithms today rely on a core component, namely stochastic gradient descent (SGD) [4, 13], whether for training neural networks [13], regression [34], matrix factorization [12] or support vector machines [34]. In all those cases, a cost function – depending on the parameter vector – is minimized based on stochastic estimates of its gradient. Distributed implementations of SGD [33] typically take the following form: a single parameter server is in charge of updating the parameter vector, while worker processes perform the actual update estimation, based on the share of data they have access to. More specifically, the parameter server executes learning rounds, during each of which, the parameter vector is broadcast to the workers. In turn, each worker computes an estimate of the update to apply (an estimate of the gradient), and the parameter server aggregates their results to finally update the parameter vector. Today, this aggregation is typically implemented through averaging [25], or variants of it [33, 18, 31].\nThis paper addresses the fundamental question of how a distributed SGD can be devised to tolerate f Byzantine processes among the n workers.\nContributions. We first show in this paper that no linear combination (current approaches) of the updates proposed by the workers can tolerate a single Byzantine worker. Basically, a single Byzantine worker can force the parameter server to choose any arbitrary vector, even one that is too large in amplitude or too far in direction from the other vectors. Clearly, the Byzantine worker can prevent any classic averaging-based approach to converge. Choosing the appropriate aggregation of the vectors proposed by the workers turns out to be challenging. A non-linear, squared-distance-based aggregation rule, that selects, among the proposed vectors, the vector “closest to the barycenter” (for example by taking the vector that minimizes the sum of the squared distances to every other vector), might look appealing. Yet, such a squared-distance-based aggregation rule tolerates only a single Byzantine worker. Two Byzantine workers can collude, one helping the other to be selected, by moving the barycenter of all the vectors farther from the “correct area”.\nWe formulate a Byzantine resilience property capturing sufficient conditions for the parameter server’s aggregation rule to tolerate f Byzantine workers. Essentially, to guarantee that the cost will decrease despite Byzantine workers, we require the vector output chosen by the parameter server (a) to point, on average, to the same direction as the gradient and (b) to have statistical moments (up to the fourth moment) bounded above by a homogeneous polynomial in the moments of a correct estimator of the gradient. One way to ensure such a resilience property is to consider a majority-based approach, looking at every subset of n − f vectors, and considering the subset with the smallest diameter. While this approach is more robust to Byzantine workers that propose vectors far from the correct area, its exponential computational cost is prohibitive. Interestingly, combining the intuitions of the majority-based and squared-distance 2-based methods, we can choose the vector that is somehow the closest to its n − f neighbors. Namely, the one that minimizes the sum of squared distances to its n − f closest vectors. This is the main idea behind our aggregation rule, we call Krum3. Assuming 2f + 2 < n, we show that Krum satisfies the resilience property aforementioned and the corresponding machine learning scheme converges. An important advantage of Krum is its (local) time complexity (O(n2 · d)), linear in the dimension of the gradient, where d is the dimension of the parameter vector. (In modern machine learning, the dimension d of the parameter vector may take values in the hundreds of billions [30].) For simplicity of presentation, the version of Krum we first consider selects only one vector. We also discuss other variants.\nWe evaluate Krum experimentally, and compare it to classical averaging. We confirm the very fact that averaging does not stand Byzantine attacks, while Krum does. In particular, we report on attacks by omniscient adversaries – aware of a good estimate of the gradient – that send the opposite vector multiplied by a large factor, as well as attacks by adversaries that send random vectors drawn from a Gaussian distribution (the larger the variance of the distribution, the stronger the attack). We also\n2In all this paper, distances are computed with the Euclidean norm. 3Krum, in Greek Κρούμος, was a Bulgarian Khan of the end of the eighth century, who undertook offensive\nattacks against the Byzantine empire. Bulgaria doubled in size during his reign.\nevaluate the extent to which Krum might slow down learning (compared to averaging) when there are no Byzantine failures. Interestingly, as we show experimentally, this slow down occurs only when the mini-batch size is close to 1. In fact, the slowdown can be drastically reduced by choosing a reasonable mini-batch size. We also evaluate Multi-Krum, a variant of Krum, which, intuitively, interpolates between Krum and averaging, thereby allowing to mix the resilience properties of Krum with the convergence speed of averaging. Multi-Krum outperforms other aggregation rules like the medoid, inspired by the geometric median.\nPaper Organization. Section 2 recalls the classical model of distributed SGD. Section 3 proves that linear combinations (solutions used today) are not resilient even to a single Byzantine worker, then introduces our new concept of (α, f)-Byzantine resilience. Section 4 introduces our Krum function, computes its computational cost and proves its (α, f)-Byzantine resilience. Section 5 analyzes the convergence of a distributed SGD using Krum. Section 6 presents our experimental evaluation of Krum. We discuss related work and open problems in Section 7. Due to space limitations, some proofs and complementary experimental results are given as supplementary material."
+    }, {
+      "heading" : "2 Model",
+      "text" : "We consider the general distributed system model of [1], consisting of a parameter server4, and n workers, f of them possibly Byzantine (behaving arbitrarily). Computation is divided into (infinitely many) synchronous rounds. During round t, the parameter server broadcasts its parameter vector xt ∈ Rd to all the workers. Each correct worker p computes an estimate V tp = G(xt, ξtp) of the gradient ∇Q(xt) of the cost function Q, where ξtp is a random variable representing, e.g., the sample (or a mini-batch of samples) drawn from the dataset. A Byzantine worker b proposes a vector V tb which can deviate arbitrarily from the vector it is supposed to send if it was correct, i.e., according to the algorithm assigned to it by the system developer (see Figure 1).\nSince the communication is synchronous, if the parameter server does not receive a vector value V tb from a given Byzantine worker b, then the parameter server acts as if it had received the default value V tb = 0 instead.\nThe parameter server computes a vector F (V t1 , . . . , V t n) by applying a deterministic function F (aggregation rule) to the vectors received. We refer to F as the aggregation rule of the parameter server. The parameter server updates the parameter vector using the following SGD equation\nxt+1 = xt − γt · F (V t1 , . . . , V tn).\nThe correct (non-Byzantine) workers are assumed to compute unbiased estimates of the gradient ∇Q(xt). More precisely, in every round t, the vectors V ti ’s proposed by the correct workers are independent identically distributed random vectors, V ti ∼ G(xt, ξti) with EξtiG(xt, ξ t i) = ∇Q(xt). This can be achieved by ensuring that each sample of data used for computing the gradient is drawn uniformly and independently, as classically assumed in the literature of machine learning [3].\nThe Byzantine workers have full knowledge of the system, including the aggregation rule F as well as the vectors proposed by the workers. They can furthermore collaborate with each other [21]."
+    }, {
+      "heading" : "3 Byzantine Resilience",
+      "text" : "In most SGD-based learning algorithms used today [4, 13, 12], the aggregation rule consists in computing the average 5 of the input vectors. Lemma 1 below states that no linear combination of the vectors can tolerate a single Byzantine worker. In particular, averaging is not Byzantine resilient.\n4The parameter server is assumed to be reliable. Classical techniques of state-machine replication can be used to ensure this.\n5Or a closely related rule.\nLemma 1. Consider an aggregation rule Flin of the form Flin(V1, . . . , Vn) = ∑n i=1 λi · Vi, where the λi’s are non-zero scalars. Let U be any vector in Rd. A single Byzantine worker can make F always select U . In particular, a single Byzantine worker can prevent convergence. Proof. Immediate: if the Byzantine worker proposes Vn = 1λn ·U − ∑n−1 i=1 λi λn Vi, then F = U .6\nIn the following, we define basic requirements on an appropriate Byzantine-resilient aggregation rule. Intuitively, the aggregation rule should output a vector F that is not too far from the “real” gradient g, more precisely, the vector that points to the steepest direction of the cost function being optimized. This is expressed as a lower bound (condition (i)) on the scalar product of the (expected) vector F and g. Figure 2 illustrates the situation geometrically. If EF belongs to the ball centered at g with radius r, then the scalar product is bounded below by a term involving sinα = r/‖g‖. Condition (ii) is more technical, and states that the moments of F should be controlled by the moments of the (correct) gradient estimator G. The bounds on the moments of G are classically used to control the effects of the discrete nature of the SGD dynamics [3]. Condition (ii) allows to transfer this control to the aggregation rule.\nDefinition 1 ((α, f)-Byzantine Resilience). Let 0 ≤ α < π/2 be any angular value, and any integer 0 ≤ f ≤ n. Let V1, . . . , Vn be any independent identically distributed random vectors in Rd, Vi ∼ G, with EG = g. Let B1, . . . , Bf be any random vectors in Rd, possibly dependent on the Vi’s. aggregation rule F is said to be (α, f)-Byzantine resilient if, for any 1 ≤ j1 < · · · < jf ≤ n, vector\nF = F (V1, . . . , B1︸︷︷︸ j1 , . . . , Bf︸︷︷︸ jf , . . . , Vn)\nsatisfies (i) 〈EF, g〉 ≥ (1− sinα) · ‖g‖2 > 0 and (ii) for r = 2, 3, 4, E ‖F‖r is bounded above by a linear combination of terms E ‖G‖r1 . . .E ‖G‖rn−1 with r1 + · · ·+ rn−1 = r.\n4 The Krum Function\nWe now introduce Krum, our aggregation rule, which, we show, satisfies the (α, f)Byzantine resilience condition. The barycentric aggregation rule Fbary = 1n ∑n i=1 Vi can be defined as the vector in Rd that minimizes the sum of squared distances 7 to the Vi’s ∑n i=1 ‖Fbary − Vi‖\n2. Lemma 1, however, states that this approach does not tolerate even a single Byzantine failure. One could try to select the vector U among the Vi’s which minimizes the sum ∑ i ‖U − Vi‖\n2, i.e., which is “closest to all vectors”. However, because such a sum involves all the vectors, even those which are very far, this approach does not tolerate Byzantine workers: by proposing large enough vectors, a Byzantine worker can force the total barycenter to get closer to the vector proposed by another Byzantine worker.\nOur approach to circumvent this issue is to preclude the vectors that are too far away. More precisely, we define our Krum aggregation rule KR(V1, . . . , Vn) as follows. For any i 6= j, we denote by i→ j the fact that Vj belongs to the n− f − 2 closest vectors to Vi. Then, we define for each worker i, the score s(i) = ∑ i→j ‖Vi − Vj‖\n2 where the sum runs over the n− f − 2 closest vectors to Vi. Finally, KR(V1, . . . , Vn) = Vi∗ where i∗ refers to the worker minimizing the score, s(i∗) ≤ s(i) for all i.8\nLemma 2. The expected time complexity of the Krum Function KR(V1, . . . , Vn), where V1, . . . , Vn are d-dimensional vectors, is O(n2 · d)\n6Note that the parameter server could cancel the effects of the Byzantine behavior by setting, for example, λn to 0. This however requires means to detect which worker is Byzantine.\n7Removing the square of the distances leads to the geometric median, we discuss this when optimizing Krum. 8If two or more workers have the minimal score, we choose the one with the smallest identifier.\nProof. For each Vi, the parameter server computes the n squared distances ‖Vi − Vj‖2 (timeO(n·d)). Then the parameter server selects the first n − f − 1 of these distances (expected time O(n) with Quickselect) and sums their values (time O(n · d)). Thus, computing the score of all the Vi’s takes O(n2 · d). An additional term O(n) is required to find the minimum score, but is negligible relatively to O(n2 · d).\nProposition 1 below states that, if 2f + 2 < n and the gradient estimator is accurate enough, (its standard deviation is relatively small compared to the norm of the gradient), then the Krum function is (α, f)-Byzantine-resilient, where angle α depends on the ratio of the deviation over the gradient.\nProposition 1. Let V1, . . . , Vn be any independent and identically distributed random d-dimensional vectors s.t Vi ∼ G, with EG = g and E ‖G− g‖2 = dσ2. Let B1, . . . , Bf be any f random vectors, possibly dependent on the Vi’s. If 2f + 2 < n and η(n, f) √ d · σ < ‖g‖, where\nη(n, f) = def\n√ 2 ( n− f + f · (n− f − 2) + f\n2 · (n− f − 1) n− 2f − 2\n) = { O(n) if f = O(n) O( √ n) if f = O(1) ,\nthen the Krum function KR is (α, f)-Byzantine resilient where 0 ≤ α < π/2 is defined by\nsinα = η(n, f) ·\n√ d · σ\n‖g‖ .\nThe condition on the norm of the gradient, η(n, f) · √ d · σ < ‖g‖, can be satisfied, to a certain extent, by having the (correct) workers compute their gradient estimates on mini-batches [3]. Indeed, averaging the gradient estimates over a mini-batch divides the deviation σ by the squared root of the size of the mini-batch. For the sake of concision, we only give here the sketch of the proof. (We give the detailed proof in the supplementary material.)\nProof. (Sketch) Without loss of generality, we assume that the Byzantine vectors B1, . . . , Bf occupy the last f positions in the list of arguments of KR, i.e., KR = KR(V1, . . . , Vn−f , B1, . . . , Bf ). Let i∗ be the index of the vector chosen by the Krum function. We focus on the condition (i) of (α, f)-Byzantine resilience (Definition 1).\nConsider first the case where Vi∗ = Vi ∈ {V1, . . . , Vn−f} is a vector proposed by a correct process. The first step is to compare the vector Vi with the average of the correct vectors Vj such that i→ j. Let δc(i) be the number of such Vj’s.\nE ∥∥∥∥∥∥Vi − 1δc(i) ∑ i→ correct j Vj ∥∥∥∥∥∥ 2 ≤ 1 δc(i) ∑ i→ correct j E ‖Vi − Vj‖2 ≤ 2dσ2. (1)\nThe last inequality holds because the right-hand side of the first inequality involves only vectors proposed by correct processes, which are mutually independent and follow the distribution of G.\nNow, consider the case where Vi∗ = Bk ∈ {B1, . . . , Bf} is a vector proposed by a Byzantine process. The fact that k minimizes the score implies that for all indices i of vectors proposed by correct processes∑\nk→ correct j\n‖Bk − Vj‖2 + ∑\nk→ byz l\n‖Bk −Bl‖2 ≤ ∑\ni→ correct j ‖Vi − Vj‖2 + ∑ i→ byz l ‖Vi −Bl‖2 .\nThen, for all indices i of vectors proposed by correct processes∥∥∥∥∥∥Bk − 1δc(k) ∑\nk→ correct j\nVj ∥∥∥∥∥∥ 2 ≤ 1 δc(k) ∑ i→ correct j ‖Vi − Vj‖2 + 1 δc(k) ∑ i→ byz l\n‖Vi −Bl‖2︸ ︷︷ ︸ D2(i) .\nThe term D2(i) is the only term involving vectors proposed by Byzantine processes. However, the correct process i has n− f − 2 neighbors and f + 1 non-neighbors. Therefore, there exists a correct\nprocess ζ(i) which is farther from i than every neighbor j of i (including the Byzantine neighbors). In particular, for all l such that i→ l, ‖Vi −Bl‖2 ≤ ‖Vi − Vζ(i)‖2. Thus∥∥∥∥∥∥Bk − 1δc(k) ∑ k→ correct j Vj ∥∥∥∥∥∥ 2 ≤ 1 δc(k) ∑ i→ correct j ‖Vi − Vj‖2 + n− f − 2− δc(i) δc(k)\n∥∥Vi − Vζ(i)∥∥2 . (2)\nCombining equations 1, 2, and a union bound yields ‖EKR− g‖2 ≤ η √ d‖g‖, which, in turn, implies 〈EKR, g〉 ≥ (1−sinα)‖g‖2. Condition (ii) is proven by bounding the moments of KR with moments of the vectors proposed by the correct processes only, using the same technique as above. The full proof is provided in the supplementary material."
+    }, {
+      "heading" : "5 Convergence Analysis",
+      "text" : "In this section, we analyze the convergence of the SGD using our Krum function defined in Section 4. The SGD equation is expressed as follows xt+1 = xt − γt · KR(V t1 , . . . , V tn) where at least n− f vectors among the V ti ’s are correct, while the other ones may be Byzantine. For a correct index i, V ti = G(xt, ξ t i) where G is the gradient estimator. We define the local standard deviation σ(x) by d · σ2(x) = E ‖G(x, ξ)−∇Q(x)‖2 .\nThe following proposition considers an (a priori) non-convex cost function. In the context of nonconvex optimization, even in the centralized case, it is generally hopeless to aim at proving that the parameter vector xt tends to a local minimum. Many criteria may be used instead. We follow [3], and we prove that the parameter vector xt almost surely reaches a “flat” region (where the norm of the gradient is small), in a sense explained below. Proposition 2. We assume that (i) the cost function Q is three times differentiable with continuous derivatives, and is non-negative, Q(x) ≥ 0; (ii) the learning rates satisfy ∑ t γt =∞ and ∑ t γ 2 t < ∞; (iii) the gradient estimator satisfies EG(x, ξ) = ∇Q(x) and ∀r ∈ {2, . . . , 4}, E‖G(x, ξ)‖r ≤ Ar+Br‖x‖r for some constants Ar, Br; (iv) there exists a constant 0 ≤ α < π/2 such that for all x\nη(n, f) · √ d · σ(x) ≤ ‖∇Q(x)‖ · sinα;\n(v) finally, beyond a certain horizon, ‖x‖2 ≥ D, there exist > 0 and 0 ≤ β < π/2− α such that ‖∇Q(x)‖ ≥ > 0 and 〈x,∇Q(x)〉‖x‖·‖∇Q(x)‖ ≥ cosβ. Then the sequence of gradients ∇Q(xt) converges almost surely to zero.\nConditions (i) to (iv) are the same conditions as in the non-convex convergence analysis in [3]. Condition (v) is a slightly stronger condition than the corresponding one in [3], and states that, beyond a certain horizon, the cost function Q is “convex enough”, in the sense that the direction of the gradient is sufficiently close to the direction of the parameter vector x. Condition (iv), however, states that the gradient estimator used by the correct workers has to be accurate enough, i.e., the local standard deviation should be small relatively to the norm of the gradient.\nOf course, the norm of the gradient tends to zero near, e.g., extremal and saddle points. Actually, the ratio η(n, f) · √ d · σ/ ‖∇Q‖ controls the maximum angle between the gradient∇Q and the vector chosen by the Krum function. In the regions where ‖∇Q‖ < η(n, f) · √ d · σ, the Byzantine workers may take advantage of the noise (measured by σ) in the gradient estimator G to bias the choice of the parameter server. Therefore, Proposition 2 is to be interpreted as follows: in the presence of Byzantine workers, the parameter vector xt almost surely reaches a basin around points where the gradient is small (‖∇Q‖ ≤ η(n, f) · √ d · σ), i.e., points where the cost landscape is “almost flat”.\nNote that the convergence analysis is based only on the fact that function KR is (α, f)-Byzantine resilient. The complete proof of Proposition 2 is deferred to the supplementary material."
+    }, {
+      "heading" : "6 Experimental Evaluation",
+      "text" : "We report here on the evaluation of the convergence and resilience properties of Krum, as well as an optimized variant of it. (We also discuss other variants of Krum in the supplementary material.)\n(Resilience to Byzantine processes). We consider the task of spam filtering (dataset spambase [19]). The learning model is a multi-layer perceptron (MLP) with two hidden layers. There are n = 20 worker processes. Byzantine processes propose vectors drawn from a Gaussian distribution with mean zero, and isotropic covariance matrix with standard deviation 200. We refer to this behavior as Gaussian Byzantine. Each (correct) worker estimates the gradient on a mini-batch of size 3. We measure the error using cross-validation. Figure 4 shows how the error (y-axis) evolves with the number of rounds (x-axis).\nIn the first plot (left), there are no Byzantine workers. Unsurprisingly, averaging converges faster than Krum. In the second plot (right), 33% of the workers are Gaussian Byzantine. In this case, averaging does not converge at all, whereas Krum behaves as if there were no Byzantine workers. This experiment confirms that averaging does not tolerate (the rather mild) Gaussian Byzantine behavior, whereas Krum does.\n(The Cost of Resilience). As seen above, Krum slows down learning when there are no Byzantine workers. The following experiment shows that this overhead can be significantly reduced by slightly increasing the mini-batch size. To highlight the effect of the presence of Byzantine workers, the Byzantine behavior has been set as follows: each Byzantine worker computes an estimate of the gradient over the whole dataset (yielding a very accurate estimate of the gradient), and proposes the opposite vector, scaled to a large length. We refer to this behavior as omniscient.\nFigure 5 displays how the error value at the 500-th round (y-axis) evolves when the mini-batch size varies (x-axis). In this experiment, we consider the tasks of spam filtering (dataset spambase) and image classification (dataset MNIST). The MLP model is used in both cases. Each curve is obtained with either 0 or 45% of omniscient Byzantine workers.\nIn all cases, averaging still does not tolerate Byzantine workers, but yields the lowest error when there are no Byzantine workers. However, once the size of the mini-batch reaches the value 20, Krum with 45% omniscient Byzantine workers is as accurate as averaging with 0% Byzantine workers. We observe a similar pattern for a ConvNet as provided in the supplementary material.\n(Multi-Krum). For the sake of presentation simplicity, we considered a version of Krum which selects only one vector among the vector proposed by the workers. We also propose a variant of Krum, we call Multi-Krum. Multi-Krum computes, for each vector proposed, the score as in the Krum function. Then, Multi-Krum selects the m ∈ {1, . . . , n} vectors V ∗1 , . . . , V ∗m which score the best, and outputs their average 1m ∑ i V ∗ i . Note that, the cases m = 1 and m = n correspond to Krum and averaging respectively.\nFigure 6 shows how the error (y-axis) evolves with the number of rounds (x-axis). In the figure, we consider the task of spam filtering (dataset spambase), and the MLP model (the same comparison\nis done for the task of image classification with a ConvNet and is provided in the supplementary material). The Multi-Krum parameter m is set to m = n− f . Figure 6 shows that Multi-Krum with 33% Byzantine workers is as efficient as averaging with 0% Byzantine workers.\nFrom the practitionner’s perspective, the parameter m may be used to set a specific trade-off between convergence speed and resilience to Byzantine workers."
+    }, {
+      "heading" : "7 Concluding Remarks",
+      "text" : "(The Distributed Computing Perspective). Although seemingly related, results in d-dimensional approximate agreement [24, 14] cannot be applied to our Byzantine-resilient machine context for the following reasons: (a) [24, 14] assume that the set of vectors that can be proposed to an instance of the agreement is bounded so that at least f + 1 correct workers propose the same vector, which would require a lot of redundant work in our setting; and more importantly, (b) [24] requires a local computation by each worker that is in O(nd). While this cost seems reasonable for small dimensions, such as, e.g., mobile robots meeting in a 2D or 3D space, it becomes a real issue in the context of machine learning, where d may be as high as 160 billion [30] (making d a crucial parameter when considering complexities, either for local computations, or for communication rounds). The expected time complexity of the Krum function is O(n2 · d). A closer approach to ours has been recently proposed in [28, 29]. In [28], the study only deals with parameter vectors of dimension one, which is too restrictive for today’s multi-dimensional machine learning. In [29], the authors tackle a multi-dimensional situation, using an iterated approximate Byzantine agreement that reaches consensus asymptotically. This is however only achieved on a finite set of possible environmental states and cannot be used in the continuous context of stochastic gradient descent.\n(The Statistics and Machine Learning View). Our work looks at the resilience of the aggregation rule using ideas that are close to those of [11], and somehow classical in theoretical statistics on the robustness of the geometric median and the notion of breakdown [7]. The closest concept to a breakdown in our work is the maximum fraction of Byzantine workers that can be tolerated, i.e. n−22n , which reaches the optimal theoretical value (1/2) asymptotically on n. It is known that the geometric\nmedian does achieve the optimal breakdown. However, no closed form nor an exact algorithm to compute the geometric median is known (only approximations are available [5] and their Byzantine resilience is an open problem.). An easily computable variant of the median is the Medoid, which is the proposed vector minimizing the sum of distances to all other proposed vectors. The Medoid can be computed with a similar algorithm to Krum. We show however in the supplementary material that the implementation of the Medoid is outperformed by multi-Krum.\n(Robustness Within the Model). It is important to keep in mind that this work deals with robustness from a coarse-grained perspective: the unit of failure is a worker, receiving its copy of the model and estimating gradients, based on either local data or delegated data from a server. The nature of the model itself is not important, the distributed system can be training models spanning a large range from simple regression to deep neural networks. As long as this training is using gradient-based learning, our algorithm to aggregate gradients, Krum, provably ensures convergence when a simple majority of nodes are not compromised by an attacker.\nA natural question to consider is the fine-grained view: is the model itself robust to internal perturbations? In the case of neural networks, this question can somehow be tied to neuroscience considerations: could some neurons and/or synapses misbehave individually without harming the global outcome? We formulated this question in another work and proved a tight upper bound on the resulting global error when a set of nodes is removed or is misbehaving [8]. One of the many practical consequences [9] of such fine-grained view is the understanding of memory cost reduction trade-offs in deep learning. Such memory cost reduction can be viewed as the introduction of precision errors at the level of each neuron and/or synapse [8].\nOther approaches to robustness within the model tackled adversarial situations in machine learning with a focus on adversarial examples (during inference) [10, 32, 11] instead of adversarial gradients (during training) as we did for Krum. Robustness to adversarial input can be viewed through the fine-grained lens we introduced in [8], for instance, one can see perturbations of pixels in the inputs as perturbations of neurons in layer zero. It is important to note the orthogonality and complementarity between the fine-grained (model/input units) and the coarse-grained (gradient aggregation) approaches. Being robust, as a model, either to adversarial examples or to internal perturbations, does not necessarily imply robustness to adversarial gradients during training. Similarly, being distributively trained with a robust aggregation scheme such as Krum does not necessarily imply robustness to internal errors of the model or adversarial input perturbations that would occur later during inference. For instance, the theory we develop in the present work is agnostic to the model being trained or the technology of the hardware hosting it, as long as there are gradients to be aggregated.\nAcknowledgment. The authors would like to thank Georgios Damaskinos and Rhicheek Patra from the Distributed Computing group at EPFL for kindly providing their distributed machine learning framework, on top of which we could test our algorithm, Krum, and its variants described in this work. Further implementation details and additional experiments will be posted in the lab’s Github repository [20]. The authors would also like to thank Saad Benjelloun, Lê Nguyen Hoang and Sébastien Rouault for fruitful comments. This work has been supported in part by the European ERC (Grant 339539 - AOC) and by the Swiss National Science Foundation (Grant 200021_ 169588 TARBDA). A preliminary version of this work appeared as a brief announcement during the 36st ACM Symposium on Principles of Distributed Computing [2]."
+    } ],
+    "references" : [ {
+      "title" : "Tensorflow: A system for large-scale machine learning",
+      "author" : [ "M. Abadi", "P. Barham", "J. Chen", "Z. Chen", "A. Davis", "J. Dean", "M. Devin", "S. Ghemawat", "G. Irving", "M. Isard" ],
+      "venue" : "In Proceedings of the 12th USENIX Symposium on Operating Systems Design and Implementation (OSDI). Savannah, Georgia,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : "1",
+      "year" : 2016
+    }, {
+      "title" : "Brief announcement: Byzantinetolerant machine learning",
+      "author" : [ "P. Blanchard", "E.M. El Mhamdi", "R. Guerraoui", "J. Stainer" ],
+      "venue" : "In Proceedings of the ACM Symposium on Principles of Distributed Computing,",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 2017
+    }, {
+      "title" : "Online learning and stochastic approximations",
+      "author" : [ "L. Bottou" ],
+      "venue" : "Online learning in neural networks,",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 1998
+    }, {
+      "title" : "Large-scale machine learning with stochastic gradient descent",
+      "author" : [ "L. Bottou" ],
+      "venue" : "In Proceedings of COMPSTAT’2010,",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : "4",
+      "year" : 2010
+    }, {
+      "title" : "Geometric median in nearly linear time",
+      "author" : [ "M.B. Cohen", "Y.T. Lee", "G. Miller", "J. Pachocki", "A. Sidford" ],
+      "venue" : "In Proceedings of the 48th Annual ACM SIGACT Symposium on Theory of Computing,",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : "5",
+      "year" : 2016
+    }, {
+      "title" : "Large scale distributed deep networks",
+      "author" : [ "J. Dean", "G. Corrado", "R. Monga", "K. Chen", "M. Devin", "M. Mao", "A. Senior", "P. Tucker", "K. Yang", "Q.V. Le" ],
+      "venue" : "In Advances in neural information processing systems,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : "6",
+      "year" : 2012
+    }, {
+      "title" : "The notion of breakdown point. A festschrift for Erich L",
+      "author" : [ "D.L. Donoho", "P.J. Huber" ],
+      "venue" : null,
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : "7",
+      "year" : 1983
+    }, {
+      "title" : "When neurons fail",
+      "author" : [ "E.M. El Mhamdi", "R. Guerraoui" ],
+      "venue" : "IEEE International Parallel and Distributed Processing Symposium (IPDPS),",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : "8",
+      "year" : 2017
+    }, {
+      "title" : "On the robustness of a neural network",
+      "author" : [ "E.M. El Mhamdi", "R. Guerraoui", "S. Rouault" ],
+      "venue" : "IEEE 36th Symposium on Reliable Distributed Systems (SRDS),",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 2017
+    }, {
+      "title" : "Robustness of classifiers: from adversarial to random noise",
+      "author" : [ "A. Fawzi", "S.-M. Moosavi-Dezfooli", "P. Frossard" ],
+      "venue" : "In Advances in Neural Information Processing Systems,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : "10",
+      "year" : 2016
+    }, {
+      "title" : "Outlier robust online learning",
+      "author" : [ "J. Feng", "H. Xu", "S. Mannor" ],
+      "venue" : "arXiv preprint arXiv:1701.00251,",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 2017
+    }, {
+      "title" : "Large-scale matrix factorization with distributed stochastic gradient descent",
+      "author" : [ "R. Gemulla", "E. Nijkamp", "P.J. Haas", "Y. Sismanis" ],
+      "venue" : "In Proceedings of the 17th ACM SIGKDD international conference on Knowledge discovery and data mining,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 2011
+    }, {
+      "title" : "Neural networks and learning machines, volume 3",
+      "author" : [ "S.S. Haykin" ],
+      "venue" : "Pearson Upper Saddle River, NJ,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 2009
+    }, {
+      "title" : "Computing in the presence of concurrent solo executions",
+      "author" : [ "M. Herlihy", "S. Rajsbaum", "M. Raynal", "J. Stainer" ],
+      "venue" : "In Latin American Symposium on Theoretical Informatics,",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 2014
+    }, {
+      "title" : "Federated optimization: Distributed optimization beyond the datacenter",
+      "author" : [ "J. Konečnỳ", "B. McMahan", "D. Ramage" ],
+      "venue" : "arXiv preprint arXiv:1511.03575,",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : "15",
+      "year" : 2015
+    }, {
+      "title" : "Federated learning: Strategies for improving communication efficiency",
+      "author" : [ "J. Konečnỳ", "H.B. McMahan", "F.X. Yu", "P. Richtárik", "A.T. Suresh", "D. Bacon" ],
+      "venue" : "arXiv preprint arXiv:1610.05492,",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : "16",
+      "year" : 2016
+    }, {
+      "title" : "The byzantine generals problem",
+      "author" : [ "L. Lamport", "R. Shostak", "M. Pease" ],
+      "venue" : "ACM Transactions on Programming Languages and Systems (TOPLAS),",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : "17",
+      "year" : 1982
+    }, {
+      "title" : "Asynchronous parallel stochastic gradient for nonconvex optimization",
+      "author" : [ "X. Lian", "Y. Huang", "Y. Li", "J. Liu" ],
+      "venue" : "In Advances in Neural Information Processing Systems,",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : "18",
+      "year" : 2015
+    }, {
+      "title" : "Distributed algorithms",
+      "author" : [ "N.A. Lynch" ],
+      "venue" : null,
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : "21",
+      "year" : 1996
+    }, {
+      "title" : "How many computers to identify a cat? 16,000",
+      "author" : [ "J. Markoff" ],
+      "venue" : "New York Times,",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : "22",
+      "year" : 2012
+    }, {
+      "title" : "Communication-efficient learning of deep networks from decentralized data",
+      "author" : [ "B. McMahan", "E. Moore", "D. Ramage", "S. Hampson", "B.A. y Arcas" ],
+      "venue" : "In Artificial Intelligence and Statistics,",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : "23",
+      "year" : 2017
+    }, {
+      "title" : "Multidimensional approximate agreement in byzantine asynchronous systems",
+      "author" : [ "H. Mendes", "M. Herlihy" ],
+      "venue" : "In Proceedings of the forty-fifth annual ACM symposium on Theory of computing,",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : "24",
+      "year" : 2013
+    }, {
+      "title" : "Acceleration of stochastic approximation by averaging",
+      "author" : [ "B.T. Polyak", "A.B. Juditsky" ],
+      "venue" : "SIAM Journal on Control and Optimization,",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : "25",
+      "year" : 1992
+    }, {
+      "title" : "Implementing fault-tolerant services using the state machine approach: A tutorial",
+      "author" : [ "F.B. Schneider" ],
+      "venue" : "ACM Computing Surveys (CSUR),",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : "26",
+      "year" : 1990
+    }, {
+      "title" : "Training very deep networks",
+      "author" : [ "R.K. Srivastava", "K. Greff", "J. Schmidhuber" ],
+      "venue" : "In Advances in neural information processing systems,",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : "27",
+      "year" : 2015
+    }, {
+      "title" : "Fault-tolerant multi-agent optimization: optimal iterative distributed algorithms",
+      "author" : [ "L. Su", "N.H. Vaidya" ],
+      "venue" : "In Proceedings of the 2016 ACM Symposium on Principles of Distributed Computing,",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : "28",
+      "year" : 2016
+    }, {
+      "title" : "Non-bayesian learning in the presence of byzantine agents",
+      "author" : [ "L. Su", "N.H. Vaidya" ],
+      "venue" : "In International Symposium on Distributed Computing,",
+      "citeRegEx" : "29",
+      "shortCiteRegEx" : "29",
+      "year" : 2016
+    }, {
+      "title" : "Modeling order in neural word embeddings at scale",
+      "author" : [ "A. Trask", "D. Gilmore", "M. Russell" ],
+      "venue" : "In ICML,",
+      "citeRegEx" : "30",
+      "shortCiteRegEx" : "30",
+      "year" : 2015
+    }, {
+      "title" : "Distributed asynchronous deterministic and stochastic gradient optimization algorithms",
+      "author" : [ "J. Tsitsiklis", "D. Bertsekas", "M. Athans" ],
+      "venue" : "IEEE transactions on automatic control,",
+      "citeRegEx" : "31",
+      "shortCiteRegEx" : "31",
+      "year" : 1986
+    }, {
+      "title" : "A theoretical framework for robustness of (deep) classifiers under adversarial noise",
+      "author" : [ "B. Wang", "J. Gao", "Y. Qi" ],
+      "venue" : "arXiv preprint arXiv:1612.00334,",
+      "citeRegEx" : "32",
+      "shortCiteRegEx" : "32",
+      "year" : 2016
+    }, {
+      "title" : "Deep learning with elastic averaging sgd",
+      "author" : [ "S. Zhang", "A.E. Choromanska", "Y. LeCun" ],
+      "venue" : "In Advances in Neural Information Processing Systems,",
+      "citeRegEx" : "33",
+      "shortCiteRegEx" : "33",
+      "year" : 2015
+    }, {
+      "title" : "Solving large scale linear prediction problems using stochastic gradient descent algorithms",
+      "author" : [ "T. Zhang" ],
+      "venue" : "In Proceedings of the twenty-first international conference on Machine learning,",
+      "citeRegEx" : "34",
+      "shortCiteRegEx" : "34",
+      "year" : 2004
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 5,
+      "context" : "The increasing amount of data available [6], together with the growing complexity of machine learning models [27], has led to learning schemes that require a lot of computational resources.",
+      "startOffset" : 40,
+      "endOffset" : 43
+    }, {
+      "referenceID" : 24,
+      "context" : "The increasing amount of data available [6], together with the growing complexity of machine learning models [27], has led to learning schemes that require a lot of computational resources.",
+      "startOffset" : 109,
+      "endOffset" : 113
+    }, {
+      "referenceID" : 0,
+      "context" : "As a consequence, most industry-grade machine-learning implementations are now distributed [1].",
+      "startOffset" : 91,
+      "endOffset" : 94
+    }, {
+      "referenceID" : 19,
+      "context" : "000 processors to train an image classifier [22].",
+      "startOffset" : 44,
+      "endOffset" : 48
+    }, {
+      "referenceID" : 14,
+      "context" : "More recently, attention has been given to federated learning and federated optimization settings [15, 16, 23] with a focus on communication efficiency.",
+      "startOffset" : 98,
+      "endOffset" : 110
+    }, {
+      "referenceID" : 15,
+      "context" : "More recently, attention has been given to federated learning and federated optimization settings [15, 16, 23] with a focus on communication efficiency.",
+      "startOffset" : 98,
+      "endOffset" : 110
+    }, {
+      "referenceID" : 20,
+      "context" : "More recently, attention has been given to federated learning and federated optimization settings [15, 16, 23] with a focus on communication efficiency.",
+      "startOffset" : 98,
+      "endOffset" : 110
+    }, {
+      "referenceID" : 16,
+      "context" : "The most robust system is one that tolerates Byzantine failures [17], i.",
+      "startOffset" : 64,
+      "endOffset" : 68
+    }, {
+      "referenceID" : 23,
+      "context" : "A classical approach to mask failures in distributed systems is to use a state machine replication protocol [26], which requires however state transitions to be applied by all worker processes.",
+      "startOffset" : 108,
+      "endOffset" : 112
+    }, {
+      "referenceID" : 3,
+      "context" : "In fact, most learning algorithms today rely on a core component, namely stochastic gradient descent (SGD) [4, 13], whether for training neural networks [13], regression [34], matrix factorization [12] or support vector machines [34].",
+      "startOffset" : 107,
+      "endOffset" : 114
+    }, {
+      "referenceID" : 12,
+      "context" : "In fact, most learning algorithms today rely on a core component, namely stochastic gradient descent (SGD) [4, 13], whether for training neural networks [13], regression [34], matrix factorization [12] or support vector machines [34].",
+      "startOffset" : 107,
+      "endOffset" : 114
+    }, {
+      "referenceID" : 12,
+      "context" : "In fact, most learning algorithms today rely on a core component, namely stochastic gradient descent (SGD) [4, 13], whether for training neural networks [13], regression [34], matrix factorization [12] or support vector machines [34].",
+      "startOffset" : 153,
+      "endOffset" : 157
+    }, {
+      "referenceID" : 31,
+      "context" : "In fact, most learning algorithms today rely on a core component, namely stochastic gradient descent (SGD) [4, 13], whether for training neural networks [13], regression [34], matrix factorization [12] or support vector machines [34].",
+      "startOffset" : 170,
+      "endOffset" : 174
+    }, {
+      "referenceID" : 11,
+      "context" : "In fact, most learning algorithms today rely on a core component, namely stochastic gradient descent (SGD) [4, 13], whether for training neural networks [13], regression [34], matrix factorization [12] or support vector machines [34].",
+      "startOffset" : 197,
+      "endOffset" : 201
+    }, {
+      "referenceID" : 31,
+      "context" : "In fact, most learning algorithms today rely on a core component, namely stochastic gradient descent (SGD) [4, 13], whether for training neural networks [13], regression [34], matrix factorization [12] or support vector machines [34].",
+      "startOffset" : 229,
+      "endOffset" : 233
+    }, {
+      "referenceID" : 30,
+      "context" : "Distributed implementations of SGD [33] typically take the following form: a single parameter server is in charge of updating the parameter vector, while worker processes perform the actual update estimation, based on the share of data they have access to.",
+      "startOffset" : 35,
+      "endOffset" : 39
+    }, {
+      "referenceID" : 22,
+      "context" : "Today, this aggregation is typically implemented through averaging [25], or variants of it [33, 18, 31].",
+      "startOffset" : 67,
+      "endOffset" : 71
+    }, {
+      "referenceID" : 30,
+      "context" : "Today, this aggregation is typically implemented through averaging [25], or variants of it [33, 18, 31].",
+      "startOffset" : 91,
+      "endOffset" : 103
+    }, {
+      "referenceID" : 17,
+      "context" : "Today, this aggregation is typically implemented through averaging [25], or variants of it [33, 18, 31].",
+      "startOffset" : 91,
+      "endOffset" : 103
+    }, {
+      "referenceID" : 28,
+      "context" : "Today, this aggregation is typically implemented through averaging [25], or variants of it [33, 18, 31].",
+      "startOffset" : 91,
+      "endOffset" : 103
+    }, {
+      "referenceID" : 27,
+      "context" : "(In modern machine learning, the dimension d of the parameter vector may take values in the hundreds of billions [30].",
+      "startOffset" : 113,
+      "endOffset" : 117
+    }, {
+      "referenceID" : 0,
+      "context" : "2 Model We consider the general distributed system model of [1], consisting of a parameter server4, and n workers, f of them possibly Byzantine (behaving arbitrarily).",
+      "startOffset" : 60,
+      "endOffset" : 63
+    }, {
+      "referenceID" : 2,
+      "context" : "This can be achieved by ensuring that each sample of data used for computing the gradient is drawn uniformly and independently, as classically assumed in the literature of machine learning [3].",
+      "startOffset" : 189,
+      "endOffset" : 192
+    }, {
+      "referenceID" : 18,
+      "context" : "They can furthermore collaborate with each other [21].",
+      "startOffset" : 49,
+      "endOffset" : 53
+    }, {
+      "referenceID" : 3,
+      "context" : "In most SGD-based learning algorithms used today [4, 13, 12], the aggregation rule consists in computing the average 5 of the input vectors.",
+      "startOffset" : 49,
+      "endOffset" : 60
+    }, {
+      "referenceID" : 12,
+      "context" : "In most SGD-based learning algorithms used today [4, 13, 12], the aggregation rule consists in computing the average 5 of the input vectors.",
+      "startOffset" : 49,
+      "endOffset" : 60
+    }, {
+      "referenceID" : 11,
+      "context" : "In most SGD-based learning algorithms used today [4, 13, 12], the aggregation rule consists in computing the average 5 of the input vectors.",
+      "startOffset" : 49,
+      "endOffset" : 60
+    }, {
+      "referenceID" : 2,
+      "context" : "The bounds on the moments of G are classically used to control the effects of the discrete nature of the SGD dynamics [3].",
+      "startOffset" : 118,
+      "endOffset" : 121
+    }, {
+      "referenceID" : 2,
+      "context" : "The condition on the norm of the gradient, η(n, f) · √ d · σ < ‖g‖, can be satisfied, to a certain extent, by having the (correct) workers compute their gradient estimates on mini-batches [3].",
+      "startOffset" : 188,
+      "endOffset" : 191
+    }, {
+      "referenceID" : 2,
+      "context" : "We follow [3], and we prove that the parameter vector xt almost surely reaches a “flat” region (where the norm of the gradient is small), in a sense explained below.",
+      "startOffset" : 10,
+      "endOffset" : 13
+    }, {
+      "referenceID" : 2,
+      "context" : "Conditions (i) to (iv) are the same conditions as in the non-convex convergence analysis in [3].",
+      "startOffset" : 92,
+      "endOffset" : 95
+    }, {
+      "referenceID" : 2,
+      "context" : "Condition (v) is a slightly stronger condition than the corresponding one in [3], and states that, beyond a certain horizon, the cost function Q is “convex enough”, in the sense that the direction of the gradient is sufficiently close to the direction of the parameter vector x.",
+      "startOffset" : 77,
+      "endOffset" : 80
+    }, {
+      "referenceID" : 21,
+      "context" : "Although seemingly related, results in d-dimensional approximate agreement [24, 14] cannot be applied to our Byzantine-resilient machine context for the following reasons: (a) [24, 14] assume that the set of vectors that can be proposed to an instance of the agreement is bounded so that at least f + 1 correct workers propose the same vector, which would require a lot of redundant work in our setting; and more importantly, (b) [24] requires a local computation by each worker that is in O(n).",
+      "startOffset" : 75,
+      "endOffset" : 83
+    }, {
+      "referenceID" : 13,
+      "context" : "Although seemingly related, results in d-dimensional approximate agreement [24, 14] cannot be applied to our Byzantine-resilient machine context for the following reasons: (a) [24, 14] assume that the set of vectors that can be proposed to an instance of the agreement is bounded so that at least f + 1 correct workers propose the same vector, which would require a lot of redundant work in our setting; and more importantly, (b) [24] requires a local computation by each worker that is in O(n).",
+      "startOffset" : 75,
+      "endOffset" : 83
+    }, {
+      "referenceID" : 21,
+      "context" : "Although seemingly related, results in d-dimensional approximate agreement [24, 14] cannot be applied to our Byzantine-resilient machine context for the following reasons: (a) [24, 14] assume that the set of vectors that can be proposed to an instance of the agreement is bounded so that at least f + 1 correct workers propose the same vector, which would require a lot of redundant work in our setting; and more importantly, (b) [24] requires a local computation by each worker that is in O(n).",
+      "startOffset" : 176,
+      "endOffset" : 184
+    }, {
+      "referenceID" : 13,
+      "context" : "Although seemingly related, results in d-dimensional approximate agreement [24, 14] cannot be applied to our Byzantine-resilient machine context for the following reasons: (a) [24, 14] assume that the set of vectors that can be proposed to an instance of the agreement is bounded so that at least f + 1 correct workers propose the same vector, which would require a lot of redundant work in our setting; and more importantly, (b) [24] requires a local computation by each worker that is in O(n).",
+      "startOffset" : 176,
+      "endOffset" : 184
+    }, {
+      "referenceID" : 21,
+      "context" : "Although seemingly related, results in d-dimensional approximate agreement [24, 14] cannot be applied to our Byzantine-resilient machine context for the following reasons: (a) [24, 14] assume that the set of vectors that can be proposed to an instance of the agreement is bounded so that at least f + 1 correct workers propose the same vector, which would require a lot of redundant work in our setting; and more importantly, (b) [24] requires a local computation by each worker that is in O(n).",
+      "startOffset" : 430,
+      "endOffset" : 434
+    }, {
+      "referenceID" : 27,
+      "context" : ", mobile robots meeting in a 2D or 3D space, it becomes a real issue in the context of machine learning, where d may be as high as 160 billion [30] (making d a crucial parameter when considering complexities, either for local computations, or for communication rounds).",
+      "startOffset" : 143,
+      "endOffset" : 147
+    }, {
+      "referenceID" : 25,
+      "context" : "A closer approach to ours has been recently proposed in [28, 29].",
+      "startOffset" : 56,
+      "endOffset" : 64
+    }, {
+      "referenceID" : 26,
+      "context" : "A closer approach to ours has been recently proposed in [28, 29].",
+      "startOffset" : 56,
+      "endOffset" : 64
+    }, {
+      "referenceID" : 25,
+      "context" : "In [28], the study only deals with parameter vectors of dimension one, which is too restrictive for today’s multi-dimensional machine learning.",
+      "startOffset" : 3,
+      "endOffset" : 7
+    }, {
+      "referenceID" : 26,
+      "context" : "In [29], the authors tackle a multi-dimensional situation, using an iterated approximate Byzantine agreement that reaches consensus asymptotically.",
+      "startOffset" : 3,
+      "endOffset" : 7
+    }, {
+      "referenceID" : 10,
+      "context" : "Our work looks at the resilience of the aggregation rule using ideas that are close to those of [11], and somehow classical in theoretical statistics on the robustness of the geometric median and the notion of breakdown [7].",
+      "startOffset" : 96,
+      "endOffset" : 100
+    }, {
+      "referenceID" : 6,
+      "context" : "Our work looks at the resilience of the aggregation rule using ideas that are close to those of [11], and somehow classical in theoretical statistics on the robustness of the geometric median and the notion of breakdown [7].",
+      "startOffset" : 220,
+      "endOffset" : 223
+    }, {
+      "referenceID" : 4,
+      "context" : "However, no closed form nor an exact algorithm to compute the geometric median is known (only approximations are available [5] and their Byzantine resilience is an open problem.",
+      "startOffset" : 123,
+      "endOffset" : 126
+    }, {
+      "referenceID" : 7,
+      "context" : "A natural question to consider is the fine-grained view: is the model itself robust to internal perturbations? In the case of neural networks, this question can somehow be tied to neuroscience considerations: could some neurons and/or synapses misbehave individually without harming the global outcome? We formulated this question in another work and proved a tight upper bound on the resulting global error when a set of nodes is removed or is misbehaving [8].",
+      "startOffset" : 457,
+      "endOffset" : 460
+    }, {
+      "referenceID" : 8,
+      "context" : "One of the many practical consequences [9] of such fine-grained view is the understanding of memory cost reduction trade-offs in deep learning.",
+      "startOffset" : 39,
+      "endOffset" : 42
+    }, {
+      "referenceID" : 7,
+      "context" : "Such memory cost reduction can be viewed as the introduction of precision errors at the level of each neuron and/or synapse [8].",
+      "startOffset" : 124,
+      "endOffset" : 127
+    }, {
+      "referenceID" : 9,
+      "context" : "Other approaches to robustness within the model tackled adversarial situations in machine learning with a focus on adversarial examples (during inference) [10, 32, 11] instead of adversarial gradients (during training) as we did for Krum.",
+      "startOffset" : 155,
+      "endOffset" : 167
+    }, {
+      "referenceID" : 29,
+      "context" : "Other approaches to robustness within the model tackled adversarial situations in machine learning with a focus on adversarial examples (during inference) [10, 32, 11] instead of adversarial gradients (during training) as we did for Krum.",
+      "startOffset" : 155,
+      "endOffset" : 167
+    }, {
+      "referenceID" : 10,
+      "context" : "Other approaches to robustness within the model tackled adversarial situations in machine learning with a focus on adversarial examples (during inference) [10, 32, 11] instead of adversarial gradients (during training) as we did for Krum.",
+      "startOffset" : 155,
+      "endOffset" : 167
+    }, {
+      "referenceID" : 7,
+      "context" : "Robustness to adversarial input can be viewed through the fine-grained lens we introduced in [8], for instance, one can see perturbations of pixels in the inputs as perturbations of neurons in layer zero.",
+      "startOffset" : 93,
+      "endOffset" : 96
+    }, {
+      "referenceID" : 1,
+      "context" : "A preliminary version of this work appeared as a brief announcement during the 36 ACM Symposium on Principles of Distributed Computing [2].",
+      "startOffset" : 135,
+      "endOffset" : 138
+    } ],
+    "year" : 2017,
+    "abstractText" : "We study the resilience to Byzantine failures of distributed implementations of Stochastic Gradient Descent (SGD). So far, distributed machine learning frameworks have largely ignored the possibility of failures, especially arbitrary (i.e., Byzantine) ones. Causes of failures include software bugs, network asynchrony, biases in local datasets, as well as attackers trying to compromise the entire system. Assuming a set of n workers, up to f being Byzantine, we ask how resilient can SGD be, without limiting the dimension, nor the size of the parameter space. We first show that no gradient aggregation rule based on a linear combination of the vectors proposed by the workers (i.e, current approaches) tolerates a single Byzantine failure. We then formulate a resilience property of the aggregation rule capturing the basic requirements to guarantee convergence despite f Byzantine workers. We propose Krum, an aggregation rule that satisfies our resilience property, which we argue is the first provably Byzantine-resilient algorithm for distributed SGD. We also report on experimental evaluations of Krum.",
+    "creator" : null
+  }
+}

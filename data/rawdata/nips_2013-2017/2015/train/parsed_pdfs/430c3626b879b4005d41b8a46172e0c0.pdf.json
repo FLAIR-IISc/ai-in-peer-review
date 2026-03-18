@@ -1,0 +1,266 @@
+{
+  "name" : "430c3626b879b4005d41b8a46172e0c0.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Equilibrated adaptive learning rates for non-convex optimization",
+    "authors" : [ "Yann N. Dauphin", "Harm de Vries" ],
+    "emails" : [ "dauphiya@iro.umontreal.ca", "devries@iro.umontreal.ca", "yoshua.bengio@umontreal.ca" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "One of the challenging aspects of deep learning is the optimization of the training criterion over millions of parameters: the difficulty comes from both the size of these neural networks and because the training objective is non-convex in the parameters. Stochastic gradient descent (SGD) has remained the method of choice for most practitioners of neural networks since the 80’s, in spite of a rich literature in numerical optimization. Although it is well-known that first-order methods considerably slow down when the objective function is ill-conditioned, it remains unclear how to best exploit second-order structure when training deep networks. Because of the large number of parameters, storing the full Hessian or even a low-rank approximation is not practical, making parameter specific learning rates, i.e diagonal preconditioners, one of the viable alternatives. One of the open questions is how to set the learning rate for SGD adaptively, both over time and for different parameters, and several methods have been proposed (see e.g. Schaul et al. (2013) and references therein).\nOn the other hand, recent work (Dauphin et al., 2014; Choromanska et al., 2014) has brought theoretical and empirical evidence suggesting that local minima are with high probability not the main obstacle to optimizing large and deep neural networks, contrary to what was previously believed: instead, saddle points are the most prevalent critical points on the optimization path (except when we approach the value of the global minimum). These saddle points can considerably slow down training, mostly because the objective function tends to be ill-conditioned in the neighborhood of\n1Denotes first authors\nthese saddle points. This raises the question: can we take advantage of the saddle structure to design good and computationally efficient preconditioners?\nIn this paper, we bring these threads together. We first study diagonal preconditioners for saddle point problems, and find that the popular Jacobi preconditioner has unsuitable behavior in the presence of both positive and negative curvature. Instead, we propose to use the so-called equilibration preconditioner and provide new theoretical justifications for its use in Section 4. We provide specific arguments why equilibration is better suited to non-convex optimization problems than the Jacobi preconditioner and empirically demonstrate this for small neural networks in Section 5. Using this new insight, we propose a new adaptive learning rate schedule for SGD, called ESGD, that is based on the equilibration preconditioner. In Section 7 we evaluate the proposed method on two deep autoencoder benchmarks. The results, presented in Section 8, confirm that ESGD performs as well or better than RMSProp. In addition, we empirically find that the update direction of RMSProp is very similar to equilibrated update directions, which might explain its success in training deep neural networks."
+    }, {
+      "heading" : "2 Preconditioning",
+      "text" : "It is well-known that gradient descent makes slow progress when the curvature of the loss function is very different in separate directions. The negative gradient will be mostly pointing in directions of high curvature, and a small enough learning rate have to be chosen in order to avoid divergence in the largest positive curvature direction. As a consequence, the gradient step makes very little progress in small curvature directions, leading to the slow convergence often observed with first-order methods.\nPreconditioning can be thought of as a geometric solution to the problem of pathological curvature. It aims to locally transform the optimization landscape so that its curvature is equal in all directions. This is illustrated in Figure 1 for a two-dimensional saddle point problem using the equilibration preconditioner (Section 4). Gradient descent method slowly escapes the saddle point due to the typical oscillations along the high positive curvature direction. By transforming the function to be more equally curved, it is possible for gradient descent to move much faster.\nMore formally, we are interested in minimizing a function f with parameters θ ∈ RN. We introduce preconditioning by a linear change of variables θ̂ = D 1 2 θ with a non-singular matrix D 1 2 . We use\nthis change of variables to define a new function f̂ , parameterized by θ̂, that is equivalent to the original function f :\nf̂(θ̂) = f(D− 1 2 θ̂) = f(θ) (1)\nThe gradient and the Hessian of this new function f̂ are (by the chain rule):\n∇f̂(θ̂) = D− 12∇f(θ) (2)\n∇2f̂(θ̂) = D− 12>HD− 12 with H = ∇2f(θ) (3)\nA gradient descent iteration θ̂t = θ̂t−1 − η∇f̂(θ̂) for the transformed function corresponds to\nθt = θt−1 − ηD−1∇f(θ) (4)\nfor the original parameter θ. In other words, by left-multiplying the original gradient with a positive definite matrixD−1, we effectively apply gradient descent to the problem after a change of variables θ̂ = D 1 2 θ. The curvature of this transformed function is given by the Hessian D− 1 2>HD− 1 2 , and we aim to seek a preconditioning matrix D such that the new Hessian has equal curvature in all directions. One way to assess the success of D in doing so is to compute the relative difference between the biggest and smallest curvature direction, which is measured by the condition number of the Hessian:\nκ(H) = σmax(H) σmin(H)\n(5)\nwhere σmax(H), σmin(H) denote respectively the biggest and smallest singular values of H (which are the absolute value of the eigenvalues). It is important to stress that the condition number is defined for both definite and indefinite matrices.\nThe famous Newton step corresponds to a change of variables D 1 2 = H 1 2 which makes the new Hessian perfectly conditioned. However, a change of variables only exists2 when the Hessian H is positive semi-definite. This is a problem for non-convex loss surfaces where the Hessian might be indefinite. In fact, recent studies (Dauphin et al., 2014; Choromanska et al., 2014) has shown that saddle points are dominating the optimization landscape of deep neural networks, implying that the Hessian is most likely indefinite. In such a setting, H−1 not a valid preconditioner and applying Newton’s step without modification would make you move towards the saddle point. Nevertheless, it is important to realize that the concept of preconditioning extends to non-convex problems, and reducing ill-conditioning around saddle point will often speed up gradient descent.\nAt this point, it is natural to ask whether there exists a valid preconditioning matrix that always perfectly conditions the new Hessian? The answer is yes, and the corresponding preconditioning matrix is the inverse of the absolute Hessian\n|H| = ∑ j |λj |qjq>j , (6)\nwhich is obtained by an eigendecomposition of H and taking the absolute values of the eigenvalues. See Proposition 1 in Appendix A for a proof that |H|−1 is the only (up to a scalar3) symmetric positive definite preconditioning matrix that perfectly reduces the condition number.\nPractically, there are several computational drawbacks for using |H|−1 as a preconditioner. Neural networks typically have millions of parameters, rendering it infeasible to store the Hessian (O(N2)), perform an eigendecomposition (O(N3)) and invert the matrix (O(N3)). Except for the eigendecomposition, other full rank preconditioners are facing the same computational issues. We therefore look for more computationally affordable preconditioners while maintaining its efficiency in reducing the condition number of indefinite matrices. In this paper, we focus on diagonal preconditioners which can be stored, inverted and multiplied by a vector in linear time. When diagonal preconditioners are applied in an online optimization setting (i.e. in conjunction with SGD), they are often referred to as adaptive learning rates in the neural network literature."
+    }, {
+      "heading" : "3 Related work",
+      "text" : "The Jacobi preconditioner is one of the most well-known preconditioners. It is given by the diagonal of the Hessian DJ = |diag(H)| where | · | is element-wise absolute value. LeCun et al. (1998) proposes an efficient approximation of the Jacobi preconditioner using the Gauss-Newton matrix. The Gauss-Newton has been shown to approximate the Hessian under certain conditions (Pascanu & Bengio, 2014). The merit of this approach is that it is efficient but it is not clear what is lost by the Gauss-Newton approximation. What’s more the Jacobi preconditioner has not be found to be competitive for indefinite matrices (Bradley & Murray, 2011). This will be further explored for neural networks in Section 5.\n2A real square root H 1 2 only exists when H is positive semi-definite. 3can be incorporated into the learning rate\nA recent revival of interest in adaptive learning rates has been started by AdaGrad (Duchi et al., 2011). Adagrad collects information from the gradients across several parameter updates to tune the learning rate. This gives us the diagonal preconditioning matrix DA = ( ∑ t∇f2(t))\n−1/2 which relies on the sum of gradients ∇f(t) at each timestep t. Duchi et al. (2011) relies strongly on convexity to justify this method. This makes the application to neural networks difficult from a theoretical perspective. RMSProp (Tieleman & Hinton, 2012) and AdaDelta (Zeiler, 2012) were follow-up methods introduced to be practical adaptive learning methods to train large neural networks. Although RMSProp has been shown to work very well (Schaul et al., 2013), there is not much understanding for its success in practice. Preconditioning might be a good framework to get a better understanding of such adaptive learning rate methods."
+    }, {
+      "heading" : "4 Equilibration",
+      "text" : "Equilibration is a preconditioning technique developed in the numerical mathematics community (Sluis, 1969). When solving a linear system Ax = b with Gaussian Elimination, significant round-off errors can be introduced when small numbers are added to big numbers (Datta, 2010). To circumvent this issue, it is advised to properly scale the rows of the matrix before starting the elimination process. This step is often referred to as row equilibration, which formally scales the rows of A to unit magnitude in some p-norm. Throughout the following we consider 2-norm. Row equilibration is equivalent to multiplying A from the left by the matrix D−1ii =\n1 ‖Ai,·‖ 2 . Instead of\nsolving the original system, we now solve the equivalent left preconditioned system Âx = b̂ with Â = D−1A and b̂ = D−1i b.\nIn this paper, we apply the equilibration preconditioner in the context of large scale non-convex optimization. However, it is not straightforward how to apply the preconditioner. By choosing the preconditioning matrix\nDEii = ‖Hi,·‖2, (7)\nthe Hessian of the transformed function (DE)− 1 2>H(DE)− 1 2 (see Section 2) does not have equilibrated rows. Nevertheless, its spectrum (i.e. eigenvalues) is equal to the spectrum of the row equilibrated Hessian (DE)−1H and column equilibrated Hessian H(DE)−1. Consequently, if row equilibration succesfully reduces the condition number, then the condition number of the transformed Hessian (DE)− 1 2>H(DE)− 1 2 will be reduced by the same amount. The proof is given by Proposition 2.\nFrom the above observation, it seems more natural to seek for a diagonal preconditioning matrix D such that D− 1 2 HD− 1 2 is row and column equilibrated. In Bradley & Murray (2011) an iterative stochastic procedure is proposed for finding such matrix. However, we did not find it to work very well in an online optimization setting, and therefore stick to the original equilibration matrix DE.\nAlthough the original motivation for row equilibration is to prevent round-off errors, our interest is in how well it is able to reduce the condition number. Intuitively, ill-conditioning can be a result of matrix elements that are of completely different order. Scaling the rows to have equal norm could therefore significantly reduce the condition number. Although we are not aware of any proofs that row equilibration improves the condition number, there are theoretical results that motivates its use. In Sluis (1969) it is shown that the condition number of a row equilibrated matrix is at most a factor√ N worse than the diagonal preconditioning matrix that optimally reduces the condition number. Note that the bound grows sublinear in the dimension of the matrix, and can be quite loose for the extremely large matrices we consider. In this paper, we provide an alternative justification using the following upper bound on the condition number from Guggenheimer et al. (1995):\nκ(H) < 2\n|det H| ( ‖H‖F√ N )N (8)\nThe proof in Guggenheimer et al. (1995) provides useful insight when we expect a tight upper bound to be tight: if all singular values, except for the smallest, are roughly equal.\nWe prove by Proposition 4 that row equilibration improves this upper bound by a factor det(DE) ( ‖H‖F√ N )N . It is easy see that the bound is more reduced when the norms of the rows\nare more varied. Note that the proof can be easily extended to column equilibration, and row and column equilibration. In contrast, we can not prove that the Jacobi preconditioner improves the upper bound, which provides another justification for using the equilibration preconditioner.\nA deterministic implementation to calculate the 2-norm of all matrix rows needs to access all matrix elements. This is prohibitive for very large Hessian’s that can not even be stored. We therefore resort to a matrix-free estimator of the equilibration matrix that only uses matrix vector multiplications of the form (Hv)2 where the square is element-wise and vi ∼ N (0, 1)4. As shown by Bradley & Murray (2011), this estimator is unbiased, i.e.\n‖Hi,·‖2 = E[(Hv)2]. (9)\nSince multiplying the Hessian by a vector can be efficiently done without ever computing the Hessian, this method can be efficiently used in the context of neural networks using the R-operator Schraudolph (2002). The R-operator computation only uses gradient-like computations and costs about the same as two backpropagations."
+    }, {
+      "heading" : "5 Equilibrated learning rates are well suited to non-convex problems",
+      "text" : "In this section, we demonstrate that equilibrated learning rates are well suited to non-convex optimization, particularly compared to the Jacobi preconditioner. First, the diagonal equilibration matrix can be seen as an approximation to diagonal of the absolute Hessian. Reformulating the equilibration matrix as\nDEii = ‖Hi,·‖2 = √ diag(H2)i (10)\nreveals an interesting connection. Changing the order of the square root and diagonal would give us the diagonal of |H|. In other words, the equilibration preconditioner can be thought of as the Jacobi preconditioner of the absolute Hessian.\nRecall that the inverse of the absolute Hessian |H|−1 is the only symmetric positive definite matrix that reduces the condition number to 1 (the proof of which can be be found in Proposition 1 in the Appendix). It can be considered as the gold standard, if we do not take computational costs into account. For indefinite matrices, the diagonal of the Hessian H and the diagonal of the absolute Hessian |H| will be very different, and therefore the behavior of the Jacobi and equilibration preconditioner will also be very different.\nIn fact, we argue that the Jacobi preconditioner can cause divergence because it underestimates curvature. We can measure the amount of curvature in a given direction with the Raleigh quotient\nR(H,v) = vTHv vTv . (11)\n4Any random variable vi with zero mean and unit variance can be used.\nAlgorithm 1 Equilibrated Gradient Descent Require: Function f(θ) to minimize, learning rate and damping factor λ\nD← 0 for i = 1→ K do\nv ∼ N (0, 1) D← D + (Hv)2 θ ← θ − ∇f(θ)√ D/i+λ\nend for\nThis quotient is large when there is a lot of curvature in the direction v. The Raleigh quotient can be decomposed into R(H,v) = ∑N j λjv\n>qjq>j v where λj and qj are the eigenvalues and eigenvectors of H. It is easy to show that each element of the Jacobi matrix is given by DJii = |R(H, I·,i)|−1 = | ∑N j λjq 2 j,i|−1. An element DJii is the inverse of the sum of the eigenvalues λj . Negative eigenvalues will reduce the total sum and make the step much larger than it should. Specifically, imagine a diagonal element where there are large positive and negative curvature eigendirections. The contributions of these directions will cancel each other and a large step will be taken in that direction. However, the function will probably also change fast in that direction (because of the high curvature), and the step is too large for the local quadratic approximation we have considered.\nEquilibration methods never diverge this way because they will not underestimate curvature. In equilibration, the curvature information is given by the Raleigh quotient of the squared Hessian DEii = (R(H 2, I·,i))−1/2 = ( ∑ j λ 2 jq 2 j,i) −1/2. Note that all the elements are positive and so will not cancel. Jensen’s inequality then gives us an upper bound\nDEii ≤ |H|−1ii . (12)\nwhich ensures that equilibrated adaptive learning rate will in fact be more conservative than the Jacobi preconditioner of the absolute Hessian (see Proposition 2 for proof).\nThis strengthens the links between equilibration and the absolute Hessian and may explain why equilibration has been found to work well for indefinite matrices Bradley & Murray (2011). We have verified this claim experimentally for random neural networks. The neural networks have 1 hidden layer of a 100 sigmoid units with zero mean unit-variance Gaussian distributed inputs, weights and biases. The output layer is a softmax with the target generated randomly. We also give results for similarly sampled logistic regressions. We compare reductions of the condition number between the methods. Figure 2 gives the histograms of the condition number reductions. We obtained these graphs by sampling a hundred networks and computing the ratio of the condition number before and after preconditioning. On the left we have the convex case, and on the right the non-convex case. We clearly observe that the Jacobi and equilibration method are closely matched for the convex case. However, in the non-convex case equilibration significantly outperforms the other methods. Note that the poor performance of the Gauss-Newton diagonal only means that its success in optimization is not due to preconditioning. As we will see in Section 8 these results extend to practical highdimensional problems."
+    }, {
+      "heading" : "6 Implementation",
+      "text" : "We propose to build a scalable algorithm for preconditioning neural networks using equilibration. This method will estimate the same curvature information √ diag(H2) with the unbiased estimator described in Equation 9. It is prohibitive to compute the full expectation at each learning step. Instead we will simply update our running average at each learning step much like RMSProp. The pseudo-code is given in Algorithm 1. The additional costs are one product with the Hessian, which is roughly the cost of two additional gradient calculations, and the sampling a random Gaussian vector. In practice we greatly amortize the cost by only performing the update every 20 iterations. This brings the cost of equilibration very close to that of regular SGD. The only added hyper-parameter is the damping λ. We find that a good setting for that hyper-parameter is λ = 10−4 and it is robust over the tasks we considered.\nIn the interest of comparison, we will evaluate SGD preconditioned with the Jacobi preconditioner. This will allow us to verify the claims that the equilibration preconditioner is better suited for nonconvex problems. Bekas et al. (2007) show that the diagonal of a matrix can be recovered by the expression\ndiag(H) = E[v Hv] (13) where v are random vectors with entries ±1 and is the element-wise product. We use this estimator to precondition SGD in the same fashion as that described in Algorithm 1. The variance of this estimator for an element i is ∑ j H 2 ji −H2ii, while the method in Martens et al. (2012) has H2ii. Therefore, the optimal method depends on the situation. The computational complexity is the same as ESGD."
+    }, {
+      "heading" : "7 Experimental setup",
+      "text" : "We consider the challenging optimization benchmark of training very deep neural networks. Following Martens (2010); Sutskever et al. (2013); Vinyals & Povey (2011), we train deep auto-encoders which have to reconstruct their input under the constraint that one layer is very low-dimensional. The networks have up to 11 layers of sigmoidal hidden units and have on the order of a million parameters. We use the standard network architectures described in Martens (2010) for the MNIST and CURVES dataset. Both of these datasets have 784 input dimensions and 60,000 and 20,000 examples respectively.\nWe tune the hyper-parameters of the optimization methods with random search. We have sampled the learning rate from a logarithmic scale between [0.1, 0.01] for stochastic gradient descent (SGD) and equilibrated SGD (ESGD). The learning rate for RMSProp and the Jacobi preconditioner are sampled from [0.001, 0.0001]. The damping factor λ used before dividing the gradient is taken from either {10−4, 10−5, 10−6} while the exponential decay rate of RMSProp is taken from either {0.9, 0.95}. The networks are initialized using the sparse initialization described in Martens (2010). The minibatch size for all methods in 200. We do not make use of momentum in these experiments in order to evaluate the strength of each preconditioning method on its own. Similarly we do not use any regularization because we are only concerned with optimization performance. For these reasons, we report training error in our graphs. The networks and algorithms were implemented using Theano Bastien et al. (2012), simplifying the use of the R-operator in Jacobi and equilibrated SGD. All experiments were run on GPU’s."
+    }, {
+      "heading" : "8 Results",
+      "text" : ""
+    }, {
+      "heading" : "8.1 Comparison of preconditioned SGD methods",
+      "text" : "We compare the different adaptive learning rates for training deep auto-encoders in Figure 3. We don’t use momentum to better isolate the performance of each method. We believe this is important because RMSProp has been found not to mix well with momentum (Tieleman & Hinton, 2012). Thus the results presented are not state-of-the-art, but they do reach state of the art when momentum is used.\nOur results on MNIST show that the proposed ESGD method significantly outperforms both RMSProp and Jacobi SGD. The difference in performance becomes especially notable after 250 epochs. Sutskever et al. (2013) reported a performance of 2.1 of training MSE for SGD without momentum and we can see all adaptive learning rates improve on this result, with equilibration reaching 0.86. We observe a convergence speed that is approximately three times faster then our baseline SGD. ESGD also performs best for CURVES, although the difference with RMSProp and Jacobi SGD is not as significant as for MNIST. We show in the next section that the smaller gap in performance is due to the different preconditioners behaving the same way on this dataset."
+    }, {
+      "heading" : "8.2 Measuring the similarity of the methods",
+      "text" : "We train deep autoencoders with RMSProp and measure every 10 epochs the equilibration matrix DE = √ diag(H2) and Jacobi matrix DJ = √ diag(H)2 using 100 samples of the unbiased estimators described in Equations 9, respectively. We then measure the pairwise differences between these quantities in terms of the cosine distance cosine(u, v) = 1− u·v‖u‖‖v‖ , which measures the angle between two vectors and ignores their norms.\nFigure 4 shows the resulting cosine distances over training on MNIST and CURVES. For the latter dataset we observe that RMSProp remains remarkably close (around 0.05) to equilibration, while it is significantly different from Jacobi (in the order of 0.2). The same order of difference is observed when we compare equilibration and Jacobi, confirming the observations of Section 5 that both quantities are rather different in practice. For the MNIST dataset we see that RMSProp fairly well estimates √ diag(H)2 in the beginning of training, but then quickly diverges. After 1000 epochs this difference has exceeded the difference between Jacobi and equilibration, and RMSProp no longer matches equilibration. Interestingly, at the same time that RMSProp starts diverging, we observe in Figure 3 that also the performance of the optimizer drops in comparison to ESGD. This may suggests that the success of RMSProp as a optimizer is tied to its similarity to the equilibration matrix."
+    }, {
+      "heading" : "9 Conclusion",
+      "text" : "We have studied diagonal preconditioners for saddle point problems i.e. indefinite matrices. We have shown by theoretical and empirical arguments that the equilibration preconditioner is comparatively better suited to this kind of problems than the Jacobi preconditioner. Using this insight, we have proposed a novel adaptive learning rate schedule for non-convex optimization problems, called ESGD, which empirically outperformed RMSProp on two competitive deep autoencoder benchmark. Interestingly, we have found that the update direction of RMSProp was in practice very similar to the equilibrated update direction, which might provide more insight into why RMSProp has been so successfull in training deep neural networks. More research is required to confirm these results. However, we hope that our findings will contribute to a better understanding of SGD’s adaptive learning rate schedule for large scale, non-convex optimization problems."
+    } ],
+    "references" : [ {
+      "title" : "Theano: new features and speed improvements",
+      "author" : [ "Bastien", "Frédéric", "Lamblin", "Pascal", "Pascanu", "Razvan", "Bergstra", "James", "Goodfellow", "Ian J", "Bergeron", "Arnaud", "Bouchard", "Nicolas", "Bengio", "Yoshua" ],
+      "venue" : "Deep Learning and Unsupervised Feature Learning NIPS 2012 Workshop,",
+      "citeRegEx" : "Bastien et al\\.,? \\Q2012\\E",
+      "shortCiteRegEx" : "Bastien et al\\.",
+      "year" : 2012
+    }, {
+      "title" : "An estimator for the diagonal of a matrix",
+      "author" : [ "Bekas", "Costas", "Kokiopoulou", "Effrosyni", "Saad", "Yousef" ],
+      "venue" : "Applied numerical mathematics,",
+      "citeRegEx" : "Bekas et al\\.,? \\Q2007\\E",
+      "shortCiteRegEx" : "Bekas et al\\.",
+      "year" : 2007
+    }, {
+      "title" : "Matrix-free approximate equilibration",
+      "author" : [ "Bradley", "Andrew M", "Murray", "Walter" ],
+      "venue" : "arXiv preprint arXiv:1110.2805,",
+      "citeRegEx" : "Bradley et al\\.,? \\Q2011\\E",
+      "shortCiteRegEx" : "Bradley et al\\.",
+      "year" : 2011
+    }, {
+      "title" : "The loss surface of multilayer",
+      "author" : [ "Choromanska", "Anna", "Henaff", "Mikael", "Mathieu", "Michael", "Arous", "Grard Ben", "LeCun", "Yann" ],
+      "venue" : null,
+      "citeRegEx" : "Choromanska et al\\.,? \\Q2014\\E",
+      "shortCiteRegEx" : "Choromanska et al\\.",
+      "year" : 2014
+    }, {
+      "title" : "Numerical Linear Algebra and Applications, Second Edition",
+      "author" : [ "Datta", "Biswa Nath" ],
+      "venue" : "SIAM, 2nd edition,",
+      "citeRegEx" : "Datta and Nath.,? \\Q2010\\E",
+      "shortCiteRegEx" : "Datta and Nath.",
+      "year" : 2010
+    }, {
+      "title" : "Identifying and attacking the saddle point problem in high-dimensional non-convex optimization",
+      "author" : [ "Dauphin", "Yann", "Pascanu", "Razvan", "Gulcehre", "Caglar", "Cho", "Kyunghyun", "Ganguli", "Surya", "Bengio", "Yoshua" ],
+      "venue" : "In NIPS’2014,",
+      "citeRegEx" : "Dauphin et al\\.,? \\Q2014\\E",
+      "shortCiteRegEx" : "Dauphin et al\\.",
+      "year" : 2014
+    }, {
+      "title" : "Adaptive subgradient methods for online learning and stochastic optimization",
+      "author" : [ "Duchi", "John", "Hazan", "Elad", "Singer", "Yoram" ],
+      "venue" : "Journal of Machine Learning Research,",
+      "citeRegEx" : "Duchi et al\\.,? \\Q2011\\E",
+      "shortCiteRegEx" : "Duchi et al\\.",
+      "year" : 2011
+    }, {
+      "title" : "A simple estimate of the condition number of a linear system",
+      "author" : [ "Guggenheimer", "Heinrich W", "Edelman", "Alan S", "Johnson", "Charles R" ],
+      "venue" : "The College Mathematics Journal,",
+      "citeRegEx" : "Guggenheimer et al\\.,? \\Q1995\\E",
+      "shortCiteRegEx" : "Guggenheimer et al\\.",
+      "year" : 1995
+    }, {
+      "title" : "Efficient backprop. In Neural Networks, Tricks of the Trade, Lecture Notes in Computer Science LNCS 1524",
+      "author" : [ "LeCun", "Yann", "Bottou", "Léon", "Orr", "Genevieve B", "Müller", "Klaus-Robert" ],
+      "venue" : null,
+      "citeRegEx" : "LeCun et al\\.,? \\Q1998\\E",
+      "shortCiteRegEx" : "LeCun et al\\.",
+      "year" : 1998
+    }, {
+      "title" : "Deep learning via Hessian-free optimization",
+      "author" : [ "J. Martens" ],
+      "venue" : "In ICML’2010, pp",
+      "citeRegEx" : "Martens,? \\Q2010\\E",
+      "shortCiteRegEx" : "Martens",
+      "year" : 2010
+    }, {
+      "title" : "Estimating the hessian by back-propagating curvature",
+      "author" : [ "Martens", "James", "Sutskever", "Ilya", "Swersky", "Kevin" ],
+      "venue" : "arXiv preprint arXiv:1206.6464,",
+      "citeRegEx" : "Martens et al\\.,? \\Q2012\\E",
+      "shortCiteRegEx" : "Martens et al\\.",
+      "year" : 2012
+    }, {
+      "title" : "Revisiting natural gradient for deep networks",
+      "author" : [ "Pascanu", "Razvan", "Bengio", "Yoshua" ],
+      "venue" : "In International Conference on Learning Representations 2014(Conference Track),",
+      "citeRegEx" : "Pascanu et al\\.,? \\Q2014\\E",
+      "shortCiteRegEx" : "Pascanu et al\\.",
+      "year" : 2014
+    }, {
+      "title" : "Unit tests for stochastic optimization",
+      "author" : [ "Schaul", "Tom", "Antonoglou", "Ioannis", "Silver", "David" ],
+      "venue" : "arXiv preprint arXiv:1312.6055,",
+      "citeRegEx" : "Schaul et al\\.,? \\Q2013\\E",
+      "shortCiteRegEx" : "Schaul et al\\.",
+      "year" : 2013
+    }, {
+      "title" : "Fast curvature matrix-vector products for second-order gradient descent",
+      "author" : [ "Schraudolph", "Nicol N" ],
+      "venue" : "Neural Computation,",
+      "citeRegEx" : "Schraudolph and N.,? \\Q2002\\E",
+      "shortCiteRegEx" : "Schraudolph and N.",
+      "year" : 2002
+    }, {
+      "title" : "Condition numbers and equilibration of matrices",
+      "author" : [ "Sluis", "AVD" ],
+      "venue" : "Numerische Mathematik,",
+      "citeRegEx" : "Sluis and AVD.,? \\Q1969\\E",
+      "shortCiteRegEx" : "Sluis and AVD.",
+      "year" : 1969
+    }, {
+      "title" : "On the importance of initialization and momentum in deep learning",
+      "author" : [ "Sutskever", "Ilya", "Martens", "James", "Dahl", "George", "Hinton", "Geoffrey" ],
+      "venue" : "In ICML,",
+      "citeRegEx" : "Sutskever et al\\.,? \\Q2013\\E",
+      "shortCiteRegEx" : "Sutskever et al\\.",
+      "year" : 2013
+    }, {
+      "title" : "Lecture 6.5-rmsprop: Divide the gradient by a running average of its recent magnitude",
+      "author" : [ "Tieleman", "Tijmen", "Hinton", "Geoffrey" ],
+      "venue" : "COURSERA: Neural Networks for Machine Learning,",
+      "citeRegEx" : "Tieleman et al\\.,? \\Q2012\\E",
+      "shortCiteRegEx" : "Tieleman et al\\.",
+      "year" : 2012
+    }, {
+      "title" : "Krylov subspace descent for deep learning",
+      "author" : [ "Vinyals", "Oriol", "Povey", "Daniel" ],
+      "venue" : "arXiv preprint arXiv:1111.4259,",
+      "citeRegEx" : "Vinyals et al\\.,? \\Q2011\\E",
+      "shortCiteRegEx" : "Vinyals et al\\.",
+      "year" : 2011
+    }, {
+      "title" : "ADADELTA: an adaptive learning rate method",
+      "author" : [ "Zeiler", "Matthew D" ],
+      "venue" : "Technical report, arXiv 1212.5701,",
+      "citeRegEx" : "Zeiler and D.,? \\Q2012\\E",
+      "shortCiteRegEx" : "Zeiler and D.",
+      "year" : 2012
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 5,
+      "context" : "On the other hand, recent work (Dauphin et al., 2014; Choromanska et al., 2014) has brought theoretical and empirical evidence suggesting that local minima are with high probability not the main obstacle to optimizing large and deep neural networks, contrary to what was previously believed: instead, saddle points are the most prevalent critical points on the optimization path (except when we approach the value of the global minimum).",
+      "startOffset" : 31,
+      "endOffset" : 79
+    }, {
+      "referenceID" : 3,
+      "context" : "On the other hand, recent work (Dauphin et al., 2014; Choromanska et al., 2014) has brought theoretical and empirical evidence suggesting that local minima are with high probability not the main obstacle to optimizing large and deep neural networks, contrary to what was previously believed: instead, saddle points are the most prevalent critical points on the optimization path (except when we approach the value of the global minimum).",
+      "startOffset" : 31,
+      "endOffset" : 79
+    }, {
+      "referenceID" : 5,
+      "context" : "In fact, recent studies (Dauphin et al., 2014; Choromanska et al., 2014) has shown that saddle points are dominating the optimization landscape of deep neural networks, implying that the Hessian is most likely indefinite.",
+      "startOffset" : 24,
+      "endOffset" : 72
+    }, {
+      "referenceID" : 3,
+      "context" : "In fact, recent studies (Dauphin et al., 2014; Choromanska et al., 2014) has shown that saddle points are dominating the optimization landscape of deep neural networks, implying that the Hessian is most likely indefinite.",
+      "startOffset" : 24,
+      "endOffset" : 72
+    }, {
+      "referenceID" : 8,
+      "context" : "LeCun et al. (1998) proposes an efficient approximation of the Jacobi preconditioner using the Gauss-Newton matrix.",
+      "startOffset" : 0,
+      "endOffset" : 20
+    }, {
+      "referenceID" : 6,
+      "context" : "A recent revival of interest in adaptive learning rates has been started by AdaGrad (Duchi et al., 2011).",
+      "startOffset" : 84,
+      "endOffset" : 104
+    }, {
+      "referenceID" : 12,
+      "context" : "Although RMSProp has been shown to work very well (Schaul et al., 2013), there is not much understanding for its success in practice.",
+      "startOffset" : 50,
+      "endOffset" : 71
+    }, {
+      "referenceID" : 6,
+      "context" : "A recent revival of interest in adaptive learning rates has been started by AdaGrad (Duchi et al., 2011). Adagrad collects information from the gradients across several parameter updates to tune the learning rate. This gives us the diagonal preconditioning matrix DA = ( ∑ t∇f(2) (t)) −1/2 which relies on the sum of gradients ∇f(t) at each timestep t. Duchi et al. (2011) relies strongly on convexity to justify this method.",
+      "startOffset" : 85,
+      "endOffset" : 373
+    }, {
+      "referenceID" : 7,
+      "context" : "In this paper, we provide an alternative justification using the following upper bound on the condition number from Guggenheimer et al. (1995):",
+      "startOffset" : 116,
+      "endOffset" : 143
+    }, {
+      "referenceID" : 7,
+      "context" : "The proof in Guggenheimer et al. (1995) provides useful insight when we expect a tight upper bound to be tight: if all singular values, except for the smallest, are roughly equal.",
+      "startOffset" : 13,
+      "endOffset" : 40
+    }, {
+      "referenceID" : 1,
+      "context" : "Bekas et al. (2007) show that the diagonal of a matrix can be recovered by the expression",
+      "startOffset" : 0,
+      "endOffset" : 20
+    }, {
+      "referenceID" : 9,
+      "context" : "The variance of this estimator for an element i is ∑ j H 2 ji −H(2) ii, while the method in Martens et al. (2012) has H(2) ii.",
+      "startOffset" : 92,
+      "endOffset" : 114
+    }, {
+      "referenceID" : 9,
+      "context" : "Following Martens (2010); Sutskever et al. (2013); Vinyals & Povey (2011), we train deep auto-encoders which have to reconstruct their input under the constraint that one layer is very low-dimensional.",
+      "startOffset" : 10,
+      "endOffset" : 50
+    }, {
+      "referenceID" : 9,
+      "context" : "Following Martens (2010); Sutskever et al. (2013); Vinyals & Povey (2011), we train deep auto-encoders which have to reconstruct their input under the constraint that one layer is very low-dimensional.",
+      "startOffset" : 10,
+      "endOffset" : 74
+    }, {
+      "referenceID" : 9,
+      "context" : "Following Martens (2010); Sutskever et al. (2013); Vinyals & Povey (2011), we train deep auto-encoders which have to reconstruct their input under the constraint that one layer is very low-dimensional. The networks have up to 11 layers of sigmoidal hidden units and have on the order of a million parameters. We use the standard network architectures described in Martens (2010) for the MNIST and CURVES dataset.",
+      "startOffset" : 10,
+      "endOffset" : 379
+    }, {
+      "referenceID" : 8,
+      "context" : "The networks are initialized using the sparse initialization described in Martens (2010). The minibatch size for all methods in 200.",
+      "startOffset" : 74,
+      "endOffset" : 89
+    }, {
+      "referenceID" : 0,
+      "context" : "The networks and algorithms were implemented using Theano Bastien et al. (2012), simplifying the use of the R-operator in Jacobi and equilibrated SGD.",
+      "startOffset" : 58,
+      "endOffset" : 80
+    } ],
+    "year" : 2015,
+    "abstractText" : "Parameter-specific adaptive learning rate methods are computationally efficient ways to reduce the ill-conditioning problems encountered when training large deep networks. Following recent work that strongly suggests that most of the critical points encountered when training such networks are saddle points, we find how considering the presence of negative eigenvalues of the Hessian could help us design better suited adaptive learning rate schemes. We show that the popular Jacobi preconditioner has undesirable behavior in the presence of both positive and negative curvature, and present theoretical and empirical evidence that the socalled equilibration preconditioner is comparatively better suited to non-convex problems. We introduce a novel adaptive learning rate scheme, called ESGD, based on the equilibration preconditioner. Our experiments show that ESGD performs as well or better than RMSProp in terms of convergence speed, always clearly improving over plain stochastic gradient descent.",
+    "creator" : null
+  }
+}

@@ -1,0 +1,45 @@
+Summary and contributions
+The paper tackles sample-efficient visual servoing by combining (i) fixed, pre-trained CNN features (modified VGG-16), (ii) learned short-horizon predictive dynamics in feature space using a bilinear model, and (iii) a reinforcement learning layer that learns per-channel, multi-scale feature weights and control penalties via a tailored fitted Q-iteration (FQI). The servoing policy is simple: one-step lookahead with a quadratic objective that minimizes the predicted feature error to a goal image. The bilinear model enables exact linearization in controls, yielding an analytic quadratic form for the Q-function and enabling a computationally efficient, linear Q-approximator. Empirically, in a synthetic quadcopter car-following benchmark (CitySim3D), the method achieves strong performance and generalization to novel cars with very few RL trajectories (~20), outperforming pixel-based servoing, classical IBVS with ORB or a tracker, and TRPO-based baselines, with >100x sample-efficiency over model-free deep RL. Code and environment are released.
+
+Decision: Weak Accept
+Key reasons:
+- Elegant and well-motivated integration of pre-trained features, learned feature dynamics, and a policy class with an analytic Q-form that enables highly sample-efficient FQI.
+- Solid empirical evidence of strong performance and generalization in a reasonably complex simulator, with careful comparisons and ablations (feature layers, weighting strategies, baselines).
+
+Supporting arguments
+Novelty and technical soundness:
+- Using bilinear dynamics in feature space is a sensible, data-efficient choice; the locally-connected variant reduces parameters while keeping spatial structure. The exact linearization in controls and the induced quadratic objective is a nice insight that makes both control and Q-learning tractable.
+- The Q-approximator that is linear in nonnegative weights over multi-scale channel-wise feature prediction errors, coupled with a two-stage scaling/bias optimization (α, b) within FQI, is a neat design that stabilizes fitted Q-learning without introducing additional function approximators.
+- The approach avoids end-to-end training, leveraging invariances of pre-trained features while still adapting task-relevant feature weightings via RL — a pragmatic middle ground that brings large gains in sample efficiency.
+- The paper is well positioned vs. classical visual servoing (IBVS/PBVS) and model-free deep RL. The discussion of prior work on photometric servoing and video prediction is appropriate; the choice of bilinear dynamics is justified with both prior works and the control structure.
+
+Empirical evaluation:
+- The experimental setup is clearly described; dynamics are learned from 10k transition triplets from a hand-coded exploration policy; FQI uses just 2 sampling iterations x 10 trajectories each.
+- Comparisons include: (a) pixels vs VGG features at multiple depths; (b) weighting learned via FQI vs TRPO vs none/CEM; (c) model-free TRPO on pixels and on VGG features; (d) classical IBVS using ORB and a strong tracker (C-COT), with ground-truth depth provided; (e) PBVS with ground-truth pose (as an upper bound).
+- Results support claims: VGG conv1_2–conv4_3 outperform pixels, conv5_3 is too invariant; FQI learns effective weights quickly and substantially outperforms TRPO both in performance and sample efficiency; tracker-based IBVS is competitive but slower and still below the proposed method; PBVS upper bounds are much better as expected.
+- Reporting on generalization to novel cars and runtime (16Hz vs 1Hz for tracker) is appreciated.
+
+Limitations and concerns:
+- Scope: All experiments are in simulation; no real-world hardware trials, domain randomization analysis, or sim-to-real study. Given the robotics context, this limits external validity.
+- Task narrowness: Single task (car following with goal = first frame), fixed camera pitch/roll, constant-speed cars. It is unclear how robust the approach is to larger viewpoint changes, background clutter, lighting/weather/domain shifts, or dynamic maneuvers.
+- Reward design uses privileged information (car position in camera frame) during RL. While only used for training and not at test time, this could limit applicability when such labels are unavailable.
+- Dynamics data come from a hand-coded policy; the coverage and robustness of the learned dynamics under target motions and partial observability are not deeply analyzed (e.g., long-horizon compounding error, occlusions beyond what’s shown).
+- Baselines: Photometric visual servoing on pixels is included implicitly, but additional modern alternatives (e.g., optimization with learned optical flow/SE(3) alignment; model-based planning with learned dynamics beyond one-step greedy) are not evaluated.
+- Theory: No formal guarantees on convergence or closed-loop stability; while standard for this area, some discussion on stability or Lyapunov-like properties under the chosen policy class would strengthen the work.
+
+Additional feedback to improve the paper
+- Provide a more in-depth ablation on the locally-connected vs fully-connected bilinear models for semantic features (even with smaller layers) to quantify trade-offs, and an analysis of weight sparsity/structure across scales/channels (e.g., do car-specific channels get higher weights?).
+- Explore limited fine-tuning of the VGG features using self-supervised objectives tied to prediction or control to test if small adaptations further improve robustness without losing invariances.
+- Analyze failure modes (e.g., target leaves FOV, heavy occlusion, abrupt target acceleration) and sensitivity to camera calibration error, feature noise, and latency.
+- Consider L1 or group-sparse regularization for weights to encourage interpretability and reduce overfitting.
+- Add a short discussion on stability: under what conditions does the one-step greedy policy with the learned metric decrease the long-horizon cost?
+- If possible, include a small real-world demo (even on a ground robot) or a sim-to-real experiment to underscore practicality.
+
+Questions for the authors
+1. How sensitive is performance to errors in the bilinear dynamics? Do you observe compounding errors over horizons >1 due to the greedy lookahead, and would limited MPC-style multi-step planning help?
+2. How does the method behave if the goal image corresponds to a different viewpoint than the initial frame (e.g., re-target mid-episode), or if the target undergoes shape/appearance changes (different lighting/weather)?
+3. Can you quantify the distribution of learned weights across layers/channels? Do they correlate with semantically car-relevant filters? Any evidence of sparsity emerging?
+4. How crucial is the reward function’s privileged state (car pose)? Could you learn from weaker supervision (e.g., distance-to-bbox center or self-supervised proxy rewards)?
+5. What is the impact of camera intrinsics errors and calibration drift on the learned dynamics and policy?
+6. Could you comment on the stability of the control law and whether you observe oscillations or divergence under large disturbances? Any simple safeguards used?
+7. How would the approach extend to multiple targets or distractors with similar appearance? Can the weighting adapt online to a new target without retraining?

@@ -1,0 +1,44 @@
+Summary and contributions
+The paper proposes Neural Architecture Search (NAS), a method that uses a recurrent controller trained with policy gradients (REINFORCE) to generate variable-length descriptions of neural network architectures. The controller samples architectural decisions token-by-token; each sampled “child” model is trained to convergence, its validation performance is used as a reward, and the controller is updated to increase the likelihood of promising architectures. The approach is extended to:
+- Convolutional networks with skip/branch connections via a set-selection attention over previous layers, handling compatibility issues by simple padding/concatenation rules.
+- Recurrent cells via a tree-structured search space that composes operations on xt and ht−1 and injects/updates cell states ct−1 and ct.
+Substantial distributed parallelism (parameter servers; many replicas training child models asynchronously) makes the search feasible. On CIFAR-10, the method discovers competitive ConvNets (down to 3.65% error after increasing filters), and on PTB it discovers a recurrent cell achieving state-of-the-art perplexity, with evidence of transfer to character PTB and modest gains in GNMT.
+
+Decision: Accept
+Key reasons: (1) Clear, novel formulation of architecture search as sequence generation with RL over a flexible, variable-length space, including nontrivial search for recurrent cell structures; (2) Strong empirical results across vision and language, with ablations and comparisons (including random search); (3) A concrete, scalable systems recipe demonstrating feasibility.
+
+Supporting arguments
+- Novelty and scope: Unlike fixed-length hyperparameter optimization and most neuroevolution approaches, NAS handles variable-length structures and complex connectivity (skip connections) in a single framework, and extends naturally to RNN cell design via a compositional tree. The controller treats architecture generation as an autoregressive program, which is both expressive and general.
+- Methodological soundness: The REINFORCE estimator with an exponential moving average baseline is standard and unbiased; the use of distributed asynchronous updates is appropriate given the expensive reward. Reward shaping (e.g., cubic of validation accuracy or scaled perplexity) is sensible to adjust gradient magnitudes without changing the optimum.
+- Empirical strength: 
+  - CIFAR-10: The discovered 15-layer model (5.50% error) is notably shallow and efficient among top models. Allowing strides/pooling leads to deeper models and 4.47% error; adding more filters yields 3.65%. Ablations indicate skip connections are indeed exploited (removing them hurts; fully dense hurts slightly).
+  - PTB: The learned cell improves over strong baselines by 3.6 perplexity, and is computationally efficient compared to deep recurrent highway networks. Transfer experiments (character PTB; GNMT) suggest the cell’s utility beyond PTB.
+  - Controls: Random search baseline is handled fairly; the policy improves both best and average of top models over time. Robustness to expanding the search space (adding max and sin) is shown.
+- Clarity of the search spaces and training recipe: The paper is explicit about controller RNN size, training schedules, reward definitions, and data splits.
+
+Concerns and limitations (not blocking)
+- Computational cost and accessibility: The search uses massive resources (e.g., 800 GPUs for CIFAR, 400 CPUs for PTB). While this demonstrates feasibility at scale, it raises reproducibility and accessibility concerns for the community. The paper would benefit from reporting compute budgets (GPU/CPU days) and success under smaller budgets.
+- Validation overfitting risk: With 5k examples held out and tens of thousands of architectures evaluated, the risk of overfitting to the validation set is real. While the test is used once at the end, please quantify this risk: e.g., performance of top-k architectures retrained with different random seeds/splits, or nested validation.
+- Fairness of comparisons: The best CIFAR-10 number (3.65%) is achieved after manually adding 40 filters to every layer, i.e., a post-hoc capacity increase outside the searched space. Clarify whether the comparison “1.05x faster than DenseNet 3.74%” uses identical training/augmentation and report parameter/FLOP counts. It would be better to separate “as-searched” performance from post-hoc tuned performance.
+- Search dynamics and stability: The controller lacks entropy regularization or explicit exploration control; premature convergence is a plausible failure mode. Please report controller entropy over time, and whether temperature or entropy bonuses were tried.
+- Reward shaping choices: Taking the max validation accuracy over the last 5 epochs and cubing the accuracy (or squaring scaled perplexity) is ad hoc. Justify these choices and show sensitivity analyses; discuss whether average or last-epoch metrics change outcomes.
+- Convolutional search space: The handling of incompatible connections (defaulting to image input; concatenation with zero-padding) may bias the search and inflate feature map widths. Report resulting channel/activation sizes, parameter counts, and memory use across discovered models.
+- RNN cell search space: The tree-based composition and ct/ct−1 injections are interesting but under-specified. Please formalize the grammar (arity, allowed wiring constraints, dimensionality consistency) and discuss how gradient flow is preserved/regularized (e.g., absence of layer norm/peepholes).
+
+Suggestions to improve the paper (helpful, not necessarily decision-critical)
+- Report compute cost, wall-clock time, and scaling efficiency; include a smaller-budget setting to show graceful degradation.
+- Provide variability across multiple independent searches and retraining runs of the same top architectures.
+- Include parameter/FLOP counts and training/inference throughput for all compared CIFAR-10 models to substantiate the efficiency claims.
+- Add an ablation on the depth schedule and on the reward transformation; add an entropy bonus or temperature annealing study.
+- For PTB, detail the exact regularization settings per model variant (embedding dropout, variational dropout rates, weight decay) and isolate the gains attributable to the cell versus regularization choices.
+- Release the list of sampled architectures and their rewards to facilitate meta-analysis.
+
+Questions for the authors
+1) How sensitive are results to the reward transformation (accuracy^3; c·ppl)^2 and to using max vs average of the last epochs? Any evidence this reduces variance rather than changes the search target?
+2) Did you use entropy regularization or temperature scaling for the controller policy? If not, did you observe collapse of diversity? Please report entropy over training.
+3) What is the total compute budget (GPU/CPU days) for each search, and how do results degrade when reducing K, m, or training epochs per child?
+4) How many independent search runs were conducted, and what is the variance in the best-found performance? Do top architectures retrain reliably across seeds?
+5) For the 3.65% CIFAR-10 model, how much of the gain comes from adding 40 filters? Can the controller be allowed to search this capacity directly, and if so, what changes?
+6) In the RNN search space, what constraints ensure tensor dimensionality compatibility across nodes, and how are ct/ct−1 injections prevented from causing degenerate shortcuts?
+7) Given the small 5k validation set in CIFAR-10, did you try a different split or cross-validation to assess overfitting to validation during search?
+8) Can you provide parameter/FLOP counts and exact data augmentation for all compared models to solidify the speed/accuracy comparisons?

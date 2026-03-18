@@ -1,0 +1,47 @@
+Summary of contributions
+- The paper proposes amortised MAP inference for single-image super-resolution (SR). It argues that training a deterministic SR mapping with an affine projection layer that enforces Afθ(x) = x reduces amortised MAP learning to minimising the cross-entropy H[qθ, pY] between the distribution of model outputs qθ and the high-resolution data distribution pY.
+- A key architectural contribution is the affine projection ΠAx implemented via the Moore–Penrose pseudoinverse A+, ensuring exact consistency between LR input and the downsampled SR output. This turns the MAP objective into an unconstrained optimisation and allows training without paired LR–HR supervision in the loss.
+- Three optimisation routes are proposed: (i) AffGAN, a GAN variant argued to approximately minimise KL[qθ‖pY] (with an “instance noise” trick to stabilise training); (ii) AffDG, which uses a denoiser to estimate the score ∇y log pY(y) and backpropagates it through the SR network; (iii) AffLL, which leverages a tractable density model (PixelCNN with MCGSM likelihood) to provide gradients of log pY(y).
+- Experiments on a 2D Swiss-roll toy problem demonstrate that AffGAN/AffDG achieve cross-entropy close to brute-force MAP, and on image datasets (grass textures, CelebA, ImageNet, 4× SR) show that AffGAN produces sharper and more plausible images than MSE baselines while preserving strict LR consistency. The paper also draws a connection between a stochastic AffGAN and amortised variational inference.
+
+Decision: Reject
+Primary reasons:
+- Empirical evaluation is insufficiently rigorous and lacks strong baselines and quantitative perceptual evidence to support the central claims.
+- The core amortised-MAP claim is only partially justified: the proposed GAN training minimises KL[qθ‖pY] (or a smoothed variant), not the cross-entropy directly, and no theoretical guarantee is provided that the learned deterministic mapping computes the per-x MAP solution.
+
+Supporting arguments
+- Clarity: The high-level narrative is clear, and the role of the affine projection is well-motivated. Appendices include derivations and implementation details. However, there are notational inconsistencies (e.g., generator objective equations appear with typos), and some key claims (GAN minimising KL and the amortised VI connection) are relegated to brief sketches rather than fully rigorous proofs.
+- Technical soundness: 
+  - The affine projection layer is sound and practically useful; the numerical estimation of A+ and the nullspace projection arguments are correct and verified by near-zero LR-consistency errors.
+  - The score-based guidance via denoising follows known theory; using it to train another network by backpropagating score estimates is reasonable.
+  - The “instance noise” rationale (ensuring support overlap and unique optimal discriminators by convolving with noise) is coherent, though empirically only briefly demonstrated; it aligns with contemporaneous GAN stability ideas.
+  - The amortised MAP framing: Ex log pY(ΠAx fθ(x)) = −H[qθ, pY] is correct. However, minimising KL[qθ‖pY] (or its smoothed version with instance noise) differs from minimising cross-entropy by the entropy term H[qθ]. The paper acknowledges this, but then uses AffGAN as the practical optimiser for the MAP objective without establishing when the discrepancy does not change the per-x optimality.
+  - Importantly, the training objective maximises Ey log pY(gθ(x)) averaged over x, not the per-x log posterior. Without further conditions, this does not ensure that for each x the mapping is the constrained mode; it only encourages the marginal output distribution to match pY on the affine family. The toy example is supportive but does not constitute a general guarantee.
+- Novelty: The affine projection layer for exact LR-consistency and the amortised-MAP reduction to distribution matching are novel and insightful in the SR context. The “instance noise” trick was emerging at the time; the presented analysis adds clarity. The variational inference connection for a stochastic AffGAN is interesting but presented as a sketch.
+- Empirical support: 
+  - Toy 2D results quantify cross-entropy and LR consistency and support the claims.
+  - On images, evaluation is mostly qualitative. The paper reports that AffGAN gives sharper, more plausible results, but does not include user studies or modern perceptual metrics; PSNR/SSIM are reported only to show MSE superiority (expected), not to evaluate perceptual improvements.
+  - Comparisons to strong contemporaneous baselines (e.g., SRResNet/SRGAN with VGG-feature losses or adversarial losses, other perceptual-loss methods) are missing. The AffDG and AffLL routes are abandoned after limited texture experiments, leaving the main contribution effectively AffGAN + affine projection without comprehensive benchmarking.
+  - The claim of “not needing paired LR–HR” is practically untested on truly unpaired settings; LR images are generated by applying A to HR images, so the LR distribution is still induced by the same dataset/degradation.
+
+Suggestions to improve the paper (helpful, not necessarily decisive)
+- Strengthen empirical evaluation:
+  - Include perceptual metrics (as of 2016/2017: SSIM-Multiscale, NIQE/BRISQUE; ideally user studies) and compare against SRResNet/SRGAN/perceptual-loss methods under identical downsampling A.
+  - Report ablations on instance noise (with/without, annealing schedules) and on the affine projection (accuracy vs. kernel size of A+; effect of mismatched A at test time).
+  - Evaluate on real LR images (e.g., camera-captured) to validate the “no paired supervision” claim, or discuss domain shift when pX differs from A-induced LR.
+- Clarify and tighten theory:
+  - Provide a clean, error-free derivation of the GAN generator update that targets KL[qθ‖pY] and explicitly relate it to the cross-entropy objective; specify assumptions under which minimising KL is a good surrogate for amortised MAP.
+  - Discuss conditions under which maximising Ey log pY(gθ(x)) yields per-x MAP solutions, or explain the gap and whether a stochastic generator (qY|X;θ) is preferable to capture multimodality.
+  - Expand the amortised VI connection (Appendix F) with a clearer definition of the variational family, the role of the affine constraint, and how the GAN training signal approximates the required divergences.
+- Practical details:
+  - Provide more specifics on computing A+ (kernel sizes, convergence criteria), and quantify the residual violation of Afθ(x)=x under approximate A+.
+  - Discuss computational cost and inference latency relative to standard SR CNNs.
+  - Release code or sufficient details to reproduce the affine projection and instance noise schedules.
+
+Questions for the authors
+- Can you provide a precise, typo-free statement and proof (or clear reference) that your generator update minimises KL[qθ‖pY]? How sensitive are results to using the standard non-saturating GAN loss instead?
+- Under what assumptions does minimising Ey log pY(gθ(x)) produce the per-x constrained mode y*(x)? Can you construct counterexamples, and if so, how does your method behave?
+- How does performance change when A at test time differs from that used to compute A+ (e.g., different blur/antialiasing)? Can the affine projection be adapted or learned to handle unknown degradations?
+- Have you evaluated AffGAN against SRGAN (Ledig et al., 2016) with identical architectures and training data? Does the affine projection consistently improve perceptual quality and LR consistency over soft penalties?
+- For the “unpaired” claim: can you train with HR images from one dataset and LR images from a different source distribution and still obtain good SR? What breaks when pX ≠ A∗pY?
+- Can you report quantitative stability improvements from instance noise (e.g., discriminator loss trajectories, mode collapse frequency) and provide guidance for choosing/annealing σ?

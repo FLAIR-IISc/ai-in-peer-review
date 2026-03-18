@@ -1,0 +1,50 @@
+Summary and relation to prior work
+The paper proposes Cholesky-CMA-ES, a variant of CMA-ES that maintains and updates a triangular Cholesky factor A of the covariance matrix C instead of computing an eigendecomposition or matrix square root. The covariance update is implemented as a sequence of rank-one updates to A intended to realize the standard rank-1 + rank-μ update of C (Eq. (2)). For step-size control, the paper modifies CSA by replacing C−1/2 with A−1, arguing that the resulting “path error” due to missing orthogonal rotation is small and decreases over time. The claimed benefits are O(μ d^2) update time and reduced memory, with empirical results showing the same number of function evaluations as CMA-ES but substantially less wall-clock time.
+
+The idea of updating a Cholesky factor in CMA-ES has a long history: Suttorp et al. (2009) use a non-triangular factor; Krause & Igel (FOGA 2015) provide an efficient rank-one Cholesky update. The present work aims to extend these ideas to the standard CMA-ES with rank-μ update, provide a justification for the CSA modification, and demonstrate practical speedups.
+
+Strengths
+- Clarity and motivation: The paper is clearly written and well-organized. The motivation—removing repeated eigen/square-root computations—is compelling.
+- Practical relevance: Replacing eigendecomposition with rank-one updates to a triangular factor is a reasonable engineering improvement that can deliver substantial speedups and better memory locality. If validated more thoroughly, this could become a default implementation choice.
+- Empirical promise: On standard benchmarks, the method matches CMA-ES in function evaluations and is much faster in wall time for growing d.
+- Implementation details: Using triangular factors provides numerical stability, cheap inversion, and access to eigenvalues from the diagonal.
+
+Weaknesses and points requiring revision
+- Limited originality/overlap with prior work: The core technical ingredient—the efficient rank-one Cholesky update—appears essentially identical to Krause & Igel (2015). The present paper mainly packages that update within standard CMA-ES with a modification to CSA and a rank-μ accumulation. This reads as a relatively straightforward extension; the novelty beyond FOGA’15 and Suttorp et al. (2009) needs to be made explicit and substantial, with a careful discussion of differences in algorithmic content and guarantees.
+- Missing equivalence proof to Eq. (2): The paper states that the Cholesky update sequence realizes the covariance update (2), but does not provide a complete proof. A formal derivation is necessary: show that applying Algorithm 2 with the specified sequence of rank-one updates to A indeed yields Ct+1 = (1 − c1 − cμ)Ct + c1 pc pc^T + cμ Σi ωi yi yi^T, including treatment of the multiplicative shrinkage and numerical issues. Even if similar proofs exist in prior work, they should be reproduced here or clearly referenced with an explicit statement of equivalence under the current setting (rank-μ, weights, default hyperparameters).
+- Complexity claims unclear: Saying the update is O(μ d^2) is not informative enough, and appears comparable to the per-iteration complexity of CMA-ES with a delayed eigendecomposition (the CMA-ES-Ref baseline). Please:
+  - Use Θ-notation and provide a precise operation count for all dominant steps per iteration (sampling, rank-1/μ updates on A, triangular solves for A−1, mean update), and contrast this with the amortized cost of eigendecompositions done every τ iterations in CMA-ES-Ref and other efficient implementations.
+  - Explain concretely why your method is faster in practice when both are Θ(μ d^2) per iteration in amortized terms (constant factors, memory traffic, cache behavior, avoidance of O(d^3) spikes, etc.). Include ablations that sweep τ and report both flops and wall time.
+  - Justify the “asymptotically optimal” claim by stating and proving the lower bound (e.g., Ω(μ d^2) work is needed to incorporate μ dense rank-one updates into a dense triangular factor), or cite a known result.
+- Unvalidated path-error claim: The central theoretical justification for CSA modification is that the rotation Et changes slowly so the norm error in pσ,t is small and decreases. This needs empirical validation beyond final performance:
+  - Report over time the ratio ‖pσ,t‖/E{χ} and its bias/variance versus the standard CSA with exact C−1/2, across multiple functions and dimensions.
+  - Quantify the rotation drift via ‖Et ETt−1 − I‖ and correlate it with the path error.
+  - Include cases with slowly converging or oscillatory C (e.g., Rosenbrock, noisy settings) and report whether the error decreases as claimed. This is especially important given prior concerns about loss of affine invariance in CSA (Hansen; Auger 2015).
+- Fairness and breadth of baselines: Clarify the delay schedule for CMA-ES-Ref and include stronger baselines (e.g., eigendecomposition every Θ(d) iterations, or best-practice implementations with amortized updates). Provide per-iteration cost breakdowns. Explain why CMA-ES-Ref recomputes every iteration for your settings and whether that reflects common usage.
+- Reproducibility details: Provide code, seeds, hardware details, compiler flags, and exact parameter settings, so others can reproduce wall-clock comparisons.
+
+Specific suggestions
+- Provide a formal equivalence theorem linking Algorithm 1/2 to Eq. (2), including numerical stability bounds.
+- Strengthen the theory around CSA modification: an explicit bound on the deviation between ŝt = A−1(mt+1 − mt)/σt and st = C−1/2(·), in terms of ‖Et ETt−1 − I‖ and the change in C, plus a statement on how the exponential averaging damps the error.
+- Expand experiments to report time-series metrics for path error, rotation drift, and conditioning; include noisy and constrained problems.
+
+Pros
+- Clear, well-written exposition and an easy-to-adopt implementation idea.
+- Strong practical speedups in preliminary experiments without loss in evaluations.
+- Sound engineering choice (triangular factor, stable rank-one updates).
+
+Cons
+- Incremental novelty relative to prior work; overlap insufficiently delineated.
+- Missing formal equivalence proof to the canonical covariance update.
+- Complexity analysis lacks rigor and does not fully justify the speedups.
+- Central claim about diminishing path error is not empirically validated over time.
+
+Minor comments, notation, and typos
+- Algorithm 2: wk should be αk.
+- Table 1: use d (dimension) instead of n for consistency.
+- Line 185: ‘F’ should be ‘f’.
+- Use Θ(·) rather than O(·) when claiming tight complexities.
+- Be consistent about symbols (e.g., μeff, weights ωi, and vectors yi vs xi − m normalized by σ).
+
+Overall recommendation
+While the paper is clearly written and the idea is practically appealing, the contribution is largely incremental to known Cholesky-update techniques, and key claims (equivalence to Eq. (2), complexity advantage, and diminishing path error) are insufficiently substantiated. In its current form, I do not recommend acceptance to NIPS. Strengthening the theoretical equivalence and error analysis, clarifying novelty over prior work, and adding the requested time-series validation could make this a valuable systems/implementation paper for a future venue.

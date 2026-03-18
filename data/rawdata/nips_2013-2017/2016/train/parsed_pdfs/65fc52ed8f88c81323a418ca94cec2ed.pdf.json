@@ -1,0 +1,497 @@
+{
+  "name" : "65fc52ed8f88c81323a418ca94cec2ed.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "CliqueCNN: Deep Unsupervised Exemplar Learning",
+    "authors" : [ "Miguel A. Bautista", "Ekaterina Sutter", "Björn Ommer" ],
+    "emails" : [ "firstname.lastname@iwr.uni-heidelberg.de" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Visual similarity learning is the foundation for numerous computer vision subtasks ranging from low-level image processing to high-level object recognition or posture analysis. A common paradigm has been category-level recognition, where categories and the similarities of all their instances to other classes are jointly modeled. However, large intra-class variability has recently spurred exemplar methods [15, 11], which split this problem into simpler sub-tasks. Therefore, separate exemplar classifiers are trained by learning the similarities of individual exemplars against a large set of negatives. The exemplar paradigm has been successfully employed in diverse areas such as segmentation [11], grouping [10], instance retrieval [2, 19], and object recognition [15, 5]. Learning similarities is also of particular importance for posture analysis [8] and video parsing [17].\nAmong the many approaches for similarity learning, supervised techniques have been particularly popular in the vision community, leading to the formulation as a ranking [23], regression [6], and classification [17] task. With the recent advances of convolutional neural networks (CNN), two-stream architectures [25] and ranking losses [21] have shown great improvements. However, to achieve their performance gain, CNN architectures require millions of samples of supervised training data or at least the fine-tuning [3] on large datasets such as PASCAL VOC. Although the amount of accessible image data is increasing at an enormous rate, supervised labeling of similarities is very costly. In addition, not only similarities between images are important, but especially between objects and their parts. Annotating the fine-grained similarities between all these entities is hopelessly complex, in particular for the large datasets typically used for training CNNs.\nUnsupervised deep learning of similarities that does not requiring any labels for pre-training or fine-tuning is, therefore, of great interest to the vision community. This way we can utilize large\n∗Both authors contributed equally to this work. Project on GitHub: https://github.com/asanakoy/cliquecnn\n30th Conference on Neural Information Processing Systems (NIPS 2016), Barcelona, Spain.\nimage datasets without being limited by the need for costly manual annotations. However, CNNs for exemplar-based learning have been rare [4] due to limitations resulting from the widely used softmax loss. The learning task suffers from only a single positive instance, it is highly unbalanced with many more negatives, and the relationships between samples are unknown, cf. Sec. 2. Consequentially, stochastic gradient descend (SGD) gets corrupted and has a bias towards negatives, thus forfeiting the benefits of deep learning.\nOutline of the proposed approach: We overcome these limitations by updating similarities and CNNs. Typically at the beginning only a few, local estimates of (dis-)similarity are easily available, i.e., pairs of samples that are highly similar (near duplicates) or that are very distant. Most of the similarities are, however, unknown or mutually contradicting, so that transitivity does not hold. Therefore, we initially can only gather small, compact cliques of mutually similar samples around an exemplar, but for most exemplars we know neither if they are similar nor dissimilar. To nevertheless define balanced classification tasks suited for CNN training, we formulate an optimization problem that builds training batches for the CNN by selecting groups of compact cliques, so that all cliques in a batch are mutually distant. Thus for all samples of a batch (dis-)similarity is defined—they either belong to the same compact clique or are far away and belong to different cliques. However, pairs of samples with no reliable similarities end up in different batches so they do not yield false training signal for SGD. Classifying if a sample belongs to a clique serves as a pretext task for learning exemplar similarity. Training the network then implicitly reconciles the transitivity relations between samples in different batches. Thus, the learned CNN representations impute similarities that were initially unavailable and generalize them to unseen data.\nIn the experimental evaluation the proposed approach significantly improves over state-of-the-art approaches for posture analysis and retrieval by learning a general feature representation for human pose that can be transferred across datasets. 1.1 Exemplar Based Methods for Similarity Learning\nThe Exemplar Support Vector Machine (Exemplar-SVM) has been one of the driving methods for exemplar based learning [15]. Each Exemplar-SVM classifier is defined by a single positive instance and a large set of negatives. To improve performance, Exemplar-SVMs require several round of hard negative mining, increasing greatly the computational cost of this approach. To circumvent this high computational cost [10] proposes to train Linear Discriminant Analysis (LDA) over Histogram of Gradient (HOG) features [10]. LDA whitened HOG features with the common covariance matrix estimated for all the exemplars removes correlations between the HOG features, which tend to amplify the background of the image.\nRecently, several CNN approaches have been proposed for supervised similarity learning using either pairs [25], or triplets [21] of images. However, supervised formulations for learning similarities require that the supervisory information scales quadratically for pairs of images, or cubically for triplets. This results in very large training times.\nLiterature on exemplar based learning in CNNs is very scarce. In [4] the authors of ExemplarCNN tackle the problem of unsupervised feature learning. A patch-based categorization problem is designed by randomly extracting patch for each image in the training set and defining it as surrogate class. Hence, since this approach does not take into account (dis-)similarities between exemplars, it fails to model their transitivity relationships, resulting in poor performances (see Sect. 3.1). le\nFurthermore, recent works by Wang et al. [22] and Doersh et al. [3] showed that temporal information in videos and spatial context information in images can be utilized as a convenient supervisory signal for learning feature representation with CNNs. However, the computational cost of the training algorithm is enormous since the approach in [3] needs to tackle all possible pair-wise image relationships requiring training set that scales quadratically with the number of samples. On the contrary, our approach leverages the relationship information between compact cliques, defining a multi-class classification problem. As each training batch contains mutually distinct cliques the computational cost of the training algorithm is greatly decreased."
+    }, {
+      "heading" : "2 Approach",
+      "text" : "We will now discuss how we can employ a CNN for learning similarities between all pairs of a large number of exemplars. Exemplar learning in CNNs has been a relatively unexplored approach for multiple reasons. First and foremost, deep learning requires large amounts of training data, thus\nconflicting with having only a single positive exemplar in a setup that we now abbreviate as 1-sample CNN. Such a 1-sample CNN faces several issues. (i) The within-class variance of an individual exemplar cannot be modeled. (ii) The ratio of one exemplar and many negatives is highly imbalanced, so that the softmax loss over SGD batches overfits against the negatives. (iii) An SGD batch for training a CNN on multiple exemplars can contain arbitrarily similar samples with different label (the different exemplars may be similar or dissimilar), resulting in label inconsistencies. The proposed method overcomes these issues as follows. In Sect. 2.2 we discuss why simply merging an exemplar with its nearest neighbors and data augmentation (similar in spirit to the Clustered Exemplar-SVM [20]) is not sufficient to address (i). Sect. 3.1 compares this NN-CNN approach against other methods. Sect. 2.3 deals with (ii) and (iii) by generating batches of cliques that maximize the intra-clique similarity while minimizing inter-clique similarity.\nTo show the effectiveness of the proposed method we give empirical proof by training CNNs in both 1-sample CNN and NN-CNN manners. Fig. 1(a) shows the average ROC curve for posture retrieval in the Olympic Sports dataset [16] (refer to Sec. 3.1 for further details) for 1-sample CNN, NN-CNN and the proposed method, which clearly outperforms both exemplar based strategies. In addition, Fig. 1(b-d) show an excerpt of the similarity matrix learned for each method. It becomes evident that the proposed approach captures more detailed similarity structures, e.g., the diagonal structures correspond to repetitions of the same gait cycle within a long jump."
+    }, {
+      "heading" : "2.1 Initialization",
+      "text" : "Since deep learning benefits from large amounts of data and requires more than a single exemplar to avoid biased gradients, we now reframe exemplar-based learning of similarities so that it can be handled by a CNN. Given a single exemplar di we thus strive for related samples to enable a CNN training that then further improves the similarities between samples. To obtain this initial set of few, mutually similar samples for an exemplar, we now briefly discuss the reliability of standard feature distances such as whitening HOG features using LDA [10]. HOG-LDA is a computationally effective foundation for estimating similarities sij between large numbers of samples, sij = s(di,dj) = φ(di)\n>φ(dj). Here φ(di) is the initial HOG-LDA representation of the exemplar and S is the resulting kernel.\nMost of these initial similarities are unreliable (cf. Fig. 4(b)) and, thus, the majority of samples cannot be properly ranked w.r.t. their similarity to an exemplar di. However, highly similar samples and those that are far away can be reliably identified as they stand out from the similarity distribution. Subsequently we utilize these few reliable relationships to build groups of compact cliques."
+    }, {
+      "heading" : "2.2 Compact Cliques",
+      "text" : "Simply assigning the same label to all the nearest and another label to all the furthest neighbors of an exemplar is inappropriate. The samples in these groups may be close to di (or distant for the negative group) but not to another due to lacking transitivity. Moreover, mere augmentation of the exemplar with synthetic data does not add transitivity relations to other samples. Therefore, to learn within-class similarities we need to restrict the model to compact cliques of samples so that all samples in a clique are also mutually close to another and deserve the same label.\nTo build candidate cliques we apply complete-linkage clustering starting at each di to merge the sample with its local neighborhood, so that all merged samples are mutually similar. Thus, cliques are compact, differ in size, and may be mutually overlapping. To reduce redundancy, highly overlapping cliques are subsequently merged by clustering cliques using farthest-neighbor clustering. This agglomerative grouping is terminated if intra-clique similarity of a cluster is less than half that of its constituents. Let K be the resulting number of clustered cliques and N the number of samples di. Then C ∈ {0, 1}K×N is the resulting assignment matrix of samples to cliques."
+    }, {
+      "heading" : "2.3 Selecting Batches of Mutually Consistent Cliques",
+      "text" : "We now have a set of compact cliques that comprise all training data. Thus, one may consider to train a CNN to assign all samples of a clique with the same label. However, since only the highest/lowest similarities are reliable, samples in different cliques are not necessarily dissimilar. Forcing them into different classes can consequently entail incorrect similarities. Therefore, we now seek batches of mutually distant cliques, so that all samples in a batch can be labeled consistently because they are either similar (same compact clique) or dissimilar (different, distant clique). Samples with unreliable similarity then end up in different batches and we train a CNN successively on these batches.\nWe now formulate an optimization problem that produces a set of consistent batches of cliques. Let X ∈ {0, 1}B×K be an indicator matrix that assigns K cliques to B batches (the rows xb of X are the cliques in batch b) and S′ ∈ RK×K be the similarity between cliques. We enforce cliques in the same batch to be dissimilar by minimizing tr (XS′X>), which is regularized for the diagonal elements of the matrix S′ selected for each batch (see Eq. (1)). Moreover, each batch should maximize sample coverage, i.e., the number of distinct samples in all cliques of a batch ‖xbC‖pp should be maximal. Finally, the number of distinct points covered by all batches, ‖1XC‖pp, should be maximal, so that the different (potentially overlapping) batches together comprise as much samples as possible. We select p = 1/16 so that our penalty function roughly approximate the non-linear step function. The objective of the optimization problem then becomes\nmin X∈{0,1}B×K\ntr (XS′X>)− tr (Xdiag (S′)X>)− λ1 B∑\nb=1\n‖xbC‖pp−λ2‖1XC‖pp (1)\ns.t. X1>K = r1 > B (2)\nwhere r is the desired number of cliques in one batch for CNN training. The number of batches, B, can be set arbitrarily high to allow for as many rounds of SGD training as desired. If it is too low, this can be easily spotted as only limited coverage of training data can be achieved in the last term of Eq. (1). Since X is discrete, the optimization problem (1) is not easier than the Quadratic Assignment Proble which is known to be NP -hardm [1]. To overcome this issue we relax the binary constraints and force instead the continuous solution to the boundaries of the feasible range by maximizing the additional term λ3‖X− 0.5‖2F using the Frobenius norm. We condition S′ to be positive semi-definite by thresholding its eigenvectors and projecting onto the resulting base. Since also p < 1 the previous objective function is a difference of convex functions\nu(X)− v(X), where\nu(X) = tr (XS′X>)− λ1 B∑\nb=1\n‖xbC‖pp − λ2‖1XC‖pp (3)\nv(X) = tr(Xdiag (S′)X>) + λ3‖X− 0.5‖2F (4)\nIt can be solved using the CCCP Algorithm [24]. In each iteration of CCCP the following convex optimization problem is solved,\nargmin X∈[0,1]B×K\nu(X)− vec (X)> vec (∇v(Xt)), (5)\ns.t. X1>K = r1 > B (6)\nwhere ∇v(Xt) = 2X (1 diag (S′)) + 2X − 1 and denotes the Hadamard product. We solve this constrained optimization problem by means of the interior-point method. Fig. 3 shows a visual example of a selected batch of cliques."
+    }, {
+      "heading" : "2.4 CNN Training",
+      "text" : "We successively train a CNN on the different batches xb obtained using Eq. (1). In each batch, classifying samples according to the clique they are in then serves as a pretext task for learning sample similarities. One of the key properties of CNNs is the training using SGD and backpropagation [14]. The backpropagated gradient is estimated only over a subset (batch) of training samples, so it depends only on the subset of cliques in xb. Following this observation, the clique categorization problem is effectively decoupled into a set of smaller sub-tasks—the individual batches of cliques. During training, we randomly pick a batch b in each iteration and compute the stochastic gradient, using the softmax loss L(W),\nL(W) ≈ 1 M ∑ j∈xb fW(dj) + λr(W) (7)\nVt+1 = µVt − α∇L(Wt), Wt+1 = Wt +Vt+1 , (8)\nwhere M is the SGD batch size, Wt denotes the CNN weights at iteration t, and Vt denotes the weight update of the previous iteration. Parameters α and µ denote the learning rate and momentum, respectively. We then compute similarities between exemplars by simply measuring correlation on the learned feature representation extracted from the CNN (see Sect. 3.1 for details)."
+    }, {
+      "heading" : "2.5 Similarity Imputation",
+      "text" : "By alternating between the different batches, which contain cliques with mutually inconsistent similarities, the CNN learns a single representation for samples from all batches. In effect, this consolidates similarities between cliques in different batches. It generalizes from a subset of initial cliques to new, previously unreliable relations between samples in different batches by utilizing transitivity relationships implied by the cliques.\nAfter a training round over all batches we impute the similarities using the representation learned by the CNN. The resulting similarities are more reliable and enable the grouping algorithm from Sect. 2.2 to find larger cliques of mutually related samples. As there are fewer unreliable similarities,\nmore samples can be comprised in a batch and overall less batches already cover the same fraction of data as before. Consequently, we alternately train the CNN and recompute cliques and batches using the similarities inferred in the previous iteration of CNN training. This alternating imputation of similarities and update of the classifier follows the idea of multiple-instance learning and has shown to converge quickly in less than four iterations.\nTo evaluate the improvement of the similarities Fig. 4 analyzes the eigenvalue spectrum of S on the Olympic Sports dataset, see Sect. 3.1. The plot shows the normalized cumulative sum of the eigenvalues as the function of the number of eigenvectors. Compared to the initialization, transitivity relations are learned and the approach can generalize from an exemplar to more related samples. Therefore, the similarity matrix becomes more structured (cf. Fig. 1) and random noisy relations disappear. As a consequence it can be represented using very few basis vectors. In a further experiment we evaluate the number of reliable similarities and dissimilarities within and between cliques per batch. Recall that samples can only be part of the same batch, if their similarity is reliable. So the goal of similarity learning is to remove transitivity conflicts and reconcile relations between samples to yield larger batches. We now observe that after the iterative update of similarities, the average number of similarities and dissimilarities in a batch has increased by a factor of 2.34 compared to the batches at initialization."
+    }, {
+      "heading" : "3 Experimental Evaluation",
+      "text" : "We provide a quantitative and qualitative analysis of our exemplar-based approach for unsupervised similarity learning. For evaluation, three different settings are considered: posture analysis on Olympic Sports [16], pose estimation on Leeds Sports [12], and object classification on PASCAL VOC 2007."
+    }, {
+      "heading" : "3.1 Olympic Sports Dataset: Posture Analysis",
+      "text" : "The Olympic Sports dataset [16] is a video compilation of different sports competitions. To evaluate fine-scale pose similarity, for each sports category we had independent annotators manually label 20 positive (similar) and negative (dissimilar) samples for 1033 exemplars. Note that these annotations are solely used for testing, since we follow an unsupervised approach.\nWe compare the proposed method with the Exemplar-CNN [4], the two-stream approach of Doersch et. al [3], 1-sample CNN and NN-CNN models (in a very similar spirit to [20]), Alexnet [13], Exemplar-SVMs [15], and HOG-LDA [10]. Due to its performance in object and person detection, we use the approach of [7] to compute person bounding boxes. (i) The evaluation should investigate the benefit of the unsupervised gathering of batches of cliques for deep learning of exemplars using standard CNN architectures. Therefore we incarnate our approach by adopting the widely used model of Krizhevsky et al. [13]. Batches for training the network are obtained by solving the optimization problem in Eq. (1) with B = 100, K = 100, and r = 20 and fine-tuning the model for 105 iterations. Thereafter we compute similarities using features extracted from layer fc7 in the caffe implementation of [13]. (ii) Exemplar-CNN is trained using the best performing parameters reported in [4] and the 64c5-128c5-256c5-512f architecture. Then we use the output of fc4 and compute 4-quadrant max pooling. (iii) Exemplar-SVM was trained on the exemplar frames using the HOG descriptor. The samples for hard negative mining come from all categories except the one that an exemplar is from. We performed cross-validation to find an optimal number of negative mining rounds (less than three). The class weights of the linear SVM were set as C1 = 0.5 and C2 = 0.01. (iv) LDA whitened HOG\nwas computed as specified in [10]. (v) The 1-sample CNN was trained by defining a separate class for each exemplar sample plus a negative category containing all other samples. (vi) In a similar fashion, the NN-CNN was trained using the exemplar plus 10 nearest neighbours obtained using the whitened HOG similarities. As implementation for both CNNs we again used the model of [13] fine-tuned for 105 iterations. Each image in the training set is augmented with 10 transformed versions by performing random translation, scaling, rotation and color transformation, to improve invariance with respect to these.\nTab. 1 reports the average AuC for each method over all categories of the Olympic Sports dataset. Our approach obtains a performance improvement of at least 10% w.r.t. the other methods. In particular, the experiments show that the 1-sample CNN fails to model the positive distribution, due to the high imbalance between positives and negatives and the resulting biased gradient. In comparison, additional nearest neighbours to the exemplar (NN-CNN) yield a better model of withinclass variability of the exemplar leading to a 3% performance increase over the 1-sample CNN. However NN-CNN also sees a large set of negatives, which are partially similar and dissimilar. Due to this unstructuredness of the negative set, the approach fails to thoroughly capture the fine-grained similarity structure over the negative samples. To circumvent this issue we compute sets of mutually distant compact cliques resulting in a relative performance increase of 12% over NN-CNN.\nFurthermore, Fig. 1 presents the similarity structures, which the different approaches extract when analyzing human postures. Fig. 2 further highlights the similarities and the relations between neighbors. For each method the top 50 nearest neighbours for a randomly chosen exemplar frame in the Olympic Sports dataset are blended. We can see how the neighbors obtained by our approach depict a sharper average posture, since they result from compact cliques of mutually similar samples. Therefore they retain more details and are more similar to the original than in case of the other methods."
+    }, {
+      "heading" : "3.2 Leeds Sports Dataset: Pose Estimation",
+      "text" : "The Leeds Sports Dataset [12] is the most widely used benchmark for pose estimation. For training we employ 1000 images from the dataset combined with 4000 images from the extended version of this dataset, where each image is annotated with 14 joint locations. We use the visual similarities learned by our approach to find frames similar in posture to a query frame. Since our training is unsupervised, joint labels are not available. At test time we therefore estimate the pose of a query person by identifying the nearest neighbor from the training set. To compare against the supervised methods, the pose of the nearest neighbor is then compared against ground-truth.\nNow we evaluate our visual similarity learning and the resulting identification of nearest postures. For comparison, similar postures are also retrieved using HOG-LDA [10] and Alexnet [13]. In addition, we also report an upper bound on the performance that can be achieved by the nearest neighbor using ground-truth similarities. Therefore, the nearest training pose for a query is identified by minimizing the average distance between their ground-truth pose annotation. This is the best one can do by finding the most similar frame, when not provided with a supervised parametric model (the performance gap to 100% shows the difference between training and test poses). For completeness, we compare with a fully supervised state-of-the-art approach for pose estimation [18]. We use the same experimental settings described in Sect. 3.1.\nTab. 2 reports the Percentage of Correct Parts (PCP) for the different methods. The prediction for a part is considered correct when its endpoints are within 50% part length of the corresponding ground truth endpoints. Our approach significantly improves the visual similarities learned using Alexnet and HOG-LDA. It is note-worthy that even though our approach for estimating the pose is fully unsupervised it attains a competitive performance when compared to the upper-bound of supervised ground truth similarities.\nIn addition, Fig. 5 presents success (a) and failure (c) cases of our method. In Fig.5(a) we can see that the pose is correctly transferred from the nearest neighbor (b) from the training set, resulting in a PCP score of 0.6 for that particular image. Moreover, Fig.5(c), (d) show that the representation learnt\nby our method is invariant to front-back flips (matching a person facing away from the camera to one facing the camera). Since our approach learns pose similarity in an unsupervised manner, it becomes invariant to changes in appearance as long as the shape is similar, thus explaining this confusion. Adding additional training data or directly incorporating face detection-based features could resolve this."
+    }, {
+      "heading" : "3.3 PASCAL VOC 2007: Object Classification",
+      "text" : "The previous sections have analyzed the learning of pose similarities. Now we evaluate the learning of similarities over object categories. Therefore, we classify object bounding boxes of the PASCAL VOC 2007 dataset. To initialize our model we now use the visual similarities of Wang et al. [22] without applying any fine tuning on PASCAL and also compare against this approach. Thus, neither ImageNet nor Pascal VOC labels are utilized. For comparison we evaluate against HOG-LDA [10], [22], and R-CNN [9]. For our method and HOG-LDA we use the same experimental settings as described in Sect. 3.1, initializing our method and network with the similarities obtained by [22]. For all methods, the k nearest neighbors are computed using similarities (Pearson correlation) based on fc6. In Tab. 3 we show the classification accuracies for all approaches for k = 5. Our approach improves upon the initial similarities of the unsupervised approach of [22] to yield a performance gain of 3% without requiring any supervision information or fine-tuning on PASCAL."
+    }, {
+      "heading" : "4 Conclusion",
+      "text" : "We have proposed an approach for unsupervised learning of similarities between large numbers of exemplars using CNNs. CNN training is made applicable in this context by addressing crucial problems resulting from the single positive exemplar setup, the imbalance between exemplar and negatives, and inconsistent labels within SGD batches. Optimization of a single cost function yields SGD batches of compact, mutually dissimilar cliques of samples. Learning exemplar similarities is then posed as a categorization task on individual batches. In the experimental evaluation the approach has shown competitive performance compared to the state-of-the-art, providing significantly finer similarity structure that is particularly crucial for detailed posture analysis.\nThis research has been funded in part by the Ministry for Science, Baden-Württemberg and the Heidelberg Academy of Sciences, Heidelberg, Germany. We are grateful to the NVIDIA corporation for donating a Titan X GPU."
+    } ],
+    "references" : [ {
+      "title" : "The quadratic assignment problem",
+      "author" : [ "R.E. Burkard", "E. Çela", "P.M. Pardalos", "L. Pitsoulis" ],
+      "venue" : "Handbook of Combinatorial Optimization",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : "1",
+      "year" : 1998
+    }, {
+      "title" : "What makes paris look like paris",
+      "author" : [ "C. Doersch", "S. Singh", "A. Gupta", "J. Sivic", "A. Efros" ],
+      "venue" : "ACM TOG,",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 2012
+    }, {
+      "title" : "Unsupervised visual representation learning by context prediction",
+      "author" : [ "Carl Doersch", "Abhinav Gupta", "Alexei A Efros" ],
+      "venue" : "In ICCV,",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 2015
+    }, {
+      "title" : "Discriminative unsupervised feature learning with convolutional neural networks",
+      "author" : [ "Alexey Dosovitskiy", "Jost Tobias Springenberg", "Martin Riedmiller", "Thomas Brox" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : "4",
+      "year" : 2014
+    }, {
+      "title" : "A similarity learning approach to content-based image retrieval: application to digital mammography",
+      "author" : [ "I. El-Naqa", "Y. Yang", "N.P. Galatsanos", "R.M. Nishikawa", "M.N. Wernick" ],
+      "venue" : null,
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : "6",
+      "year" : 2004
+    }, {
+      "title" : "A discriminatively trained, multiscale, deformable part model",
+      "author" : [ "Pedro Felzenszwalb", "David McAllester", "Deva Ramanan" ],
+      "venue" : "In CVPR,",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : "7",
+      "year" : 2008
+    }, {
+      "title" : "Pose search: retrieving people using their pose",
+      "author" : [ "V. Ferrari", "M. Marin-Jimenez", "A. Zisserman" ],
+      "venue" : "In CVPR,",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : "8",
+      "year" : 2009
+    }, {
+      "title" : "Rich feature hierarchies for accurate object detection and semantic segmentation",
+      "author" : [ "Ross Girshick", "Jeff Donahue", "Trevor Darrell", "Jitendra Malik" ],
+      "venue" : "In CVPR,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 2014
+    }, {
+      "title" : "Discriminative decorrelation for clustering and classification",
+      "author" : [ "Bharath Hariharan", "Jitendra Malik", "Deva Ramanan" ],
+      "venue" : "In ECCV,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : "10",
+      "year" : 2012
+    }, {
+      "title" : "An exemplar-based crf for multi-instance object segmentation",
+      "author" : [ "X. He", "S. Gould" ],
+      "venue" : "In CVPR. IEEE,",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 2014
+    }, {
+      "title" : "Learning effective human pose estimation from inaccurate annotation",
+      "author" : [ "Sam Johnson", "Mark Everingham" ],
+      "venue" : "In Proceedings of IEEE Conference on Computer Vision and Pattern Recognition,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 2011
+    }, {
+      "title" : "Imagenet classification with deep convolutional neural networks",
+      "author" : [ "Alex Krizhevsky", "Ilya Sutskever", "Geoffrey E Hinton" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 2012
+    }, {
+      "title" : "Backpropagation applied to handwritten zip code recognition",
+      "author" : [ "Y. LeCun", "B. Boser", "J.S. Denker", "D. Henderson", "R.E. Howard", "W. Hubbard", "L.D. Jackel" ],
+      "venue" : "Neural computation,",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 1989
+    }, {
+      "title" : "Ensemble of exemplar-svms for object detection and beyond",
+      "author" : [ "Tomasz Malisiewicz", "Abhinav Gupta", "Alexei A Efros" ],
+      "venue" : "In ICCV,",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : "15",
+      "year" : 2011
+    }, {
+      "title" : "Modeling temporal structure of decomposable motion segments for activity classification",
+      "author" : [ "Juan Carlos Niebles", "Chih-Wei Chen", "Li Fei-Fei" ],
+      "venue" : "In ECCV,",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : "16",
+      "year" : 2010
+    }, {
+      "title" : "Parsing videos of actions with segmental grammars",
+      "author" : [ "H. Pirsiavash", "D. Ramanan" ],
+      "venue" : "In CVPR,",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : "17",
+      "year" : 2014
+    }, {
+      "title" : "Pose machines: Articulated pose estimation via inference machines",
+      "author" : [ "V. Ramakrishna", "D. Munoz", "M. Hebert", "J.A. Bagnell", "Y. Sheikh" ],
+      "venue" : "In ECCV",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : "18",
+      "year" : 2014
+    }, {
+      "title" : "Generative regularization with latent topics for discriminative object recognition",
+      "author" : [ "J. Rubio", "A. Eigenstetter", "B. Ommer" ],
+      "venue" : "PR, 48:3871–3880,",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : "19",
+      "year" : 2015
+    }, {
+      "title" : "Clustered exemplar-svm: Discovering sub-categories for visual recognition",
+      "author" : [ "Nataliya Shapovalova", "Greg Mori" ],
+      "venue" : "In ICIP,",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : "20",
+      "year" : 2015
+    }, {
+      "title" : "Learning fine-grained image similarity with deep ranking",
+      "author" : [ "Jiang Wang", "Yang Song", "Thomas Leung", "Chuck Rosenberg", "Jingbin Wang", "James Philbin", "Bo Chen", "Ying Wu" ],
+      "venue" : "In CVPR,",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : "21",
+      "year" : 2014
+    }, {
+      "title" : "Unsupervised learning of visual representations using videos",
+      "author" : [ "X. Wang", "A. Gupta" ],
+      "venue" : "In ICCV,",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : "22",
+      "year" : 2015
+    }, {
+      "title" : "Online multiple kernel similarity learning for visual",
+      "author" : [ "Hao Xia", "Steven CH Hoi", "Rong Jin", "Peilin Zhao" ],
+      "venue" : "search. TPAMI,",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : "23",
+      "year" : 2014
+    }, {
+      "title" : "The concave-convex procedure (CCCP)",
+      "author" : [ "A.L. Yuille", "Anand Rangarajan" ],
+      "venue" : "Neural computation,",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : "24",
+      "year" : 2003
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 13,
+      "context" : "However, large intra-class variability has recently spurred exemplar methods [15, 11], which split this problem into simpler sub-tasks.",
+      "startOffset" : 77,
+      "endOffset" : 85
+    }, {
+      "referenceID" : 9,
+      "context" : "However, large intra-class variability has recently spurred exemplar methods [15, 11], which split this problem into simpler sub-tasks.",
+      "startOffset" : 77,
+      "endOffset" : 85
+    }, {
+      "referenceID" : 9,
+      "context" : "The exemplar paradigm has been successfully employed in diverse areas such as segmentation [11], grouping [10], instance retrieval [2, 19], and object recognition [15, 5].",
+      "startOffset" : 91,
+      "endOffset" : 95
+    }, {
+      "referenceID" : 8,
+      "context" : "The exemplar paradigm has been successfully employed in diverse areas such as segmentation [11], grouping [10], instance retrieval [2, 19], and object recognition [15, 5].",
+      "startOffset" : 106,
+      "endOffset" : 110
+    }, {
+      "referenceID" : 1,
+      "context" : "The exemplar paradigm has been successfully employed in diverse areas such as segmentation [11], grouping [10], instance retrieval [2, 19], and object recognition [15, 5].",
+      "startOffset" : 131,
+      "endOffset" : 138
+    }, {
+      "referenceID" : 17,
+      "context" : "The exemplar paradigm has been successfully employed in diverse areas such as segmentation [11], grouping [10], instance retrieval [2, 19], and object recognition [15, 5].",
+      "startOffset" : 131,
+      "endOffset" : 138
+    }, {
+      "referenceID" : 13,
+      "context" : "The exemplar paradigm has been successfully employed in diverse areas such as segmentation [11], grouping [10], instance retrieval [2, 19], and object recognition [15, 5].",
+      "startOffset" : 163,
+      "endOffset" : 170
+    }, {
+      "referenceID" : 6,
+      "context" : "Learning similarities is also of particular importance for posture analysis [8] and video parsing [17].",
+      "startOffset" : 76,
+      "endOffset" : 79
+    }, {
+      "referenceID" : 15,
+      "context" : "Learning similarities is also of particular importance for posture analysis [8] and video parsing [17].",
+      "startOffset" : 98,
+      "endOffset" : 102
+    }, {
+      "referenceID" : 21,
+      "context" : "Among the many approaches for similarity learning, supervised techniques have been particularly popular in the vision community, leading to the formulation as a ranking [23], regression [6], and classification [17] task.",
+      "startOffset" : 169,
+      "endOffset" : 173
+    }, {
+      "referenceID" : 4,
+      "context" : "Among the many approaches for similarity learning, supervised techniques have been particularly popular in the vision community, leading to the formulation as a ranking [23], regression [6], and classification [17] task.",
+      "startOffset" : 186,
+      "endOffset" : 189
+    }, {
+      "referenceID" : 15,
+      "context" : "Among the many approaches for similarity learning, supervised techniques have been particularly popular in the vision community, leading to the formulation as a ranking [23], regression [6], and classification [17] task.",
+      "startOffset" : 210,
+      "endOffset" : 214
+    }, {
+      "referenceID" : 19,
+      "context" : "With the recent advances of convolutional neural networks (CNN), two-stream architectures [25] and ranking losses [21] have shown great improvements.",
+      "startOffset" : 114,
+      "endOffset" : 118
+    }, {
+      "referenceID" : 2,
+      "context" : "However, to achieve their performance gain, CNN architectures require millions of samples of supervised training data or at least the fine-tuning [3] on large datasets such as PASCAL VOC.",
+      "startOffset" : 146,
+      "endOffset" : 149
+    }, {
+      "referenceID" : 3,
+      "context" : "However, CNNs for exemplar-based learning have been rare [4] due to limitations resulting from the widely used softmax loss.",
+      "startOffset" : 57,
+      "endOffset" : 60
+    }, {
+      "referenceID" : 13,
+      "context" : "The Exemplar Support Vector Machine (Exemplar-SVM) has been one of the driving methods for exemplar based learning [15].",
+      "startOffset" : 115,
+      "endOffset" : 119
+    }, {
+      "referenceID" : 8,
+      "context" : "To circumvent this high computational cost [10] proposes to train Linear Discriminant Analysis (LDA) over Histogram of Gradient (HOG) features [10].",
+      "startOffset" : 43,
+      "endOffset" : 47
+    }, {
+      "referenceID" : 8,
+      "context" : "To circumvent this high computational cost [10] proposes to train Linear Discriminant Analysis (LDA) over Histogram of Gradient (HOG) features [10].",
+      "startOffset" : 143,
+      "endOffset" : 147
+    }, {
+      "referenceID" : 19,
+      "context" : "Recently, several CNN approaches have been proposed for supervised similarity learning using either pairs [25], or triplets [21] of images.",
+      "startOffset" : 124,
+      "endOffset" : 128
+    }, {
+      "referenceID" : 3,
+      "context" : "In [4] the authors of ExemplarCNN tackle the problem of unsupervised feature learning.",
+      "startOffset" : 3,
+      "endOffset" : 6
+    }, {
+      "referenceID" : 2,
+      "context" : "[3] showed that temporal information in videos and spatial context information in images can be utilized as a convenient supervisory signal for learning feature representation with CNNs.",
+      "startOffset" : 0,
+      "endOffset" : 3
+    }, {
+      "referenceID" : 2,
+      "context" : "However, the computational cost of the training algorithm is enormous since the approach in [3] needs to tackle all possible pair-wise image relationships requiring training set that scales quadratically with the number of samples.",
+      "startOffset" : 92,
+      "endOffset" : 95
+    }, {
+      "referenceID" : 18,
+      "context" : "2 we discuss why simply merging an exemplar with its nearest neighbors and data augmentation (similar in spirit to the Clustered Exemplar-SVM [20]) is not sufficient to address (i).",
+      "startOffset" : 142,
+      "endOffset" : 146
+    }, {
+      "referenceID" : 14,
+      "context" : "1(a) shows the average ROC curve for posture retrieval in the Olympic Sports dataset [16] (refer to Sec.",
+      "startOffset" : 85,
+      "endOffset" : 89
+    }, {
+      "referenceID" : 8,
+      "context" : "To obtain this initial set of few, mutually similar samples for an exemplar, we now briefly discuss the reliability of standard feature distances such as whitening HOG features using LDA [10].",
+      "startOffset" : 187,
+      "endOffset" : 191
+    }, {
+      "referenceID" : 11,
+      "context" : "Figure 2: Averaging of the 50 nearest neighbours for a given query frame using similarities obtained by our approach, Alexnet[13] and HOG-LDA [10].",
+      "startOffset" : 125,
+      "endOffset" : 129
+    }, {
+      "referenceID" : 8,
+      "context" : "Figure 2: Averaging of the 50 nearest neighbours for a given query frame using similarities obtained by our approach, Alexnet[13] and HOG-LDA [10].",
+      "startOffset" : 142,
+      "endOffset" : 146
+    }, {
+      "referenceID" : 0,
+      "context" : "Since X is discrete, the optimization problem (1) is not easier than the Quadratic Assignment Proble which is known to be NP -hardm [1].",
+      "startOffset" : 132,
+      "endOffset" : 135
+    }, {
+      "referenceID" : 22,
+      "context" : "It can be solved using the CCCP Algorithm [24].",
+      "startOffset" : 42,
+      "endOffset" : 46
+    }, {
+      "referenceID" : 12,
+      "context" : "One of the key properties of CNNs is the training using SGD and backpropagation [14].",
+      "startOffset" : 80,
+      "endOffset" : 84
+    }, {
+      "referenceID" : 14,
+      "context" : "For evaluation, three different settings are considered: posture analysis on Olympic Sports [16], pose estimation on Leeds Sports [12], and object classification on PASCAL VOC 2007.",
+      "startOffset" : 92,
+      "endOffset" : 96
+    }, {
+      "referenceID" : 10,
+      "context" : "For evaluation, three different settings are considered: posture analysis on Olympic Sports [16], pose estimation on Leeds Sports [12], and object classification on PASCAL VOC 2007.",
+      "startOffset" : 130,
+      "endOffset" : 134
+    }, {
+      "referenceID" : 14,
+      "context" : "The Olympic Sports dataset [16] is a video compilation of different sports competitions.",
+      "startOffset" : 27,
+      "endOffset" : 31
+    }, {
+      "referenceID" : 3,
+      "context" : "We compare the proposed method with the Exemplar-CNN [4], the two-stream approach of Doersch et.",
+      "startOffset" : 53,
+      "endOffset" : 56
+    }, {
+      "referenceID" : 2,
+      "context" : "al [3], 1-sample CNN and NN-CNN models (in a very similar spirit to [20]), Alexnet [13], Exemplar-SVMs [15], and HOG-LDA [10].",
+      "startOffset" : 3,
+      "endOffset" : 6
+    }, {
+      "referenceID" : 18,
+      "context" : "al [3], 1-sample CNN and NN-CNN models (in a very similar spirit to [20]), Alexnet [13], Exemplar-SVMs [15], and HOG-LDA [10].",
+      "startOffset" : 68,
+      "endOffset" : 72
+    }, {
+      "referenceID" : 11,
+      "context" : "al [3], 1-sample CNN and NN-CNN models (in a very similar spirit to [20]), Alexnet [13], Exemplar-SVMs [15], and HOG-LDA [10].",
+      "startOffset" : 83,
+      "endOffset" : 87
+    }, {
+      "referenceID" : 13,
+      "context" : "al [3], 1-sample CNN and NN-CNN models (in a very similar spirit to [20]), Alexnet [13], Exemplar-SVMs [15], and HOG-LDA [10].",
+      "startOffset" : 103,
+      "endOffset" : 107
+    }, {
+      "referenceID" : 8,
+      "context" : "al [3], 1-sample CNN and NN-CNN models (in a very similar spirit to [20]), Alexnet [13], Exemplar-SVMs [15], and HOG-LDA [10].",
+      "startOffset" : 121,
+      "endOffset" : 125
+    }, {
+      "referenceID" : 5,
+      "context" : "Due to its performance in object and person detection, we use the approach of [7] to compute person bounding boxes.",
+      "startOffset" : 78,
+      "endOffset" : 81
+    }, {
+      "referenceID" : 11,
+      "context" : "Thereafter we compute similarities using features extracted from layer fc7 in the caffe implementation of [13].",
+      "startOffset" : 106,
+      "endOffset" : 110
+    }, {
+      "referenceID" : 3,
+      "context" : "(ii) Exemplar-CNN is trained using the best performing parameters reported in [4] and the 64c5-128c5-256c5-512f architecture.",
+      "startOffset" : 78,
+      "endOffset" : 81
+    }, {
+      "referenceID" : 8,
+      "context" : "HOG-LDA [10] Ex-SVM [15] Ex-CNN [4] Alexnet [13] 1-s CNN NN-CNN Doersch et.",
+      "startOffset" : 8,
+      "endOffset" : 12
+    }, {
+      "referenceID" : 13,
+      "context" : "HOG-LDA [10] Ex-SVM [15] Ex-CNN [4] Alexnet [13] 1-s CNN NN-CNN Doersch et.",
+      "startOffset" : 20,
+      "endOffset" : 24
+    }, {
+      "referenceID" : 3,
+      "context" : "HOG-LDA [10] Ex-SVM [15] Ex-CNN [4] Alexnet [13] 1-s CNN NN-CNN Doersch et.",
+      "startOffset" : 32,
+      "endOffset" : 35
+    }, {
+      "referenceID" : 11,
+      "context" : "HOG-LDA [10] Ex-SVM [15] Ex-CNN [4] Alexnet [13] 1-s CNN NN-CNN Doersch et.",
+      "startOffset" : 44,
+      "endOffset" : 48
+    }, {
+      "referenceID" : 11,
+      "context" : "As implementation for both CNNs we again used the model of [13] fine-tuned for 10(5) iterations.",
+      "startOffset" : 59,
+      "endOffset" : 63
+    }, {
+      "referenceID" : 10,
+      "context" : "The Leeds Sports Dataset [12] is the most widely used benchmark for pose estimation.",
+      "startOffset" : 25,
+      "endOffset" : 29
+    }, {
+      "referenceID" : 8,
+      "context" : "For comparison, similar postures are also retrieved using HOG-LDA [10] and Alexnet [13].",
+      "startOffset" : 66,
+      "endOffset" : 70
+    }, {
+      "referenceID" : 11,
+      "context" : "For comparison, similar postures are also retrieved using HOG-LDA [10] and Alexnet [13].",
+      "startOffset" : 83,
+      "endOffset" : 87
+    }, {
+      "referenceID" : 16,
+      "context" : "For completeness, we compare with a fully supervised state-of-the-art approach for pose estimation [18].",
+      "startOffset" : 99,
+      "endOffset" : 103
+    }, {
+      "referenceID" : 20,
+      "context" : "[22] without applying any fine tuning on PASCAL and also compare against this approach.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 8,
+      "context" : "For comparison we evaluate against HOG-LDA [10], [22], and R-CNN [9].",
+      "startOffset" : 43,
+      "endOffset" : 47
+    }, {
+      "referenceID" : 20,
+      "context" : "For comparison we evaluate against HOG-LDA [10], [22], and R-CNN [9].",
+      "startOffset" : 49,
+      "endOffset" : 53
+    }, {
+      "referenceID" : 7,
+      "context" : "For comparison we evaluate against HOG-LDA [10], [22], and R-CNN [9].",
+      "startOffset" : 65,
+      "endOffset" : 68
+    }, {
+      "referenceID" : 20,
+      "context" : "1, initializing our method and network with the similarities obtained by [22].",
+      "startOffset" : 73,
+      "endOffset" : 77
+    }, {
+      "referenceID" : 20,
+      "context" : "Our approach improves upon the initial similarities of the unsupervised approach of [22] to yield a performance gain of 3% without requiring any supervision information or fine-tuning on PASCAL.",
+      "startOffset" : 84,
+      "endOffset" : 88
+    } ],
+    "year" : 2016,
+    "abstractText" : "Exemplar learning is a powerful paradigm for discovering visual similarities in an unsupervised manner. In this context, however, the recent breakthrough in deep learning could not yet unfold its full potential. With only a single positive sample, a great imbalance between one positive and many negatives, and unreliable relationships between most samples, training of Convolutional Neural networks is impaired. Given weak estimates of local distance we propose a single optimization problem to extract batches of samples with mutually consistent relations. Conflicting relations are distributed over different batches and similar samples are grouped into compact cliques. Learning exemplar similarities is framed as a sequence of clique categorization tasks. The CNN then consolidates transitivity relations within and between cliques and learns a single representation for all samples without the need for labels. The proposed unsupervised approach has shown competitive performance on detailed posture analysis and object classification.",
+    "creator" : null
+  }
+}

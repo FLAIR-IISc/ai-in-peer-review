@@ -1,0 +1,38 @@
+Summary and contributions
+- The paper tackles single-image super-resolution (SR) by reframing it as amortised MAP inference under an exact data-consistency constraint. It introduces an affine projection layer built from the downsampling operator A and its Moore–Penrose pseudoinverse A+ to guarantee Afθ(x)=x, turning MAP into the unconstrained optimisation of the cross-entropy H[qθ, pY], where qθ is the marginal distribution of outputs produced from LR inputs.
+- It proposes three training strategies to approximate this cross-entropy: (i) AffGAN, a GAN variant (with a modified generator loss) operating on the projected outputs, (ii) AffDG, using a denoiser to estimate ∇y log pY(y) and backpropagating through the SR network, and (iii) AffLL, using a differentiable density model to guide training. It also introduces “instance noise” to stabilise GAN training.
+- Experiments: a 2D Swiss-roll toy problem where cross-entropy can be estimated; image SR on grass textures, CelebA, and ImageNet (4×). The affine projection is also evaluated as an architectural component under MSE. Qualitative results suggest AffGAN produces sharper, more plausible images than MSE/MAE, with exact LR-HR consistency via the projection.
+
+Decision: Reject (borderline)
+Key reasons: (1) The empirical support for the central claim (amortised MAP via cross-entropy minimisation) is weak on real images: of the three proposed routes, only the GAN route yields competitive performance, and even that is primarily qualitative and not rigorously evaluated against strong baselines. (2) The approach optimises the marginal qθ to match pY; this does not directly ensure faithful conditional reconstruction pY|X, and the paper exhibits failure cases (hallucinations) without quantifying the faithfulness–plausibility trade-off.
+
+Supporting arguments
+- Motivation and placement: The need to move beyond MSE and to enforce exact consistency with the observation model is well motivated. The affine projection formulation is elegant, simple, and likely broadly useful for inverse problems. The paper positions itself relative to SRGAN and perceptual losses, and to denoising/density modelling, although related “data consistency” ideas in inverse problems could be discussed more widely.
+- Theory: The derivation that exact data consistency converts amortised MAP to minimising H[qθ,pY] is sound. However:
+  - The proposed AffGAN minimises KL(qθ||pY), not H[qθ,pY], differing by the entropy H[qθ]. This difference matters: reverse KL is typically mode-seeking and may encourage low-entropy, low-diversity solutions that concentrate on modes rather than MAP in the per-x posterior slices; calling this “approximate MAP” is plausible but not fully justified.
+  - The reduction to matching the marginal distribution qθ(y) to pY(y) is a weak surrogate for conditional MAP over pY|X: the generator can satisfy Afθ(x)=x while adding an x-independent residual in the nullspace of A that matches the prior marginal. The paper acknowledges hallucinations (e.g., “snake → water”), but does not quantify how often this happens nor provide conditional fidelity metrics beyond PSNR/SSIM, which are not aligned with perceptual aims.
+  - The variational interpretation (Appendix F) connects KL(qY;θ||pY) with Ex KL(qY|X;θ || pY|X). This is interesting, but hinges on the exact affine constraint and the stochastic generator; the main experiments use deterministic AffGAN and do not evaluate this variational view empirically.
+- Empirical evidence and rigor:
+  - Swiss-roll convincingly shows AffGAN/AffDG reduce cross-entropy to near-MAP; good sanity check.
+  - Real images: AffGAN yields sharp outputs, but the evaluation is predominantly visual; PSNR/SSIM unsurprisingly favour MSE. No human perceptual studies or learned perceptual metrics (e.g., LPIPS), and no comparison to strong perceptual SR baselines (e.g., SRGAN/ESRGAN or VGG-based content+adv losses). This makes it hard to assess whether the method improves perceptual quality beyond prior art.
+  - AffDG and AffLL underperform (blurry, unstable). Since these two are the most direct approximations to the cross-entropy objective, their failure weakens the case that amortised MAP via H[qθ,pY] is practical at scale with current denoisers/density models.
+  - Affine projection under MSE is a nice ablation: improves training speed and sometimes final MSE/SSIM while ensuring exact consistency. However, the practical pseudoinverse for strided blur-conv is approximate; the paper claims near machine-precision optimisation but does not quantify sensitivity to kernel size/stride or mismatch between A used in training and real degradations.
+  - Instance noise is a reasonable stabilisation technique, similar in spirit to later developments (e.g., noise/regularisation in discriminators). The justification is clear, but broader ablations (with/without, different schedules) are limited.
+- Clarity and reproducibility: The core ideas are clearly presented and mathematical derivations are accessible. There are typos and some unevenness. Experimental details are substantial, but code/data are not provided.
+
+Suggestions to improve (not required for decision)
+- Evaluate perceptual quality rigorously: user studies or learned perceptual metrics (LPIPS), FID/KID on reconstructions conditioned on x, and calibration of the hallucination rate. Compare against SRGAN/ESRGAN and VGG-based perceptual losses with and without explicit LR-consistency terms.
+- Quantify conditional fidelity: beyond PSNR/SSIM, report metrics that test whether high-frequency content correlates with x (e.g., evaluating patch-wise texture matching conditioned on LR inputs, or using feature-space consistency measures).
+- Analyse the dependence of the residual (I−A+A)fθ(x) on x. Does the nullspace component actually use x, or is it largely x-independent? Visualise/measure mutual information between residual and x.
+- Robustness to mismatch: test when the true downsampling kernel differs from A used in training; measure degradation in LR-consistency and perceptual quality.
+- Strengthen AffDG/AffLL: explore stronger density models (e.g., modern autoregressive/flow models), improved denoiser training schedules, or score-matching/score-based diffusion guidance; show they can compete on at least some datasets.
+- Provide more ablations on A+: exact vs learned, kernel sizes, and how close the projection is to true pseudoinverse in practice.
+- Broaden related work on data-consistency layers/constraints in inverse problems.
+
+Questions for the authors
+- How often do conditional failures (plausible but wrong semantics) occur? Can you quantify this trade-off and/or provide controls (e.g., conditional regularisers) to mitigate it?
+- How sensitive are results to mismatch between the assumed A (blur kernel, stride) and the true degradation? Can the method be adapted to jointly estimate A?
+- In AffGAN, does the nullspace residual meaningfully depend on x? Can you measure this (e.g., by shuffling x across a batch and checking changes in high-frequency content)?
+- What is the impact of the entropy gap between KL(q||p) and H[q,p] in practice? Did you try objectives closer to cross-entropy (e.g., f-GAN variants) and observe differences?
+- Could you report LPIPS/FID or small-scale human studies to substantiate the perceptual gains?
+- For AffDG/AffLL, what were the main failure modes? Do stronger denoisers/density models or alternative schedules make them viable?

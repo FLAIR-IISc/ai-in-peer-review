@@ -1,0 +1,66 @@
+Summary and contributions
+The paper proposes Cholesky-CMA-ES, a variant of CMA-ES that maintains and updates a triangular Cholesky factor A of the covariance matrix C = A A^T and replaces the use of C−1/2 in cumulative step-size adaptation (CSA) by A−1. This eliminates repeated eigendecompositions or matrix square roots and enables rank-1/rank-µ updates directly on A in O(µ d^2) time with optimal storage (triangular A only). A theoretical argument shows that the deviation introduced by replacing C−1/2 with A−1 in CSA vanishes asymptotically when the covariance shape stabilizes. Empirically, Cholesky-CMA-ES matches standard CMA-ES in terms of objective-function evaluations while substantially reducing wall-clock time, with increasing gains as dimensionality grows.
+
+Relation to prior work
+The paper builds on:
+- Delayed covariance updates to reduce runtime at the cost of stale matrices (Hansen & Ostermeier; Hansen tutorial).
+- Restricted models (diagonal/separable, low-rank, limited-memory) that can compromise performance on non-separable functions (Ros & Hansen; Sun et al.; Loshchilov 2014/2015).
+- Direct factor updates (Suttorp et al. 2009) and a fast rank-one Cholesky update (Krause & Igel 2015) in special CMA-ES variants.
+The novelty is a principled integration of triangular Cholesky updates into standard CMA-ES (with rank-µ) and a justification for the CSA approximation that avoids computing a changing rotation factor, while keeping evaluation counts unchanged.
+
+Strengths
+- Clear computational win: O(µ d^2) per iteration with minimal memory, avoiding costly decompositions and enabling fast triangular solves/inversion when needed.
+- Theoretical rationale: via an RQ/polar decomposition argument, shows the rotation between successive iterations converges (under shape stabilization), making the CSA norm error negligible due to exponential forgetting.
+- Empirical evidence across standard benchmarks and random rotations shows the same number of evaluations as the reference CMA-ES while lowering runtime substantially; the speedup grows with d (e.g., 20× at d=64).
+- Practical engineering: rank-one update algorithm on A; careful discussion of implementation and cache effects; release in Shark.
+
+Weaknesses and suggestions
+- Numerical stability claim needs clearer theoretical grounding. Cholesky factorization is backward stable for SPD matrices and triangular solves avoid explicit inverses, but repeated rank-one updates can accumulate rounding errors and risk loss of SPD without safeguards. Please:
+  - Cite numerical analysis results (e.g., Higham, Accuracy and Stability of Numerical Algorithms) regarding stability of Cholesky rank-one updates/downdates and triangular solves versus eigen-based square roots.
+  - Quantify accumulated error: track symmetry/PSD violations, condition number growth, and drift in A A^T versus C over long runs; show periodic re-factorization (from C) is rarely needed or provide thresholds for re-factorization/jitter.
+  - Clarify that solving A x = b is more stable than forming A−1 explicitly; advocate triangular solves in CSA rather than computing A−1.
+- Clarify a likely misconception: the diagonal of a Cholesky factor does not provide the eigenvalues of C in general. The singular values of A are √(eigenvalues of C), but these are not equal to diag(A). If you enforce variance floors along principal components, explain how you obtain or approximate eigenvalues without eigendecomposition.
+- Theory scope: the argument via Lemma 1 assumes shape convergence and uses exponential forgetting; it would help to:
+  - Provide a finite-time bound on the norm error in CSA as a function of the rotation drift ||E_t E_{t−1}^T − I|| and algorithm parameters (cσ, µeff).
+  - Discuss behavior under non-stationary regimes (e.g., on Rosenbrock far from optimum) and in noisy settings.
+- Benchmarking breadth: consider reporting on standardized COCO/BBOB suites with budgets, restarts, and noise scenarios, which are common baselines in the CMA-ES community. Also include larger d beyond 256 if feasible and ablate µ, λ settings.
+- High-dimensional extensions: while full C is quadratic-time and memory, exploring compatibility with low-dimensional/limited-memory CMA (Loshchilov 2015, LM-CMA) would be valuable. For example:
+  - Maintain a limited-memory low-rank-plus-diagonal approximation and update its Cholesky-like factors with your rank-one machinery.
+  - Hybrid approach: use Cholesky-CMA-ES early (when d is moderate, ill-conditioning high), switch to LM-CMA at large d, or combine with main-vector adaptation.
+  - Demonstrate applicability to high-dimensional neural policy search where full C is borderline feasible.
+
+Quality
+Technically sound with a plausible theoretical justification for the CSA approximation and correct complexity analysis. The experiments convincingly show identical evaluation counts and reduced wall-clock time. The numerical stability discussion is promising but should be tightened with standard stability results and diagnostics. Please correct/clarify the eigenvalue statement.
+
+Clarity
+The paper is generally well written and organized. The exposition of the CSA approximation and the role of rotations is helpful. Suggested improvements:
+- Make the “numerically more stable” claim precise with references and diagnostics.
+- Separate clearly what is proven, what is heuristic, and what is empirically corroborated.
+- Provide pseudocode that emphasizes triangular solves over explicit inversion.
+
+Originality
+A novel and useful combination: extending fast triangular Cholesky updates to standard CMA-ES with rank-µ and proposing a CSA approximation with a convergence-based justification. Differs clearly from prior non-triangular factor approaches and from limited-memory methods.
+
+Significance
+High. CMA-ES is widely used; a drop-in variant that preserves evaluation efficiency while cutting runtime and memory will see adoption. The approach advances practical scalability for ill-conditioned, non-separable problems, and may inform other stochastic second-order methods.
+
+Pros for acceptance
+- Strong practical impact: substantial speedups with unchanged evaluation counts.
+- Elegant, simple modification with optimal asymptotic time and space complexity for full-C adaptations.
+- Solid experiments including rotation invariance checks.
+- Theoretical rationale for the key approximation.
+
+Cons for acceptance
+- Numerical stability claims require clearer justification and diagnostics.
+- One technical statement about eigenvalues appears incorrect or misleading.
+- Limited benchmarking scope; no results with COCO/BBOB or noisy settings.
+- No exploration of integration with limited-memory/low-rank variants for very large d.
+
+Questions for the authors
+- Can you provide finite-time bounds on the CSA norm error and its effect on σ updates?
+- Do you ever need periodic re-Cholesky from C to control drift? How often in practice?
+- Can you report stability metrics (PSD violations, conditioning, A A^T reconstruction error) across long runs?
+- How would you combine your method with LM-CMA or other low-dimensional approximations for d ≥ 1000?
+
+Overall assessment
+A valuable implementation-driven contribution with a sound idea, careful algorithmic engineering, and convincing empirical benefits. With strengthened stability analysis and clarified claims, I recommend acceptance.

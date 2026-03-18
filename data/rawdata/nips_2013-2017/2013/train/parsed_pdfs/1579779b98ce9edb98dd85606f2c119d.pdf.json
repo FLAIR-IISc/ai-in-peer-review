@@ -1,0 +1,355 @@
+{
+  "name" : "1579779b98ce9edb98dd85606f2c119d.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Convergence of Monte Carlo Tree Search in Simultaneous Move Games",
+    "authors" : [ "Viliam Lisý", "Vojtěch Kovařı́k", "Marc Lanctot", "Branislav Bošanský" ],
+    "emails" : [ "@agents.fel.cvut.cz", "@maastrichtuniversity.nl" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Non-cooperative game theory is a formal mathematical framework for describing behavior of interacting self-interested agents. Recent interest has brought significant advancements from the algorithmic perspective and new algorithms have led to many successful applications of game-theoretic models in security domains [1] and to near-optimal play of very large games [2]. We focus on an important class of two-player, zero-sum extensive-form games (EFGs) with perfect information and simultaneous moves. Games in this class capture sequential interactions that can be visualized as a game tree. The nodes correspond to the states of the game, in which both players act simultaneously. We can represent these situations using the normal form (i.e., as matrix games), where the values are computed from the successor sub-games. Many well-known games are instances of this class, including card games such as Goofspiel [3, 4], variants of pursuit-evasion games [5], and several games from general game-playing competition [6].\nSimultaneous-move games can be solved exactly in polynomial time using the backward induction algorithm [7, 4], recently improved with alpha-beta pruning [8, 9]. However, the depth-limited search algorithms based on the backward induction require domain knowledge (an evaluation function) and computing the cutoff conditions requires linear programming [8] or using a double-oracle method [9], both of which are computationally expensive. For practical applications and in situations with limited domain knowledge, variants of simulation-based algorithms such as Monte Carlo Tree Search (MCTS) are typically used in practice [10, 11, 12, 13]. In spite of the success of MCTS and namely its variant UCT [14] in practice, there is a lack of theory analyzing MCTS outside two-player perfect-information sequential games. To the best of our knowledge, no convergence guarantees are known for MCTS in games with simultaneous moves or general EFGs.\nIn this paper, we present a general template of MCTS algorithms for zero-sum perfect-information simultaneous move games. It can be instantiated using any regret minimizing procedure for matrix games as a function for selecting the next actions to be sampled. We formally prove that if the algorithm uses an -Hannan consistent selection function, which assures attempting each action infinitely many times, the MCTS algorithm eventually converges to a subgame perfect -Nash equilibrium of the extensive form game. We empirically evaluate this claim using two different -Hannan consistent procedures: regret matching [15] and Exp3 [16]. In the experiments on randomly generated and worst case games, we show that the empirical speed of convergence of the algorithms based on our template is comparable to recently proposed MCTS algorithms for these games. We conjecture that many of these algorithms also converge to -Nash equilibrium and that our formal analysis could be extended to include them."
+    }, {
+      "heading" : "2 Definitions and background",
+      "text" : "A finite zero-sum game with perfect information and simultaneous moves can be described by a tuple (N ,H,Z,A, T , u1, h0), where N = {1, 2} contains player labels, H is a set of inner states and Z denotes the terminal states. A = A1 ×A2 is the set of joint actions of individual players and we denote A1(h) = {1 . . .mh} and A2(h) = {1 . . . nh} the actions available to individual players in state h ∈ H. The transition function T : H×A1×A2 7→ H∪Z defines the successor state given a current state and actions for both players. For brevity, we sometimes denote T (h, i, j) ≡ hij . The utility function u1 : Z 7→ [vmin, vmax] ⊆ R gives the utility of player 1, with vmin and vmax denoting the minimum and maximum possible utility respectively. Without loss of generality we assume vmin = 0, vmax = 1, and ∀z ∈ Z, u2(z) = 1− u1(z). The game starts in an initial state h0. A matrix game is a single-stage simultaneous move game with action sets A1 and A2. Each entry in the matrix M = (aij) where (i, j) ∈ A1 ×A2 and aij ∈ [0, 1] corresponds to a payoff (to player 1) if row i is chosen by player 1 and column j by player 2. A strategy σq ∈ ∆(Aq) is a distribution over the actions in Aq . If σ1 is represented as a row vector and σ2 as a column vector, then the expected value to player 1 when both players play with these strategies is u1(σ1, σ2) = σ1Mσ2. Given a profile σ = (σ1, σ2), define the utilities against best response strategies to be u1(br, σ2) = maxσ′1∈∆(A1) σ ′ 1Mσ2 and u1(σ1, br) = minσ′2∈∆(A2) σ1Mσ ′ 2. A strategy profile (σ1, σ2) is an\n-Nash equilibrium of the matrix game M if and only if\nu1(br, σ2)− u1(σ1, σ2) ≤ and u1(σ1, σ2)− u1(σ1, br) ≤ (1)\nTwo-player perfect information games with simultaneous moves are sometimes appropriately called stacked matrix games because at every state h each joint action from setA1(h)×A2(h) either leads to a terminal state or to a subgame which is itself another stacked matrix game (see Figure 1).\nA behavioral strategy for player q is a mapping from states h ∈ H to a probability distribution over the actions Aq(h), denoted σq(h). Given a profile σ = (σ1, σ2), define the probability of reaching a terminal state z under σ as πσ(z) = π1(z)π2(z), where each πq(z) is a product of probabilities of the actions taken by player q along the path to z. Define Σq to be the set of behavioral strategies for player q. Then for any strategy profile σ = (σ1, σ2) ∈ Σ1×Σ2 we define the expected utility of the strategy profile (for player 1) as\nu(σ) = u(σ1, σ2) = ∑ z∈Z πσ(z)u1(z) (2)\nAn -Nash equilibrium profile (σ1, σ2) in this case is defined analogously to (1). In other words, none of the players can improve their utility by more than by deviating unilaterally. If the strategies are an -NE in each subgame starting in an arbitrary game state, the equilibrium strategy is termed subgame perfect. If σ = (σ1, σ2) is an exact Nash equilibrium (i.e., -NE with = 0), then we denote the unique value of the game vh0 = u(σ1, σ2). For any h ∈ H, we denote vh the value of the subgame rooted in state h."
+    }, {
+      "heading" : "3 Simultaneous move Monte-Carlo Tree Search",
+      "text" : "Monte Carlo Tree Search (MCTS) is a simulation-based state space search algorithm often used in game trees. The nodes in the tree represent game states. The main idea is to iteratively run simulations to a terminal state, incrementally growing a tree rooted at the initial state of the game. In its simplest form, the tree is initially empty and a single leaf is added each iteration. Each simulation starts by visiting nodes in the tree, selecting which actions to take based on a selection function and information maintained in the node. Consequently, it transitions to the successor states. When a node is visited whose immediate children are not all in the tree, the node is expanded by adding a new leaf to the tree. Then, a rollout policy (e.g., random action selection) is applied from the new leaf to a terminal state. The outcome of the simulation is then returned as a reward to the new leaf and the information stored in the tree is updated.\nIn Simultaneous Move MCTS (SM-MCTS), the main difference is that a joint action of both players is selected. The algorithm has been previously applied, for example in the game of Tron [12], Urban Rivals [11], and in general game-playing [10]. However, guarantees of convergence to NE remain unknown. The convergence to a NE depends critically on the selection and update policies applied, which are even more non-trivial than in purely sequential games. The most popular selection policy in this context (UCB) performs very well in some games [12], but Shafiei et al. [17] show that it does not converge to Nash equilibrium, even in a simple one-stage simultaneous move game. In this paper, we focus on variants of MCTS, which provably converge to (approximate) NE; hence we do not discuss UCB any further. Instead, we describe variants of two other selection algorithms after explaining the abstract SM-MCTS algorithm.\nAlgorithm 1 describes a single simulation of SM-MCTS. T represents the MCTS tree in which each state is represented by one node. Every node h maintains a cumulative reward sum over all simulations through it, Xh, and a visit count nh, both initially set to 0. As depicted in Figure 1, a matrix of references to the children is maintained at each inner node. The critical parts of the algorithm are the updates on lines 8 and 14 and the selection on line 10. Each variant below will describe a different way to select an action and update a node. The standard way of defining the value to send back is RetVal(u1, Xh, nh) = u1, but we discuss also RetVal(u1, Xh, nh) = Xh/nh, which is required for the formal analysis in Section 4. We denote this variant of the algorithms\nSM-MCTS(node h)1 if h ∈ Z then return u1(h)2 else if h ∈ T and ∃(i, j) ∈ A1(h)×A2(h) not previously selected then3 Choose one of the previously unselected (i, j) and h′ ← T (h, i, j)4 Add h′ to T5 u1 ← Rollout(h′)6 Xh′ ← Xh′ + u1; nh′ ← nh′ + 17 Update(h, i, j, u1)8 return RetVal(u1, Xh′ , nh′)9\n(i, j)← Select(h)10 h′ ← T (h, i, j)11 u1 ← SM-MCTS(h′)12 Xh ← Xh + u1; nh ← nh + 113 Update(h, i, j, u1)14 return RetVal(u1, Xh, nh)15\nAlgorithm 1: Simultaneous Move Monte Carlo Tree Search\nwith additional “M” for mean. Algorithm 1 and the variants below are expressed from player 1’s perspective. Player 2 does the same except using negated utilities."
+    }, {
+      "heading" : "3.1 Regret matching",
+      "text" : "This variant applies regret-matching [15] to the current estimated matrix game at each stage. Suppose iterations are numbered from s ∈ {1, 2, 3, · · · } and at each iteration and each inner node h there is a mixed strategy σs(h) used by each player, initially set to uniform random: σ0(h, i) = 1/|A(h)|. Each player maintains a cumulative regret rh[i] for having played σs(h) instead of i ∈ A1(h). The values are initially set to 0.\nOn iteration s, the Select function (line 10 in Algorithm 1) first builds the player’s current strategies from the cumulative regret. Define x+ = max(x, 0),\nσs(h, a) = r+h [a]\nR+sum if R+sum > 0 oth.\n1\n|A1(h)| , where R+sum = ∑ i∈A1(h) r+h [i]. (3)\nThe strategy is computed by assigning higher weight proportionally to actions based on the regret of having not taken them over the long-term. To ensure exploration, an γ-on-policy sampling procedure is used choosing action i with probability γ/|A(h)|+ (1− γ)σs(h, i), for some γ > 0. The Updates on lines 8 and 14 add regret accumulated at the iteration to the regret tables rh. Suppose joint action (i1, j2) is sampled from the selection policy and utility u1 is returned from the recursive call on line 12. Define x(h, i, j) = Xhij if (i, j) 6= (i1, j2), or u1 otherwise. The updates to the regret are:\n∀i′ ∈ A1(h), rh[i′]← rh[i′] + (x(h, i′, j)− u1)."
+    }, {
+      "heading" : "3.2 Exp3",
+      "text" : "In Exp3 [16], a player maintains an estimate of the sum of rewards, denoted xh,i, and visit counts nh,i for each of their actions i ∈ A1. The joint action selected on line 10 is composed of an action independently selected for each player. The probability of sampling action a in Select is\nσs(h, a) = (1− γ) exp(ηwh,a)∑ i∈A1(h) exp(ηwh,i) + γ |A1(h)| , where η =\nγ\n|A1(h)| and wh,i = xh,i1. (4)\nThe Update after selecting actions (i, j) and obtaining a result (u1, u2) updates the visits count (nh,i ← nh,i + 1) and adds to the corresponding reward sum estimates the reward divided by the probability that the action was played by the player (xh,i ← xh,i +u1/σs(h, i)). Dividing the value by the probability of selecting the corresponding action makes xh,i estimate the sum of rewards over all iterations, not only the once where action i was selected."
+    }, {
+      "heading" : "4 Formal analysis",
+      "text" : "We focus on the eventual convergence to approximate NE, which allows us to make an important simplification: We disregard the incremental building of the tree and assume we have built the complete tree. We show that this will eventually happen with probability 1 and that the statistics collected during the tree building phase cannot prevent the eventual convergence.\nThe main idea of the proof is to show that the algorithm will eventually converge close to the optimal strategy in the leaf nodes and inductively prove that it will converge also in higher levels of the tree. In order to do that, after introducing the necessary notation, we start by analyzing the situation in simple matrix games, which corresponds mainly to the leaf nodes of the tree. In the inner nodes of the tree, the observed payoffs are imprecise because of the stochastic nature of the selection functions and bias caused by exploration, but the error can be bounded. Hence, we continue with analysis of repeated matrix games with bounded error. Finally, we compose the matrices with bounded errors in\n1In practice, we set wh,i = xh,i−maxi′∈A1(h) xh,i′ since exp(xh,i) can easily cause numerical overflows. This reformulation computes the same values as the original algorithm but is more numerically stable.\na multi-stage setting to prove convergence guarantees of SM-MCTS. Any proofs that are omitted in the paper are included in the appendix available in the supplementary material and on http://arxiv.org (arXiv:1310.8613)."
+    }, {
+      "heading" : "4.1 Notation and definitions",
+      "text" : "Consider a repeatedly played matrix game where at time s players 1 and 2 choose actions is and js respectively. We will use the convention (|A1|, |A2|) = (m,n). Define\nG(t) = t∑ s=1 aisjs , g(t) = 1 t G(t), and Gmax(t) = max i∈A1 t∑ s=1 aijs ,\nwhere G(t) is the cumulative payoff, g(t) is the average payoff, and Gmax is the maximum cumulative payoff over all actions, each to player 1 and at time t. We also denote gmax(t) = Gmax(t)/t and by R(t) = Gmax(t) − G(t) and r(t) = gmax(t) − g(t) the cumulative and average regrets. For actions i of player 1 and j of player 2, we denote ti, tj the number of times these actions were chosen up to the time t and tij the number of times both of these actions has been chosen at once. By empirical frequencies we mean the strategy profile (σ̂1(t), σ̂2(t)) ∈ 〈0, 1〉m×〈0, 1〉n given by the formulas σ̂1(t, i) = ti/t, σ̂2(t, j) = tj/t. By average strategies, we mean the strategy profile (σ̄1(t), σ̄2(t)) given by the formulas σ̄1(t, i) = ∑t s=1 σ s 1(i)/t, σ̄2(t, j) = ∑t s=1 σ s 2(j)/t, where σ s 1, σs2 are the strategies used at time s. Definition 4.1. We say that a player is -Hannan-consistent if, for any payoff sequences (e.g., against any opponent strategy), lim supt→∞, r(t) ≤ holds almost surely. An algorithm A is - Hannan consistent, if a player who chooses his actions based on A is -Hannan consistent.\nHannan consistency (HC) is a commonly studied property in the context of online learning in repeated (single stage) decisions. In particular, RM and variants of Exp3 has been shown to be Hannan consistent in matrix games [15, 16]. In order to ensure that the MCTS algorithm will eventually visit each node infinitely many times, we need the selection function to satisfy the following property. Definition 4.2. We say that A is an algorithm with guaranteed exploration, if for players 1 and 2 both using A for action selection limt→∞ tij =∞ holds almost surely ∀(i, j) ∈ A1 ×A2.\nNote that most of the HC algorithms, namely RM and Exp3, guarantee exploration without any modification. If there is an algorithm without this property, it can be adjusted the following way. Definition 4.3. Let A be an algorithm used for choosing action in a matrix game M . For fixed exploration parameter γ ∈ (0, 1) we define a modified algorithm A∗ as follows: In each time, with probability (1 − γ) run one iteration of A and with probability γ choose the action randomly uniformly over available actions, without updating any of the variables belonging to A."
+    }, {
+      "heading" : "4.2 Repeated matrix games",
+      "text" : "First we show that the -Hannan consistency is not lost due to the additional exploration. Lemma 4.4. Let A be an -Hannan consistent algorithm. Then A∗ is an ( + γ)-Hannan consistent algorithm with guaranteed exploration.\nIn previous works on MCTS in our class of games, RM variants generally suggested using the average strategy and Exp3 variants the empirical frequencies to obtain the strategy to be played. The following lemma says there eventually is no difference between the two. Lemma 4.5. As t approaches infinity, the empirical frequencies and average strategies will almost surely be equal. That is, lim supt→∞maxi∈A1 |σ̂1(t, i)− σ̄1(t, i)| = 0 holds with probability 1.\nThe proof is a consequence of the martingale version of Strong Law of Large Numbers.\nIt is well known that two Hannan consistent players will eventually converge to NE (see [18, p. 11] and [19]). We prove a similar result for the approximate versions of the notions. Lemma 4.6. Let > 0 be a real number. If both players in a matrix game with value v are -Hannan consistent, then the following inequalities hold for the empirical frequencies almost surely:\nlim sup t→∞ u (br, σ̂2(t)) ≤ v + 2 and lim inf t→∞ u (σ̂1(t), br) ≥ v − 2 . (5)\nThe proof shows that if the value caused by the empirical frequencies was outside of the interval infinitely many times with positive probability, it would be in contradiction with definition of -HC. The following corollary is than a direct consequence of this lemma. Corollary 4.7. If both players in a matrix game are -Hannan consistent, then there almost surely exists t0 ∈ N, such that for every t ≥ t0 the empirical frequencies and average strategies form (4 + δ)-equilibrium for arbitrarly small δ > 0.\nThe constant 4 is caused by going from a pair of strategies with best responses within 2 of the game value guaranteed by Lemma 4.6 to the approximate NE, which multiplies the distance by two."
+    }, {
+      "heading" : "4.3 Repeated matrix games with bounded error",
+      "text" : "After defining the repeated games with error, we present a variant of Lemma 4.6 for these games. Definition 4.8. We define M(t) = (aij(t)) to be a game, in which if players chose actions i and j, they receive randomized payoffs aij (t, (i1, ...it−1), (j1, ...jt−1)). We will denote these simply as aij(t), but in fact they are random variables with values in [0, 1] and their distribution in time t depends on the previous choices of actions. We say that M(t) = (aij(t)) is a repeated game with error η, if there is a matrix game M = (aij) and almost surely exists t0 ∈ N, such that |aij(t)− aij | < η holds for all t ≥ t0.\nIn this context, we will denote G(t) = ∑ s∈{1...t} aisjs(s) etc. and use tilde for the corresponding\nvariables without errors (G̃(t) = ∑ aisjs etc.). Symbols v and u (·, ·) will still be used with respect to M without errors. The following lemma states that even with the errors, -HC algorithms still converge to an approximate NE of the game. Lemma 4.9. Let > 0 and c ≥ 0. If M(t) is a repeated game with error c and both players are -Hannan consistent then the following inequalities hold almost surely:\nlim sup t→∞ u (br, σ̂2) ≤ v + 2(c+ 1) , lim inf t→∞ u (σ̂1, br) ≥ v − 2(c+ 1) (6)\nand v − (c+ 1) ≤ lim inf t→∞ g(t) ≤ lim sup t→∞ g(t) ≤ v + (c+ 1) . (7)\nThe proof is similar to the proof of Lemma 4.6. It needs an additional claim that if the algorithm is -HC with respect to the observed values with errors, it still has a bounded regret with respect to the exact values. In the same way as in the previous subsection, a direct consequence of the lemma is the convergence to an approximate Nash equilibrium. Theorem 4.10. Let , c > 0 be real numbers. If M(t) is a repeated game with error c and both players are -Hannan consistent, then for any δ > 0 there almost surely exists t0 ∈ N, such that for all t ≥ t0 the empirical frequencies form (4(c+ 1) + δ)-equilibrium of the game M ."
+    }, {
+      "heading" : "4.4 Perfect-information extensive-form games with simultaneous moves",
+      "text" : "Now we have all the necessary components to prove the main theorem. Theorem 4.11. Let ( Mh ) h∈H be a game with perfect information and simultaneous moves with maximal depth D. Then for every -Hannan consistent algorithm A with guaranteed exploration and arbitrary small δ > 0, there almost surely exists t0, so that the average strategies (σ̂1(t), σ̂2(t)) form a subgame perfect (\n2D2 + δ ) -Nash equilibrium for all t ≥ t0.\nOnce we have established the convergence of the -HC algorithms in games with errors, we can proceed by induction. The games in the leaf nodes are simple matrix game so they will eventually converge and they will return the mean reward values in a bounded distance from the actual value of the game (Lemma 4.9 with c = 0). As a result, in the level just above the leaf nodes, the - HC algorithms are playing a matrix game with a bounded error and by Lemma 4.9, they will also eventually return the mean values within a bounded interval. On level d from the leaf nodes, the errors of returned values will be in the order of d and players can gain 2d by deviating. Summing the possible gain of deviations on each level leads to the bound in the theorem. The subgame perfection of the equilibrium results from the fact that for proving the bound on approximation in the whole game (i.e., in the root of the game tree), a smaller bound on approximation of the equilibrium is proven for all subgames in the induction. The formal proof is presented in the appendix."
+    }, {
+      "heading" : "5 Empirical analysis",
+      "text" : "In this section, we first evaluate the influence of propagating the mean values instead of the current sample value in MCTS to the speed of convergence to Nash equilibrium. Afterwards, we try to assess the convergence rate of the algorithms in the worst case. In most of the experiments, we use as the bases of the SM-MCTS algorithm Regret matching as the selection strategy, because a superior convergence rate bound is known for this algorithm and it has been reported to be very successful also empirically in [20]. We always use the empirical frequencies to create the evaluated strategy and measure the exploitability of the first player’s strategy (i.e., vh0 − u(σ̂1, br))."
+    }, {
+      "heading" : "5.1 Influence of propagation of the mean",
+      "text" : "The formal analysis presented in the previous section requires the algorithms to return the mean of all the previous samples instead of the value of the current sample. The latter is generally the case in previous works on SM-MCTS [20, 11]. We run both variants with the Regret matching algorithm on a set of randomly generated games parameterized by depth and branching factor. Branching factor was always the same for both players. For the following experiments, the utility values are randomly selected uniformly from interval 〈0, 1〉. Each experiment uses 100 random games and 100 runs of the algorithm.\nFigure 2 presents how the exploitability of the strategies produced by Regret matching with propagation of the mean (RMM) and current sample value (RM) develops with increasing number of iterations. Note that both axes are in logarithmic scale. The top graph is for depth of 2, different branching factors (BF) and γ ∈ {0.05, 0.1, 0.2}. The bottom one presents different depths for BF = 2. The results show that both methods converge to the approximate Nash equilibrium of the game. RMM converges slightly slower in all cases. The difference is very small in small games, but becomes more apparent in games with larger depth."
+    }, {
+      "heading" : "5.2 Empirical convergence rate",
+      "text" : "Although the formal analysis guarantees the convergence to an -NE of the game, the rate of the convergence is not given. Therefore, we give an empirical analysis of the convergence and specifically focus on the cases that reached the slowest convergence from a set of evaluated games.\nWe have performed a brute force search through all games of depth 2 with branching factor 2 and utilities form the set {0, 0.5, 1}. We made 100 runs of RM and RMM with exploration set to γ = 0.05 for 1000 iterations and computed the mean exploitability of the strategy. The games with the highest exploitability for each method are presented in Figure 3. These games are not guaranteed to be the exact worst case, because of possible error caused by only 100 runs of the algorithm, but they are representatives of particularly difficult cases for the algorithms. In general, the games that are most difficult for one method are difficult also for the other. Note that we systematically searched also for games in which RMM performs better than RM, but this was never the case with sufficient number of runs of the algorithms in the selected games.\nFigure 3 shows the convergence of RM and Exp3 with propagating the current sample values and the mean values (RMM and Exp3M) on the empirically worst games for the RM variants. The RM variants converge to the minimal achievable values (0.0119 and 0.0367) after a million iterations. This values corresponds exactly to the exploitability of the optimal strategy combined with the uniform exploration with probability 0.05. The Exp3 variants most likely converge to the same values, however, they did not fully make it in the first million iterations in WC RM. The convergence rate of all the variants is similar and the variants with propagating means always converge a little slower."
+    }, {
+      "heading" : "6 Conclusion",
+      "text" : "We present the first formal analysis of convergence of MCTS algorithms in zero-sum extensive-form games with perfect information and simultaneous moves. We show that any -Hannan consistent algorithm can be used to create a MCTS algorithm that provably converges to an approximate Nash equilibrium of the game. This justifies the usage of the MCTS as an approximation algorithm for this class of games from the perspective of algorithmic game theory. We complement the formal analysis with experimental evaluation that shows that other MCTS variants for this class of games, which are not covered by the proof, also converge to the approximate NE of the game. Hence, we believe that the presented proofs can be generalized to include these cases as well. Besides this, we will focus our future research on providing finite time convergence bounds for these algorithms and generalizing the results to more general classes of extensive-form games with imperfect information."
+    }, {
+      "heading" : "Acknowledgments",
+      "text" : "This work is partially funded by the Czech Science Foundation (grant no. P202/12/2054), the Grant Agency of the Czech Technical University in Prague (grant no. OHK3-060/12), and the Netherlands Organisation for Scientific Research (NWO) in the framework of the project Go4Nature, grant number 612.000.938. The access to computing and storage facilities owned by parties and projects contributing to the National Grid Infrastructure MetaCentrum, provided under the programme “Projects of Large Infrastructure for Research, Development, and Innovations” (LM2010005) is appreciated."
+    } ],
+    "references" : [ {
+      "title" : "A double oracle algorithm for zero-sum security games",
+      "author" : [ "Manish Jain", "Dmytro Korzhyk", "Ondrej Vanek", "Vincent Conitzer", "Michal Pechoucek", "Milind Tambe" ],
+      "venue" : "In Tenth International Conference on Autonomous Agents and Multiagent Systems (AAMAS",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : "1",
+      "year" : 2011
+    }, {
+      "title" : "Finding optimal abstract strategies in extensive-form games",
+      "author" : [ "Michael Johanson", "Nolan Bard", "Neil Burch", "Michael Bowling" ],
+      "venue" : "In Proceedings of the Twenty-Sixth Conference on Artificial Intelligence (AAAI-",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 2012
+    }, {
+      "title" : "Goofspiel — the game of pure strategy",
+      "author" : [ "S.M. Ross" ],
+      "venue" : "Journal of Applied Probability,",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 1971
+    }, {
+      "title" : "Computer solution to the game of pure strategy",
+      "author" : [ "Glenn C. Rhoads", "Laurent Bartholdi" ],
+      "venue" : null,
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : "4",
+      "year" : 2012
+    }, {
+      "title" : "Markov games as a framework for multi-agent reinforcement learning",
+      "author" : [ "Michael L. Littman" ],
+      "venue" : "Proceedings of the Eleventh International Conference on Machine Learning",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : "5",
+      "year" : 1994
+    }, {
+      "title" : "General game-playing: Overview of the AAAI competition",
+      "author" : [ "M. Genesereth", "N. Love" ],
+      "venue" : "AI Magazine,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : "6",
+      "year" : 2005
+    }, {
+      "title" : "Solving the Oshi-Zumo game",
+      "author" : [ "Michael Buro" ],
+      "venue" : "In Proceedings of Advances in Computer Games",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : "7",
+      "year" : 2003
+    }, {
+      "title" : "Alpha-beta pruning for games with simultaneous moves",
+      "author" : [ "Abdallah Saffidine", "Hilmar Finnsson", "Michael Buro" ],
+      "venue" : "In Proceedings of the Thirty-Second Conference on Artificial Intelligence",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : "8",
+      "year" : 2012
+    }, {
+      "title" : "Using double-oracle method and serialized alpha-beta search for pruning in simultaneous moves games",
+      "author" : [ "Branislav Bosansky", "Viliam Lisy", "Jiri Cermak", "Roman Vitek", "Michal Pechoucek" ],
+      "venue" : "In Proceedings of the Twenty-Third International Joint Conference on Artificial Intelligence (IJCAI),",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 2013
+    }, {
+      "title" : "Simulation-based approach to general game-playing",
+      "author" : [ "H. Finnsson", "Y. Björnsson" ],
+      "venue" : "In The Twenty-Third AAAI Conference on Artificial Intelligence,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : "10",
+      "year" : 2008
+    }, {
+      "title" : "Upper confidence trees with short term partial information",
+      "author" : [ "Olivier Teytaud", "Sébastien Flory" ],
+      "venue" : "In Applications of Eolutionary Computation (EvoApplications",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 2011
+    }, {
+      "title" : "Comparison of different selection strategies in monte-carlo tree search for the game of Tron",
+      "author" : [ "Pierre Perick", "David L. St-Pierre", "Francis Maes", "Damien Ernst" ],
+      "venue" : "In Proceedings of the IEEE Conference on Computational Intelligence and Games (CIG),",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 2012
+    }, {
+      "title" : "Simulation-Based General Game Playing",
+      "author" : [ "Hilmar Finnsson" ],
+      "venue" : "PhD thesis, Reykjavik University,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 2012
+    }, {
+      "title" : "Bandit-based Monte Carlo planning",
+      "author" : [ "L. Kocsis", "C. Szepesvári" ],
+      "venue" : "European Conference on Machine Learning,",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 2006
+    }, {
+      "title" : "A simple adaptive procedure leading to correlated",
+      "author" : [ "S. Hart", "A. Mas-Colell" ],
+      "venue" : "equilibrium. Econometrica,",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : "15",
+      "year" : 2000
+    }, {
+      "title" : "The nonstochastic multiarmed bandit problem",
+      "author" : [ "Peter Auer", "Nicolò Cesa-Bianchi", "Yoav Freund", "Robert E. Schapire" ],
+      "venue" : "SIAM Journal on Computing,",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : "16",
+      "year" : 2002
+    }, {
+      "title" : "Comparing UCT versus CFR in simultaneous games",
+      "author" : [ "M. Shafiei", "N.R. Sturtevant", "J. Schaeffer" ],
+      "venue" : "In Proceeding of the IJCAI Workshop on General Game-Playing (GIGA),",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : "17",
+      "year" : 2009
+    }, {
+      "title" : "Abstraction in large extensive games",
+      "author" : [ "Kevin Waugh" ],
+      "venue" : "Master’s thesis, University of Alberta,",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : "18",
+      "year" : 2009
+    }, {
+      "title" : "Learning, regret minimization, and equilibria",
+      "author" : [ "A. Blum", "Y. Mansour" ],
+      "venue" : "Algorithmic Game Theory,",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : "19",
+      "year" : 2007
+    }, {
+      "title" : "Monte Carlo tree search in simultaneous move games with applications to Goofspiel",
+      "author" : [ "Marc Lanctot", "Viliam Lisý", "Mark H.M. Winands" ],
+      "venue" : "In Workshop on Computer Games at IJCAI,",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : "20",
+      "year" : 2013
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 0,
+      "context" : "Recent interest has brought significant advancements from the algorithmic perspective and new algorithms have led to many successful applications of game-theoretic models in security domains [1] and to near-optimal play of very large games [2].",
+      "startOffset" : 191,
+      "endOffset" : 194
+    }, {
+      "referenceID" : 1,
+      "context" : "Recent interest has brought significant advancements from the algorithmic perspective and new algorithms have led to many successful applications of game-theoretic models in security domains [1] and to near-optimal play of very large games [2].",
+      "startOffset" : 240,
+      "endOffset" : 243
+    }, {
+      "referenceID" : 2,
+      "context" : "Many well-known games are instances of this class, including card games such as Goofspiel [3, 4], variants of pursuit-evasion games [5], and several games from general game-playing competition [6].",
+      "startOffset" : 90,
+      "endOffset" : 96
+    }, {
+      "referenceID" : 3,
+      "context" : "Many well-known games are instances of this class, including card games such as Goofspiel [3, 4], variants of pursuit-evasion games [5], and several games from general game-playing competition [6].",
+      "startOffset" : 90,
+      "endOffset" : 96
+    }, {
+      "referenceID" : 4,
+      "context" : "Many well-known games are instances of this class, including card games such as Goofspiel [3, 4], variants of pursuit-evasion games [5], and several games from general game-playing competition [6].",
+      "startOffset" : 132,
+      "endOffset" : 135
+    }, {
+      "referenceID" : 5,
+      "context" : "Many well-known games are instances of this class, including card games such as Goofspiel [3, 4], variants of pursuit-evasion games [5], and several games from general game-playing competition [6].",
+      "startOffset" : 193,
+      "endOffset" : 196
+    }, {
+      "referenceID" : 6,
+      "context" : "Simultaneous-move games can be solved exactly in polynomial time using the backward induction algorithm [7, 4], recently improved with alpha-beta pruning [8, 9].",
+      "startOffset" : 104,
+      "endOffset" : 110
+    }, {
+      "referenceID" : 3,
+      "context" : "Simultaneous-move games can be solved exactly in polynomial time using the backward induction algorithm [7, 4], recently improved with alpha-beta pruning [8, 9].",
+      "startOffset" : 104,
+      "endOffset" : 110
+    }, {
+      "referenceID" : 7,
+      "context" : "Simultaneous-move games can be solved exactly in polynomial time using the backward induction algorithm [7, 4], recently improved with alpha-beta pruning [8, 9].",
+      "startOffset" : 154,
+      "endOffset" : 160
+    }, {
+      "referenceID" : 8,
+      "context" : "Simultaneous-move games can be solved exactly in polynomial time using the backward induction algorithm [7, 4], recently improved with alpha-beta pruning [8, 9].",
+      "startOffset" : 154,
+      "endOffset" : 160
+    }, {
+      "referenceID" : 7,
+      "context" : "However, the depth-limited search algorithms based on the backward induction require domain knowledge (an evaluation function) and computing the cutoff conditions requires linear programming [8] or using a double-oracle method [9], both of which are computationally expensive.",
+      "startOffset" : 191,
+      "endOffset" : 194
+    }, {
+      "referenceID" : 8,
+      "context" : "However, the depth-limited search algorithms based on the backward induction require domain knowledge (an evaluation function) and computing the cutoff conditions requires linear programming [8] or using a double-oracle method [9], both of which are computationally expensive.",
+      "startOffset" : 227,
+      "endOffset" : 230
+    }, {
+      "referenceID" : 9,
+      "context" : "For practical applications and in situations with limited domain knowledge, variants of simulation-based algorithms such as Monte Carlo Tree Search (MCTS) are typically used in practice [10, 11, 12, 13].",
+      "startOffset" : 186,
+      "endOffset" : 202
+    }, {
+      "referenceID" : 10,
+      "context" : "For practical applications and in situations with limited domain knowledge, variants of simulation-based algorithms such as Monte Carlo Tree Search (MCTS) are typically used in practice [10, 11, 12, 13].",
+      "startOffset" : 186,
+      "endOffset" : 202
+    }, {
+      "referenceID" : 11,
+      "context" : "For practical applications and in situations with limited domain knowledge, variants of simulation-based algorithms such as Monte Carlo Tree Search (MCTS) are typically used in practice [10, 11, 12, 13].",
+      "startOffset" : 186,
+      "endOffset" : 202
+    }, {
+      "referenceID" : 12,
+      "context" : "For practical applications and in situations with limited domain knowledge, variants of simulation-based algorithms such as Monte Carlo Tree Search (MCTS) are typically used in practice [10, 11, 12, 13].",
+      "startOffset" : 186,
+      "endOffset" : 202
+    }, {
+      "referenceID" : 13,
+      "context" : "In spite of the success of MCTS and namely its variant UCT [14] in practice, there is a lack of theory analyzing MCTS outside two-player perfect-information sequential games.",
+      "startOffset" : 59,
+      "endOffset" : 63
+    }, {
+      "referenceID" : 14,
+      "context" : "We empirically evaluate this claim using two different -Hannan consistent procedures: regret matching [15] and Exp3 [16].",
+      "startOffset" : 102,
+      "endOffset" : 106
+    }, {
+      "referenceID" : 15,
+      "context" : "We empirically evaluate this claim using two different -Hannan consistent procedures: regret matching [15] and Exp3 [16].",
+      "startOffset" : 116,
+      "endOffset" : 120
+    }, {
+      "referenceID" : 11,
+      "context" : "The algorithm has been previously applied, for example in the game of Tron [12], Urban Rivals [11], and in general game-playing [10].",
+      "startOffset" : 75,
+      "endOffset" : 79
+    }, {
+      "referenceID" : 10,
+      "context" : "The algorithm has been previously applied, for example in the game of Tron [12], Urban Rivals [11], and in general game-playing [10].",
+      "startOffset" : 94,
+      "endOffset" : 98
+    }, {
+      "referenceID" : 9,
+      "context" : "The algorithm has been previously applied, for example in the game of Tron [12], Urban Rivals [11], and in general game-playing [10].",
+      "startOffset" : 128,
+      "endOffset" : 132
+    }, {
+      "referenceID" : 11,
+      "context" : "The most popular selection policy in this context (UCB) performs very well in some games [12], but Shafiei et al.",
+      "startOffset" : 89,
+      "endOffset" : 93
+    }, {
+      "referenceID" : 16,
+      "context" : "[17] show that it does not converge to Nash equilibrium, even in a simple one-stage simultaneous move game.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 14,
+      "context" : "This variant applies regret-matching [15] to the current estimated matrix game at each stage.",
+      "startOffset" : 37,
+      "endOffset" : 41
+    }, {
+      "referenceID" : 15,
+      "context" : "In Exp3 [16], a player maintains an estimate of the sum of rewards, denoted xh,i, and visit counts nh,i for each of their actions i ∈ A1.",
+      "startOffset" : 8,
+      "endOffset" : 12
+    }, {
+      "referenceID" : 14,
+      "context" : "In particular, RM and variants of Exp3 has been shown to be Hannan consistent in matrix games [15, 16].",
+      "startOffset" : 94,
+      "endOffset" : 102
+    }, {
+      "referenceID" : 15,
+      "context" : "In particular, RM and variants of Exp3 has been shown to be Hannan consistent in matrix games [15, 16].",
+      "startOffset" : 94,
+      "endOffset" : 102
+    }, {
+      "referenceID" : 19,
+      "context" : "In most of the experiments, we use as the bases of the SM-MCTS algorithm Regret matching as the selection strategy, because a superior convergence rate bound is known for this algorithm and it has been reported to be very successful also empirically in [20].",
+      "startOffset" : 253,
+      "endOffset" : 257
+    }, {
+      "referenceID" : 19,
+      "context" : "The latter is generally the case in previous works on SM-MCTS [20, 11].",
+      "startOffset" : 62,
+      "endOffset" : 70
+    }, {
+      "referenceID" : 10,
+      "context" : "The latter is generally the case in previous works on SM-MCTS [20, 11].",
+      "startOffset" : 62,
+      "endOffset" : 70
+    } ],
+    "year" : 2013,
+    "abstractText" : "We study Monte Carlo tree search (MCTS) in zero-sum extensive-form games with perfect information and simultaneous moves. We present a general template of MCTS algorithms for these games, which can be instantiated by various selection methods. We formally prove that if a selection method is -Hannan consistent in a matrix game and satisfies additional requirements on exploration, then the MCTS algorithm eventually converges to an approximate Nash equilibrium (NE) of the extensive-form game. We empirically evaluate this claim using regret matching and Exp3 as the selection methods on randomly generated games and empirically selected worst case games. We confirm the formal result and show that additional MCTS variants also converge to approximate NE on the evaluated games.",
+    "creator" : null
+  }
+}

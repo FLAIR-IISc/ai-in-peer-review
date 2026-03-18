@@ -1,0 +1,48 @@
+Summary and relation to prior work
+The paper proposes a fast, learned approach to generate saliency masks for image classifiers. Rather than iteratively optimizing a mask per image (as in perturbation-based methods), the authors train a masking network (U-Net with a ResNet-50 encoder) to output a class-conditional mask in a single forward pass. The training objective encourages four properties: smoothness (TV penalty), compactness (area penalty), sufficiency (preserved region yields high target-class probability; akin to SSR), and destructiveness (removing the region lowers target-class probability; akin to SDR). To mitigate “introduced evidence” when masking, the edited image mixes the original with either blurred content or random color+noise in the masked region, sampled randomly during training. The method is applied to three ImageNet classifiers (AlexNet/GoogLeNet/ResNet-50) and to CIFAR-10. The authors also propose a new saliency metric based on the classification probability on a tight crop around the salient region versus the crop area.
+
+This sits at the intersection of backprop-based saliency (e.g., Simonyan et al., Guided Backprop, Excitation Backprop), class activation mapping (CAM and variants), and perturbation-based explanations (Fong & Vedaldi’s Meaningful Perturbations; Cao et al.). Relative to iterative perturbation methods, the main contribution is amortizing mask optimization via a learned network that runs in real time. The objective explicitly combines SSR and SDR criteria and includes design choices to reduce adversarial artifacts introduced by masking.
+
+Quality
+- Soundness of approach: The objective aligns with the stated goals (compactness, sufficiency, destructiveness, smoothness), and the architectural choice (U-Net) is sensible for sharp masks. Randomizing the “alternative image” A during training is a thoughtful way to reduce overfitting to a single perturbation scheme and to mitigate artifact exploitation, complemented by TV and up/down-sampling smoothing. Training sometimes uses a “fake” class to force attention to the class embedding, which is a practical fix.
+- Empirical support: The paper reports weakly supervised localization on ImageNet (thresholded masks converted to tight boxes) and shows a “saliency metric” computed on crops, and a CIFAR-10 experiment trained from scratch. Qualitatively, the resulting masks look sharper and more localized than baselines; the localization error is close to a fully supervised VGG model—an impressive outcome for weakly supervised training—and better than several related weakly supervised and saliency baselines. The network runs at >100 images/s on 224×224, which supports the real-time claim.
+- Weaknesses in rigor/clarity:
+  - Loss definition/signs: Equation (4) as typeset is ambiguous (e.g., the third term aims to “make sure the classifier is able to recognise the selected class,” which suggests a −log fc term, but the written form and coefficients could imply the opposite). Please fix the signs and provide the exact loss used.
+  - “Model-agnostic” vs differentiability: The method requires differentiability of the classifier during training (“applied to any differentiable image classifier”) to backpropagate through fc(φ(X,M)). This conflicts with “model-agnostic”/“black box” phrasing. At test time, the classifier is not needed, but training is not black-box in the strict sense. This should be clarified.
+  - New saliency metric: The definition s(a,p) = log(ã)/log(p) (with ã=max(a,0.05)) is unclear in two respects: (i) the paper later states “a low value is characteristic of good saliency detectors,” but for p near 1 and small a this ratio tends to be large in magnitude; (ii) it is not obvious why the ratio (versus, say, a product or a weighted sum) captures the intended trade-off. The cropped-resize protocol may also conflate scale/aspect distortions with sufficiency. A sensitivity analysis of the metric (and its monotonicity w.r.t. a and p) would help, as would comparisons to existing deletion/insertion metrics.
+  - Evaluation details: Important ablations are missing—sensitivity to λ1–λ4; threshold choice (0.5) for producing boxes; alternatives for A; effect of the “fake class” strategy; and speed/accuracy trade-offs vs iterative methods with matched compute budgets. It would also help to state the exact train/val splits used and confirm no overlap with evaluation images.
+  - Use of pre-trained encoder: On ImageNet, the masking network uses a fixed ResNet-50 encoder, which could inject object-biases that make localization easier. The CIFAR-10 from-scratch result partly addresses this, but an ablation (with/without pre-training) on ImageNet would be informative.
+
+Clarity
+- The paper is generally well written, with a clear motivation around SSR/SDR and introduced evidence. However, there are several typographical/formatting issues (e.g., broken equations, ambiguous operators in the saliency metric, and unclear loss signs) that hinder reproducibility. Training details (optimizer, learning rate, batch size, schedule) are missing or relegated to the appendix; they should be included to ensure others can reproduce results.
+- The “black box” terminology should be used precisely: the classifier is queried and differentiated through during training; only inference is self-contained.
+
+Originality
+- Learning a feed-forward, class-conditional masking model that amortizes perturbation-based saliency is, to my knowledge, novel relative to contemporaneous work (Fong & Vedaldi optimize a mask per image; other backprop/CAM methods don’t use a learned perturbation generator trained with SSR/SDR-inspired losses). The explicit treatment of introduced evidence via randomized A during training is a nice, practical addition. The proposed metric is new, though its formulation needs more justification.
+
+Significance
+- If robust, this approach is practically useful: orders-of-magnitude faster than iterative masking while producing sharper, more interpretable maps, enabling video-time explanations. The weakly supervised localization numbers are competitive and suggest the masks align with object extent better than several baselines. The idea of amortizing explanation via a dedicated network is likely to inspire follow-up work (e.g., for segmentation, multi-label, or temporal settings).
+- The impact would be strengthened by tighter evaluation (ablations, metric validation, runtime vs quality plots) and clearer claims around model-agnosticism.
+
+Pros
+- Clear, well-motivated objective combining SSR and SDR with artifact mitigation.
+- Real-time, feed-forward saliency with strong qualitative and quantitative results.
+- Sensible architecture and training tricks (class embedding, fake labels, randomized A).
+- Competitive weakly supervised localization without bbox supervision.
+
+Cons
+- Ambiguity in key equations (loss signs) and the saliency metric definition/justification.
+- “Black box/model-agnostic” wording is misleading; training requires differentiability.
+- Missing ablations and sensitivity analyses; incomplete reproducibility details.
+- Potential confound from using a pre-trained encoder inside the explainer on ImageNet.
+
+Questions and suggestions for authors
+- Clarify the exact loss (with signs) and provide training hyperparameters and optimizer details.
+- Justify and analyze the saliency metric: prove desired monotonic properties, report sensitivity to area cap (0.05), and compare to deletion/insertion metrics.
+- Provide ablations on λ’s, thresholding for boxes, choices of A, and the fake-class probability.
+- Report timing vs iterative methods at matched wall-clock budgets; include hardware details.
+- Discuss transfer: does a masking model trained for one classifier generalize to another?
+- Evaluate on multi-object, multi-label images and show class-conditional masks for non-GT classes.
+
+Recommendation: Weak accept
+Rationale: The core idea—amortizing perturbation-based saliency with a learned masking model trained under SSR/SDR-inspired objectives—is novel and practically significant, with promising results and speed. However, clarity issues (loss/metric), overbroad “black box” claims, and missing ablations reduce confidence. With clarifications and additional analyses, this would be a solid contribution.

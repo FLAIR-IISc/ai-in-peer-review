@@ -1,0 +1,46 @@
+1) Summary of contributions
+- Problem: Few-shot learning where a learner must generalize from k labeled examples per class within an episode; standard gradient-based training from random init is too slow/overfits.
+- Idea: Cast the inner-loop optimization as an LSTM. The learner’s parameters are the LSTM cell state; the update ct = ft ⊙ ct−1 + it ⊙ c̃t is learned, with c̃t a function of gradients/loss. The meta-learner learns both an update rule (input/forget gates as functions of gradient, loss, parameters, previous gates) and an initial cell state c0 (task-common initialization).
+- Practicalities: Parameter sharing across coordinates to scale; preprocessing of gradients/losses for stability; training via backprop through the unrolled T updates on train episodes to minimize test loss; “gradient independence” assumption to avoid second derivatives; careful handling of batch normalization to avoid cross-episode leakage.
+- Empirics: On Mini-ImageNet 5-way, 1-shot and 5-shot, their method outperforms nearest-neighbor and fine-tuning baselines and is competitive with, and better than in 5-shot, Matching Networks. They also visualize gate dynamics to probe learned optimization behavior.
+
+2) Decision: Accept
+Key reasons: (i) A clear, well-motivated, and novel formulation that unifies learning good initializations and learning the update rule per parameter via an LSTM; (ii) Competitive or superior empirical results on a challenging benchmark with careful episode-based evaluation, along with ablations/visualizations that improve understanding.
+
+3) Supporting arguments
+- Motivation and literature placement: Strong and timely. The paper positions itself well relative to meta-learning (e.g., Andrychowicz et al. for learned optimizers; Santoro et al. for memory-based meta-learning) and metric-learning approaches (Matching Networks). It articulates why learning an optimizer tailored to few-step adaptation and learning a good initialization are crucial in few-shot regimes and complements transfer learning.
+- Technical novelty and clarity: The mapping from gradient descent to LSTM cell updates is elegant, and the extensions (input/forget gates conditioned on gradient, loss, parameters, previous gate; learned initial cell state) are clearly described. Parameter sharing across coordinates is essential for scalability and is well justified. The batch normalization handling is thoughtful and addresses a subtle but important issue in episodic meta-learning.
+- Empirical support: Mini-ImageNet is an appropriate benchmark. The episode-based training/testing protocol matches few-shot conditions; confidence intervals are reported; the method decisively outperforms strong baselines and is competitive with a SOTA metric-learning method, especially in 5-shot where adaptation matters more. Visualizations of gate dynamics provide qualitative evidence the meta-learner learns nontrivial, dataset-dependent strategies.
+- Reproducibility: The algorithm is described, relevant hyperparameters are given, and code is promised.
+
+4) Additional feedback and questions (to improve the paper; not all are decision-critical)
+- Comparisons/baselines:
+  - Please include results on Omniglot (standard at the time) for comparability to Santoro et al. and others, or clarify why not.
+  - Consider adding Memory-Augmented Neural Networks or other meta-learners as baselines if feasible, or discuss expected relative behavior.
+  - Matching Networks: you use your own implementation; can you validate parity with the original on a common split or report ablations that show your version’s expected performance? Also clarify whether Matching Nets were allowed fine-tuning at meta-test (you say no) and discuss the impact.
+- Fairness/architecture capacity:
+  - Your learner CNN for the meta-learner uses 32 filters per conv block, while baselines/matching nets use 64. This potentially disadvantages your method on raw capacity. Conversely, it can confound comparisons. Please report results with matched capacities across methods or discuss why this choice does not change conclusions.
+- Ablations:
+  - Separate the contributions of the learned initialization c0 and the learned update rule. For example, fix ft=1 and it to a learned scalar schedule vs fully learned gates; or evaluate training only c0 with standard SGD vs full meta-learner.
+  - Analyze the effect of the gradient independence assumption. Could you report results with exact higher-order derivatives for smaller models, or justify empirically that differences are negligible?
+  - Generalization across number of inner-loop steps: you note better performance when training with the same T as testing. How robust is the meta-learner to T mismatch? Can it extrapolate to more/less steps?
+  - Preprocessing p parameter and gate initializations: show sensitivity.
+- Clarity/details:
+  - There’s a small sign consistency issue: to emulate gradient descent you need subtracting the gradient; you set c̃t = ∇θLt and it is a positive gate. Is the negative sign absorbed within the learned gating or inputs? Please clarify.
+  - Provide the dimensionality of the per-parameter LSTM hidden state and the total memory footprint for the learner you use; discuss scalability to larger backbones.
+  - Training specifics: number of meta-training episodes, batch size over episodes, unroll length T, whether you use truncation, and wall-clock/runtime vs baselines.
+- Batch normalization:
+  - Your strategy reinitializes running stats per episode and uses train-set stats to compute running averages used at meta-test on the test set. Please confirm no test-set information is used to compute running stats and that stats are reset between episodes. Consider reporting results without BN or with GroupNorm/LayerNorm to test robustness.
+- Additional analyses:
+  - Include per-way results (e.g., 20-way) and cross-shot generalization (train on 1-shot, test on 5-shot) to showcase versatility.
+  - Explore whether the learned optimizer transfers to new architectures or datasets without retraining the meta-learner.
+
+Questions for the authors
+- How large is the per-parameter LSTM state (hidden size and number of layers effectively applied per coordinate), and what is the resulting memory/time overhead compared to standard SGD/MAML-style updates?
+- Can the learned initialization alone (with standard SGD for a few steps) recover most of the gains? Conversely, if you start from random init but use the learned update rule, how much do you recover?
+- How sensitive is performance to the number of inner-loop updates T? Can you share curves of accuracy vs T at meta-test with a meta-learner trained at a fixed T?
+- Did you attempt exact higher-order meta-gradients (without the gradient-independence assumption) on a smaller model? If so, how did performance and stability compare?
+- For Matching Networks, what is the absolute accuracy you obtain on your split with the original paper’s architecture/hyperparameters, and how close is it to your reimplementation results?
+- Do the learned gates differ systematically across layers/parameter types (conv weights vs biases; final linear layer), and do you observe sparsity or structured patterns that suggest implicit regularization?
+
+Overall, this is a strong, well-motivated paper with a clear contribution and solid results. With a few added comparisons and ablations, it would be even more compelling.

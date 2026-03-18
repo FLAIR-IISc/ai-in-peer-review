@@ -1,0 +1,53 @@
+Summary and relation to prior work
+The paper tackles sparse precision matrix estimation at ultra-high dimensions by proposing a scalable inexact ADMM variant for CLIME (CLIME-ADMM) and parallel/distributed implementations. Methodologically, the authors (i) solve CLIME in column blocks (k columns at a time) rather than column-by-column, enabling use of high-performance matrix–matrix operations; (ii) linearize the quadratic penalty in the ADMM X-update to get a simple soft-thresholding step; and (iii) exploit either dynamic sparsity or low rank (p ≫ n) to compute CX via A(A′X). They prove standard O(1/T) rates for objective suboptimality and residuals under η ≥ ρ λmax(C)^2, and implement shared-memory (OpenMP) and distributed-memory (OpenMPI + ScaLAPACK) versions with block-cyclic distribution. Experiments compare against DC-QUIC, TIGER (flare), and a CLIME variant on synthetic and two real datasets, and demonstrate scaling to p = 10^6 with 400 cores.
+
+Relative to prior work on graphical lasso and QUIC variants, and distributed ADMM/GPBS frameworks, the contribution is a CLIME-specific linearized ADMM with a column-block formulation that maps cleanly to BLAS-3 kernels, plus a practical large-scale implementation. The theoretical rates align with existing results for inexact/linearized ADMM; the novelty lies more in the systems/algorithm-engineering aspects than in theory.
+
+Strengths
+- Practical scalability: A clear design to trade column-wise separability for GEMM-friendly column blocks, and to exploit low rank C = A A′ for p ≫ n. Demonstrated strong and weak scaling on both shared- and distributed-memory machines, with an impressive 1M-dimensional run.
+- Clean per-iteration structure: Elementwise proximal steps plus two matrix multiplications. Amenable to high-performance libraries and block-by-block implementations.
+- Empirical comparisons: Head-to-head against DC-QUIC and TIGER, including precision–recall curves and wall-clock comparisons; analysis of speedups Scolk and Scoreq is informative.
+- Implementation realism: Uses OpenMPI and ScaLAPACK; parallel I/O and block-cyclic distribution are standard, portable choices.
+- Nice practical insight: Leveraging p ≫ n to reduce FLOPs from O(p^2 k) to O(n p k) is crucial for ultra-high dimensions.
+
+Weaknesses and suggestions
+- Notation and missing definitions: Important symbols ρ (ADMM penalty) and especially η (prox parameter/linearization stepsize) appear in Algorithm 1 without being defined or discussed early. Recommendation: add a small notation table listing all symbols and their roles; define ρ, η, and explain the scaled dual Y. Be consistent with 1/2 factors in augmented terms.
+- Choice of column block size k: k is chosen ad hoc in experiments (e.g., 100) without guidance. Provide intuition or theory for choosing k, e.g., a rule-of-thumb from a roofline/capacity model: pick k so that the per-process working set for X, Y, W, and relevant A tiles fits in last-level cache; align kb with ScaLAPACK’s nb for PDGEMM to balance compute/communication; discuss dependence on process grid, pb×nb×kb, sparsity, and network bandwidth.
+- Block-cyclic distribution claims: The paper argues block-cyclic ensures load balance and scalability, but gives no empirical evidence. Please add measurements: per-process utilization timelines, variance of per-process runtime or flops, communication volume, and strong/weak scaling under different distributions (contiguous, 2D block, block-cyclic). Also clarify why block-cyclic helps when X and Y sparsity evolves over ADMM iterations.
+- Distributed vs parallel characterization: The work primarily describes a parallel implementation that relies on ScaLAPACK collective operations, but the communication pattern is not specified. To justify the “distributed algorithm” claim, describe the message-passing explicitly for the two-stage multiplication A′X and A W (row/column broadcasts, reductions), the cost model (latency/bandwidth terms), and how it scales with r×c grids and k. Otherwise, position the contribution as a parallel/distributed implementation rather than a new distributed optimization algorithm.
+- Parameter selection and reproducibility: Theorems require η ≥ ρ λmax(C)^2. How are ρ and η chosen in practice, and how is λmax(C) estimated at scale (e.g., power iteration using A)? Provide default settings, sensitivity analysis, and convergence diagnostics. Clarify how λ (CLIME tuning) is selected in experiments to match target sparsity.
+- Statistical aspects under low rank: CLIME does not impose PD; how are symmetry and PD handled post-hoc (e.g., symmetrization)? When using perturbed/sparsified C or low-rank multiplications, discuss any effect on statistical accuracy and provide additional empirical checks on recovery and PD.
+- Missing empirical validation for “near-linear” scaling: Figures show speedups but not end-to-end efficiency vs ideal (parallel efficiency). Include strong-scaling efficiency curves and breakdowns of compute vs communication vs I/O. Report memory footprint per node and I/O times.
+- Writing/typos and organization: Notation is scattered across Sections 1–3; suggest a consolidated notation section or table. Fix typos: “tunning” → “tuning”; “parameter tunning free” → “tuning-free” or “tuning insensitive”; “summerized” → “summarized”. Minor inconsistencies in norms and factors.
+
+Quality
+Technically sound overall; the ADMM derivation and O(1/T) rates are standard and plausible. The main gaps are in clarity on parameters, communication analysis, and empirical validation of load balancing. Experimental methodology is reasonable, but more detail on tuning and statistical accuracy at scale would strengthen claims.
+
+Clarity
+Generally readable, but organization suffers from scattered notation and undefined symbols. Algorithm 1 could be clearer with fully specified inputs/parameters and consistent operators. The systems section needs a concrete communication cost model and more explicit mapping to ScaLAPACK routines.
+
+Originality
+Moderate. Solving CLIME in column blocks to leverage BLAS-3 and block-cyclic distribution is a nice, practical idea; the theoretical rates are not novel. The combination and large-scale implementation are the main contributions.
+
+Significance
+High on the systems/practice side for large-scale precision estimation, especially when p ≫ n. If adopted, the approach could help practitioners push CLIME to previously infeasible scales.
+
+Questions for the authors
+- Provide a principled heuristic or guideline for choosing k as a function of process grid, block sizes, cache sizes, and n.
+- Detail the communication pattern and asymptotic communication costs of the two GEMMs per iteration; include empirical per-iteration comm/compute breakdowns.
+- How are ρ and η chosen in all experiments? How is λmax(C) estimated for η ≥ ρ λmax(C)^2 at p=10^6?
+- What is the memory footprint per node for the 1M run (A, X, Y, W, Z)? Include I/O times for parallel loading.
+- Do you symmetrize the CLIME solution, and how do you handle PD in downstream use?
+
+Pros for acceptance
+- Practical, scalable implementation with compelling demos up to p=10^6.
+- Clear algorithmic engineering that maps CLIME to high-performance kernels.
+- Relevance to NIPS community working on scalable ML and graphical models.
+
+Cons for acceptance
+- Insufficient detail on communication and load balancing; claims lack empirical evidence.
+- Ad hoc parameter and k choices; missing guidance may limit reproducibility.
+- Clarity issues in notation and some typos.
+
+Overall recommendation
+Lean toward acceptance if the authors strengthen the systems analysis (communication/load balance), clarify parameter choices and notation, and add empirical evidence for the block-cyclic advantages. The work makes a useful, pragmatic contribution to scalable graphical model estimation.

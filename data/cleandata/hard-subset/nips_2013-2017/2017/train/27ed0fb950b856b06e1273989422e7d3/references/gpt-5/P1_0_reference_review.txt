@@ -1,0 +1,62 @@
+Summary
+The paper proposes Deep Dynamic Poisson Factorization Analysis (DDPFA), a generative model for sequential count data x1:T ∈ RV×T+ that combines Poisson factorization with a deep, temporally structured hierarchy of latent variables. Observations are modeled as xvt ~ Poisson(sum_k θtk φvk λk ψv). Temporal dependencies are captured by introducing N layers of latent variables h(n)t (dimension K), with a windowed temporal context of size c at each layer and recurrent neural networks (RNNs) used to parameterize “implicit” conditional distributions p(h(n)t | h(n+1)t−c:t) (feedforward/forward) and an auxiliary “posterior” p(h(n)t | h(n−1)t:t+c) (backward). The bottom layer ties θt to h(0)t−c:t; the top layer uses a Gamma prior. The remaining parameters φ, ψ, λ have Gamma priors.
+
+Inference alternates between (i) mean-field variational updates exploiting Poisson–Gamma conjugacy for φ, ψ, λ, θ, h using auxiliary latent allocations xvtk; and (ii) training the RNN parameters with a “probability autoencoder” objective that uses squared errors between expectations under the neural networks rather than maximizing an ELBO. Experiments compare DDPFA against PGDS (Poisson-Gamma dynamical systems), LSTM, and static PFA on synthetic datasets and five real-world datasets (ICEWS events, NIPS, Ebola counts, International Disasters, Sheep), reporting MSE for fit and “PMSE” for one-step prediction. DDPFA generally outperforms baselines except on ICEWS prediction, where PGDS is competitive; qualitative plots are presented for ICEWS factors.
+
+Relation to prior work
+The paper builds on Poisson factorization and Gamma-NB processes (Zhou et al.), dynamic count models like PGDS (Schein et al., ICML’16), deep latent count models such as Deep Exponential Families (Ranganath et al., AISTATS’15), Deep Poisson factor analysis (Gan et al.), and recurrent models for count data (e.g., Recurrent Poisson Factorization for recommendation). The proposed deep temporal hierarchy with RNN-parameterized Gamma conditionals resembles amortized inference/generative parameterizations used in VAEs and Ladder VAE, but adapted to Poisson/gamma. The “probability autoencoder” objective is reminiscent of VAE/Autoencoder hybrids but differs from standard ELBO training.
+
+Strengths
+- Addresses an important and challenging setting: high-dimensional sparse sequential counts, relevant to text, events, and recommendation.
+- Attempts to combine the interpretability and conjugacy of Poisson factorization with flexible temporal dynamics via RNNs and depth for long-range patterns.
+- Empirical results indicate improvements on several datasets; qualitative ICEWS factors are interpretable.
+- The paper acknowledges and discusses practical issues (e.g., pruning, depth utility) and explores ladder-style connections to mitigate them.
+
+Weaknesses and detailed assessment
+
+Quality/technical soundness
+- Objective and inference: The core contribution—training neural networks that define “implicit” priors/posteriors—is not derived from a principled variational objective. Equations (15–18) replace a marginal likelihood/ELBO with ad-hoc squared-error losses between expectations of distributions. This breaks the probabilistic semantics, offers no guarantee of optimizing a bound, and makes it unclear what is being estimated. A rigorous ELBO with explicit parameterization of p(θt|h(0)) and q(h|·) and gradients w.r.t. network parameters (which are inside Gamma shapes/rates) should be provided. If reparameterization is hard for Gamma, alternatives (implicit reparameterization gradients, score-function estimators with control variates, or augmentation tricks common in Gamma belief networks) should be discussed and compared.
+- Conjugacy/updates: The MF updates assume conditional conjugacy, but the priors’ parameters are outputs of RNNs. Gradients w.r.t. network weights are not derived under the ELBO; instead the paper uses Eq. (16–18). The consistency between Stage 1 and Stage 2 is not established, and possible double-counting or bias is not analyzed.
+- Identifiability: With φvk, ψv, λk and θtk all positive and multiplicatively confounded, the model suffers scale indeterminacy. Without normalization (Dirichlet or column normalization) or constraints/regularization, parameter estimates can be ill-posed. The paper mentions using Gamma priors but does not address identifiability or provide rescaling schemes.
+- Bernoulli–Poisson link: The definition is incorrect/misleading (b = 1(x>1) as written; should be b = 1(x>0)), and the conditional x|b,λ should include the degenerate zero case when b=0. This section appears unused in experiments but contains errors.
+- Experimental methodology: Evaluation uses MSE/PMSE only. For text (NIPS), a standard measure is heldout predictive log-likelihood/perplexity; for event data, predictive log-likelihood is also typical. “PMSE” is not precisely defined; train/test splits are unclear (e.g., predicting only the last time step?). Hyperparameter tuning for baselines seems limited; LSTM configurations are likely suboptimal for long sequences/high dimensions without regularization and appropriate architectures. No uncertainty or significance analysis is provided.
+- Scalability/complexity: The algorithm introduces latent xvtk of size VTK; computational and memory complexity are not analyzed, nor are tricks like subsampling or sparse updates described—critical for ICEWS/NIPS scales.
+
+Clarity
+- The manuscript contains many typos, grammatical issues, and notation inconsistencies (e.g., φvk vs φk, λ and ψ roles, missing boldface, ambiguous indices). Figures/Tables are referenced but not present here. Key components (architecture of ffeed/fback, choice of RNN cells, activation functions to ensure positive shape/rate, optimization details) are under-specified. The “probability autoencoder” concept is not clearly defined in probabilistic terms.
+- References are incomplete (missing venues/years) and some relevant prior work is not adequately discussed (e.g., Deep Markov Models, dynamic Poisson factorization variants, recurrent count models).
+
+Originality
+- The combination of Poisson factorization with RNN-based temporal dependencies is not entirely novel; related works include PGDS, recurrent Poisson factorization, and deep Poisson/Gamma belief networks. The main novelty claimed is the deep temporal hierarchy plus the “probability autoencoder” training. However, without a principled objective, this seems more an ad-hoc hybrid than a clear advance over established deep latent variable models (DEFs, GBNs, Ladder VAE/DMMs).
+
+Significance
+- Empirical gains are modest and task-dependent; the evaluation does not use standard likelihood-based metrics, limiting comparability. Without a sound objective and clearer evidence, it is hard to conclude that the method advances the state of the art or will be broadly adopted.
+
+Questions for authors
+1. Can you provide a proper ELBO for the full model and train the RNN parameters by maximizing it? If not, please justify the squared-error objective and discuss its statistical meaning.
+2. How are Γ parameters constrained to be positive (activations)? Do you parameterize shape or rate or both via networks?
+3. What are the precise train/validation/test splits and PMSE definition? How sensitive are results to K, depth N, and window c?
+4. How do you address identifiability among φ, ψ, λ, θ? Any normalization or rescaling?
+5. What are the computational costs (per-iteration complexity, memory) and sparsity tricks?
+
+Suggestions for improvement
+- Replace the autoencoder losses with a rigorous variational objective (ELBO) and derive gradients using implicit reparameterization or score-function estimators with strong control variates; alternatively, adopt augmentation from Gamma belief networks to retain conjugacy and enable stochastic variational inference.
+- Evaluate with predictive log-likelihood on held-out time steps/words; add topic coherence for NIPS; include stronger temporal baselines (e.g., PGDS variants, recurrent PF for recommendation, Deep Markov Models with Poisson emissions).
+- Provide ablations on depth, window c, ladder connections, and K; add hyperparameter tuning and report variance across runs.
+- Clarify architecture and training details (cell type, hidden sizes, optimizer, learning rates); release code.
+- Fix the Bernoulli–Poisson link section and improve writing/notation; address identifiability.
+
+Pros and cons for acceptance
+Pros:
+- Important problem; interpretable modeling of counts with temporal structure.
+- Interesting attempt to combine deep temporal representations with Poisson factorization.
+- Some empirical improvements and qualitative interpretability.
+
+Cons:
+- Core training objective lacks principled grounding; no ELBO or likelihood-based optimization.
+- Clarity issues and incomplete derivations/details hinder reproducibility.
+- Limited and non-standard evaluation; fairness of baselines questionable.
+- Novelty over prior deep/recurrent count models is incremental.
+
+Recommendation
+Reject. The paper addresses a relevant problem and has promising ideas, but the current version lacks a sound objective, rigorous inference, clear exposition, and strong empirical validation. With a principled variational derivation, clearer methodology, and stronger experiments, this line of work could become competitive.

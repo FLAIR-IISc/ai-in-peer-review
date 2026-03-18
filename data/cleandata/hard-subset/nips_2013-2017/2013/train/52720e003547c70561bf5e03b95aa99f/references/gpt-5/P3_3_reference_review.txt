@@ -1,0 +1,60 @@
+Summary
+The paper targets ultra–high-dimensional sparse precision matrix estimation by proposing a distributed, column-block variant of CLIME solved via an inexact ADMM scheme. The key ideas are: (i) linearizing the quadratic penalty in the ADMM X-update with a proximal term to obtain elementwise soft-thresholding, (ii) operating on column blocks (k columns at a time) to replace repeated matrix–vector multiplies with more efficient BLAS-3 matrix–matrix multiplies, (iii) exploiting low-rank structure of the sample covariance via C = A A^T so CX can be computed as A(A^T X) with cost O(npk) when n ≪ p, and (iv) a block-cyclic data distribution to balance load and reduce cache misses in both shared- and distributed-memory settings. They prove O(1/T) rates for objective suboptimality and residuals under η ≥ ρ λ_max(C)^2, and present strong-scale experiments showing near-linear speedup and a striking demo estimating a 1e6-dimensional precision matrix in ~11 hours on 400 cores.
+
+Relation to prior work
+Statistically, the work builds on CLIME (Cai, Liu, Luo 2011) and subsequent theory (Cai, Liu, Zhou 2012; Cai & Liu 2011; Liu & Wang TIGER 2012/2015). Computationally, it is related to LP/ADMM solvers for CLIME, interior-point and ADMM solvers (Toh, flare), and to scalable solvers for graphical lasso such as QUIC/DC-QUIC/bigQUIC, covariance thresholding (Mazumder & Hastie), and scalable ML frameworks (parameter servers, GraphLab) and distributed ADMM. The block-cyclic distribution and BLAS-3 emphasis connect to classic HPC literature (ScaLAPACK, cache blocking).
+
+Strengths
+- Sound decomposition: turning columnwise CLIME into column-blocks yields natural, cache-friendly matrix–matrix operations and high parallel efficiency.
+- Practical linearized ADMM: the X-update becomes soft-thresholding; the remaining steps are either elementwise or matmul. The O(1/T) rate under a clear condition (η ≥ ρ λ_max^2) is standard but appropriate.
+- Systems design: a thoughtful block-cyclic distribution, analysis of sparsity/low-rank routes, and shared vs distributed comparisons. The low-rank trick (A(A^T X)) is a strong practical lever when n ≪ p.
+- Scale: Demonstration on p = 10^6 is rare for precision estimation; the reported speedups and the 11-hour run on 400 nodes are impressive.
+- Empirics: Competitive accuracy on synthetic graph recovery versus CLIME/TIGER/DC-QUIC; good scalability plots; real-data timing comparisons.
+
+Weaknesses and concerns
+- Theorem 3 (perturbation to induce sparsity) is shaky as stated. If Δ has sub-exponential entries independent of n, then with high probability ‖Δ‖∞ does not shrink with n and will dominate c sqrt(log p / n) unless Δ is scaled with n. The special case (|Δ_ij| ≤ c sqrt(log p / n)) suffices for thresholding, but the general statement with random sub-exponential Δ needs assumptions tying its scale to n (or a proof correcting constants). As written, it risks being incorrect.
+- Clarity and correctness issues:
+  - Augmented Lagrangian uses ρ both in the linear dual term and the quadratic penalty; the “scaled dual variable” convention is not clearly specified and differs from standard ADMM write-ups. Please standardize notation and correct factors (1/2) to avoid ambiguity.
+  - The extrapolated V-update V^{t+1} = (ρη)(2ĈY^{t+1} − ĈY^t) is unusual in vanilla ADMM. The convergence proof should explicitly handle this extrapolation (or remove/explain it).
+  - Symmetrization/PD: CLIME solutions are typically symmetrized post hoc (min of transpose pair) and may not be PD; this is not discussed.
+  - Stopping criteria and tuning of ρ, η, and k are not specified beyond a condition on η. Practical guidance is needed.
+- Experimental evaluation:
+  - Baselines: Comparison to recent large-scale graphical lasso solvers (bigQUIC) is missing; while models differ (CLIME vs log-det), practitioners will want a runtime/accuracy tradeoff comparison at scale. Also, a more direct comparison to the best existing CLIME solvers (beyond flare/TIGER) would strengthen claims.
+  - Accuracy: For the million-dimensional demo, n is presumably small. The statistical utility of estimating 10^12 parameters with n ≪ p is questionable; discuss sparsity levels, false discovery control, and whether only graph structure (nonzeros) is materialized.
+  - Communication: There is no analysis of communication cost per iteration, overlap, or scalability limits. The choice to use 1 core per node (to avoid shared-memory contention) suggests the implementation is sensitive to NUMA/cache effects; quantify.
+  - Output/storage: A full p×p solution is infeasible to store at p = 10^6. How are results materialized (sparse format, top-k edges)? What are the final sparsity levels and total nonzeros?
+- Reproducibility: Important implementation details (block sizes, data distribution, I/O format, stopping rules) and code availability are not provided.
+
+Quality
+The algorithmic components are reasonable and the convergence analysis (for the linearized ADMM without extrapolation) is standard and likely sound; however, the extrapolated V-update and Theorem 3 need clarification/correction. The systems aspects are substantive, but the lack of communication modeling and some unclear implementation choices reduce rigor.
+
+Clarity
+Generally understandable, but several notation inconsistencies, typos, and missing constants hinder readability. Figures/tables are referenced but not always well-explained in text. The paper would benefit from a polished description of the algorithm with standard ADMM notation, explicit stopping rules, and a clear separation of “engineering heuristics” vs “provable” parts.
+
+Originality
+The combination—column-block CLIME via linearized ADMM with BLAS-3 and block-cyclic distribution—is a sensible engineering advance rather than a fundamentally new optimization method. The low-rank multiplication is standard. If fixed, the truncation result (Theorem 3) could be a useful practical justification of covariance thresholding in CLIME, but as stated it is problematic.
+
+Significance
+Scaling CLIME to p ≈ 10^6 is impressive and potentially impactful for applications where only graph structure is needed and n is small. The work advances the state of practice for distributed sparse precision estimation and could be adopted by practitioners. Theoretical innovation is modest.
+
+Questions for the authors
+1) Please clarify/correct Theorem 3. Under what distribution/scale of Δ (as a function of n, p) does the deviation bound hold? Is Δ deterministic thresholding sufficient for your purposes?
+2) Provide precise augmented Lagrangian/ADMM derivation, including whether Y is scaled/unscaled, and justify the extrapolated V-update in the convergence proof.
+3) What are the stopping criteria and parameter selection rules for ρ, η, and k? Sensitivity?
+4) How is the p×p solution stored or used at large p? What sparsity levels (nnz) are observed?
+5) Can you report per-iteration communication cost and strong/weak scaling including message counts and data volume?
+6) Please compare against bigQUIC or provide rationale if infeasible.
+
+Pros
+- Strong systems contribution with demonstrated scale
+- Simple, implementable algorithm with BLAS-3 cores
+- Sensible exploitation of low rank; near-linear speedups
+- Standard O(1/T) rates under clear condition
+
+Cons
+- Theorem 3 likely incorrect as stated; needs fixing
+- Some ADMM derivation/notation inconsistencies
+- Limited baseline comparisons and communication analysis
+- Practical details (stopping, tuning, output) under-specified
+
+Recommendation: Weak reject. With a corrected Theorem 3, clearer ADMM derivation, and stronger experimental/comms analysis, this would be a compelling systems paper for NeurIPS.

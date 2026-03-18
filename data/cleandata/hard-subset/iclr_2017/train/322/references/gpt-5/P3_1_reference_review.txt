@@ -1,0 +1,42 @@
+Summary and contributions
+- The paper proposes “nonparametric neural networks” that adapt layer widths during a single training run. The key idea is to (i) use fan-in or fan-out group-norm regularization (especially p=2) to induce exact zero fan-ins/fan-outs, making units removable; (ii) dynamically add zero-output units (f-equivalent transitions) so the model can grow and shrink; (iii) ensure training stability with a modified normalization layer, CapNorm, designed not to negate the effect of the regularizer; and (iv) introduce AdaRad, an optimizer that decomposes gradients into a component parallel to the weight vector (radial) and an orthogonal component (angular), normalizing only the angular part to let newly added units learn without being overwhelmed by shrinkage.
+- Theoretically, the paper proves that with fan-in or fan-out regularization and 1 ≤ p < ∞, the training objective achieves a global minimum at a finite network size (Theorem 1). A proposition shows that with self-similar nonlinearities (e.g., ReLU), layer-wise regularization parameters can be reduced to a single scalar λ via rescaling.
+- Empirically, the paper shows on MNIST, rectangles-images, convex, and OpenML poker that the nonparametric approach can converge to a “good” width. On MNIST/rectangles the approach is competitive with or better than parametric networks of the same size and competitive with architecture search over widths; on convex it underperforms. On poker it scales to >1M examples and delivers strong accuracy.
+
+Decision: Reject
+Key reasons: (1) Empirical evaluation is limited and contains important fairness/confounding issues that make it hard to assess the practical benefits; (2) The theoretical guarantee supports existence of a finite-size minimizer for the training objective but does not speak to generalization or to the behavior of the proposed training procedure; (3) The main engineering innovations (CapNorm and AdaRad) are insufficiently compared against strong, standard baselines or ablated.
+
+Supporting arguments
+- Soundness and novelty: The formalization of “nonparametric” width with group-wise regularization and f-equivalent unit insertions/removals is appealing and well-motivated. The existence result (Theorem 1) addresses a key concern (runaway width), albeit at the level of the regularized training objective only. The requirement σ(0)=0 and the emphasis on self-similar nonlinearities are sensible for this construction.
+- Methodological design: CapNorm addresses an important incompatibility: BN’s scale invariance can negate weight penalties. However, the paper neither compares CapNorm to established alternatives that avoid this issue (e.g., weight normalization, LayerNorm, decoupled weight decay with BN) nor quantifies CapNorm’s effect on performance and stability relative to BN with standard tricks. Similarly, AdaRad’s radial/angular decomposition has interesting intuition, but comparisons are mainly to SGD/RMSprop/Adam without apples-to-apples normalization/shrinkage interactions or to related normalized-gradient methods.
+- Experimental rigor and fairness:
+  - Parametric baselines are trained with BN but λ=0 “because L2 is incompatible with BN.” In practice, weight decay with BN is often used (e.g., decoupled WD or applying decay to weights but not BN parameters). Disallowing any regularization may disadvantage the baselines.
+  - The nonparametric model uses CapNorm; parametric baselines do not. A fairer comparison would include parametric nets with CapNorm, or with alternatives that maintain the effect of regularization.
+  - The selection protocol includes manual choice of “typical representatives” and heavy reliance on early stopping/rewinding schedules that differ between NP and P settings. This introduces subjectivity and could favor the proposed method.
+  - Datasets are small-scale (MNIST, rectangles, convex) with a single larger tabular dataset (poker). No convolutional experiments, despite claims that the approach is broadly applicable and despite strong related pruning/growth literature in convnets. On convex, the method clearly underperforms and tends to converge to too-small widths, undermining the core claim that the method avoids poor size choices.
+  - Claims such as “achieve higher accuracy than black-box methods” are not fully substantiated; the random search over sizes is limited and excludes many modern NAS/AutoML baselines for understandable compute reasons, but then the claim should be tempered.
+- Implications: The proposed framework is promising for automatically adjusting capacity and potentially easing architecture search over widths. However, the paper does not convincingly demonstrate net training-time or compute benefits relative to strong hyperparameter search baselines, nor does it show consistent accuracy benefits across tasks.
+
+Suggestions to improve the paper (helpful, not all required for acceptance)
+- Strengthen baselines and ablations:
+  - Compare parametric models using CapNorm; compare BN with decoupled weight decay; include LayerNorm/WeightNorm; ablate CapNorm’s “cap at σ=1” and removal of affine parameters.
+  - Provide ablations of AdaRad: (i) remove orthogonal normalization, (ii) replace with standard normalized gradient or spherical/weight-normalized updates, (iii) compare to AdamW and adaptive methods with group-wise normalization.
+  - Show p=1 vs p=2 trade-offs; fan-in vs fan-out; and whether dense vs sparse connectivity materially affects performance/runtime.
+- Fairer and broader empirical evaluation:
+  - Include at least one CNN benchmark (e.g., CIFAR-10/100) with standard training pipelines to demonstrate applicability beyond MLPs.
+  - Harmonize early stopping and annealing/rewinding schedules across NP and P settings; avoid manual selection of “typical” reps (report median over seeds).
+  - Report compute: wall-clock time, number of processed examples, and memory, for NP vs P vs random search, to assess the stated efficiency benefits.
+- Clarify theoretical scope:
+  - Make explicit that Theorem 1 guarantees existence of a finite-size global minimizer of the regularized training loss, not that the dynamic add/remove plus AdaRad procedure will find it, nor that generalization improves. Discuss whether the result can be extended to approximate stationary points under the training dynamics.
+  - Discuss assumptions on e and σ and their practical validity for softmax-cross-entropy on separable data (e can approach zero).
+- Practicality and robustness:
+  - The unit addition schedule (one per epoch) is simple but slow; explore adaptive schedules, informed by validation or gradient statistics.
+  - Provide guidance for setting αr, αφ, λ; can they be tuned automatically (e.g., via line-search or schedules)?
+  - Discuss stability when σ is not self-similar (e.g., GELU), and whether CapNorm compensates.
+
+Questions for the authors
+1. How do results change if parametric baselines use decoupled weight decay with BN (or use CapNorm), and if you report medians across seeds instead of “typical representatives”?
+2. Can you provide ablations isolating the contributions of (i) dynamic width, (ii) CapNorm, and (iii) AdaRad?
+3. What is the wall-clock/compute trade-off versus random search over widths, given the overhead of dynamic add/remove and longer training to grow networks?
+4. How sensitive is performance to the unit addition rate and αr=150/λ heuristic? Can this be learned or adapted online?
+5. Do your conclusions hold for convolutional architectures on standard vision tasks? If not yet, what are the obstacles (e.g., CapNorm in conv layers, group structure over channels/filters)?

@@ -1,0 +1,750 @@
+{
+  "name" : "b495ce63ede0f4efc9eec62cb947c162.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Universal Correspondence Network",
+    "authors" : [ "Christopher B. Choy", "JunYoung Gwak", "Manmohan Chandraker" ],
+    "emails" : [ "chrischoy@ai.stanford.edu", "jgwak@ai.stanford.edu", "ssilvio@stanford.edu", "manu@nec-labs.com" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Correspondence estimation is the workhorse that drives several fundamental problems in computer vision, such as 3D reconstruction, image retrieval or object recognition. Applications such as structure from motion or panorama stitching that demand sub-pixel accuracy rely on sparse keypoint matches using descriptors like SIFT [22]. In other cases, dense correspondences in the form of stereo disparities, optical flow or dense trajectories are used for applications such as surface reconstruction, tracking, video analysis or stabilization. In yet other scenarios, correspondences are sought not between projections of the same 3D point in different images, but between semantic analogs across different instances within a category, such as beaks of different birds or headlights of cars. Thus, in its most general form, the notion of visual correspondence estimation spans the range from low-level feature matching to high-level object or scene understanding.\nTraditionally, correspondence estimation relies on hand-designed features or domain-specific priors. In recent years, there has been an increasing interest in leveraging the power of convolutional neural networks (CNNs) to estimate visual correspondences. For example, a Siamese network may take a pair of image patches and generate their similiarity as the output [1, 34, 35]. Intermediate convolution layer activations from the above CNNs are also usable as generic features.\nHowever, such intermediate activations are not optimized for the visual correspondence task. Such features are trained for a surrogate objective function (patch similarity) and do not necessarily form a metric space for visual correspondence and thus, any metric operation such as distance does not have\n30th Conference on Neural Information Processing Systems (NIPS 2016), Barcelona, Spain.\nexplicit interpretation. In addition, patch similarity is inherently inefficient, since features have to be extracted even for overlapping regions within patches. Further, it requires O(n2) feed-forward passes to compare each of n patches with n other patches in a different image.\nIn contrast, we present the Universal Correspondence Network (UCN), a CNN-based generic discriminative framework that learns both geometric and semantic visual correspondences. Unlike many previous CNNs for patch similarity, we use deep metric learning to directly learn the mapping, or feature, that preserves similarity (either geometric or semantic) for generic correspondences. The mapping is, thus, invariant to projective transformations, intra-class shape or appearance variations, or any other variations that are irrelevant to the considered similarity. We propose a novel correspondence contrastive loss that allows faster training by efficiently sharing computations and effectively encoding neighborhood relations in feature space. At test time, correspondence reduces to a nearest neighbor search in feature space, which is more efficient than evaluating pairwise patch similarities.\nThe UCN is fully convolutional, allowing efficient generation of dense features. We propose an on-the-fly active hard-negative mining strategy for faster training. In addition, we propose a novel adaptation of the spatial transformer [13], called the convolutional spatial transformer, desgined to make our features invariant to particular families of transformations. By learning the optimal feature space that compensates for affine transformations, the convolutional spatial transformer imparts the ability to mimic patch normalization of descriptors such as SIFT. Figure 1 illustrates our framework.\nThe capabilities of UCN are compared to a few important prior approaches in Table 1. Empirically, the correspondences obtained from the UCN are denser and more accurate than most prior approaches specialized for a particular task. We demonstrate this experimentally by showing state-of-the-art performances on sparse SFM on KITTI, as well as dense geometric or semantic correspondences on both rigid and non-rigid bodies in KITTI, PASCAL and CUB datasets.\nTo summarize, we propose a novel end-to-end system that optimizes a general correspondence objective, independent of domain, with the following main contributions:\n• Deep metric learning with an efficient correspondence constrastive loss for learning a feature representation that is optimized for the given correspondence task. • Fully convolutional network for dense and efficient feature extraction, along with fast active hard\nnegative mining. • Fully convolutional spatial transformer for patch normalization. • State-of-the-art correspondences across sparse SFM, dense matching and semantic matching,\nencompassing rigid bodies, non-rigid bodies and intra-class shape or appearance variations."
+    }, {
+      "heading" : "2 Related Works",
+      "text" : "Correspondences Visual features form basic building blocks for many computer vision applications. Carefully designed features and kernel methods have influenced many fields such as structure\nfrom motion, object recognition and image classification. Several hand-designed features, such as SIFT, HOG, SURF and DAISY have found widespread applications [22, 3, 28, 8].\nRecently, many CNN-based similarity measures have been proposed. A Siamese network is used in [34] to measure patch similarity. A driving dataset is used to train a CNN for patch similarity in [1], while [35] also uses a Siamese network for measuring patch similarity for stereo matching. A CNN pretrained on ImageNet is analyzed for visual and semantic correspondence in [21]. Correspondences are learned in [16] across both appearance and a global shape deformation by exploiting relationships in fine-grained datasets. In contrast, we learn a metric space in which metric operations have direct interpretations, rather than optimizing the network for patch similarity and using the intermediate features. For this, we implement a fully convolutional architecture with a correspondence contrastive loss that allows faster training and testing and propose a convolutional spatial transformer for local patch normalization.\nMetric learning using neural networks Neural networks are used in [5] for learning a mapping where the Euclidean distance in the space preserves semantic distance. The loss function for learning similarity metric using Siamese networks is subsequently formalized by [7, 12]. Recently, a triplet loss is used by [29] for fine-grained image ranking, while the triplet loss is also used for face recognition and clustering in [26]. Mini-batches are used for efficiently training the network in [27].\nCNN invariances and spatial transformations A CNN is invariant to some types of transformations such as translation and scale due to convolution and pooling layers. However, explicitly handling such invariances in forms of data augmentation or explicit network structure yields higher accuracy in many tasks [17, 15, 13]. Recently, a spatial transformer network is proposed in [13] to learn how to zoom in, rotate, or apply arbitrary transformations to an object of interest.\nFully convolutional neural network Fully connected layers are converted in 1× 1 convolutional filters in [20] to propose a fully convolutional framework for segmentation. Changing a regular CNN to a fully convolutional network for detection leads to speed and accuracy gains in [11]. Similar to these works, we gain the efficiency of a fully convolutional architecture through reusing activations\nfor overlapping regions. Further, since number of training instances is much larger than number of images in a batch, variance in the gradient is reduced, leading to faster training and convergence."
+    }, {
+      "heading" : "3 Universal Correspondence Network",
+      "text" : "We now present the details of our framework. Recall that the Universal Correspondence Network is trained to directly learn a mapping that preserves similarity instead of relying on surrogate features. We discuss the fully convolutional nature of the architecture, a novel correspondence contrastive loss for faster training and testing, active hard negative mining, as well as the convolutional spatial transformer that enables patch normalization. Fully Convolutional Feature Learning To speed up training and use resources efficiently, we implement fully convolutional feature learning, which has several benefits. First, the network can reuse some of the activations computed for overlapping regions. Second, we can train several thousand correspondences for each image pair, which provides the network an accurate gradient for faster learning. Third, hard negative mining is efficient and straightforward, as discussed subsequently. Fourth, unlike patch-based methods, it can be used to extract dense features efficiently from images of arbitrary sizes.\nDuring testing, the fully convolutional network is faster as well. Patch similarity based networks such as [1, 34, 35] require O(n2) feed forward passes, where n is the number of keypoints in each image, as compared to only O(n) for our network. We note that extracting intermediate layer activations as a surrogate mapping is a comparatively suboptimal choice since those activations are not directly trained on the visual correspondence task. Correspondence Contrastive Loss Learning a metric space for visual correspondence requires encoding corresponding points (in different views) to be mapped to neighboring points in the feature space. To encode the constraints, we propose a generalization of the contrastive loss [7, 12], called correspondence contrastive loss. Let FI(x) denote the feature in image I at location x = (x, y). The loss function takes features from images I and I ′, at coordinates x and x′, respectively (see Figure 3). If the coordinates x and x′ correspond to the same 3D point, we use the pair as a positive pair that are encouraged to be close in the feature space, otherwise as a negative pair that are encouraged to be at least margin m apart. We denote s = 1 for a positive pair and s = 0 for a negative pair. The full correspondence contrastive loss is given by\nL = 1\n2N N∑ i si‖FI(xi)−FI′(xi′)‖2 + (1− si)max(0,m− ‖FI(x)−FI′(xi′)‖)2 (1)\nFor each image pair, we sample correspondences from the training set. For instance, for KITTI dataset, if we use each laser scan point, we can train up to 100k points in a single image pair. However in practice, we used 3k correspondences to limit memory consumption. This allows more accurate gradient computations than traditional contrastive loss, which yields one example per image pair. We again note that the number of feed forward passes at test time is O(n) compared to O(n2) for Siamese network variants [1, 35, 34]. Table 2 summarizes the advantages of a fully convolutional architecture with correspondence contrastive loss. Hard Negative Mining The correspondence contrastive loss in Eq. (1) consists of two terms. The first term minimizes the distance between positive pairs and the second term pushes negative pairs to be at least margin m away from each other. Thus, the second term is only active when the distance between the features FI(xi) and FI′(x′i) are smaller than the margin m. Such boundary defines the\nmetric space, so it is crucial to find the negatives that violate the constraint and train the network to push the negatives away. However, random negative pairs do not contribute to training since they are are generally far from each other in the embedding space.\nInstead, we actively mine negative pairs that violate the constraints the most to dramatically speed up training. We extract features from the first image and find the nearest neighbor in the second image. If the location is far from the ground truth correspondence location, we use the pair as a negative. We compute the nearest neighbor for all ground truth points on the first image. Such mining process is time consuming since it requires O(mn) comparisons for m and n feature points in the two images, respectively. Our experiments use a few thousand points for n, with m being all the features on the second image, which is as large as 22000. We use a GPU implementation to speed up the K-NN search [10] and embed it as a Caffe layer to actively mine hard negatives on-the-fly.\nConvolutional Spatial Transformer CNNs are known to handle some degree of scale and rotation invariances. However, handling spatial transformations explicitly using data-augmentation or a special network structure have been shown to be more successful in many tasks [13, 15, 16, 17]. For visual correspondence, finding the right scale and rotation is crucial, which is traditionally achieved through patch normalization [23, 22]. A series of simple convolutions and poolings cannot mimic such complex spatial transformations.\nTo mimic patch normalization, we borrow the idea of the spatial transformer layer [13]. However, instead of a global image transformation, each keypoint in the image can undergo an independent transformation. Thus, we propose a convolutional version to generate the transformed activations, called the convolutional spatial transformer. As demonstrated in our experiments, this is especially important for correspondences across large intra-class shape variations.\nThe proposed transformer takes its input from a lower layer and for each output feature, applies an independent spatial transformation. The transformation parameters are also extracted convolutionally. Since they go through an independent transformation, the transformed activations are placed inside a larger activation without overlap and then go through a successive convolution with the stride to combine the transformed activations independently. The stride size has to be equal to the size of the spatial transformer kernel size. Figure 4 illustrates the convolutional spatial transformer module."
+    }, {
+      "heading" : "4 Experiments",
+      "text" : "We use Caffe [14] package for implementation. Since it does not support the new layers we propose, we implement the correspondence contrastive loss layer and the convolutional spatial transformer layer, the K-NN layer based on [10] and the channel-wise L2 normalization layer. We did not use flattening layer nor the fully connected layer to make the network fully convolutional, generating features at every fourth pixel. For accurate localization, we then extract features densely using bilinear interpolation to mitigate quantization error for sparse correspondences. Please refer to the supplementary materials for the network implementation details and visualization.\nFor each experiment setup, we train and test three variations of networks. First, the network has hard negative mining and spatial transformer (Ours-HN-ST). Second, the same network without spatial transformer (Ours-HN). Third, the same network without spatial transformer and hard negative mining, providing random negative samples that are at least certain pixels apart from the ground\ntruth correspondence location instead (Ours-RN). With this configuration of networks, we verify the effectiveness of each component of Universal Correspondence Network. Datasets and Metrics We evaluate our UCN on three different tasks: geometric correspondence, semantic correspondence and accuracy of correspondences for camera localization. For geometric correspondence (matching images of same 3D point in different views), we use two optical flow datasets from KITTI 2015 Flow benchmark and MPI Sintel dataset and split their training set into a training and a validation set individually. The exact splits are available on the project website. alidation For semantic correspondences (finding the same functional part from different instances), we use the PASCAL-Berkeley dataset with keypoint annotations [9, 4] and a subset used by FlowWeb [36]. We also compare against prior state-of-the-art on the Caltech-UCSD Bird dataset[30]. To test the accuracy of correspondences for camera motion estimation, we use the raw KITTI driving sequences which include Velodyne scans, GPS and IMU measurements. Velodyne points are projected in successive frames to establish correspondences and any points on moving objects are removed.\nTo measure performance, we use the percentage of correct keypoints (PCK) metric [21, 36, 16] (or equivalently “accuracy@T” [25]). We extract features densely or on a set of sparse keypoints (for semantic correspondence) from a query image and find the nearest neighboring feature in the second image as the predicted correspondence. The correspondence is classified as correct if the predicted keypoint is closer than T pixels to ground-truth (in short, PCK@T ). Unlike many prior works, we do not apply any post-processing, such as global optimization with an MRF. This is to capture the performance of raw correspondences from UCN, which already surpasses previous methods. Geometric Correspondence We pick random 1000 correspondences in each KITTI or MPI Sintel image during training. We consider a correspondence as a hard negative if the nearest neighbor in\nthe feature space is more than 16 pixels away from the ground truth correspondence. We used the same architecture and training scheme for both datasets. Following convention [25], we measure PCK at 10 pixel threshold and compare with the state-of-the-art methods on Table 3. SIFT-flow [19], DaisyFF [31], DSP [18], and DM best [25] use additional global optimization to generate more accurate correspondences. On the other hand, just our raw correspondences outperform all the state-of-the-art methods. We note that the spatial transformer does not improve performance in this case, likely due to overfitting to a smaller training set. As we show in the next experiments, its benefits are more apparent with a larger-scale dataset and greater shape variations. Note that though we used stereo datasets to generate a large number of correspondences, the result is not directly comparable to stereo methods without a global optimization and epipolar geometry to filter out the noise and incorporate edges.\nWe also used KITTI raw sequences to generate a large number of correspondences, and we split different sequences into train and test sets. The details of the split is on the supplementary material. We plot PCK for different thresholds for various methods with densely extracted features on the larger KITTI raw dataset in Figure 5a. The accuracy of our features outperforms all traditional features including SIFT [22], DAISY [28] and KAZE [2]. Due to dense extraction at the original image scale without rotation, SIFT does not perform well. So, we also extract all features except ours sparsely on SIFT keypoints and plot PCK curves in Figure 5b. All the prior methods improve (SIFT dramatically so), but our UCN features still perform significantly better even with dense extraction. Also note the improved performance of the convolutional spatial transformer. PCK curves for geometric correspondences on individual semantic classes such as road or car are in supplementary material. Semantic Correspondence The UCN can also learn semantic correspondences invariant to intraclass appearance or shape variations. We independently train on the PASCAL dataset [9] with various annotations [4, 36] and on the CUB dataset [30], with the same network architecture.\nWe again use PCK as the metric [32]. To account for variable image size, we consider a predicted keypoint to be correctly matched if it lies within Euclidean distance α ·L of the ground truth keypoint, where L is the size of the image and 0 < α < 1 is a variable we control. For comparison, our definition of L varies depending on the baseline. Since intraclass correspondence alignment is a difficult task, preceding works use either geometric [18] or learned [16] spatial priors. However, even our raw correspondences, without spatial priors, achieve stronger results than previous works.\nAs shown in Table 4 and 5, our approach outperforms that of Long et al.[21] by a large margin on the PASCAL dataset with Berkeley keypoint annotation, for most classes and also overall. Note that our\nresult is purely from nearest neighbor matching, while [21] uses global optimization too. We also train and test UCN on the CUB dataset [30], using the same cleaned test subset as WarpNet [16]. As shown in Figure 8, we outperform WarpNet by a large margin. However, please note that WarpNet is an unsupervised method. Please see Figure 7 for qualitative matches. Results on FlowWeb datasets are in supplementary material, with similar trends.\nFinally, we observe that there is a significant performance improvement obtained through use of the convolutional spatial transformer, in both PASCAL and CUB datasets. This shows the utility of estimating an optimal patch normalization in the presence of large shape deformations. Camera Motion Estimation We use KITTI raw sequences to get more training examples for this task. To augment the data, we randomly crop and mirror the images and to make effective use of our fully convolutional structure, we use large images to train thousands of correspondences at once.\nWe establish correspondences with nearest neighbor matching, use RANSAC to estimate the essential matrix and decompose it to obtain the camera motion. Among the four candidate rotations, we choose the one with the most inliers as the estimate Rpred, whose angular deviation with respect to the ground truth Rgt is reported as θ = arccos ( (Tr (R>predRgt)− 1)/2 ) . Since translation may only be estimated up to scale, we report the angular deviation between unit vectors along the estimated and ground truth translation from GPS-IMU.\nIn Table 6, we list decomposition errors for various features. Note that sparse features such as SIFT are designed to perform well in this setting, but our dense UCN features are still quite competitive. Note that intermediate features such as [1] learn to optimize patch similarity, thus, our UCN significantly outperforms them since it is trained directly on the correspondence task."
+    }, {
+      "heading" : "5 Conclusion",
+      "text" : "We have proposed a novel deep metric learning approach to visual correspondence, that is shown to be advantageous over approaches that optimize a surrogate patch similarity objective. We propose several innovations, such as a correspondence contrastive loss in a fully convolutional architecture, on-the-fly active hard negative mining and a convolutional spatial transformer. These lend capabilities such as more efficient training, accurate gradient computations, faster testing and local patch normalization, which lead to improved speed or accuracy. We demonstrate in experiments that our features perform better than prior state-of-the-art on both geometric and semantic correspondence tasks, even without using any spatial priors or global optimization. In future work, we will explore applications for rigid and non-rigid motion or shape estimation as well as applying global optimization towards applications such as optical flow or dense stereo."
+    }, {
+      "heading" : "Acknowledgments",
+      "text" : "This work was part of C. Choy’s internship at NEC Labs. We acknowledge the support of Korea Foundation of Advanced Studies, Toyota Award #122282, ONR N00014-13-1-0761, and MURI WF911NF-15-1-0479."
+    } ],
+    "references" : [ {
+      "title" : "Learning to See by Moving",
+      "author" : [ "P. Agrawal", "J. Carreira", "J. Malik" ],
+      "venue" : "ICCV,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Kaze features",
+      "author" : [ "P.F. Alcantarilla", "A. Bartoli", "A.J. Davison" ],
+      "venue" : "ECCV,",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Speeded-up robust features (SURF)",
+      "author" : [ "H. Bay", "A. Ess", "T. Tuytelaars", "L. Van Gool" ],
+      "venue" : "CVIU,",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : null,
+      "year" : 2008
+    }, {
+      "title" : "Poselets: Body part detectors trained using 3d pose annotations",
+      "author" : [ "L. Bourdev", "J. Malik" ],
+      "venue" : "ICCV,",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : null,
+      "year" : 2009
+    }, {
+      "title" : "Signature verification using a Siamese time delay neural network",
+      "author" : [ "J. Bromley", "I. Guyon", "Y. Lecun", "E. Säckinger", "R. Shah" ],
+      "venue" : "NIPS,",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : null,
+      "year" : 1994
+    }, {
+      "title" : "A naturalistic open source movie for optical flow evaluation",
+      "author" : [ "D.J. Butler", "J. Wulff", "G.B. Stanley", "M.J. Black" ],
+      "venue" : "ECCV,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Learning a similarity metric discriminatively, with application to face verification",
+      "author" : [ "S. Chopra", "R. Hadsell", "Y. LeCun" ],
+      "venue" : "CVPR, volume 1, June",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : null,
+      "year" : 2005
+    }, {
+      "title" : "Histograms of oriented gradients for human detection",
+      "author" : [ "N. Dalal", "B. Triggs" ],
+      "venue" : "CVPR,",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : null,
+      "year" : 2005
+    }, {
+      "title" : "The PASCAL Visual Object Classes Challenge 2011 (VOC2011) Results",
+      "author" : [ "M. Everingham", "L. Van Gool", "C.K.I. Williams", "J. Winn", "A. Zisserman" ],
+      "venue" : null,
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 2011
+    }, {
+      "title" : "K-nearest neighbor search: Fast gpu-based implementations and application to high-dimensional feature matching",
+      "author" : [ "V. Garcia", "E. Debreuve", "F. Nielsen", "M. Barlaud" ],
+      "venue" : "ICIP,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : null,
+      "year" : 2010
+    }, {
+      "title" : "Fast R-CNN",
+      "author" : [ "R. Girshick" ],
+      "venue" : "ArXiv e-prints, Apr.",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Dimensionality reduction by learning an invariant mapping",
+      "author" : [ "R. Hadsell", "S. Chopra", "Y. LeCun" ],
+      "venue" : "CVPR,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : null,
+      "year" : 2006
+    }, {
+      "title" : "Spatial Transformer Networks",
+      "author" : [ "M. Jaderberg", "K. Simonyan", "A. Zisserman", "K. Kavukcuoglu" ],
+      "venue" : "NIPS,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Caffe: Convolutional architecture for fast feature embedding",
+      "author" : [ "Y. Jia", "E. Shelhamer", "J. Donahue", "S. Karayev", "J. Long", "R. Girshick", "S. Guadarrama", "T. Darrell" ],
+      "venue" : "arXiv preprint arXiv:1408.5093,",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Spatial pyramid pooling in deep convolutional networks for visual recognition",
+      "author" : [ "H. Kaiming", "Z. Xiangyu", "R. Shaoqing", "J. Sun" ],
+      "venue" : "ECCV,",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "WarpNet: Weakly Supervised Matching for Single-view Reconstruction",
+      "author" : [ "A. Kanazawa", "D.W. Jacobs", "M. Chandraker" ],
+      "venue" : "ArXiv e-prints, Apr.",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Locally Scale-invariant Convolutional Neural Network",
+      "author" : [ "A. Kanazawa", "A. Sharma", "D. Jacobs" ],
+      "venue" : "Deep Learning and Representation Learning Workshop: NIPS,",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Deformable spatial pyramid matching for fast dense correspondences",
+      "author" : [ "J. Kim", "C. Liu", "F. Sha", "K. Grauman" ],
+      "venue" : "CVPR. IEEE,",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Sift flow: Dense correspondence across scenes and its applications",
+      "author" : [ "C. Liu", "J. Yuen", "A. Torralba" ],
+      "venue" : "PAMI, 33(5), May",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Fully convolutional networks for semantic segmentation",
+      "author" : [ "J. Long", "E. Shelhamer", "T. Darrell" ],
+      "venue" : "CVPR,",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Do convnets learn correspondence",
+      "author" : [ "J. Long", "N. Zhang", "T. Darrell" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : "21",
+      "year" : 2014
+    }, {
+      "title" : "Distinctive image features from scale-invariant keypoints",
+      "author" : [ "D.G. Lowe" ],
+      "venue" : "IJCV,",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : null,
+      "year" : 2004
+    }, {
+      "title" : "Robust wide baseline stereo from maximally stable extremal regions",
+      "author" : [ "J. Matas", "O. Chum", "M. Urban", "T. Pajdla" ],
+      "venue" : "BMVC,",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : null,
+      "year" : 2002
+    }, {
+      "title" : "Object scene flow for autonomous vehicles",
+      "author" : [ "M. Menze", "A. Geiger" ],
+      "venue" : "CVPR,",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "DeepMatching: Hierarchical Deformable Dense Matching",
+      "author" : [ "J. Revaud", "P. Weinzaepfel", "Z. Harchaoui", "C. Schmid" ],
+      "venue" : "Oct.",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Facenet: A unified embedding for face recognition and clustering",
+      "author" : [ "F. Schroff", "D. Kalenichenko", "J. Philbin" ],
+      "venue" : "CVPR,",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Deep metric learning via lifted structured feature embedding",
+      "author" : [ "H.O. Song", "Y. Xiang", "S. Jegelka", "S. Savarese" ],
+      "venue" : "Computer Vision and Pattern Recognition (CVPR),",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "DAISY: An Efficient Dense Descriptor Applied to Wide Baseline Stereo",
+      "author" : [ "E. Tola", "V. Lepetit", "P. Fua" ],
+      "venue" : "PAMI,",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : null,
+      "year" : 2010
+    }, {
+      "title" : "Learning fine-grained image similarity with deep ranking",
+      "author" : [ "J. Wang", "Y. Song", "T. Leung", "C. Rosenberg", "J. Wang", "J. Philbin", "B. Chen", "Y. Wu" ],
+      "venue" : "CVPR,",
+      "citeRegEx" : "29",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Caltech-UCSD Birds 200",
+      "author" : [ "P. Welinder", "S. Branson", "T. Mita", "C. Wah", "F. Schroff", "S. Belongie", "P. Perona" ],
+      "venue" : "Technical Report CNS-TR-2010-001, California Institute of Technology,",
+      "citeRegEx" : "30",
+      "shortCiteRegEx" : null,
+      "year" : 2010
+    }, {
+      "title" : "DAISY filter flow: A generalized approach to discrete dense correspondences",
+      "author" : [ "H. Yang", "W.Y. Lin", "J. Lu" ],
+      "venue" : "CVPR,",
+      "citeRegEx" : "31",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Articulated human detection with flexible mixtures of parts",
+      "author" : [ "Y. Yang", "D. Ramanan" ],
+      "venue" : "PAMI,",
+      "citeRegEx" : "32",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "LIFT: Learned Invariant Feature Transform",
+      "author" : [ "K.M. Yi", "E. Trulls", "V. Lepetit", "P. Fua" ],
+      "venue" : "ECCV,",
+      "citeRegEx" : "33",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Learning to Compare Image Patches via Convolutional Neural Networks",
+      "author" : [ "S. Zagoruyko", "N. Komodakis" ],
+      "venue" : "CVPR,",
+      "citeRegEx" : "34",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Computing the stereo matching cost with a CNN",
+      "author" : [ "J. Zbontar", "Y. LeCun" ],
+      "venue" : "CVPR,",
+      "citeRegEx" : "35",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Flowweb: Joint image set alignment by weaving consistent, pixel-wise correspondences",
+      "author" : [ "T. Zhou", "Y. Jae Lee", "S.X. Yu", "A.A. Efros" ],
+      "venue" : "CVPR, June",
+      "citeRegEx" : "36",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 21,
+      "context" : "Applications such as structure from motion or panorama stitching that demand sub-pixel accuracy rely on sparse keypoint matches using descriptors like SIFT [22].",
+      "startOffset" : 156,
+      "endOffset" : 160
+    }, {
+      "referenceID" : 0,
+      "context" : "For example, a Siamese network may take a pair of image patches and generate their similiarity as the output [1, 34, 35].",
+      "startOffset" : 109,
+      "endOffset" : 120
+    }, {
+      "referenceID" : 33,
+      "context" : "For example, a Siamese network may take a pair of image patches and generate their similiarity as the output [1, 34, 35].",
+      "startOffset" : 109,
+      "endOffset" : 120
+    }, {
+      "referenceID" : 34,
+      "context" : "For example, a Siamese network may take a pair of image patches and generate their similiarity as the output [1, 34, 35].",
+      "startOffset" : 109,
+      "endOffset" : 120
+    }, {
+      "referenceID" : 12,
+      "context" : "In addition, we propose a novel adaptation of the spatial transformer [13], called the convolutional spatial transformer, desgined to make our features invariant to particular families of transformations.",
+      "startOffset" : 70,
+      "endOffset" : 74
+    }, {
+      "referenceID" : 21,
+      "context" : "Trainable Efficient Metric Space SIFT [22] 7 3 7 7 3 7",
+      "startOffset" : 38,
+      "endOffset" : 42
+    }, {
+      "referenceID" : 21,
+      "context" : "Several hand-designed features, such as SIFT, HOG, SURF and DAISY have found widespread applications [22, 3, 28, 8].",
+      "startOffset" : 101,
+      "endOffset" : 115
+    }, {
+      "referenceID" : 2,
+      "context" : "Several hand-designed features, such as SIFT, HOG, SURF and DAISY have found widespread applications [22, 3, 28, 8].",
+      "startOffset" : 101,
+      "endOffset" : 115
+    }, {
+      "referenceID" : 27,
+      "context" : "Several hand-designed features, such as SIFT, HOG, SURF and DAISY have found widespread applications [22, 3, 28, 8].",
+      "startOffset" : 101,
+      "endOffset" : 115
+    }, {
+      "referenceID" : 7,
+      "context" : "Several hand-designed features, such as SIFT, HOG, SURF and DAISY have found widespread applications [22, 3, 28, 8].",
+      "startOffset" : 101,
+      "endOffset" : 115
+    }, {
+      "referenceID" : 33,
+      "context" : "A Siamese network is used in [34] to measure patch similarity.",
+      "startOffset" : 29,
+      "endOffset" : 33
+    }, {
+      "referenceID" : 0,
+      "context" : "A driving dataset is used to train a CNN for patch similarity in [1], while [35] also uses a Siamese network for measuring patch similarity for stereo matching.",
+      "startOffset" : 65,
+      "endOffset" : 68
+    }, {
+      "referenceID" : 34,
+      "context" : "A driving dataset is used to train a CNN for patch similarity in [1], while [35] also uses a Siamese network for measuring patch similarity for stereo matching.",
+      "startOffset" : 76,
+      "endOffset" : 80
+    }, {
+      "referenceID" : 20,
+      "context" : "A CNN pretrained on ImageNet is analyzed for visual and semantic correspondence in [21].",
+      "startOffset" : 83,
+      "endOffset" : 87
+    }, {
+      "referenceID" : 15,
+      "context" : "Correspondences are learned in [16] across both appearance and a global shape deformation by exploiting relationships in fine-grained datasets.",
+      "startOffset" : 31,
+      "endOffset" : 35
+    }, {
+      "referenceID" : 4,
+      "context" : "Metric learning using neural networks Neural networks are used in [5] for learning a mapping where the Euclidean distance in the space preserves semantic distance.",
+      "startOffset" : 66,
+      "endOffset" : 69
+    }, {
+      "referenceID" : 6,
+      "context" : "The loss function for learning similarity metric using Siamese networks is subsequently formalized by [7, 12].",
+      "startOffset" : 102,
+      "endOffset" : 109
+    }, {
+      "referenceID" : 11,
+      "context" : "The loss function for learning similarity metric using Siamese networks is subsequently formalized by [7, 12].",
+      "startOffset" : 102,
+      "endOffset" : 109
+    }, {
+      "referenceID" : 28,
+      "context" : "Recently, a triplet loss is used by [29] for fine-grained image ranking, while the triplet loss is also used for face recognition and clustering in [26].",
+      "startOffset" : 36,
+      "endOffset" : 40
+    }, {
+      "referenceID" : 25,
+      "context" : "Recently, a triplet loss is used by [29] for fine-grained image ranking, while the triplet loss is also used for face recognition and clustering in [26].",
+      "startOffset" : 148,
+      "endOffset" : 152
+    }, {
+      "referenceID" : 26,
+      "context" : "Mini-batches are used for efficiently training the network in [27].",
+      "startOffset" : 62,
+      "endOffset" : 66
+    }, {
+      "referenceID" : 16,
+      "context" : "However, explicitly handling such invariances in forms of data augmentation or explicit network structure yields higher accuracy in many tasks [17, 15, 13].",
+      "startOffset" : 143,
+      "endOffset" : 155
+    }, {
+      "referenceID" : 14,
+      "context" : "However, explicitly handling such invariances in forms of data augmentation or explicit network structure yields higher accuracy in many tasks [17, 15, 13].",
+      "startOffset" : 143,
+      "endOffset" : 155
+    }, {
+      "referenceID" : 12,
+      "context" : "However, explicitly handling such invariances in forms of data augmentation or explicit network structure yields higher accuracy in many tasks [17, 15, 13].",
+      "startOffset" : 143,
+      "endOffset" : 155
+    }, {
+      "referenceID" : 12,
+      "context" : "Recently, a spatial transformer network is proposed in [13] to learn how to zoom in, rotate, or apply arbitrary transformations to an object of interest.",
+      "startOffset" : 55,
+      "endOffset" : 59
+    }, {
+      "referenceID" : 19,
+      "context" : "Fully convolutional neural network Fully connected layers are converted in 1× 1 convolutional filters in [20] to propose a fully convolutional framework for segmentation.",
+      "startOffset" : 105,
+      "endOffset" : 109
+    }, {
+      "referenceID" : 10,
+      "context" : "Changing a regular CNN to a fully convolutional network for detection leads to speed and accuracy gains in [11].",
+      "startOffset" : 107,
+      "endOffset" : 111
+    }, {
+      "referenceID" : 0,
+      "context" : "Patch similarity based networks such as [1, 34, 35] require O(n(2)) feed forward passes, where n is the number of keypoints in each image, as compared to only O(n) for our network.",
+      "startOffset" : 40,
+      "endOffset" : 51
+    }, {
+      "referenceID" : 33,
+      "context" : "Patch similarity based networks such as [1, 34, 35] require O(n(2)) feed forward passes, where n is the number of keypoints in each image, as compared to only O(n) for our network.",
+      "startOffset" : 40,
+      "endOffset" : 51
+    }, {
+      "referenceID" : 34,
+      "context" : "Patch similarity based networks such as [1, 34, 35] require O(n(2)) feed forward passes, where n is the number of keypoints in each image, as compared to only O(n) for our network.",
+      "startOffset" : 40,
+      "endOffset" : 51
+    }, {
+      "referenceID" : 6,
+      "context" : "To encode the constraints, we propose a generalization of the contrastive loss [7, 12], called correspondence contrastive loss.",
+      "startOffset" : 79,
+      "endOffset" : 86
+    }, {
+      "referenceID" : 11,
+      "context" : "To encode the constraints, we propose a generalization of the contrastive loss [7, 12], called correspondence contrastive loss.",
+      "startOffset" : 79,
+      "endOffset" : 86
+    }, {
+      "referenceID" : 0,
+      "context" : "We again note that the number of feed forward passes at test time is O(n) compared to O(n(2)) for Siamese network variants [1, 35, 34].",
+      "startOffset" : 123,
+      "endOffset" : 134
+    }, {
+      "referenceID" : 34,
+      "context" : "We again note that the number of feed forward passes at test time is O(n) compared to O(n(2)) for Siamese network variants [1, 35, 34].",
+      "startOffset" : 123,
+      "endOffset" : 134
+    }, {
+      "referenceID" : 33,
+      "context" : "We again note that the number of feed forward passes at test time is O(n) compared to O(n(2)) for Siamese network variants [1, 35, 34].",
+      "startOffset" : 123,
+      "endOffset" : 134
+    }, {
+      "referenceID" : 9,
+      "context" : "We use a GPU implementation to speed up the K-NN search [10] and embed it as a Caffe layer to actively mine hard negatives on-the-fly.",
+      "startOffset" : 56,
+      "endOffset" : 60
+    }, {
+      "referenceID" : 12,
+      "context" : "However, handling spatial transformations explicitly using data-augmentation or a special network structure have been shown to be more successful in many tasks [13, 15, 16, 17].",
+      "startOffset" : 160,
+      "endOffset" : 176
+    }, {
+      "referenceID" : 14,
+      "context" : "However, handling spatial transformations explicitly using data-augmentation or a special network structure have been shown to be more successful in many tasks [13, 15, 16, 17].",
+      "startOffset" : 160,
+      "endOffset" : 176
+    }, {
+      "referenceID" : 15,
+      "context" : "However, handling spatial transformations explicitly using data-augmentation or a special network structure have been shown to be more successful in many tasks [13, 15, 16, 17].",
+      "startOffset" : 160,
+      "endOffset" : 176
+    }, {
+      "referenceID" : 16,
+      "context" : "However, handling spatial transformations explicitly using data-augmentation or a special network structure have been shown to be more successful in many tasks [13, 15, 16, 17].",
+      "startOffset" : 160,
+      "endOffset" : 176
+    }, {
+      "referenceID" : 22,
+      "context" : "For visual correspondence, finding the right scale and rotation is crucial, which is traditionally achieved through patch normalization [23, 22].",
+      "startOffset" : 136,
+      "endOffset" : 144
+    }, {
+      "referenceID" : 21,
+      "context" : "For visual correspondence, finding the right scale and rotation is crucial, which is traditionally achieved through patch normalization [23, 22].",
+      "startOffset" : 136,
+      "endOffset" : 144
+    }, {
+      "referenceID" : 12,
+      "context" : "To mimic patch normalization, we borrow the idea of the spatial transformer layer [13].",
+      "startOffset" : 82,
+      "endOffset" : 86
+    }, {
+      "referenceID" : 13,
+      "context" : "We use Caffe [14] package for implementation.",
+      "startOffset" : 13,
+      "endOffset" : 17
+    }, {
+      "referenceID" : 9,
+      "context" : "Since it does not support the new layers we propose, we implement the correspondence contrastive loss layer and the convolutional spatial transformer layer, the K-NN layer based on [10] and the channel-wise L2 normalization layer.",
+      "startOffset" : 181,
+      "endOffset" : 185
+    }, {
+      "referenceID" : 21,
+      "context" : "method SIFT-NN [22] HOG-NN [8] SIFT-flow [19] DaisyFF [31] DSP [18] DM best (1/2) [25] Ours-HN Ours-HN-ST MPI-Sintel 68.",
+      "startOffset" : 15,
+      "endOffset" : 19
+    }, {
+      "referenceID" : 7,
+      "context" : "method SIFT-NN [22] HOG-NN [8] SIFT-flow [19] DaisyFF [31] DSP [18] DM best (1/2) [25] Ours-HN Ours-HN-ST MPI-Sintel 68.",
+      "startOffset" : 27,
+      "endOffset" : 30
+    }, {
+      "referenceID" : 18,
+      "context" : "method SIFT-NN [22] HOG-NN [8] SIFT-flow [19] DaisyFF [31] DSP [18] DM best (1/2) [25] Ours-HN Ours-HN-ST MPI-Sintel 68.",
+      "startOffset" : 41,
+      "endOffset" : 45
+    }, {
+      "referenceID" : 30,
+      "context" : "method SIFT-NN [22] HOG-NN [8] SIFT-flow [19] DaisyFF [31] DSP [18] DM best (1/2) [25] Ours-HN Ours-HN-ST MPI-Sintel 68.",
+      "startOffset" : 54,
+      "endOffset" : 58
+    }, {
+      "referenceID" : 17,
+      "context" : "method SIFT-NN [22] HOG-NN [8] SIFT-flow [19] DaisyFF [31] DSP [18] DM best (1/2) [25] Ours-HN Ours-HN-ST MPI-Sintel 68.",
+      "startOffset" : 63,
+      "endOffset" : 67
+    }, {
+      "referenceID" : 24,
+      "context" : "method SIFT-NN [22] HOG-NN [8] SIFT-flow [19] DaisyFF [31] DSP [18] DM best (1/2) [25] Ours-HN Ours-HN-ST MPI-Sintel 68.",
+      "startOffset" : 82,
+      "endOffset" : 86
+    }, {
+      "referenceID" : 23,
+      "context" : "4 Table 3: Matching performance PCK@10px on KITTI Flow 2015 [24] and MPI-Sintel [6].",
+      "startOffset" : 60,
+      "endOffset" : 64
+    }, {
+      "referenceID" : 5,
+      "context" : "4 Table 3: Matching performance PCK@10px on KITTI Flow 2015 [24] and MPI-Sintel [6].",
+      "startOffset" : 80,
+      "endOffset" : 83
+    }, {
+      "referenceID" : 21,
+      "context" : "(a) Original image pair and keypoints (b) SIFT [22] NN matches",
+      "startOffset" : 47,
+      "endOffset" : 51
+    }, {
+      "referenceID" : 27,
+      "context" : "(c) DAISY [28] NN matches (d) Ours-HN NN matches",
+      "startOffset" : 10,
+      "endOffset" : 14
+    }, {
+      "referenceID" : 8,
+      "context" : "alidation For semantic correspondences (finding the same functional part from different instances), we use the PASCAL-Berkeley dataset with keypoint annotations [9, 4] and a subset used by FlowWeb [36].",
+      "startOffset" : 161,
+      "endOffset" : 167
+    }, {
+      "referenceID" : 3,
+      "context" : "alidation For semantic correspondences (finding the same functional part from different instances), we use the PASCAL-Berkeley dataset with keypoint annotations [9, 4] and a subset used by FlowWeb [36].",
+      "startOffset" : 161,
+      "endOffset" : 167
+    }, {
+      "referenceID" : 35,
+      "context" : "alidation For semantic correspondences (finding the same functional part from different instances), we use the PASCAL-Berkeley dataset with keypoint annotations [9, 4] and a subset used by FlowWeb [36].",
+      "startOffset" : 197,
+      "endOffset" : 201
+    }, {
+      "referenceID" : 29,
+      "context" : "We also compare against prior state-of-the-art on the Caltech-UCSD Bird dataset[30].",
+      "startOffset" : 79,
+      "endOffset" : 83
+    }, {
+      "referenceID" : 20,
+      "context" : "To measure performance, we use the percentage of correct keypoints (PCK) metric [21, 36, 16] (or equivalently “accuracy@T” [25]).",
+      "startOffset" : 80,
+      "endOffset" : 92
+    }, {
+      "referenceID" : 35,
+      "context" : "To measure performance, we use the percentage of correct keypoints (PCK) metric [21, 36, 16] (or equivalently “accuracy@T” [25]).",
+      "startOffset" : 80,
+      "endOffset" : 92
+    }, {
+      "referenceID" : 15,
+      "context" : "To measure performance, we use the percentage of correct keypoints (PCK) metric [21, 36, 16] (or equivalently “accuracy@T” [25]).",
+      "startOffset" : 80,
+      "endOffset" : 92
+    }, {
+      "referenceID" : 24,
+      "context" : "To measure performance, we use the percentage of correct keypoints (PCK) metric [21, 36, 16] (or equivalently “accuracy@T” [25]).",
+      "startOffset" : 123,
+      "endOffset" : 127
+    }, {
+      "referenceID" : 3,
+      "context" : "0 Table 4: Per-class PCK on PASCAL-Berkeley correspondence dataset [4] (α = 0.",
+      "startOffset" : 67,
+      "endOffset" : 70
+    }, {
+      "referenceID" : 8,
+      "context" : "Figure 7: Qualitative semantic correspondence results on PASCAL [9] correspondences with Berkeley keypoint annotation [4] and Caltech-UCSD Bird dataset [30].",
+      "startOffset" : 64,
+      "endOffset" : 67
+    }, {
+      "referenceID" : 3,
+      "context" : "Figure 7: Qualitative semantic correspondence results on PASCAL [9] correspondences with Berkeley keypoint annotation [4] and Caltech-UCSD Bird dataset [30].",
+      "startOffset" : 118,
+      "endOffset" : 121
+    }, {
+      "referenceID" : 29,
+      "context" : "Figure 7: Qualitative semantic correspondence results on PASCAL [9] correspondences with Berkeley keypoint annotation [4] and Caltech-UCSD Bird dataset [30].",
+      "startOffset" : 152,
+      "endOffset" : 156
+    }, {
+      "referenceID" : 24,
+      "context" : "Following convention [25], we measure PCK at 10 pixel threshold and compare with the state-of-the-art methods on Table 3.",
+      "startOffset" : 21,
+      "endOffset" : 25
+    }, {
+      "referenceID" : 18,
+      "context" : "SIFT-flow [19], DaisyFF [31], DSP [18], and DM best [25] use additional global optimization to generate more accurate correspondences.",
+      "startOffset" : 10,
+      "endOffset" : 14
+    }, {
+      "referenceID" : 30,
+      "context" : "SIFT-flow [19], DaisyFF [31], DSP [18], and DM best [25] use additional global optimization to generate more accurate correspondences.",
+      "startOffset" : 24,
+      "endOffset" : 28
+    }, {
+      "referenceID" : 17,
+      "context" : "SIFT-flow [19], DaisyFF [31], DSP [18], and DM best [25] use additional global optimization to generate more accurate correspondences.",
+      "startOffset" : 34,
+      "endOffset" : 38
+    }, {
+      "referenceID" : 24,
+      "context" : "SIFT-flow [19], DaisyFF [31], DSP [18], and DM best [25] use additional global optimization to generate more accurate correspondences.",
+      "startOffset" : 52,
+      "endOffset" : 56
+    }, {
+      "referenceID" : 21,
+      "context" : "The accuracy of our features outperforms all traditional features including SIFT [22], DAISY [28] and KAZE [2].",
+      "startOffset" : 81,
+      "endOffset" : 85
+    }, {
+      "referenceID" : 27,
+      "context" : "The accuracy of our features outperforms all traditional features including SIFT [22], DAISY [28] and KAZE [2].",
+      "startOffset" : 93,
+      "endOffset" : 97
+    }, {
+      "referenceID" : 1,
+      "context" : "The accuracy of our features outperforms all traditional features including SIFT [22], DAISY [28] and KAZE [2].",
+      "startOffset" : 107,
+      "endOffset" : 110
+    }, {
+      "referenceID" : 8,
+      "context" : "We independently train on the PASCAL dataset [9] with various annotations [4, 36] and on the CUB dataset [30], with the same network architecture.",
+      "startOffset" : 45,
+      "endOffset" : 48
+    }, {
+      "referenceID" : 3,
+      "context" : "We independently train on the PASCAL dataset [9] with various annotations [4, 36] and on the CUB dataset [30], with the same network architecture.",
+      "startOffset" : 74,
+      "endOffset" : 81
+    }, {
+      "referenceID" : 35,
+      "context" : "We independently train on the PASCAL dataset [9] with various annotations [4, 36] and on the CUB dataset [30], with the same network architecture.",
+      "startOffset" : 74,
+      "endOffset" : 81
+    }, {
+      "referenceID" : 29,
+      "context" : "We independently train on the PASCAL dataset [9] with various annotations [4, 36] and on the CUB dataset [30], with the same network architecture.",
+      "startOffset" : 105,
+      "endOffset" : 109
+    }, {
+      "referenceID" : 17,
+      "context" : "Since intraclass correspondence alignment is a difficult task, preceding works use either geometric [18] or learned [16] spatial priors.",
+      "startOffset" : 100,
+      "endOffset" : 104
+    }, {
+      "referenceID" : 15,
+      "context" : "Since intraclass correspondence alignment is a difficult task, preceding works use either geometric [18] or learned [16] spatial priors.",
+      "startOffset" : 116,
+      "endOffset" : 120
+    }, {
+      "referenceID" : 20,
+      "context" : "As shown in Table 4 and 5, our approach outperforms that of Long et al.[21] by a large margin on the PASCAL dataset with Berkeley keypoint annotation, for most classes and also overall.",
+      "startOffset" : 71,
+      "endOffset" : 75
+    }, {
+      "referenceID" : 3,
+      "context" : "Table 5: Mean PCK on PASCAL-Berkeley correspondence dataset [4] (L = max(w, h)).",
+      "startOffset" : 60,
+      "endOffset" : 63
+    }, {
+      "referenceID" : 29,
+      "context" : "Figure 8: PCK on CUB dataset [30], compared with various other approaches including WarpNet [16] (L = √ w2 + h2.",
+      "startOffset" : 29,
+      "endOffset" : 33
+    }, {
+      "referenceID" : 15,
+      "context" : "Figure 8: PCK on CUB dataset [30], compared with various other approaches including WarpNet [16] (L = √ w2 + h2.",
+      "startOffset" : 92,
+      "endOffset" : 96
+    }, {
+      "referenceID" : 21,
+      "context" : "Features SIFT [22] DAISY [28] SURF [3] KAZE [2] Agrawal et al.",
+      "startOffset" : 14,
+      "endOffset" : 18
+    }, {
+      "referenceID" : 27,
+      "context" : "Features SIFT [22] DAISY [28] SURF [3] KAZE [2] Agrawal et al.",
+      "startOffset" : 25,
+      "endOffset" : 29
+    }, {
+      "referenceID" : 2,
+      "context" : "Features SIFT [22] DAISY [28] SURF [3] KAZE [2] Agrawal et al.",
+      "startOffset" : 35,
+      "endOffset" : 38
+    }, {
+      "referenceID" : 1,
+      "context" : "Features SIFT [22] DAISY [28] SURF [3] KAZE [2] Agrawal et al.",
+      "startOffset" : 44,
+      "endOffset" : 47
+    }, {
+      "referenceID" : 20,
+      "context" : "result is purely from nearest neighbor matching, while [21] uses global optimization too.",
+      "startOffset" : 55,
+      "endOffset" : 59
+    }, {
+      "referenceID" : 29,
+      "context" : "We also train and test UCN on the CUB dataset [30], using the same cleaned test subset as WarpNet [16].",
+      "startOffset" : 46,
+      "endOffset" : 50
+    }, {
+      "referenceID" : 15,
+      "context" : "We also train and test UCN on the CUB dataset [30], using the same cleaned test subset as WarpNet [16].",
+      "startOffset" : 98,
+      "endOffset" : 102
+    }, {
+      "referenceID" : 0,
+      "context" : "Note that intermediate features such as [1] learn to optimize patch similarity, thus, our UCN significantly outperforms them since it is trained directly on the correspondence task.",
+      "startOffset" : 40,
+      "endOffset" : 43
+    } ],
+    "year" : 2016,
+    "abstractText" : "We present a deep learning framework for accurate visual correspondences and demonstrate its effectiveness for both geometric and semantic matching, spanning across rigid motions to intra-class shape or appearance variations. In contrast to previous CNN-based approaches that optimize a surrogate patch similarity objective, we use deep metric learning to directly learn a feature space that preserves either geometric or semantic similarity. Our fully convolutional architecture, along with a novel correspondence contrastive loss allows faster training by effective reuse of computations, accurate gradient computation through the use of thousands of examples per image pair and faster testing with O(n) feed forward passes for n keypoints, instead of O(n) for typical patch similarity methods. We propose a convolutional spatial transformer to mimic patch normalization in traditional features like SIFT, which is shown to dramatically boost accuracy for semantic correspondences across intra-class shape variations. Extensive experiments on KITTI, PASCAL, and CUB-2011 datasets demonstrate the significant advantages of our features over prior works that use either hand-constructed or learned features.",
+    "creator" : null
+  }
+}

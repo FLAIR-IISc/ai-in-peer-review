@@ -1,0 +1,47 @@
+Summary and contributions
+- The paper proposes “nonparametric neural networks,” a training framework that jointly optimizes network weights and width in a single run by dynamically adding zero-units and removing units whose fan-in (or fan-out) vector has been shrunk to zero by a group-regularizer. The central theoretical claim (Theorem 1) shows that for fan-in or fan-out group-norm regularizers with λ > 0 and 1 ≤ p < ∞, the training objective attains a global minimum at a finite network dimensionality. This addresses a key concern that the “best” solution could drift to infinite width.
+- Practically, the paper introduces two mechanisms to make this viable:
+  - CapNorm: a variant of batch normalization that subtracts the batch mean but scales by max(σ, 1) and removes learned affine parameters, to avoid trivializing the group penalty through arbitrary re-scaling.
+  - AdaRad: a “radial–angular” optimizer that decomposes each fan-in gradient into components parallel and orthogonal to the fan-in vector; it shrinks radially (un-normalized) while normalizing and applying angular updates orthogonal to the current fan-in direction, intended to let newly added units learn despite small loss gradients.
+- Empirically, on MNIST, rectangles-images, and convex datasets (two hidden layers), the approach often matches or exceeds parametric baselines of the same final size, and sometimes approaches the best result from an exhaustive random search. On a large tabular dataset (poker), it achieves competitive error (<1%) and even 0% test error in one setting.
+
+Decision: Reject (borderline)
+Key reasons: (1) Empirical evaluation is limited and leaves fairness/rigor concerns; critical ablations are missing. (2) The methodological novelty relative to known structured-sparsity pruning/growth is incremental; the new optimizer and normalization are interesting but insufficiently validated.
+
+Supporting arguments
+- Theory
+  - Theorem 1 is technically interesting and, to my knowledge, novel in this explicit “finite-width global minimizer” form. It leverages group penalties (fan-in/out) to bound useful dimensionality. While the result aligns with intuition from group Lasso/structured sparsity, formalizing it for multilayer nets is nontrivial and appreciated.
+  - However, the theorem is an existence result about the training objective’s global minimum, not about the nonparametric training dynamics converging there or recovering good generalization. The theory doesn’t analyze the proposed add/remove dynamics, AdaRad, or CapNorm.
+  - Proposition 1 (self-similar nonlinearities imply equivalence of per-layer λ to a single λ up to rescaling) is neat, but CapNorm explicitly breaks full scale-invariance below σ = 1. The practical impact of this tension is not examined.
+
+- Methodology
+  - The growth-prune mechanism builds on known ideas: structured-sparsity penalties to remove neurons/channels (e.g., group Lasso; Wen et al., 2016) and dynamic network growing (e.g., Cascade-Correlation, Ash, Chen et al.’s Net2Net). The novelty is the explicit nonparametric framing with existence theory, plus the AdaRad and CapNorm refinements.
+  - AdaRad is an interesting optimizer. Conceptually, normalizing only the orthogonal component resembles ideas in weight normalization/path-SGD-like updates that decouple length from direction; discussing these connections would strengthen the positioning. The claimed computational/memory advantages over RMSprop are plausible, but measured wall-clock comparisons are missing.
+  - CapNorm is motivated by avoiding trivial rescaling that defeats the regularizer, but it is ad hoc: the choice of “cap at 1” and removal of affine parameters is not theoretically justified, and the interplay with scale-invariant ReLU layers is not analyzed. An ablation comparing BN variants (e.g., BN without gamma/beta, or fixed-gamma=1) would be informative.
+
+- Experiments
+  - Small-scale evaluation uses fully connected nets on MNIST/rectangles/convex; the poker experiment is tabular. No convolutional or modern vision/NLP settings are tested, which weakens the claims of broad applicability.
+  - The central empirical claim—“higher accuracy than parametric networks of the same size”—is supported on MNIST and partially on rectangles, but fails on convex. The authors acknowledge the sensitivity of their method to λ and a tendency to converge to small networks on convex. This suggests the schedule (ν, αr, αφ, λ) can bias towards under-parameterization.
+  - Fairness and rigor concerns:
+    - For nonparametric (NP) runs, a “typical representative” is chosen by manual inspection from 10 seeds per λ. Parametric (P) baselines are then tuned for that size, but the representative selection introduces potential bias. Ideally, report distributions over all seeds and sizes, or match by pairing seeds and using the median across matched runs.
+    - Key ablations are missing: AdaRad vs standard optimizers (RMSprop/Adam) with minimal modifications; CapNorm vs other BN variants; p = 1 vs p = 2; fan-in vs fan-out; unit addition rate ν and schedule sensitivity. Without ablations it is hard to attribute gains.
+    - No training-time comparisons (e.g., time-to-target accuracy) are reported; growth incurs delay until sufficient units are added, which is discussed but not quantified relative to baselines.
+
+Additional feedback to improve the paper
+- Strengthen empirical validation with:
+  - Convolutional experiments (e.g., CIFAR-10/100) and channel/group sparsity to demonstrate the method in modern settings where pruning/growth are impactful.
+  - Comprehensive ablations: AdaRad vs RMSprop/Adam (and the proposed AdaRad-M), with and without CapNorm; swapping CapNorm for BN without learned affine parameters; sensitivity to ν, νfreq, αr, λ; p = 1 vs 2; fan-in vs fan-out.
+  - Fairer comparisons: avoid picking a single “representative”; report medians and spreads over matched seeds/sizes; include train-time and wall-clock overheads.
+- Clarify relations to prior work:
+  - Compare and contrast more explicitly with structured sparsity learning in DNNs (e.g., channel pruning via group Lasso), network slimming, and progressive growing methods. Identify what is genuinely new (existence theorem; AdaRad; CapNorm) and what is reused.
+- Improve clarity and presentation:
+  - Clean up typos, algorithm pseudocode (readability), and references (many are malformed).
+  - Provide intuition for the dynamics of a newly added unit: with zero fan-out, its fan-in initially receives no loss gradient; only fan-out learns at first. Explain how αr and λ are set to avoid premature elimination in this phase.
+
+Questions for the authors
+1. CapNorm: Why cap at 1 specifically, and why remove affine parameters entirely? Could BN with fixed gamma/beta or weight normalization plus group penalty suffice without undermining the regularizer? Please provide ablations.
+2. AdaRad: How does it compare to RMSprop/Adam when those are modified to avoid normalizing the shrinkage component (e.g., only normalizing the orthogonal component)? Any wall-clock benchmarks?
+3. Sensitivity: How robust are results to ν, νfreq, αr/αφ, and λ schedules? Can you show that the convex failure can be mitigated by annealing λ or adapting αr?
+4. p = 1 vs p = 2: You argue hardware favors dense matrices, but p = 1 could discover highly sparse solutions—did you evaluate accuracy/computation trade-offs?
+5. Generalization: Do networks found by NP training generalize better than same-size parametric nets after re-initialization and retraining with the best parametric recipe? On MNIST you imply yes; can you quantify across datasets?
+6. Extensions: Any initial results with convolutional layers/channel-wise group penalties? How would CapNorm/AdaRad extend to conv kernels and feature maps?

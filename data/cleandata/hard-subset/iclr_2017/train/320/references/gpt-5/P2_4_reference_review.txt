@@ -1,0 +1,45 @@
+Summary and contributions
+The paper tackles visual servoing—specifically target following—by combining (i) pre-trained convolutional features (modified VGG), (ii) a learned predictive feature dynamics model (bilinear, locally connected), and (iii) a sample-efficient fitted Q-iteration (FQI) procedure that learns per-channel, multi-scale feature weights and control penalties. The key idea is to execute an extremely simple one-step lookahead controller that minimizes the weighted Euclidean distance between predicted next-step features and a goal feature map, while using RL to assign weights that prioritize task-relevant features and scales. The authors derive a Q-function approximator that is linear in these weights, making FQI efficient and stable. On a synthetic quadcopter car-following benchmark (CitySim3D), they show: (1) learned VGG features with bilinear dynamics outperform raw pixels and hand-engineered IBVS (ORB, tracker-based), (2) significant sample-efficiency vs end-to-end model-free methods (TRPO), requiring only about 20 RL trajectories (with separate supervised dynamics training), and (3) generalization across novel cars for intermediate VGG layers. Code, simulator, and videos are released.
+
+Decision: Accept
+Key reasons:
+- Well-motivated, simple, and novel integration of pre-trained features, bilinear dynamics, and an analytically structured Q-function enabling very sample-efficient policy improvement.
+- Thorough empirical study, including ablations across feature layers and comparisons to classical IBVS and modern RL baselines, supports the main claims of robustness and sample efficiency.
+
+Supporting arguments
+1) Problem and motivation: The paper clearly addresses the challenge that visual servoing requires robust, discriminative features and accurate feature Jacobians, which are typically hand-engineered and brittle. Leveraging pre-trained deep features exploits visual invariances without expensive task-specific data, while learning short-horizon feature dynamics suffices for a greedy servo that is fast. The need to focus on relevant features (target vs distractors) motivates learning feature weights with RL; the particular Q-approximation ties directly to the servo objective, ensuring consistency between learning and control. This is well situated relative to IBVS/PBVS, photometric servoing, video prediction, and model-free deep RL.
+
+2) Technical soundness: 
+- Bilinear locally connected dynamics is a reasonable and efficient choice: it matches the structure of convolutional feature maps, is linear in controls (allowing exact linearization), and can model local spatial interactions with action-dependent terms; biases allow action-independent changes (e.g., moving objects).
+- The Q-function design is principled: with Q linear in weights and a policy that minimizes Q, the argmin action is invariant to positive scaling and bias; exploiting this to initialize α and b stabilizes FQI and reduces optimization difficulty. The non-negativity constraint on weights is sensible for interpretability and regularization.
+- The training protocols are clear: dynamics trained supervised on 10k pairs; RL learns weights in 2 sampling iterations of 10 trajectories each, with regularization and validation-based model selection.
+
+3) Empirical support:
+- Ablations across VGG layers show a sweet spot (conv4_3), with a plausible explanation that deeper layers (conv5_3) are too spatially invariant. This aligns with the servoing need for spatially resolved features.
+- Comparisons: the proposed method substantially outperforms raw-pixel servoing (less robust to occlusions/distractors), IBVS with ORB features (matching errors), and even tracker-based IBVS (C-COT) while being much faster. Versus TRPO: with only 20 RL trajectories (FQI) the method achieves lower cost than TRPO even with 50 iterations and far more data; TRPO using the same feature representation learns slowly and underperforms.
+- Generalization: performance on unseen cars remains strong for mid-level VGG features, suggesting the pre-trained features/dynamics add useful invariances.
+
+Limitations and concerns (do not outweigh acceptance):
+- All experiments are in a synthetic environment; there’s no real-robot validation. While code and a simulator are positive, the sim-only setting limits claims about real-world robustness.
+- The RL “sample-efficiency” is for the weighting stage only; supervised dynamics learning uses 100 trajectories/10k samples collected with a hand-crafted policy close to the task. This is reasonable but should be more clearly contextualized when comparing to model-free baselines.
+- The cost function for RL leverages privileged ground-truth pose to compute per-step costs, which may not be available in real settings; although cost is used only for training/evaluation, this may affect the practicality of deployment without additional instrumentation.
+- Baseline coverage: no model-based MPC baseline using the learned dynamics for multi-step planning; would clarify whether one-step lookahead with learned weights suffices vs short-horizon MPC.
+- Analysis of learned weights (e.g., sparsity, channel selection across scales) and robustness to heavy occlusions/distractors could be expanded.
+
+Additional feedback (to help improve the paper)
+- Clarify the data budget breakdown: supervised dynamics data vs RL data, and provide sensitivity curves for both (how do 5k vs 10k dynamics samples, and 10 vs 20 vs 40 RL trajectories, affect performance?).
+- Add a short-horizon MPC baseline using the same bilinear dynamics to assess the benefit of one-step greedy control vs planning.
+- Discuss/measure uncertainty in the dynamics model, or regularization for compounding model errors; even a simple ensemble or dropout-based uncertainty could inform control.
+- Include a qualitative/quantitative analysis of feature weights: which layers/channels are emphasized? Do weights transfer across targets?
+- Evaluate more severe distractor/occlusion settings and lighting/viewpoint shifts to stress generalization.
+- Provide timing breakdown and consider faster backbones (e.g., MobileNet) to show tradeoffs.
+- If possible, include a small real-world validation (even a table-top setup or a drone simulation-to-real pilot).
+
+Questions for the authors
+1) Cost function: During RL, you use ground-truth pose to compute costs and terminations. How sensitive is FQI to noise or proxy costs that do not require pose (e.g., using image-space proxy penalties or an auxiliary learned cost)?
+2) Data efficiency: How does performance scale with (a) fewer supervised dynamics samples, and (b) fewer RL trajectories? Is 20 RL trajectories near the knee of the curve?
+3) Generalization: When switching to entirely new target classes (not cars), do the same learned dynamics and weighting procedure transfer, or do you need to relearn weights only? Any evidence on cross-task transfer?
+4) Weights: Are the learned weights sparse or concentrated on certain channels/scales? Do they differ substantially between seen vs novel cars?
+5) Planning: Did you try short-horizon MPC with your bilinear dynamics, and if so, how did it compare in cost and compute?
+6) Fairness of baselines: TRPO policies ingest raw pixels; did you also try giving TRPO the same VGG features as inputs with a comparable policy class? You mention worse results—can you elaborate on why?
+7) Real-world deployment: What would be required to remove privileged information (pose for cost) and to close the sim-to-real gap (e.g., domain randomization, real data for dynamics fine-tuning)?

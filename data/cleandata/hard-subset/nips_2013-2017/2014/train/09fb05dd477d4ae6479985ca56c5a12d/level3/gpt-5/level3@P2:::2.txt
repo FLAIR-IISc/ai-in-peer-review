@@ -1,0 +1,49 @@
+Summary and relation to prior work
+This paper proposes LSDA, a practical framework to adapt a deep CNN trained for image-level classification into an object detector, even for categories with no bounding-box annotations. The approach has three components: (1) learn a background class and fine-tune shared layers on the subset of categories with detection labels (category-invariant adaptation), (2) adjust category-specific output weights for categories with detection labels, and (3) approximate category-specific adaptation for categories without detection labels by adding to the classification weights an average “delta” computed from k nearest neighbor categories (based on fc8 weight similarity) that do have detection labels. At test time, detection scores are computed as class score minus background score. The method yields a 50% relative mAP boost over a classification-only baseline on held-out categories and is demonstrated at scale with a 7.6K-category detector and a faster SPP/proposal variant. The authors relate their work to R-CNN (which requires detection labels for all categories), weakly supervised MIL approaches, and supervised domain adaptation for detection, arguing novelty in adapting to categories with no detection data.
+
+Relative to prior work at NIPS and elsewhere, the paper leverages the now-standard strategy of pretraining on ImageNet classification and fine-tuning for detection (R-CNN, OverFeat), but adds a specific adaptation mechanism to bridge classification-to-detection for unseen categories. The idea of learning background and shared feature adaptation is consistent with domain adaptation literature, while the kNN-based category-specific delta is a simple heuristic not previously evaluated at this scale.
+
+Quality
+Strengths:
+- Solid empirical improvements on held-out categories (+50% relative mAP), clear ablations that isolate the impact of background modeling and feature-level fine-tuning versus category-specific adaptation.
+- Sensible error analysis showing reductions in localization and background confusions, aligning with the paper’s motivation.
+- Demonstration of large-scale feasibility (7.6K categories) and a faster variant; code/models released.
+
+Weaknesses/concerns:
+- The category-specific adaptation formulation Wd = Wc + δ lacks a principled justification. The “offset” δ and its interpretation are not well motivated beyond empirical utility. Why is additive transfer appropriate, and why at the final layer only?
+- The choice of nearest neighbors via L2 distance on normalized fc8 weights and averaging their δ is heuristic. No analysis of alternative metrics (e.g., cosine on features, taxonomy/WordNet similarity, confusion-based similarity), different k, or robustness to k is provided. The observation that kNN outperforms other variants is not explained.
+- Comparisons are not strictly apples-to-apples. Much of the analysis uses a train/val split (train + val1 for fine-tuning; val2 for evaluation). Claims of ranking “4th” on the challenge leaderboard and parity with R-CNN on val2 are hard to substantiate without test server results under the same training protocol as competing methods. The small size of val2 undermines strong statistical claims; only one paired t-test is reported, and not for the cross-method comparisons.
+- The method omits SVMs and bbox regression for convenience; while understandable for scalability, it complicates fairness when comparing to systems that include them. An apples-to-apples R-CNN baseline that uses the same omissions would help.
+
+Clarity
+The paper is generally clear, well-organized, and easy to follow. Section 3.1 is precise and the ablations are informative. However:
+- Section 3.2 needs a clearer derivation and motivation for the additive δ parameterization, its “physical meaning,” and why adaptation should be linear at the classifier layer. A schematic or small theoretical argument (e.g., first-order Taylor approximation of fine-tuning around Wc) would help.
+- The rationale for kNN averaging and the observed superiority of a particular k needs explanation, with sensitivity analysis.
+- The discussion of leaderboard placement and “similar performance” claims should explicitly state the training splits used by all methods and avoid overstating conclusions drawn from val2.
+
+Originality
+The category-invariant adaptation via background learning and shared-layer fine-tuning is close to R-CNN but used here to enable transfer to unseen categories. The kNN δ-averaging to synthesize detector weights for categories lacking detection labels is a simple, pragmatic idea; while heuristic, adapting to held-out categories without detection data is novel among supervised adaptation methods cited. Overall this is an incremental but useful contribution.
+
+Significance
+Scaling detection to thousands of categories without bounding boxes is important. The demonstrated gains on held-out categories and the released large-scale models make the work potentially impactful for practitioners. However, the lack of rigorous comparative evaluation on a common test protocol and limited justification for the key adaptation step temper the strength of the claims.
+
+Detailed comments and suggestions
+- Provide a principled justification for Wd = Wc + δ. For example, show that fine-tuning the last layer with small steps leads to an additive update approximable by averaging neighbor updates; or derive from a multi-task regularizer that encourages proximity to Wc.
+- Analyze sensitivity to k, similarity metrics, and neighbor selection strategies (taxonomy, semantic embeddings, feature-space neighbors, confusion matrices). Report per-class improvements versus semantic proximity to neighbors.
+- Report test server results using a training protocol comparable to baselines (or retrain baselines on your split). If not possible, temper leaderboard claims and emphasize val2-only comparisons with confidence intervals.
+- Include an ablation that adds bbox regression and/or SVMs to LSDA to assess whether the adaptation still helps when stronger heads are used.
+- Clarify whether background subtraction (scorei − scorebg) is calibrated across categories; consider temperature scaling or Platt scaling to mitigate label imbalance across seen/unseen categories.
+- Discuss failure modes where Oth errors are confusions with near-synonyms; could hierarchical NMS or taxonomy-aware rescoring help?
+
+Pros (arguments for acceptance)
+- Addresses an important and underexplored problem: detection without bbox labels for most categories.
+- Method is simple, scalable, and shows meaningful gains on held-out categories.
+- Clear ablations and error analysis; code/models released; large-scale demo.
+
+Cons (arguments against acceptance)
+- Key adaptation step (δ and kNN averaging) is heuristic and insufficiently justified.
+- Limited analysis of why kNN works and how to choose k/metric; no alternative similarity criteria evaluated.
+- Comparisons rely on val splits; leaderboard/test-set claims are not strictly comparable; statistical support is thin.
+
+Recommendation
+Borderline. I lean weak reject in its current form due to the lack of principled motivation for the core adaptation step and fairness/rigor of comparisons, but I find the problem and empirical gains compelling. Strengthening the justification and evaluation could move this to a clear accept.

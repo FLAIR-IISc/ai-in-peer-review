@@ -1,0 +1,54 @@
+Summary and contributions
+The paper proposes “nonparametric neural networks,” a framework that adapts the width of a feed-forward network during a single training run by adding and removing units. The key ingredients are:
+- A group-structured regularizer on fan-ins (or fan-outs), using an ℓ2 group norm, which promotes entire units to become exactly zero and thus removable.
+- A theoretical result (Theorem 1) showing that, under mild assumptions and with the proposed regularizer, the training objective attains a global minimum at finite dimensionality, thereby justifying the nonparametric formulation.
+- A training algorithm, AdaRad, that decomposes per-unit gradients into radial (parallel to the fan-in) and angular (orthogonal) components; it normalizes only the angular part to ensure new units can learn at similar angular rates without defeating the shrinkage induced by the regularizer. A momentum variant (AdaRad-M) is presented in the appendix.
+- A modified normalization layer, Capped Batch Normalization (CapNorm), which subtracts the batch mean but caps the standard deviation rescaling at a minimum of 1 and removes trainable γ/β, to avoid neutralizing the effect of the regularizer.
+- Experiments on MNIST, rectangles, convex, and a large OpenML “poker” dataset, suggesting that the approach can (sometimes) yield better accuracy per parameter than parametric baselines, and in some cases competitive or better absolute accuracy than an extensive random search, within a single training run.
+
+Decision: Reject
+While the idea is interesting and the existence theorem is a useful formalization, the experimental evidence is mixed and methodologically fragile, the novelty relative to prior work on structured sparsity and dynamic network growth/pruning is limited, and several choices (CapNorm, AdaRad, experimental protocol) are insufficiently validated against strong baselines. The empirical section does not convincingly support the central empirical claims beyond small FC benchmarks, and the evaluation on the “poker” dataset is unclear/suspicious.
+
+Supporting arguments
+- Positioning and novelty:
+  - Using group lasso–style regularization on units to drive width selection is well known (e.g., group sparsity in DNNs, channel pruning/network slimming, structured sparsity with group ℓ2/ℓ1 penalties). The paper cites some related work (Alvarez & Salzmann; Wen et al.; Molchanov et al.), but does not clearly delineate what is new beyond adopting that regularizer as the mechanism for nonparametric width selection within a single run.
+  - Dynamic growth/shrinking of networks has a substantial history (e.g., Cascade-Correlation; constructive/growing methods; Net2Net; Dynamic Network Surgery). The proposed “f-equivalence via adding/removing zero units” is conceptually straightforward and has been exploited in various forms. The paper would benefit from a crisper comparison (conceptual and empirical) to modern dynamic methods.
+  - AdaRad’s angular/radial decomposition is interesting, but strongly reminiscent of known ideas: updates on normalized weights/sphere (weight normalization; path-SGD; Riemannian/Natural gradient in scale-invariant networks), and per-group normalization akin to RMSprop/Adam but at fan-in granularity. There is no ablation against weight normalization + Adam or path-norm–aware methods, which would be important to assess novelty and utility.
+
+- Theory:
+  - Theorem 1 (existence of a global minimizer at finite width under fan-in/out penalties) is plausible and valuable. However, its practical import is limited: in practice we still need an algorithm that navigates the (nonconvex) landscape to a good solution and chooses a good size. The proof is long and technical; a clean statement of the tightness of the resulting bounds (how they depend on λ, p, depth, and dataset scale) and whether they imply anything about the “selected” size would strengthen the theory section.
+  - Proposition 1 (equivalence of per-layer λl to a single λ under self-similar nonlinearities) largely formalizes a known rescaling invariance of ReLU networks.
+
+- Methodology and empirical evidence:
+  - The experimental setup uses fully connected networks on small datasets. The method explicitly targets automatic width selection, but no convolutional experiments (where structured sparsity is most impactful) are included; this notably limits the practical impact.
+  - Results are mixed: on MNIST and rectangles, nonparametric models sometimes beat same-size parametric models and approach the best random search; on convex they underperform and tend to select models that are too small. This undermines the headline claim that nonparametric training can match or surpass black-box methods reliably.
+  - The comparison protocol raises fairness concerns:
+    - Parametric baselines with BN are trained with λ=0, while the nonparametric method uses a group-ℓ2 regularizer and CapNorm. The authors argue ℓ2 is “incompatible” with standard BN; however, more careful baselines exist (e.g., weight decay on parameters not neutralized by BN, decoupled weight decay with AdamW, or using BN without learnable γ/β as in the NP setup). As presented, the regularization–normalization interplay is favorable to the proposed method.
+    - The NP method uses a complex schedule with “rewinding” and extensive annealing; similar sophistication is not clearly matched for parametric baselines.
+    - No wall-clock or step complexity comparisons are provided; claims about AdaRad’s scaling and memory advantages vs RMSprop are not corroborated by timing/memory measurements.
+  - The “poker” dataset is described as binary classification; the standard UCI/OpenML Poker Hand dataset is 10-class. Achieving 0% error on 100k test samples is unusual and suggests either a different target task or data leakage. This result needs much clearer task definition, preprocessing, and leakage checks, and is not persuasive as currently presented.
+  - CapNorm is introduced to avoid neutralizing the regularizer. However, its empirical benefit is not isolated via ablations against: (i) BN without γ/β; (ii) WeightNorm; (iii) LayerNorm/GroupNorm; (iv) freezing BN statistics. Similarly, the contribution of AdaRad vs Adam/RMSprop with per-fan-in normalization is not shown.
+
+- Clarity and reproducibility:
+  - The training protocol involves manual choices (e.g., manual selection of a “typical representative” model, unit addition rates, “rewind last N epochs”), which harms reproducibility. No code is provided.
+  - Pseudocode and proofs are long; streamlining and moving some details to an appendix could improve readability. Reference formatting contains numerous errors.
+
+Suggestions for improvement (not required for the decision)
+- Provide rigorous ablations:
+  - CapNorm vs BN variants (with/without γ/β), WeightNorm, and normalization-free baselines.
+  - AdaRad vs Adam/RMSprop with per-fan-in normalization and/or weight normalization; include AdaRad-M systematically.
+  - Effect of unit addition schedule, αr/αφ, and λ; analyze sensitivity and robustness.
+- Strengthen baselines:
+  - Compare to modern structured sparsity/pruning with group-lasso penalties and dynamic methods (e.g., Network Slimming; Dynamic Network Surgery; recent ℓ0/variational channel pruning).
+  - Include convolutional architectures on CIFAR/ImageNet-scale subsets to demonstrate practicality.
+- Clarify the poker task (label definition, preprocessing, class balance) and rule out leakage; if the task is binary and trivial to compute from inputs, reconsider its value as a benchmark.
+- Report compute and memory overheads (per-step FLOPs, GPU memory) and wall-clock times to a target accuracy.
+- Discuss connections to path-norm/scale-invariance and weight normalization; position AdaRad theoretically with respect to optimization on the product of spheres.
+- Release code and configs; remove manual “representative run” selection; use standard statistical reporting (mean±std over seeds).
+
+Questions for the authors
+1) What exactly is the target and preprocessing for the poker dataset? How do you explain 0% test error? Can you share leakage checks and code?
+2) How does CapNorm compare to BN without learnable γ/β or WeightNorm in your setting? Is CapNorm essential?
+3) Can AdaRad’s benefits be reproduced by Adam/RMSprop with per-fan-in normalization or weight normalization? Please provide ablations.
+4) How sensitive is the selected width to λ and the unit addition/removal schedule? Do you have a principled way to adapt λ online?
+5) Do your conclusions hold for convolutional networks with channel/group regularizers? Any preliminary results on CIFAR?

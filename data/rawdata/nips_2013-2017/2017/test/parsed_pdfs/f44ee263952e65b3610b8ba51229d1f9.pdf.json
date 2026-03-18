@@ -1,0 +1,807 @@
+{
+  "name" : "f44ee263952e65b3610b8ba51229d1f9.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Unbounded cache model for online language modeling with open vocabulary",
+    "authors" : [ "Edouard Grave", "Moustapha Cisse" ],
+    "emails" : [ "egrave@fb.com", "moustaphacisse@fb.com", "ajoulin@fb.com" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Language models are a core component of many natural language processing applications such as machine translation [3], speech recognition [2] or dialogue agents [50]. In recent years, deep learning has led to remarkable progress in this domain, reaching state of the art performance on many challenging benchmarks [31]. These models are known to be over-parametrized, and large quantities of data are needed for them to reach their full potential [12]. Consequently, the training time can be very long (up to weeks) even when vast computational resources are available [31]. Unfortunately, in many real-world scenarios, either such quantity of data is not available, or the distribution of the data changes too rapidly to permit very long training. A common strategy to circumvent these problems is to use a pre-trained model and slowly finetune it on the new source of data. Such adaptive strategy is also time-consuming for parametric models since the specificities of the new dataset must be slowly encoded in the parameters of the model. Additionally, such strategy is also prone to overfitting and dramatic forgetting of crucial information from the original dataset. These difficulties directly result from the nature of parametric models.\nIn contrast, non-parametric approaches do not require retraining and can efficiently incorporate new information without damaging the original model. This makes them particularly suitable for settings requiring rapid adaptation to a changing distribution or to novel examples. However, nonparametric models perform significantly worse than fully trained deep models [12]. In this work, we are interested in building a language model that combines the best of both non-parametric and parametric approaches: a deep language model to model most of the distribution and a non-parametric one to adapt it to the change of distribution.\nThis solution has been used in speech recognition under the name of cache models [36, 37]. Cache models exploit the unigram distribution of a recent context to improve the predictive ability of the model. Recently, Grave et al. [22] and Merity et al. [43] showed that this solution could be applied to neural networks. However, cache models depend on the local context. Hence, they can only adapt a parametric model to a local change in the distribution. These specificities limit their usefulness when\n31st Conference on Neural Information Processing Systems (NIPS 2017), Long Beach, CA, USA.\nthe context is unavailable (e.g., tweets) or is enormous (e.g., book reading). This work overcomes this limitation by introducing a fast non-parametric retrieval system into the hybrid approach. We demonstrate that this novel combination of a parametric neural language model with a non-parametric retrieval system can smoothly adapt to changes in the distribution while remaining as consistent as possible with the history of the data. Our approach is as a generalization of cache models which scales to millions of examples."
+    }, {
+      "heading" : "2 Related work",
+      "text" : "This section reviews different settings that require models to adapt to changes in the data distribution, like transfer learning or open set (continual) learning. We also discuss solutions specific to language models, and we briefly explain large-scale retrieval methods.\nTransfer Learning. Transfer learning [10] is a well-established component of machine learning practitioners’ toolbox. It exploits the commonalities between different tasks to improve the predictive performance of the models trained to solve them. Notable variants of transfer learning are multitask learning [10], domain adaptation [6], and curriculum learning [8]. Multitask learning jointly trains several models to promote sharing of statistical strength. Domain adaptation reuses existing information about a given problem (e.g., data or model) to solve a new task. Curriculum learning takes one step further by adapting an existing model across a (large) sequence of increasingly difficult tasks. Models developed for these settings have proven useful in practice. However, they are chiefly designed for supervised learning and do not scale to the size of the problem we consider in this work.\nClass-incremental and Open Set Learning. These methods are concerned with problems where the set of targets is not known in advance but instead, increases over time. The main difficulty in this scenario lies in the deterioration of performance on previously seen classes when trying to accommodate new ones. Kuzborskij et al. [39] proposed to reduce the loss of accuracy when adding new classes by partly retraining the existing classifier. Muhlbaier et al. [47] introduced an ensemble model to deal with an increasingly large number of concepts. However, their approach relies on unrealistic assumptions on the data distribution. Zero-shot learning [41] can deal with new classes but often requires additional descriptive information about them [1]. Scheirer et al. [49] proposed a framework for open set recognition based on one-class SVMs.\nAdaptive language models. Adaptive language models change their parameters according to the recent history. Therefore, they implement a form of domain adaptation. A popular approach adds a cache to the model and has shown early success in the context of speech recognition [36, 38, 37]. Jelinek et al. further extended this strategy [29] into a smoothed trigram language model, reporting a reduction in both perplexity and word error rates. Della Pietra et al.[15] adapt the cache to a general n-gram model such that it satisfies marginal constraints obtained from the current document. Closer to our work, Grave et al. [21] have shown that this strategy can improve modern language models like recurrent networks without retraining. However, their model assumes that the data distribution changes smoothly over time, by using a context window to improve the performance. Merity et al. [43] proposed a similar model, where the cache is jointly trained with the language model.\nOther adaptive language models have been proposed in the past: Kneser and Steinbiss [35] and, Iyer and Ostendorf [26] dynamically adapt the parameters of their model to recent history using different weight interpolation schemes. Bellegarda [5] and Coccaro and Jurafsky [14] use latent semantic analysis to adapt their models to current context. Similarly, topic features have been used with either maximum entropy models [33] or recurrent networks [46, 53]. Finally, Lau et al. [42] propose to use pairs of distant of words to capture long-range dependencies.\nLarge scale retrieval approaches. The standard method for large-scale retrieval is to compress vectors and query them using a standard efficient algorithm. One of the most popular strategies is Locality-sensitive hashing (LSH) by Charikar [11], which uses random projections to approximate the cosine similarity between vectors by a function related to the Hamming distance between their corresponding binary codes. Several works have built on this initial binarization technique, such as spectral hashing [54], or Iterative Quantization (ITQ) [19]. Product Quantization (PQ) [28] approximates the distances between vectors by simultaneously learning the codes and the centroids, using\nk-means. In the context of text, several works have shown that compression does not significantly reduce the performance of models [17, 24, 30]."
+    }, {
+      "heading" : "3 Approach",
+      "text" : "In this section, we first briefly review language modeling and the use of recurrent networks for this task. We then describe our model, called unbounded cache, and explain how to scale it to large datasets with millions of words."
+    }, {
+      "heading" : "3.1 Language modeling",
+      "text" : "A language model evaluates the probability distribution of sequences of words. It is often framed as learning the conditional probability of words, given their history [4]. Let V be the size of the vocabulary; each word is represented by a one-hot encoding vector x in RV = V , corresponding to its index in the dictionary. Using the chain rule, the probability assigned to a sequence of words x1, . . . , xT can be factorized as\np(x1, ..., xT ) = T∏\nt=1\np(xt | xt−1, ..., x1). (1)\nThis conditional probability is traditionally approximated with non-parametric models based on counting statistics [20]. In particular, smoothed N-gram models [32, 34] have been the dominant type of models historically, achieving good performance in practice [44]. While the use of parametric models for language modeling is not new [48], their superiority has only been established with the recent emergence of neural networks [7, 45]. In particular, recurrent networks are now the standard approach, achieving state-of-the-art performances on several challenging benchmarks [31, 55]."
+    }, {
+      "heading" : "3.2 Recurrent networks.",
+      "text" : "Recurrent networks are a special case of neural networks specifically designed for sequence modeling. At each time step, they maintain a hidden representation of the past and make a prediction accordingly. This representation is maintained by a continuous vector ht ∈ Rd encoding the history xt, ..., x1. The probability of the next word is then simply parametrized using this hidden vector, i.e.,\np(w | xt, ..., x1) ∝ exp(h>t ow). (2)\nThe hidden vector ht is computed by recursively applying an update rule:\nht = Φ (xt, ht−1) , (3)\nwhere Φ is a function depending on the architecture of the network. Depending on Φ, the hidden vectors may have a specific structure adapted to different sequence representation problems. Several architectures for recurrent networks have been proposed, such as the Elman network [16], the long short-term memory (LSTM) [25] or the gated recurrent unit (GRU) [13]. For example, the Elman network [16] is defined by the following update rule\nht = σ (Lxt +Rht−1) , (4)\nwhere σ is a non-linearity such as the logistic or tanh functions, L ∈ Rd×V is a word embedding matrix and R ∈ Rd×d is the recurrent matrix. Empirical results have validated the effectiveness of the LSTM architecture to natural language modeling [31]. We refer the reader to [23] for details on this architecture. In the rest of this paper, we focus on this structure of recurrent networks.\nRecurrent networks process a sentence one word at a time and update their weights by backpropagating the error of the prediction to a fixed window size of past time steps. This training procedure is computationally expensive, and often requires a significant amount of data to achieve good performance. To circumvent the need of retraining such network for domain adaptation, we propose to add a non-parametric model that takes care of the fluctuation in the data distribution."
+    }, {
+      "heading" : "3.3 Unbounded cache",
+      "text" : "An unbounded cache adds a non-parametric and unconstrained memory to a neural network. Our approach is inspired by the cache model of Khun [36] and can be seen as an extension of Grave et al. [22] to an unbounded memory structure tailored to deal with out-of-vocabulary and rare words.\nSimilar to Grave et al. [22], we extend a recurrent neural network with a key-value memory component, storing the pairs (hi, wi+1) of hidden representation and corresponding word. This memory component also shares similarity with the parametric memory component of the pointer network introduced by Vinyals et al. [52] and extended by Merity et al. [43]. As opposed to these models and standard cache models, we do not restrict the cache component to recent history but store all previously observed words. Using the information stored in the cache component, we can obtain a probability distribution over the words observed up to time t using the kernel density estimator:\npcache(wt | w1, ...wt−1) ∝ t−1∑ i=1 1{w = wi}K ( ‖ht − hi‖ θ ) , (5)\nwhere K is a kernel, such as Epanechnikov or Gaussian, and θ is a smoothing parameter. If K is the Gaussian kernel (K(x) = exp(−x2/2)) and the hidden representations are normalized, this is equivalent to the continuous cache model.\nAs the memory grows with the amount of data seen by the model, this probability distribution becomes impossible to compute. Millions of words and their multiple associated context representations are stored, and exact exhaustive matching is prohibitive. Instead, we use the approximate k-nearest neighbors algorithm that is described below in Sec. 3.4 to estimate this probability distribution:\npcache(wt | w1, ...wt−1) ∝ ∑\ni∈N (ht)\n1{w = wi}K ( ‖ht − hi‖ θ(ht) ) , (6)\nwhere N (ht) is the set of nearest neighbors and θ(ht) is the Euclidean distance from ht to its k-th nearest neighbor. This estimator is known as variable kernel density estimation [51]. It should be noted that if the kernel K is equal to zero outside of [−1, 1], taking the sum over the k nearest neighbors is equivalent to taking the sum over the full data.\nThe distribution obtained using the estimator defined in Eq. 6 assigns non-zero probability to at most k words, where k is the number of nearest neighbors used. In order to have non-zero probability everywhere (and avoid getting infinite perplexity), we propose to linearly interpolate this distribution with the one from the model:\np(wt | w1, ...wt−1) = (1− λ)pmodel(wt | w1, ...wt−1) + λpcache(wt | w1, ...wt−1)."
+    }, {
+      "heading" : "3.4 Fast large scale retrieval",
+      "text" : "Fast computation of the probability of a rare word is crucial to make the cache grow to millions of potential words. Their representation also needs to be stored with relatively low memory usage. In this section, we briefly describe a scalable retrieval method introduced by Jegou et al. [27]. Their approach called Inverted File System Product Quantization (IVFPQ) combines two methods, an inverted file system [56] and a quantization method, called Product quantization (PQ) [28]. Combining these two components offers a good compromise between a fast retrieval of approximate nearest neighbors and a low memory footprint.\nInverted file system. Inverted file systems [56] are a core component of standard large-scale text retrieval systems, like search engines. When a query x is compared to a set Y of potential elements, an inverted file avoids an exhaustive search by providing a subset of possible matching candidates. In the context of continuous vectors, this subset is obtained by measuring some distance between the query and predefined vector representations of the set. More precisely, these candidates are selected through “coarse matching” by clustering all the elements in Y in c groups using k-means. The centroids are used as the vector representations. Each element of the set Y is associated with one centroid in an inverted table. The query x is then compared to each centroid and a subset of them is selected according to their distance to the query. All the elements of Y associated with these centroids are then compared to the query x. Typically, we take c centroids and keep the cc closest centroids to a query.\nThis procedure is quite efficient but very memory consuming, as each vector in the set Y must be stored. This can be drastically reduced by quantizing the vectors. Product Quantization (PQ) is a popular quantization method that has shown competitive performance on many retrieval benchmarks [28]. Following Jegou et al. [28], we do not directly quantize the vector y but its residual r, i.e., the difference between the vector and its associated centroids.\nProduct Quantization. Product quantization is a data-driven compression algorithm with no overhead during search [28]. While PQ has been designed for image feature compression, Joulin et al. [30] have demonstrated its effectiveness for text too. PQ compresses real-valued vector by approximating them with the closest vector in a pre-defined structured set of centroids, called a codebook. This codebook is obtained by splitting each residual vector r into k subvectors ri, each of dimension d/k, and running a k-means algorithm with s centroids on each resulting subspace. The resulting codebook contains cs elements which is too large to be enumerated, and is instead implicitly defined by its structure: a d-dimensional vector x ∈ Rd is approximated as\nx̂ = k∑ i=1 qi(x), (7)\nwhere qi(x) is the closest centroid to subvector xi. For each subspace, there are s = 2b centroids, where b is the number of bits required to store the quantization index of the sub-quantizer. Note that in PQ, the subspaces are aligned with the natural axis and improvements where made by Ge et al. [18] to align the subspaces to principal axes in the data. The reconstructed vector can take 2kb distinct reproduction values and is stored in kb bits.\nPQ estimates the inner product in the compressed domain as\nx>y ≈ x̂>y = k∑\ni=1\nqi(x i)>yi. (8)\nIn practice, the vector estimate x̂ is trivially reconstructed from the codes, (i.e., from the quantization indexes) by concatenating these centroids. PQ uses two parameters, namely the number of subquantizers k and the number of bits b per quantization index."
+    }, {
+      "heading" : "4 Experiments",
+      "text" : "In this section, we present evaluations of our unbounded cache model on different language modeling tasks. We first briefly describe our experimental setting and the datasets we used, before presenting the results."
+    }, {
+      "heading" : "4.1 Experimental setting",
+      "text" : "One of the motivations of our model is to be able to adapt to changing data distribution. In particular, we want to incorporate new words in the vocabulary, as they appear in the test data. We thus consider a setting where we do not replace any words by the <unk> token, and where the test set contains out-of-vocabulary words (OOV) which were absent at train time. Since we use the perplexity as the evaluation metric, we need to avoid probabilities equal to zero in the output of our models (which would result in infinite perplexity). Thus, we always interpolate the probability distributions of the various models with the uniform distribution over the full vocabulary:\npuniform(wt) = 1\n|vocabulary| .\nThis is a standard technique, which was previously used to compare language models trained on datasets with different vocabularies [9].\nBaselines We compare our unbounded cache model with the static model interpolated with uniform distribution, as well as the static model interpolated with the unigram probability distribution observed up to time t. Our proposal is a direct extension of the local cache model [22]. Therefore, we also compare to it to highlight the settings where an unbounded cache model is preferable to a local one."
+    }, {
+      "heading" : "4.2 Implementation details",
+      "text" : "We train recurrent neural networks with 256 LSTM hidden units, using the Adagrad algorithm with a learning rate of 0.2 and 10 epochs. We compute the gradients using backpropagation through time (BPTT) over 20 timesteps. Because of the large vocabulary sizes, we use the adaptative softmax [21]. We use the IVFPQ implementation from the FAISS open source library.1 We use 4, 096 centroids and 8 probes for the inverted file. Unless said otherwise, we query the 1, 024 nearest neighbors."
+    }, {
+      "heading" : "4.3 Datasets",
+      "text" : "Most commonly used benchmarks for evaluating language models propose to replace rare words by the <unk> token. On the contrary, we are interested in open vocabulary settings, and therefore decided to use datasets without <unk>. We performed experiments on data from the five following domains:\n• News Crawl2 is a dataset made of news articles, collected from various online publications. There is one subset of the data for each year, from 2007 to 2011. This dataset will allow testing the unbounded cache models on data whose distribution slowly changes over time. The dataset is shuffled at the sentence level. In the following, we refer to this dataset as news 2007-2011.\n• News Commentary consists of political and economic commentaries from the website https://www.project-syndicate.org/. This dataset is publicly available from the Statistical Machine Translation workshop website. In the following, we refer to this dataset as commentary.\n• Common Crawl is a text dataset collected from diverse web sources. The dataset is shuffled at the sentence level. In the following, we refer to this dataset as web.\n• WikiText3 is a dataset derived from high quality English Wikipedia articles, introduced by Merity et al. [43]. Since we do not to replace any tokens by <unk>, we use the raw version. In the following, we refer to this dataset as wiki.\n• The book Corpus This is a dataset of 3,036 English books, collected from the Project Gutenberg4 [40]. We use a subset of the books, which have a length around 100,000 tokens. In the following we refer to this dataset as books.\nAll these datasets are publicly available. Unless stated otherwise, we use 2 million tokens for training the static models and 10 million tokens for evaluation. All datasets are lowercased and tokenized using the europarl dataset tools.5\n1https://github.com/facebookresearch/faiss 2http://www.statmt.org/wmt14/translation-task.html 3https://metamind.io/research/the-wikitext-long-term-dependency-language-modeling-dataset/ 4http://www.gutenberg.org/ 5http://statmt.org/europarl/v7/tools.tgz"
+    }, {
+      "heading" : "4.4 Results",
+      "text" : "We demonstrate the effectiveness of using an unbounded cache to complement a language model as advocated in the previous sections model by performing two types of experiments representing a near domain and far domain adaptation scenarios. In both experiments, we compare the unigram static model, the unigram extension, and the unbounded cache model.\nLocal vs. Unbounded Cache We first study the impact of using an unbounded cache instead of a local one. To that end, we compare the performance of the two models when trained and tested on different combinations of the previously described datasets. These datasets can be categorized into two groups according to their properties and the results obtained by the various models we use.\nOn the one hand, the Wiki and Books datasets are not shuffled. Hence, the recent history (up to a few thousands words) contains a wealth of information that can be used by a local cache to reduce the perplexity of a static model. Indeed, the local cache model achieves respectively 316.5 and 240.3 on the Wiki and Books datasets when trained on the News dataset. This corresponds to about 3× reduction in perplexity on both datasets in comparison to the static model. A similar trend holds when the training data is either Web or Wiki dataset. Surprisingly, the unbounded cache model performs similarly to the cache model despite using orders of magnitude broader context. A static model trained on News and augmented with an unbounded cache achieves respectively 337.4 and 237.2 of perplexity. It is also worth noting that our approach is more efficient than the local cache, while storing a much larger number of elements. Thanks to the use of fast nearest neighbor algorithm, it takes 502 seconds to process 10M tokens from the test set when using the unbounded cache. Comparatively, it takes 668 seconds for a local cache model of size 10, 000 to perform a similar task. The timing experiments, reported in Table 4.3, show a similar trend.\nOn the other hand, the Commentary and Web datasets are shuffled. Therefore, a local cache can hardly capture the relevant statistics to significantly improve upon the static model interpolated with the unigram distribution. Indeed, the perplexity of a local cache model on these datasets when the static model is trained on the News dataset is respectively 288.5 and 593.4. In comparison, the unbounded cache model achieves on the same datasets respectively a perplexity of 191.1 and 383.4. That is an average improvement of about 50% over the local cache in both cases (see Table 3).\nNear domain adaptation. We study the benefit of using an unbounded cache model when the test domain is only slightly different from the source domain. We train the static model on news 2007 and test on the corpus news 2008 to news 2011. All the results are reported in Table 1.\nWe first observe that the unbounded cache brings a 24.6% improvement relative to the static model on the in-domain news 2007 corpus by bringing the perplexity from 220.9 down to 166.5. In comparison, neither using the unigram information nor using a local cache lead to significant improvement. This result underlines two phenomena. First, the simple distributional information captured by the unigram or the local cache is already captured by the static model. Second, the unbounded cache enhances the discrimination capabilities of the static model by capturing useful non-linearities thanks to the combination of the nearest neighbor and the representation extracted from\nthe static model. Interestingly, these observations remain consistent when we consider evaluations on the test sets news 2008-2011. Indeed, the average improvement of unbounded cache relatively to the static model on the corpus news 2008-2011 is 20.44% while the relative improvement of the unigram cache is only 1.3%. Similarly to the in-domain experiment, the unigram brings little useful information to the static model mainly because the source (news 2007) and the target distributions (news 2008-2011) are very close. In contrast, the unbounded cache still complements the static model with valuable non-linear information of the target distributions.\nFar domain adaptation. Our second set of experiments is concerned with testing on different domains from the one the static model is trained on. We use the News, Web and Wiki datasets as source domains, and all five domains as target. The results are reported in Table 3.\nFirst, we observe that the unigram, the local and the unbounded cache significantly help the static model in all the far domain adaptation experiments. For example, when adapting the static model from the News domain to the Commentary and Wiki domains, the unigram reduces the perplexity of the static model by 39.2 and 393.8 in absolute value respectively. The unbounded cache significantly improves upon the static model and the unigram on all the far domain adaptation experiment. The smallest relative improvement compared to the static model and the unigram is achieved when adapting from News to Web and is 79.7% and 51.6% respectively. The more the target domain is different from the source one, the more interesting is the use of an unbounded cache mode. Indeed, when adapting to the Books domain (which is the most different from the other domains) the average improvement given by the unbounded cache relatively to the static model is 69.7%.\nNumber of nearest neighbors. Figure 1 shows the performance of our model with the number of nearest neighbors per query. As observed previously by Grave et al [22], the performance of a language model improves with the size of the context used in the cache. This context is, in some sense, a constrained version of our set of retained nearest neighbors. Interestingly, we observe the same phenomenon despite forming the set of possible predictions over a much broader set of potential candidates than the immediate local context. Since IFVPQ has a linear complexity with the number of nearest neighbors, setting the number of nearest neighbors to a thousand offers a good trade-off between speed and accuracy.\nSize of the cache. Figure 2 shows the gap between the performance of static language model with and without the cache as the size of the test set increases. Despite having a much more significant set of candidates to look from, our algorithm continues to select relevant information. As the test set is explored, better representations for rare words are stored, explaining this constant improvement."
+    }, {
+      "heading" : "5 Conclusion",
+      "text" : "In this paper, we introduce an extension to recurrent networks for language modeling, which stores past hidden activations and associated target words. This information can then be used to obtain a probability distribution over the previous words, allowing the language models to adapt to the current distribution of the data dynamically. We propose to scale this simple mechanism to large amounts of data (millions of examples) by using fast approximate nearest neighbor search. We demonstrated on several datasets that our unbounded cache is an efficient method to adapt a recurrent neural network to new domains dynamically, and can scale to millions of examples."
+    }, {
+      "heading" : "Acknowledgements",
+      "text" : "We thank the anonymous reviewers for their insightful comments."
+    } ],
+    "references" : [ {
+      "title" : "Deep speech 2: End-to-end speech recognition in English and Mandarin",
+      "author" : [ "D. Amodei", "R. Anubhai", "E. Battenberg", "C. Case", "J. Casper", "B. Catanzaro", "J. Chen", "M. Chrzanowski", "A. Coates", "G. Diamos" ],
+      "venue" : "In ICML,",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 2016
+    }, {
+      "title" : "Neural machine translation by jointly learning to align and translate",
+      "author" : [ "D. Bahdanau", "K. Cho", "Y. Bengio" ],
+      "venue" : "ICLR,",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "A maximum likelihood approach to continuous speech recognition",
+      "author" : [ "L.R. Bahl", "F. Jelinek", "R.L. Mercer" ],
+      "venue" : "PAMI,",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : null,
+      "year" : 1983
+    }, {
+      "title" : "Exploiting latent semantic information in statistical language modeling",
+      "author" : [ "J.R. Bellegarda" ],
+      "venue" : "Proceedings of the IEEE,",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : null,
+      "year" : 2000
+    }, {
+      "title" : "A theory of learning from different domains",
+      "author" : [ "S. Ben-David", "J. Blitzer", "K. Crammer", "A. Kulesza", "F. Pereira", "J.W. Vaughan" ],
+      "venue" : "Machine learning, 79(1),",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : null,
+      "year" : 2010
+    }, {
+      "title" : "A neural probabilistic language model",
+      "author" : [ "Y. Bengio", "R. Ducharme", "P. Vincent", "C. Jauvin" ],
+      "venue" : "JMLR,",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : null,
+      "year" : 2003
+    }, {
+      "title" : "Curriculum learning",
+      "author" : [ "Y. Bengio", "J. Louradour", "R. Collobert", "J. Weston" ],
+      "venue" : "ICML,",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : null,
+      "year" : 2009
+    }, {
+      "title" : "N-gram counts and language models from the common crawl",
+      "author" : [ "C. Buck", "K. Heafield", "B. van Ooyen" ],
+      "venue" : "In LREC,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 2014
+    }, {
+      "title" : "Multitask learning",
+      "author" : [ "R. Caruana" ],
+      "venue" : "Learning to learn. Springer,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : null,
+      "year" : 1998
+    }, {
+      "title" : "Similarity estimation techniques from rounding algorithms",
+      "author" : [ "M.S. Charikar" ],
+      "venue" : "STOC,",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : null,
+      "year" : 2002
+    }, {
+      "title" : "One billion word benchmark for measuring progress in statistical language modeling",
+      "author" : [ "C. Chelba", "T. Mikolov", "M. Schuster", "Q. Ge", "T. Brants", "P. Koehn", "T. Robinson" ],
+      "venue" : "arXiv preprint arXiv:1312.3005,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Empirical evaluation of gated recurrent neural networks on sequence modeling",
+      "author" : [ "J. Chung", "C. Gulcehre", "K. Cho", "Y. Bengio" ],
+      "venue" : "arXiv preprint arXiv:1412.3555,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Towards better integration of semantic predictors in statistical language modeling",
+      "author" : [ "N. Coccaro", "D. Jurafsky" ],
+      "venue" : "ICSLP,",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : null,
+      "year" : 1998
+    }, {
+      "title" : "Adaptive language modeling using minimum discriminant estimation",
+      "author" : [ "S. Della Pietra", "V. Della Pietra", "R.L. Mercer", "S. Roukos" ],
+      "venue" : "Proceedings of the workshop on Speech and Natural Language,",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : null,
+      "year" : 1992
+    }, {
+      "title" : "Finding structure in time",
+      "author" : [ "J.L. Elman" ],
+      "venue" : "Cognitive science,",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : null,
+      "year" : 1990
+    }, {
+      "title" : "Irstlm: an open source toolkit for handling large scale language models",
+      "author" : [ "M. Federico", "N. Bertoldi", "M. Cettolo" ],
+      "venue" : "INTERSPEECH,",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : null,
+      "year" : 2008
+    }, {
+      "title" : "Optimized product quantization for approximate nearest neighbor search",
+      "author" : [ "T. Ge", "K. He", "Q. Ke", "J. Sun" ],
+      "venue" : "CVPR,",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Iterative quantization: A procrustean approach to learning binary codes",
+      "author" : [ "Y. Gong", "S. Lazebnik" ],
+      "venue" : "CVPR,",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "A bit of progress in language modeling",
+      "author" : [ "J.T. Goodman" ],
+      "venue" : "Computer Speech & Language,",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : null,
+      "year" : 2001
+    }, {
+      "title" : "Efficient softmax approximation for GPUs",
+      "author" : [ "E. Grave", "A. Joulin", "M. Cissé", "D. Grangier", "H. Jégou" ],
+      "venue" : "ICML,",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : null,
+      "year" : 2017
+    }, {
+      "title" : "Improving neural language models with a continuous cache",
+      "author" : [ "E. Grave", "A. Joulin", "N. Usunier" ],
+      "venue" : "ICLR,",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : null,
+      "year" : 2017
+    }, {
+      "title" : "Speech recognition with deep recurrent neural networks",
+      "author" : [ "A. Graves", "A. Mohamed", "G. Hinton" ],
+      "venue" : "ICASSP,",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Kenlm: Faster and smaller language model queries",
+      "author" : [ "K. Heafield" ],
+      "venue" : "Proceedings of the Sixth Workshop on Statistical Machine Translation,",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Long short-term memory",
+      "author" : [ "S. Hochreiter", "J. Schmidhuber" ],
+      "venue" : "Neural computation,",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : null,
+      "year" : 1997
+    }, {
+      "title" : "Modeling long distance dependence in language: Topic mixtures versus dynamic cache models",
+      "author" : [ "R.M. Iyer", "M. Ostendorf" ],
+      "venue" : "IEEE Transactions on speech and audio processing,",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : null,
+      "year" : 1999
+    }, {
+      "title" : "Hamming embedding and weak geometric consistency for large scale image search",
+      "author" : [ "H. Jegou", "M. Douze", "C. Schmid" ],
+      "venue" : "ECCV,",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : null,
+      "year" : 2008
+    }, {
+      "title" : "Product quantization for nearest neighbor search",
+      "author" : [ "H. Jegou", "M. Douze", "C. Schmid" ],
+      "venue" : "PAMI,",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "A dynamic language model for speech recognition",
+      "author" : [ "F. Jelinek", "B. Merialdo", "S. Roukos", "M. Strauss" ],
+      "venue" : "HLT,",
+      "citeRegEx" : "29",
+      "shortCiteRegEx" : null,
+      "year" : 1991
+    }, {
+      "title" : "Fasttext.zip: Compressing text classification models",
+      "author" : [ "A. Joulin", "E. Grave", "P. Bojanowski", "M. Douze", "H. Jégou", "T. Mikolov" ],
+      "venue" : "arXiv preprint arXiv:1612.03651,",
+      "citeRegEx" : "30",
+      "shortCiteRegEx" : "30",
+      "year" : 2016
+    }, {
+      "title" : "Exploring the limits of language modeling",
+      "author" : [ "R. Jozefowicz", "O. Vinyals", "M. Schuster", "N. Shazeer", "Y. Wu" ],
+      "venue" : "arXiv preprint arXiv:1602.02410,",
+      "citeRegEx" : "31",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Estimation of probabilities from sparse data for the language model component of a speech recognizer",
+      "author" : [ "S.M. Katz" ],
+      "venue" : "ICASSP,",
+      "citeRegEx" : "32",
+      "shortCiteRegEx" : null,
+      "year" : 1987
+    }, {
+      "title" : "Maximum entropy techniques for exploiting syntactic, semantic and collocational dependencies in language modeling",
+      "author" : [ "S. Khudanpur", "J. Wu" ],
+      "venue" : "Computer Speech & Language,",
+      "citeRegEx" : "33",
+      "shortCiteRegEx" : null,
+      "year" : 2000
+    }, {
+      "title" : "Improved backing-off for m-gram language modeling",
+      "author" : [ "R. Kneser", "H. Ney" ],
+      "venue" : "ICASSP,",
+      "citeRegEx" : "34",
+      "shortCiteRegEx" : null,
+      "year" : 1995
+    }, {
+      "title" : "On the dynamic adaptation of stochastic language models",
+      "author" : [ "R. Kneser", "V. Steinbiss" ],
+      "venue" : "ICASSP,",
+      "citeRegEx" : "35",
+      "shortCiteRegEx" : null,
+      "year" : 1993
+    }, {
+      "title" : "Speech recognition and the frequency of recently used words: A modified markov model for natural language",
+      "author" : [ "R. Kuhn" ],
+      "venue" : "Proceedings of the 12th conference on Computational linguistics-Volume 1,",
+      "citeRegEx" : "36",
+      "shortCiteRegEx" : null,
+      "year" : 1988
+    }, {
+      "title" : "A cache-based natural language model for speech recognition",
+      "author" : [ "R. Kuhn", "R. De Mori" ],
+      "venue" : "PAMI,",
+      "citeRegEx" : "37",
+      "shortCiteRegEx" : null,
+      "year" : 1990
+    }, {
+      "title" : "Probabilistic models of short and long distance word dependencies in running text",
+      "author" : [ "J. Kupiec" ],
+      "venue" : "Proceedings of the workshop on Speech and Natural Language,",
+      "citeRegEx" : "38",
+      "shortCiteRegEx" : null,
+      "year" : 1989
+    }, {
+      "title" : "From n to n+ 1: Multiclass transfer incremental learning",
+      "author" : [ "I. Kuzborskij", "F. Orabona", "B. Caputo" ],
+      "venue" : "CVPR,",
+      "citeRegEx" : "39",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Complexity of word collocation networks: A preliminary structural analysis",
+      "author" : [ "S. Lahiri" ],
+      "venue" : "Proceedings of the Student Research Workshop at the 14th Conference of the European Chapter of the Association for Computational Linguistics,",
+      "citeRegEx" : "40",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Attribute-based classification for zero-shot visual object categorization",
+      "author" : [ "C.H. Lampert", "H. Nickisch", "S. Harmeling" ],
+      "venue" : "PAMI,",
+      "citeRegEx" : "41",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Trigger-based language models: A maximum entropy approach",
+      "author" : [ "R. Lau", "R. Rosenfeld", "S. Roukos" ],
+      "venue" : "ICASSP,",
+      "citeRegEx" : "42",
+      "shortCiteRegEx" : null,
+      "year" : 1993
+    }, {
+      "title" : "Pointer sentinel mixture models",
+      "author" : [ "S. Merity", "C. Xiong", "J. Bradbury", "R. Socher" ],
+      "venue" : "ICLR,",
+      "citeRegEx" : "43",
+      "shortCiteRegEx" : null,
+      "year" : 2017
+    }, {
+      "title" : "Empirical evaluation and combination of advanced language modeling techniques",
+      "author" : [ "T. Mikolov", "A. Deoras", "S. Kombrink", "L. Burget", "J. Cernockỳ" ],
+      "venue" : "INTERSPEECH,",
+      "citeRegEx" : "44",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Recurrent neural network based language model",
+      "author" : [ "T. Mikolov", "M. Karafiát", "L. Burget", "J. Cernockỳ", "S. Khudanpur" ],
+      "venue" : "INTERSPEECH,",
+      "citeRegEx" : "45",
+      "shortCiteRegEx" : null,
+      "year" : 2010
+    }, {
+      "title" : "Context dependent recurrent neural network language model",
+      "author" : [ "T. Mikolov", "G. Zweig" ],
+      "venue" : "SLT,",
+      "citeRegEx" : "46",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Learn.NC: Combining ensemble of classifiers with dynamically weighted consult-and-vote for efficient incremental learning of new classes",
+      "author" : [ "M.D. Muhlbaier", "A. Topalis", "R. Polikar" ],
+      "venue" : "IEEE transactions on neural networks,",
+      "citeRegEx" : "47",
+      "shortCiteRegEx" : "47",
+      "year" : 2009
+    }, {
+      "title" : "A maximum entropy approach to adaptive statistical language modeling",
+      "author" : [ "R. Rosenfeld" ],
+      "venue" : "Computer, Speech and Language,",
+      "citeRegEx" : "48",
+      "shortCiteRegEx" : null,
+      "year" : 1996
+    }, {
+      "title" : "Toward open set recognition",
+      "author" : [ "W.J. Scheirer", "A. de Rezende Rocha", "A. Sapkota", "T.E. Boult" ],
+      "venue" : null,
+      "citeRegEx" : "49",
+      "shortCiteRegEx" : "49",
+      "year" : 2013
+    }, {
+      "title" : "Building end-to-end dialogue systems using generative hierarchical neural network models",
+      "author" : [ "I.V. Serban", "A. Sordoni", "Y. Bengio", "A. Courville", "J. Pineau" ],
+      "venue" : "AAAI,",
+      "citeRegEx" : "50",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Variable kernel density estimation",
+      "author" : [ "G.R. Terrell", "D.W. Scott" ],
+      "venue" : "The Annals of Statistics,",
+      "citeRegEx" : "51",
+      "shortCiteRegEx" : null,
+      "year" : 1992
+    }, {
+      "title" : "Pointer networks",
+      "author" : [ "O. Vinyals", "M. Fortunato", "N. Jaitly" ],
+      "venue" : "NIPS,",
+      "citeRegEx" : "52",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Larger-context language modelling",
+      "author" : [ "T. Wang", "K. Cho" ],
+      "venue" : "ACL,",
+      "citeRegEx" : "53",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Spectral hashing",
+      "author" : [ "Y. Weiss", "A. Torralba", "R. Fergus" ],
+      "venue" : "NIPS,",
+      "citeRegEx" : "54",
+      "shortCiteRegEx" : null,
+      "year" : 2009
+    }, {
+      "title" : "Recurrent highway networks",
+      "author" : [ "J.G. Zilly", "R.K. Srivastava", "J. Koutník", "J. Schmidhuber" ],
+      "venue" : "ICML,",
+      "citeRegEx" : "55",
+      "shortCiteRegEx" : null,
+      "year" : 2017
+    }, {
+      "title" : "Inverted files for text search engines",
+      "author" : [ "J. Zobel", "A. Moffat" ],
+      "venue" : "ACM computing surveys (CSUR),",
+      "citeRegEx" : "56",
+      "shortCiteRegEx" : null,
+      "year" : 2006
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 1,
+      "context" : "Language models are a core component of many natural language processing applications such as machine translation [3], speech recognition [2] or dialogue agents [50].",
+      "startOffset" : 114,
+      "endOffset" : 117
+    }, {
+      "referenceID" : 0,
+      "context" : "Language models are a core component of many natural language processing applications such as machine translation [3], speech recognition [2] or dialogue agents [50].",
+      "startOffset" : 138,
+      "endOffset" : 141
+    }, {
+      "referenceID" : 48,
+      "context" : "Language models are a core component of many natural language processing applications such as machine translation [3], speech recognition [2] or dialogue agents [50].",
+      "startOffset" : 161,
+      "endOffset" : 165
+    }, {
+      "referenceID" : 29,
+      "context" : "In recent years, deep learning has led to remarkable progress in this domain, reaching state of the art performance on many challenging benchmarks [31].",
+      "startOffset" : 147,
+      "endOffset" : 151
+    }, {
+      "referenceID" : 10,
+      "context" : "These models are known to be over-parametrized, and large quantities of data are needed for them to reach their full potential [12].",
+      "startOffset" : 127,
+      "endOffset" : 131
+    }, {
+      "referenceID" : 29,
+      "context" : "Consequently, the training time can be very long (up to weeks) even when vast computational resources are available [31].",
+      "startOffset" : 116,
+      "endOffset" : 120
+    }, {
+      "referenceID" : 10,
+      "context" : "However, nonparametric models perform significantly worse than fully trained deep models [12].",
+      "startOffset" : 89,
+      "endOffset" : 93
+    }, {
+      "referenceID" : 34,
+      "context" : "This solution has been used in speech recognition under the name of cache models [36, 37].",
+      "startOffset" : 81,
+      "endOffset" : 89
+    }, {
+      "referenceID" : 35,
+      "context" : "This solution has been used in speech recognition under the name of cache models [36, 37].",
+      "startOffset" : 81,
+      "endOffset" : 89
+    }, {
+      "referenceID" : 41,
+      "context" : "[43] showed that this solution could be applied to neural networks.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 8,
+      "context" : "Transfer learning [10] is a well-established component of machine learning practitioners’ toolbox.",
+      "startOffset" : 18,
+      "endOffset" : 22
+    }, {
+      "referenceID" : 8,
+      "context" : "Notable variants of transfer learning are multitask learning [10], domain adaptation [6], and curriculum learning [8].",
+      "startOffset" : 61,
+      "endOffset" : 65
+    }, {
+      "referenceID" : 4,
+      "context" : "Notable variants of transfer learning are multitask learning [10], domain adaptation [6], and curriculum learning [8].",
+      "startOffset" : 85,
+      "endOffset" : 88
+    }, {
+      "referenceID" : 6,
+      "context" : "Notable variants of transfer learning are multitask learning [10], domain adaptation [6], and curriculum learning [8].",
+      "startOffset" : 114,
+      "endOffset" : 117
+    }, {
+      "referenceID" : 37,
+      "context" : "[39] proposed to reduce the loss of accuracy when adding new classes by partly retraining the existing classifier.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 45,
+      "context" : "[47] introduced an ensemble model to deal with an increasingly large number of concepts.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 39,
+      "context" : "Zero-shot learning [41] can deal with new classes but often requires additional descriptive information about them [1].",
+      "startOffset" : 19,
+      "endOffset" : 23
+    }, {
+      "referenceID" : 47,
+      "context" : "[49] proposed a framework for open set recognition based on one-class SVMs.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 34,
+      "context" : "A popular approach adds a cache to the model and has shown early success in the context of speech recognition [36, 38, 37].",
+      "startOffset" : 110,
+      "endOffset" : 122
+    }, {
+      "referenceID" : 36,
+      "context" : "A popular approach adds a cache to the model and has shown early success in the context of speech recognition [36, 38, 37].",
+      "startOffset" : 110,
+      "endOffset" : 122
+    }, {
+      "referenceID" : 35,
+      "context" : "A popular approach adds a cache to the model and has shown early success in the context of speech recognition [36, 38, 37].",
+      "startOffset" : 110,
+      "endOffset" : 122
+    }, {
+      "referenceID" : 27,
+      "context" : "further extended this strategy [29] into a smoothed trigram language model, reporting a reduction in both perplexity and word error rates.",
+      "startOffset" : 31,
+      "endOffset" : 35
+    }, {
+      "referenceID" : 13,
+      "context" : "Della Pietra et al.[15] adapt the cache to a general n-gram model such that it satisfies marginal constraints obtained from the current document.",
+      "startOffset" : 19,
+      "endOffset" : 23
+    }, {
+      "referenceID" : 19,
+      "context" : "[21] have shown that this strategy can improve modern language models like recurrent networks without retraining.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 41,
+      "context" : "[43] proposed a similar model, where the cache is jointly trained with the language model.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 33,
+      "context" : "Other adaptive language models have been proposed in the past: Kneser and Steinbiss [35] and, Iyer and Ostendorf [26] dynamically adapt the parameters of their model to recent history using different weight interpolation schemes.",
+      "startOffset" : 84,
+      "endOffset" : 88
+    }, {
+      "referenceID" : 24,
+      "context" : "Other adaptive language models have been proposed in the past: Kneser and Steinbiss [35] and, Iyer and Ostendorf [26] dynamically adapt the parameters of their model to recent history using different weight interpolation schemes.",
+      "startOffset" : 113,
+      "endOffset" : 117
+    }, {
+      "referenceID" : 3,
+      "context" : "Bellegarda [5] and Coccaro and Jurafsky [14] use latent semantic analysis to adapt their models to current context.",
+      "startOffset" : 11,
+      "endOffset" : 14
+    }, {
+      "referenceID" : 12,
+      "context" : "Bellegarda [5] and Coccaro and Jurafsky [14] use latent semantic analysis to adapt their models to current context.",
+      "startOffset" : 40,
+      "endOffset" : 44
+    }, {
+      "referenceID" : 31,
+      "context" : "Similarly, topic features have been used with either maximum entropy models [33] or recurrent networks [46, 53].",
+      "startOffset" : 76,
+      "endOffset" : 80
+    }, {
+      "referenceID" : 44,
+      "context" : "Similarly, topic features have been used with either maximum entropy models [33] or recurrent networks [46, 53].",
+      "startOffset" : 103,
+      "endOffset" : 111
+    }, {
+      "referenceID" : 51,
+      "context" : "Similarly, topic features have been used with either maximum entropy models [33] or recurrent networks [46, 53].",
+      "startOffset" : 103,
+      "endOffset" : 111
+    }, {
+      "referenceID" : 40,
+      "context" : "[42] propose to use pairs of distant of words to capture long-range dependencies.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 9,
+      "context" : "One of the most popular strategies is Locality-sensitive hashing (LSH) by Charikar [11], which uses random projections to approximate the cosine similarity between vectors by a function related to the Hamming distance between their corresponding binary codes.",
+      "startOffset" : 83,
+      "endOffset" : 87
+    }, {
+      "referenceID" : 52,
+      "context" : "Several works have built on this initial binarization technique, such as spectral hashing [54], or Iterative Quantization (ITQ) [19].",
+      "startOffset" : 90,
+      "endOffset" : 94
+    }, {
+      "referenceID" : 17,
+      "context" : "Several works have built on this initial binarization technique, such as spectral hashing [54], or Iterative Quantization (ITQ) [19].",
+      "startOffset" : 128,
+      "endOffset" : 132
+    }, {
+      "referenceID" : 26,
+      "context" : "Product Quantization (PQ) [28] approximates the distances between vectors by simultaneously learning the codes and the centroids, using",
+      "startOffset" : 26,
+      "endOffset" : 30
+    }, {
+      "referenceID" : 15,
+      "context" : "In the context of text, several works have shown that compression does not significantly reduce the performance of models [17, 24, 30].",
+      "startOffset" : 122,
+      "endOffset" : 134
+    }, {
+      "referenceID" : 22,
+      "context" : "In the context of text, several works have shown that compression does not significantly reduce the performance of models [17, 24, 30].",
+      "startOffset" : 122,
+      "endOffset" : 134
+    }, {
+      "referenceID" : 28,
+      "context" : "In the context of text, several works have shown that compression does not significantly reduce the performance of models [17, 24, 30].",
+      "startOffset" : 122,
+      "endOffset" : 134
+    }, {
+      "referenceID" : 2,
+      "context" : "It is often framed as learning the conditional probability of words, given their history [4].",
+      "startOffset" : 89,
+      "endOffset" : 92
+    }, {
+      "referenceID" : 18,
+      "context" : "This conditional probability is traditionally approximated with non-parametric models based on counting statistics [20].",
+      "startOffset" : 115,
+      "endOffset" : 119
+    }, {
+      "referenceID" : 30,
+      "context" : "In particular, smoothed N-gram models [32, 34] have been the dominant type of models historically, achieving good performance in practice [44].",
+      "startOffset" : 38,
+      "endOffset" : 46
+    }, {
+      "referenceID" : 32,
+      "context" : "In particular, smoothed N-gram models [32, 34] have been the dominant type of models historically, achieving good performance in practice [44].",
+      "startOffset" : 38,
+      "endOffset" : 46
+    }, {
+      "referenceID" : 42,
+      "context" : "In particular, smoothed N-gram models [32, 34] have been the dominant type of models historically, achieving good performance in practice [44].",
+      "startOffset" : 138,
+      "endOffset" : 142
+    }, {
+      "referenceID" : 46,
+      "context" : "While the use of parametric models for language modeling is not new [48], their superiority has only been established with the recent emergence of neural networks [7, 45].",
+      "startOffset" : 68,
+      "endOffset" : 72
+    }, {
+      "referenceID" : 5,
+      "context" : "While the use of parametric models for language modeling is not new [48], their superiority has only been established with the recent emergence of neural networks [7, 45].",
+      "startOffset" : 163,
+      "endOffset" : 170
+    }, {
+      "referenceID" : 43,
+      "context" : "While the use of parametric models for language modeling is not new [48], their superiority has only been established with the recent emergence of neural networks [7, 45].",
+      "startOffset" : 163,
+      "endOffset" : 170
+    }, {
+      "referenceID" : 29,
+      "context" : "In particular, recurrent networks are now the standard approach, achieving state-of-the-art performances on several challenging benchmarks [31, 55].",
+      "startOffset" : 139,
+      "endOffset" : 147
+    }, {
+      "referenceID" : 53,
+      "context" : "In particular, recurrent networks are now the standard approach, achieving state-of-the-art performances on several challenging benchmarks [31, 55].",
+      "startOffset" : 139,
+      "endOffset" : 147
+    }, {
+      "referenceID" : 14,
+      "context" : "Several architectures for recurrent networks have been proposed, such as the Elman network [16], the long short-term memory (LSTM) [25] or the gated recurrent unit (GRU) [13].",
+      "startOffset" : 91,
+      "endOffset" : 95
+    }, {
+      "referenceID" : 23,
+      "context" : "Several architectures for recurrent networks have been proposed, such as the Elman network [16], the long short-term memory (LSTM) [25] or the gated recurrent unit (GRU) [13].",
+      "startOffset" : 131,
+      "endOffset" : 135
+    }, {
+      "referenceID" : 11,
+      "context" : "Several architectures for recurrent networks have been proposed, such as the Elman network [16], the long short-term memory (LSTM) [25] or the gated recurrent unit (GRU) [13].",
+      "startOffset" : 170,
+      "endOffset" : 174
+    }, {
+      "referenceID" : 14,
+      "context" : "For example, the Elman network [16] is defined by the following update rule",
+      "startOffset" : 31,
+      "endOffset" : 35
+    }, {
+      "referenceID" : 29,
+      "context" : "Empirical results have validated the effectiveness of the LSTM architecture to natural language modeling [31].",
+      "startOffset" : 105,
+      "endOffset" : 109
+    }, {
+      "referenceID" : 21,
+      "context" : "We refer the reader to [23] for details on this architecture.",
+      "startOffset" : 23,
+      "endOffset" : 27
+    }, {
+      "referenceID" : 34,
+      "context" : "Our approach is inspired by the cache model of Khun [36] and can be seen as an extension of Grave et al.",
+      "startOffset" : 52,
+      "endOffset" : 56
+    }, {
+      "referenceID" : 20,
+      "context" : "[22] to an unbounded memory structure tailored to deal with out-of-vocabulary and rare words.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 20,
+      "context" : "[22], we extend a recurrent neural network with a key-value memory component, storing the pairs (hi, wi+1) of hidden representation and corresponding word.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 49,
+      "context" : "This estimator is known as variable kernel density estimation [51].",
+      "startOffset" : 62,
+      "endOffset" : 66
+    }, {
+      "referenceID" : 54,
+      "context" : "Their approach called Inverted File System Product Quantization (IVFPQ) combines two methods, an inverted file system [56] and a quantization method, called Product quantization (PQ) [28].",
+      "startOffset" : 118,
+      "endOffset" : 122
+    }, {
+      "referenceID" : 26,
+      "context" : "Their approach called Inverted File System Product Quantization (IVFPQ) combines two methods, an inverted file system [56] and a quantization method, called Product quantization (PQ) [28].",
+      "startOffset" : 183,
+      "endOffset" : 187
+    }, {
+      "referenceID" : 54,
+      "context" : "Inverted file systems [56] are a core component of standard large-scale text retrieval systems, like search engines.",
+      "startOffset" : 22,
+      "endOffset" : 26
+    }, {
+      "referenceID" : 26,
+      "context" : "Product Quantization (PQ) is a popular quantization method that has shown competitive performance on many retrieval benchmarks [28].",
+      "startOffset" : 127,
+      "endOffset" : 131
+    }, {
+      "referenceID" : 26,
+      "context" : "[28], we do not directly quantize the vector y but its residual r, i.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 26,
+      "context" : "Product quantization is a data-driven compression algorithm with no overhead during search [28].",
+      "startOffset" : 91,
+      "endOffset" : 95
+    }, {
+      "referenceID" : 28,
+      "context" : "[30] have demonstrated its effectiveness for text too.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 16,
+      "context" : "[18] to align the subspaces to principal axes in the data.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 7,
+      "context" : "This is a standard technique, which was previously used to compare language models trained on datasets with different vocabularies [9].",
+      "startOffset" : 131,
+      "endOffset" : 134
+    }, {
+      "referenceID" : 20,
+      "context" : "Our proposal is a direct extension of the local cache model [22].",
+      "startOffset" : 60,
+      "endOffset" : 64
+    }, {
+      "referenceID" : 19,
+      "context" : "Because of the large vocabulary sizes, we use the adaptative softmax [21].",
+      "startOffset" : 69,
+      "endOffset" : 73
+    }, {
+      "referenceID" : 38,
+      "context" : "• The book Corpus This is a dataset of 3,036 English books, collected from the Project Gutenberg4 [40].",
+      "startOffset" : 98,
+      "endOffset" : 102
+    }, {
+      "referenceID" : 20,
+      "context" : "As observed previously by Grave et al [22], the performance of a language model improves with the size of the context used in the cache.",
+      "startOffset" : 38,
+      "endOffset" : 42
+    } ],
+    "year" : 2017,
+    "abstractText" : "Recently, continuous cache models were proposed as extensions to recurrent neural network language models, to adapt their predictions to local changes in the data distribution. These models only capture the local context, of up to a few thousands tokens. In this paper, we propose an extension of continuous cache models, which can scale to larger contexts. In particular, we use a large scale non-parametric memory component that stores all the hidden activations seen in the past. We leverage recent advances in approximate nearest neighbor search and quantization algorithms to store millions of representations while searching them efficiently. We conduct extensive experiments showing that our approach significantly improves the perplexity of pre-trained language models on new distributions, and can scale efficiently to much larger contexts than previously proposed local cache models.",
+    "creator" : null
+  }
+}

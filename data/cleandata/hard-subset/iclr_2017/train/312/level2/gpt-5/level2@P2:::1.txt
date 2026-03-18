@@ -1,0 +1,42 @@
+1. Summary of contributions
+The paper proposes Neural Architecture Search (NAS), a reinforcement learning approach where a controller RNN generates descriptions of neural network architectures (“child networks”), receives validation accuracy as a reward, and is trained via REINFORCE to improve its architecture proposals over time. The method supports variable-length architectures and incorporates skip connections via a set-selection mechanism. The authors demonstrate:
+- CIFAR-10: discovery of novel convnet architectures achieving 3.65% test error, rivaling or surpassing prior human-designed models at comparable or better inference speed.
+- Penn Treebank (PTB): discovery of a novel recurrent cell that outperforms LSTM and strong baselines, achieving 62.4 perplexity; the cell transfers to character-level PTB (1.214 bpc) and improves BLEU by ~0.5 in GNMT without bespoke tuning.
+They include engineering for large-scale parallel search (parameter server, many replicas), a control experiment versus random search, and experiments expanding the search space.
+
+2. Decision: Accept
+Key reasons:
+- Significance and originality: A general, flexible method that learns to design neural architectures end-to-end, showing strong results across vision and language.
+- Empirical support: Competitive to state-of-the-art on CIFAR-10 and PTB, transferability of the discovered RNN cell, and evidence that policy gradient outperforms random search within the proposed setup.
+
+3. Supporting arguments
+- Problem and motivation: The paper addresses automating architecture design beyond fixed-length hyperparameter search, arguing convincingly for a controller that emits variable-length, structured architectures and can incorporate modern motifs (skip connections, branching).
+- Methodological soundness: The formulation as policy gradient with a moving-average baseline is standard; the set-selection mechanism for skip connections is sensible; the recurrent cell search space is well specified (tree-structured compositions with ct/ct−1 injection). The engineering details for distributed asynchronous updates are clear.
+- Results credibility: The CIFAR-10 pipeline uses standard augmentation and optimizers; the reported error rates are in the range of published SOTA at the time. For PTB, the authors match parameter budgets to baselines, use established regularization, and show consistent gains. The transfer of the discovered cell to character-level PTB and GNMT strengthens the claim that the method learns reusable inductive biases.
+- Comparisons: The paper positions itself against Bayesian optimization and neuroevolution, and adds a direct comparison to random search within their search space and budget, showing clear advantages for NAS.
+
+4. Additional feedback (to help improve the paper; not all points affect the accept decision)
+Major points:
+- Computational budget and reproducibility: The search uses extreme resources (e.g., 800 GPUs on CIFAR, 400 CPUs on PTB). Please quantify total compute (GPU/CPU days), wall-clock time, and energy. Discuss how performance scales with budget and provide guidance for smaller-scale reproduction (e.g., reduced search space, early-stopping proxies).
+- Fairness of CIFAR-10 comparisons: The best architecture is further tuned via a grid search and then scaled by adding 40 filters per layer. Clarify whether comparable hyperparameter tuning and scaling were applied to the baselines; otherwise, separate “as-found” vs “after-tuned/scaled” results. Provide clear parameter counts and FLOPs for speed comparisons, and standardize measurement conditions.
+- Risk of validation overfitting: Selecting a single best architecture after 12,800 evaluations on a small validation set risks overfitting. Please report: (i) validation/test gap across the top-k architectures, (ii) sensitivity to validation split, and (iii) performance of the controller re-run from scratch (variance across seeds).
+- Search space design choices: In one CIFAR setting you constrain pooling layers to specific positions and group layers into 3-layer blocks. Discuss how much these choices bias the search, and provide ablations without such macro-constraints. Similarly, detail the impact of “compilation failure” fixes (auto-connections, zero-padding for concatenation) on the resulting architectures and parameter growth.
+- Baselines beyond random search: While random search is a strong baseline, please add a budget-matched comparison to at least one black-box hyperparameter optimization method that can handle variable-length structures (e.g., SMAC/TPE with a structural encoding, or recent BO extensions you cite), even if approximate.
+
+Minor points:
+- Reward shaping: You cube the validation accuracy. Provide rationale and an ablation (e.g., raw accuracy, temperature). Consider reporting controller entropy or adding entropy regularization details if used.
+- Variance reduction: Consider/mention actor-critic or control variates beyond EMA baselines; Gumbel-Softmax/Concrete relaxations might help with discrete decisions (esp. skip connections) and could reduce variance.
+- Stability of discovered RNN cells: Report training stability (e.g., gradient norms, exploding/vanishing issues) and whether certain operations (elem-mult with ReLU/sigmoid) were frequently selected or pruned by learning.
+- Reporting: Move the final discovered architectures (convnet and RNN cell) and their exact hyperparameters into the main text or a more detailed appendix; include parameter counts and per-layer shapes. Clean up duplicate/garbled references.
+
+Questions for the authors
+- What is the total compute cost (GPU/CPU days) for CIFAR-10 and PTB searches, and how does test performance vary with 10%, 25%, 50% of that budget?
+- How many independent controller runs were performed? What is the variance in final test accuracy/perplexity across runs and across top-k architectures from a single run?
+- In the CIFAR “39-layer” setting, why fix pooling at layers 13 and 24 and group predictions into 3-layer blocks? What happens if these constraints are lifted?
+- The best CIFAR architecture is later widened by +40 filters per layer after selection. Was widening part of the controller’s action space anywhere? If not, how much of the final gain comes from widening vs the architecture topology?
+- How robust are results to the validation split? Did you try cross-validation or multiple validation folds during search?
+- For skip connections, when concatenating inputs of different spatial sizes you zero-pad smaller tensors. Does this implicitly encourage certain patterns (e.g., many concatenations leading to parameter explosion)? Can you report the typical fan-in and resulting parameter counts?
+- For PTB, can you provide ablations on the base number (e.g., 4 vs 8) and the effect of adding max/sin on the distribution of selected operations?
+- Will you release not just the final models but also the controller code, search spaces, and logs to aid reproducibility?
+
+Overall, this is an ambitious and influential direction. Addressing the compute and comparison concerns and clarifying the protocol around post-search tuning will further strengthen the paper.

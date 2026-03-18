@@ -1,0 +1,564 @@
+{
+  "name" : "8dd48d6a2e2cad213179a3992c0be53c.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Robust Bayesian Max-Margin Clustering",
+    "authors" : [ "Changyou Chen", "Jun Zhu", "Xinhua Zhang" ],
+    "emails" : [ "cchangyou@gmail.com;", "dcszj@tsinghua.edu.cn;", "xinhua.zhang@anu.edu.au" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Existing clustering methods fall roughly into two categories. Deterministic clustering directly optimises some loss functions, while Bayesian clustering models the data generating process and infers the clustering structure via Bayes rule. Typical deterministic methods include the well known kmeans [1], nCut [2], support vector clustering [3], Bregman divergence clustering [4, 5], and the methods built on the very effective max-margin principle [6–9]. Although these methods can flexibly incorporate constraints for better performance, it is challenging for them to finely capture hidden regularities in the data, e.g., automated inference of the number of clusters and the hierarchies underlying the clusters. In contrast, Bayesian clustering provides favourable convenience in modelling latent structures, and their posterior distributions can be inferred in a principled fashion. For example, by defining a Dirichlet process (DP) prior on the mixing probability of Gaussian mixtures, Dirichlet process Gaussian mixture models [10] (DPGMM) can infer the number of clusters in the dataset. Other priors on latent structures include the hierarchical cluster structure [11–13], coclustering structure [14], etc. However, Bayesian clustering is typically difficult to accommodate external constraints such as max-margin. This is because under the standard Bayesian inference designing some informative priors (if any) that satisfy these constraints is highly challenging.\nTo address this issue, we propose Bayesian max-margin clustering (BMC), which allows maxmargin constraints to be flexibly incorporated into a Bayesian clustering model. Distinct from the traditional max-margin clustering, BMC is fully Bayesian and enables probabilistic inference of the number of clusters or the latent feature representations of data. Technically, BMC leverages the regularized Bayesian inference (RegBayes) principle [15], which has shown promise on supervised learning tasks, such as classification [16, 17], link prediction [18], and matrix factorisation [19], where max-margin constraints are introduced to improve the discriminative power of a Bayesian\nmodel. However, little exploration has been devoted to the unsupervised setting, due in part to the absence of true labels that makes it technically challenging to enforce max-margin constraints. BMC constitutes a first extension of RegBayes to the unsupervised clustering task. Note that distinct from the clustering models using maximum entropy principle [20, 21] or posterior regularisation [22], BMC is more general due to the intrinsic generality of RegBayes [15].\nWe demonstrate the flexibility and effectiveness of BMC by two concrete instantiations. The first is Dirichlet process max-margin Gaussian mixture (DPMMGM), a nonparametric Bayesian clustering model that relaxes the Gaussian assumption underlying DPGMM by incorporating max-margin constraints, and is able to infer the number of clusters in the raw input space. To further discover latent feature representations, we propose the max-margin clustering topic model (MMCTM). As a topic model, it performs max-margin clustering of documents, while at the same time learns the latent topic representation for each document. For both DPMMGM and MMCTM, we develop efficient MCMC algorithms by exploiting data augmentation techniques. This avoids imposing restrictive assumptions such as in variational Bayes, thereby facilitating the inference of the true posterior. Extensive experiments demonstrate superior clustering performance of BMC over various competitors."
+    }, {
+      "heading" : "2 Regularized Bayesian Inference",
+      "text" : "We first briefly overview the principle of regularised Bayesian inference (RegBayes) [15].\nThe motivation of RegBayes is to enrich the posterior of a probabilistic model by incorporating additional constraints, under an information-theoretical optimisation formulation. Formally, suppose a probabilistic model has latent variables Θ, endowed with a prior p(Θ) (examples of Θ will be clear soon later). We also have observations X := {x1, · · · ,xn}, with xi ∈ Rp. Let p(X|Θ) be the likelihood. Then, posterior inference via the Bayes’ theorem is equivalent to solving the following optimisation problem [15]:\ninf q(Θ)∈P\nKL(q(Θ) || p(Θ))− EΘ∼q(Θ) [log p(X|Θ)] (1)\nwhere P is the space of probability distribution1, q(Θ) is the required posterior (here and afterwards we will drop the dependency on X for notation simplicity). In other words, the Bayesian posterior p(Θ|X) is identical to the optimal solution to (1). The power of RegBayes stems in part from the flexibility of engineering P , which typically encodes constraints imposed on q(Θ), e.g., via expectations of some feature functions of Θ (and possibly the data X). Furthermore, the constraints can be parameterised by some auxiliary variable ξ. For example, ξ may quantify the extent to which the constraints are violated, then it is penalised in the objective through a function U . To summarise, RegBayes can be generally formulated as\ninf ξ,q(Θ)\nKL(q(Θ) || p(Θ))− EΘ∼q(Θ) [log p(X|Θ)]+ U(ξ)\ns.t. q(Θ) ∈ P(ξ). (2) To distinguish from the standard Bayesian posterior, the optimal q(Θ) is called post-data posterior. Under mild regularity conditions, RegBayes admits a generic representation theorem to characterise the solution q(Θ) [15]. It is also shown to be more general than the conventional Bayesian methods, including those methods that introduce constraints on a prior. Such generality is essential for us to develop a Bayesian framework of max-margin clustering. Note that like many sophisticated Bayesian models, posterior inference remains as a key challenge of developing novel RegBayes models. Therefore, one of our key technical contributions is on developing efficient and accurate algorithms for BMC, as detailed below."
+    }, {
+      "heading" : "3 Robust Bayesian Max-margin Clustering",
+      "text" : "For clustering, one key assumption of our model is that X forms a latent cluster structure. In particular, let each cluster be associated with a latent projector ηk ∈ Rp, which is included in Θ and has prior distribution subsumed in p(Θ). Given any distribution q on Θ, we then define the compatibility score of xi with respect to cluster k by using the marginal distribution on ηk (as ηk ∈ Θ):\nFk(xi) = Eq(ηk) [ ηTk xi ] = Eq(Θ) [ ηTk xi ] . (3)\n1In theory, we also require that q is absolutely continuous with respect to p to make the KL-divergence well defined. The present paper treats this constraint as an implicit assumption for clarity.\nFor each example xi, we introduce a random variable yi valued in Z+, which denotes its cluster assignment and is also included in Θ. Inspired by conventional multiclass SVM [7, 23], we utilize P(ξ) in RegBayes (2) to encode the max-margin constraints based on Fk(xi), with the slack variable ξ penalised via their sum in U(ξ). This amounts to our Bayesian max-margin clustering (BMC):\ninf ξi≥0,q(Θ) L(q(Θ)) + 2c ∑ i ξi (4)\ns.t. Fyi(xi)− Fk(xi) ≥ ` I(yi 6= k)− ξi, ∀i, k where L(q(Θ)) = KL(q(Θ)||p(Θ)) − EΘ∼q(Θ)[log p(X|Θ)] measures the KL divergence between q and the original Bayesian posterior p(Θ|X) (up to a constant); I(·) = 1 if · holds true, and 0 otherwise; ` > 0 is a constant scalar of margin. Note we found that the commonly adopted balance constraints in max-margin clustering models [6] either are unnecessary or do not help in our framework. We will address this issue in specific models.\nClearly by absorbing the slack variables ξ, the optimisation problem (4) is equivalent to\ninf q(Θ) L(q(Θ)) + 2c ∑ i max ( 0, max k:k 6=yi EΘ∼q(Θ)[ζik] )\n(5)\nwhere ζik := ` I(yi 6= k)− (ηyi − ηk)Txi. Exact solution to (5) is hard to compute. An alternative approach is to approximate the posterior by assuming independence between random variables, e.g. variational inference. However, this is usually slow and susceptible to local optimal. In order to obtain an analytic optimal distribution q that facilitates efficient Bayesian inference, we resort to the technique of Gibbs classifier [17] which approximates (in fact, upper bounds due to the convexity of max function) the second term in (5) by an expected hinge loss, i.e., moving the expectation out of the max. This leads to our final formulation of BMC:\ninf q(Θ) L(q(Θ)) + 2c ∑ i EΘ∼q(Θ) [ max ( 0, max k:k 6=yi ζik )] . (6)\nProblem (6) is still much more challenging than existing RegBayes models [17], which are restricted to supervised learning with two classes only. Specifically, BMC allows multiple clusters/classes in an unsupervised setting, and the latent cluster membership yi needs to be inferred. This complicates the model and brings challenges for posterior inference, as addressed below. In a nutshell, our inference algorithms rely on two key steps by exploring data augmentation techniques. First, in order to tackle the multi-class case, we introduce auxiliary variables si := arg maxk:k 6=yi ζik. Applying standard derivations in calculus of variation [24] and augmenting the model with {si}, we obtain an analytic form of the optimal solution to (6) by augmenting Θ (refer to Appendix A for details):\nq(Θ, {si}) ∝ p(Θ|X) ∏ i exp(−2cmax(0, ζisi)) . (7)\nSecond, since the max term in (7) obfuscates efficient sampling, we apply the augmentation technique introduced by [17], which showed that q(Θ, {si}) is identical to the marginal distribution of the augmented post-data posterior\nq(Θ, {si}, {λi}) ∝ p(Θ|X) ∏ i φ̃i(λi|Θ), (8)\nwhere φ̃i(λi|Θ) := λ − 12 i exp ( −1 2λi (λi + cζisi) 2 ) . Here λi is an augmented variable for xi that has an generalised inverse Gaussian distribution [25] given Θ and xi.\nNote that our two steps of data augmentation are exact and incur no approximation. With the augmented variables ({si}, {λi}), we can develop efficient sampling algorithms for the augmented posterior q(Θ, {si}, {λi}) without restrictive assumptions, thereby allowing us to approach the true target posterior q(Θ) by dropping the augmented variables. The details will become clear soon in our subsequent clustering models."
+    }, {
+      "heading" : "4 Dirichlet Process Max-margin Gaussian Mixture Models",
+      "text" : "In (4), we have left unspecified the prior p(Θ) and the likelihood p(X|Θ). This section presents an instantiation of Bayesian nonparametric clustering for non-Gaussian data. We will present another instantiation of max-margin document clustering based on topic models in next section.\nHere a convenient model of p(X,Θ) is mixture of Gaussian. Let the mean and variance of the k-th cluster component be µk and Λk. In a nonparametric setting, the number of clusters is allowed to be infinite, and the cluster yi that each data point belongs to is drawn from a Dirichlet process [10]. To summarize, the latent variables are Θ = {µk,Λk,ηk}∞k=1∪{yi}ni=1. The prior p(Θ) is specified as: µk and Λk employ a standard Normal-inverse Wishart prior [26]: µk ∼ N (µk; m, (rΛk)−1), and Λk ∼ IW(Λk; S, ν). (9) yi ∈ Z+ has a Dirichlet process prior with parameter α. ηk follows a normal prior with mean 0 and variance vI, where I is the identity matrix. The likelihood p(xi|Θ) is N (xi;µyi , (rΛyi)−1), i.e. independent of ηk. The max-margin constraints take effects in the model via φ̃i’s in (8). Note this model of p(Θ,X), apart from ηk, is effectively the Dirichlet process Gaussian mixture model [10] (DPGMM). Therefore, we call our post-data posterior q(Θ, {si}, {λi}) in (8) as Dirichlet process max-margin Gaussian mixture model (DPMMGM). The hyperparameters include m, r, S, ν, α, v. Interpretation as a generalised DP mixture The formula of the augmented post-data posterior in (8) reveals that, compared with DPGMM, each data point is associated with an additional factor φ̃i(λi|Θ). Thus we can interpret DPMMGM as a generalised DP mixture with Normal-inversed Wishart-Normal as the base distribution, and a generalised pseudo likelihood that is proportional to\nf(xi, λi|yi,µyi ,Λyi , {ηk}) := N (xi;µyi , (rΛyi)−1)φ̃i (λi|Θ) . (10) To summarise, DPMMGM employs the following generative process with the graphical model shown in Fig. 1 (left):\n(µk,Λk,ηk) ∼ N ( µk; m, (rΛk) −1)× IW (Λk; S, ν)×N (ηk; 0, vI) , k = 1, 2, · · · w ∼ Stick-Breaking(α),\nyi|w ∼ Discrete(w), i ∈ [n] (xi, λi)|yi, {µk,Λk,ηk} ' f(xi, λi|yi,µyi ,Λyi , {ηk}). i ∈ [n] Here [n] := {1, · · · , n} is the set of integers up to n and ' means that (xi, λi) is generative from a distribution that is proportional to f(·). Since this normalisation constant is shared by all samples xi, there is no need to deal with it by posterior inference. Another benefit of this interpretation is that it allows us to use existing techniques for non-conjugate DP mixtures to sample the cluster indicators yi efficiently, and to infer the number of clusters in the data. This approach is different from previous work on RegBayes nonparametric models where truncated approximation is used to deal with the infinite dimensional model space [15, 18]. In contrast, our method does not rely on any approximation. Note that DPMMGM does not need the complicated class balance constraints [6] because the Gaussians in the pseudo likelihood would balance the clusters to some extent.\nPosterior inference Posterior inference for DPMMGM can be done by efficient Gibbs sampling. We integrate out the infinite dimension vector w, so the variables needed to be sampled are {µk,Λk,ηk}k∪{yi, si, λi}i. Conditional distributions are derived in Appendix B. Note that we use an extension of the Reused Algorithm [27] to jointly sample (yi, si), which allows it to allocate to empty clusters in Bayesian nonparametric setting. The time complexity is almost the same as DPGMM except for the additional step to sample ηk, with cost O(p3). So it would be necessary to put the constraints on a subspace (e.g., by projection) of the original feature space when p is high."
+    }, {
+      "heading" : "5 Max-margin Clustering Topic Model",
+      "text" : "Although many applications exhibit clustering structures in the raw observed data which can be effectively captured by DPMMGM, it is common that such regularities are more salient in terms of some high-level but latent features. For example, topic distributions are often more useful than word frequency in the task of document clustering. Therefore, we develop a max-margin clustering topic model (MMCTM) in the framework of BMC, which allows topic discovery to co-occur with document clustering in a Bayesian and max-margin fashion. To this end, the latent Dirichlet allocation (LDA) [28] needs to be extended by introducing a cluster label into the model, and define each cluster as a mixture of topic distributions. This cluster-based topic model [29] (CTM) can then be used in concert with BMC to enforce large margin between clusters in the posterior q(Θ).\nLet V be the size of the word vocabulary, T be the number of topics, andK be the number of clusters, 1N be a N -dimensional one vector. Then the generative process of CTM for the documents goes as: 1. For each topic t, generate its word distribution φt: φt|β ∼ Dir(β1V ). 2. Draw a base topic distribution µ0: µ0|α0 ∼ Dir(α01T ). Then for each cluster k, generate its topic distribution mixture µk: µk|α1,µ0 ∼ Dir(α1µ0). 3. Draw a base cluster distribution γ: γ|ω ∼ Dir(ω1K). Then for each document i ∈ [D]:\n• Generate a cluster label yi and a topic distribution µi: yi|γ ∼ Discrete(γ), µi|α,µyi ∼ Dir(αµyi).\n• Generate the observed words wil: zil ∼ Discrete(µi), wil ∼ Discrete(φzil), ∀ l ∈ [Ni]. Fig. 1 (right) shows the structure. We then augment CTM with max-margin constraints, and get the same posterior as in Eq. (7), with the variables Θ corresponding to {φt}Tt=1 ∪ {ηk,µk}Kk=1 ∪ {µ0, γ} ∪ {µi, yi}Di=1 ∪ {zil} D,Ni i=1,l=1.\nCompared with the raw word space which is normally extremely high-dimensional and sparse, it is more reasonable to characterise the clustering structure in the latent feature space–the empirical latent topic distributions as in the MedLDA [16]. Specifically, we summarise the topic distribution of document i by xi ∈ RT , whose t-th element is 1Ni ∑Ni l=1 I(zil = t). Then the compatibility score\nfor document i with respect to cluster k is defined similar to (3) as Fk(xi) = Eq(Θ) [ ηTk xi ] . Note, however, the expectation is also taken over xi since it is not observed.\nPosterior inference To achieve fast mixing, we integrate out {φt}Tt=1 ∪ {µ0,γ} ∪ {µk}Kk=1 ∪ {µi}Di=1 in the posterior, thus Θ = {yi}Di=1∪{ηk}Kk=1∪{zil} D,Ni i=1,l=1. The integration is straightforward by the Dirichlet-Multinomial conjugacy. The detailed form of the posterior and the conditional distributions are derived in Appendix C. By extending CTM with max-margin, we note that many of the the sampling formulas are extension of those in CTM [29], with additional sampling for ηk, thus the sampling can be done fairly efficiently.\nDealing with vacuous solutions Different from DPMMGM, the max-margin constraints in MMCTM do not interact with the observed words wil, but with the latent topic representations xi (or zil) that are also inferred from the model. This easily makes the latent representation zi’s collapse into a single cluster, a vacuous solution plaguing many other unsupervised learning methods as well. One remedy is to incorporate the cluster balance constraints into the model [7]. However, this does not help in our Bayesian setting because apart from significant increase in computational cost, MCMC often fails to converge in practice2. Another solution is to morph the problem into a weakly semisupervised setting, where we assign to each cluster a few documents according to their true label (we will refer to these documents as landmarks), and sample the rest as in the above unsupervised setting. These “labeled examples” can be considered as introducing constraints that are alternative to the balance constraints. Usually only a very small number of labeled documents are needed, thus barely increasing the cost in training and labelling. We will focus on this setting in experiment."
+    }, {
+      "heading" : "6 Experiments",
+      "text" : ""
+    }, {
+      "heading" : "6.1 Dirichlet Process Max-margin Gaussian Mixture",
+      "text" : "2We observed the cluster sizes kept bouncing with sampling iterations. This is probably due to the highly nonlinear mapping from observed word space to the feature space (topic distribution), making the problem multi-modal, i.e., there are multiple optimal topic assignments in the post-data posterior (8). Also the balance constraints might weaken the max-margin constraints too much.\n5 0\n5\n0\n5\n0\n5\n0\n5\n0\n5\n0\n5\n0\n5\n0\n5\n0\n5\n0\nWe first show the distinction between our DPMMGM and DPGMM by running both models on the non-Gaussian half-rings data set [30]. There are a number of hyperparameters to be determined, e.g., (α, r, S, ν, v, c, `); see Section 4. It turns out the cluster structure is insensitive to (α, r, S, ν), and so we use a standard sampling method to update α [31], while r, ν, S are sampled by employing Gamma, truncated Poisson, inverse Wishart priors respectively, as is done in [32]. We set v = 0.01, c = 0.1, ` = 5 in this experiment. Note that the clustering structure is sensitive to the values of c and `, which will be studied below. Empirically we find that DPMMGM converges much faster than DPGMM, both converging well within 200 iterations (see Appendix D.4 for examples). In Fig. 2, the clustering structures demonstrate clearly that DPMMGM relaxes the Gaussian assumption of the data distribution, and correctly finds the number of clusters based on the margin boundary, whereas DPGMM produces a too fragmented partition of the data for the clustering task.\nParameter sensitivity We next study the sensitivity of hyperparameters c and `, with other hyperparameters sampled during inference as above. Intuitively the impact of these parameters is as follows. c controls the weight that the max-margin constraint places on the posterior. If there were no other constraint, the max-margin constraint would drive the data points to collapse into a single cluster. As a result, we expect that a larger value of the weight c will result in fewer clusters. Similarly, increasing the value of ` will lead to a higher loss for any violation of the constraints, thus driving the data points to collapse as well. To test these implications, we run DPMMGM on a 2-dimensional synthetic dataset with 15 clusters [33]. We vary c and ` to study how the cluster structures change with respect to these parameter settings. As can be observed from Fig. 3, the results indeed follow our intuition, providing a mean to control the cluster structure in applications.\nReal Datasets. As other clustering models, we test DPMMGM on ten real datasets (small to moderate sizes) from the UCI repository [34]. Scaling up to large dataset is an interesting future. The first three columns of Table 1 list some of the statistics of these datasets (we used random subsets of the three large datasets – Letter, MNIST, and Segmentation).\nA heuristic approach for model selection. Model selection is generally hard for unsupervised clustering. Most existing algorithms simply fix the hyperparameters without examining their impacts on model performance [10, 35]. In DPMMGM, the hyperparameters c and ` are critical to clustering quality since they control the number of clusters. Without training data in our setting they can not be set using cross validation. Moreover, they are not feasible to be estimated use Bayesian sampling as well because they are not parameters from a proper Bayesian model. we thus introduce a timeefficient heuristic approach to selecting appropriate values. Suppose the dataset is known to have K clusters. Our heuristic goes as follows. First initialise c and ` to 0.1. Then at each iteration, we compare the inferred number of clusters with K. If it is larger than K (otherwise we do the converse), we choose c or ` randomly, and increase its value by un , where u is a uniform random variable in [0, 1] and n is the number of iterations so far. According to the parameter sensitivity studied above, increasing c or ` tends to decrease the number of clusters, and the model eventually\nstabilises due to the stochastic decrement by un . We denote the model learned from this heuristic as DPMMGM. In the case where the true number of clusters is unknown, we can still apply this strategy, except that the number of clusters K needs to be first inferred from DPGMM. This method is denoted as DPMMGM∗.\nComparison. We measure the quality of clustering results by using the standard normalised mutual information (NMI) criterion [36]. We compare our DPMMGM with the well established KMeans, nCut and DPGMM clustering methods3. All experiments are repeated for five times with random initialisation. The results are shown in Table 1. Clearly DPMMGM significantly outperforms other models, achieving the best NMI scores. DPMMGM∗, which is not informed of the true number of clusters, still obtains reasonably high NMI scores, and outperforms the DPGMM model."
+    }, {
+      "heading" : "6.2 Max-margin Clustering Topic Model",
+      "text" : "Datasets. We test the MMCTM model on two document datasets: 20NEWS and Reuters-R8 . For the 20NEWS dataset, we combine the training and test datasets used in [16], which ends up with 20 categories/clusters with roughly balanced cluster sizes. It contains 18,772 documents in total with a vocabulary size of 61,188. The Reuters-R8 dataset is a subset of the Reuters-21578 dataset4, with of 8 categories and 7,674 documents in total. The size of different categories is biased, with the lowest number of documents in a category being 51 while the highest being 2,292.\nComparison We choose L ∈ {5, 10, 15, 20, 25} documents randomly from each category as the landmarks, use 80% documents for training and the rest for testing. We set the number of topics (i.e., T ) to 50, and set the Dirichlet prior in Section 5 to ω = 0.1, β = 0.01, α = α0 = α1 = 10, as clustering quality is not sensitive to them. For the other hyperparameters related to the max-margin constraints, e.g., v in the Gaussian prior for η, the balance parameter c, and the cost parameter `, instead of doing cross validation which is computationally expensive and not helpful for our scenario with few labeled data, we simply set v = 0.1, c = 9, ` = 0.1. This is found to be a good setting and denoted as MMCTM. To test the robustness of this setting, we vary c over {0.1, 0.2, 0.5, 0.7, 1, 3, 5, 7, 9, 15, 30, 50} and keep v = ` = 0.1 (` and c play similar roles and so varying one is enough). We choose the best performance out of these parameter settings, denoted as MMCTM∗, which can be roughly deemed as the setting for the optimal performance. We compared MMCTM with state-of-the-art SVM and semi-supervised SVM (S3VM) models. They are efficiently implemented in [37], and the related parameters are chosen by 5-fold cross validation. As in [16], raw word frequencies are used as input features. We also compare MMCTM with a Bayesian baseline–cluster based topic model (CTM) [29], the building block of MMCTM without the max-margin constraints. Note we did not compare with the standard MedLDA [16] because it is supervised. We measure the performance by cluster accuracy, which is the proportion of correctly clustered documents. To accelerate MMCTM, we simply initialise it with CTM, and find it converges surprisingly fast in term of accuracy, e.g., usually within 30 iterations (refer to Appendix\n3We additionally show some comparison with some existing max-margin clustering models in Appendix D.2 on two-cluster data because their code only deals with the case of two clusters. Our method performs best.\n4Downloaded from csmining.org/index.php/r52-and-r8-of-reuters-21578.html.\n−50 −40 −30 −20 −10 0 10 20 30 40 50 −60\n−50 −40 −30 −20 −10 0 10 20 30 40 50 −60\nD.5). The accuracies are shown in Table 2, and we can see that MMCTM outperforms other models (also see Appendix D.4), except for SVM when L = 20 on the Reuters-R8 dataset. In addition, MMCTM performs almost as well as using the optimal parameter setting (MMCTM∗).\nSensitivity to the number of topics (i.e., T ). Note the above experiments simply set T = 50. To validate the affect of T , we varied T from 10 to 100, and the corresponding accuracies are plotted In Fig. 4 for the two datasets. In both cases, T = 50 seems to be a good parameter value.\nCluster embedding. We finally plot the clustering results by embedding them into the 2- dimensional plane using tSNE [38]. In Fig. 5, it can be observed that compared to CTM, MMCTM generates well separated clusters with much larger margin between clusters."
+    }, {
+      "heading" : "7 Conclusions",
+      "text" : "We propose a robust Bayesian max-margin clustering framework to bridge the gap between maxmargin learning and Bayesian clustering, allowing many Bayesian clustering algorithms to be directly equipped with the max-margin criterion. Posterior inference is done via two data augmentation techniques. Two models from the framework are proposed for Bayesian nonparametric maxmargin clustering and topic model based document clustering. Experimental results show our models significantly outperform existing methods with competitive clustering accuracy."
+    }, {
+      "heading" : "Acknowledgments",
+      "text" : "This work was supported by an Australia China Science and Research Fund grant (ACSRF-06283) from the Department of Industry, Innovation, Climate Change, Science, Research and Tertiary Education of the Australian Government, the National Key Project for Basic Research of China (No. 2013CB329403), and NSF of China (Nos. 61322308, 61332007). NICTA is funded by the Australian Government as represented by the Department of Broadband, Communications and the Digital Economy and the Australian Research Council through the ICT Centre of Excellence program."
+    } ],
+    "references" : [ {
+      "title" : "Some methods of classification and analysis of multivariate observations",
+      "author" : [ "J. MacQueen" ],
+      "venue" : "Proc. 5th Berkeley Symposium on Math., Stat., and Prob., page 281",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : null,
+      "year" : 1967
+    }, {
+      "title" : "Normalized cuts and image segmentation",
+      "author" : [ "J. Shi", "J. Malik" ],
+      "venue" : "TPAMI, 22(8):705–767",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : null,
+      "year" : 2000
+    }, {
+      "title" : "Support vector clustering",
+      "author" : [ "A. Ben-Hur", "D. Horn", "H. Siegelmann", "V. Vapnik" ],
+      "venue" : "JMLR, 2:125–137",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : null,
+      "year" : 2001
+    }, {
+      "title" : "Clustering with Bregman divergences",
+      "author" : [ "A. Banerjee", "S. Merugu", "I.S. Dhillon", "J. Ghosh" ],
+      "venue" : "JMLR, 6: 1705–1749",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : null,
+      "year" : 2005
+    }, {
+      "title" : "Convex relaxations of Bregman divergence clustering",
+      "author" : [ "H. Cheng", "X. Zhang", "D. Schuurmans" ],
+      "venue" : "UAI",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Max-margin clustering",
+      "author" : [ "L. Xu", "J. Neufeld", "B. Larson", "D. Schuurmans" ],
+      "venue" : "NIPS",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : null,
+      "year" : 2005
+    }, {
+      "title" : "Efficient multiclass maximum margin clustering",
+      "author" : [ "B. Zhao", "F. Wang", "C. Zhang" ],
+      "venue" : "ICML",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : null,
+      "year" : 2008
+    }, {
+      "title" : "Tighter and convex maximum margin clustering",
+      "author" : [ "Y.F. Li", "I.W. Tsang", "J.T. Kwok", "Z.H. Zhou" ],
+      "venue" : "AISTATS",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : null,
+      "year" : 2009
+    }, {
+      "title" : "Latent maximum margin clustering",
+      "author" : [ "G.T. Zhou", "T. Lan", "A. Vahdat", "G. Mori" ],
+      "venue" : "NIPS",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "The infinite Gaussian mixture model",
+      "author" : [ "C.E. Rasmussen" ],
+      "venue" : "NIPS",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : null,
+      "year" : 2000
+    }, {
+      "title" : "Bayesian hierarchical clustering",
+      "author" : [ "K.A. Heller", "Z. Ghahramani" ],
+      "venue" : "ICML",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : null,
+      "year" : 2005
+    }, {
+      "title" : "Bayesian agglomerative clustering with coalescents",
+      "author" : [ "Y.W. Teh", "H. Dauḿe III", "D. Roy" ],
+      "venue" : "NIPS",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : null,
+      "year" : 2008
+    }, {
+      "title" : "Binary to bushy: Bayesian hierarchical clustering with the Beta coalescent",
+      "author" : [ "Y. Hu", "J. Boyd-Graber", "H. Dauḿe", "Z.I. Ying" ],
+      "venue" : "NIPS",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Nonparametric Bayesian co-clustering ensembles",
+      "author" : [ "P. Wang", "K.B. Laskey", "C. Domeniconi", "M.I. Jordan" ],
+      "venue" : "SDM",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Bayesian inference with posterior regularization and applications to infinite latent SVMs",
+      "author" : [ "J. Zhu", "N. Chen", "E.P. Xing" ],
+      "venue" : "JMLR",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "MedLDA: Maximum margin supervised topic models",
+      "author" : [ "J. Zhu", "A. Ahmed", "E.P. Xing" ],
+      "venue" : "JMLR, 13(8): 2237–2278",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Gibbs max-margin topic models with fast sampling algorithms",
+      "author" : [ "J. Zhu", "N. Chen", "H. Perkins", "B. Zhang" ],
+      "venue" : "ICML",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Max-margin nonparametric latent feature models for link prediction",
+      "author" : [ "J. Zhu" ],
+      "venue" : "ICML",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Fast max-margin matrix factorization with data augmentation",
+      "author" : [ "M. Xu", "J. Zhu", "B. Zhang" ],
+      "venue" : "ICML",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Discriminative cllustering via generative feature mapping",
+      "author" : [ "L. Wang", "X. Li", "Z. Tu", "J. Jia" ],
+      "venue" : "AAAI",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Discriminative clustering by regularized information maximization",
+      "author" : [ "R. Gomes", "A. Krause", "P. Perona" ],
+      "venue" : "NIPS",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : null,
+      "year" : 2010
+    }, {
+      "title" : "Posterior regularization for structured latent variable models",
+      "author" : [ "K.‘Ganchev", "J. Graa", "J. Gillenwater", "B. Taskar" ],
+      "venue" : null,
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : "22",
+      "year" : 2001
+    }, {
+      "title" : "On the algorithmic implementation of multiclass kernel-based vector machines",
+      "author" : [ "K. Crammer", "Y. Singer" ],
+      "venue" : "JMLR, 2:265–292",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : null,
+      "year" : 2001
+    }, {
+      "title" : "An introduction to the calculus of variations",
+      "author" : [ "C. Fox" ],
+      "venue" : "Courier Dover Publications",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : null,
+      "year" : 1987
+    }, {
+      "title" : "Statistical properties of the generalized inverse Gaussian distribution",
+      "author" : [ "B. Jorgensen" ],
+      "venue" : "Lecture Notes in Statistics",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : null,
+      "year" : 1982
+    }, {
+      "title" : "Conjugate Bayesian analysis of the Gaussian distribution",
+      "author" : [ "K.P. Murphy" ],
+      "venue" : "Technical report, UCB",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : null,
+      "year" : 2007
+    }, {
+      "title" : "MCMC for normalized random measure mixture models",
+      "author" : [ "S. Favaro", "Y.W. Teh" ],
+      "venue" : "Stat. Sci.",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Latent Dirichlet allocation",
+      "author" : [ "D.M. Blei", "A.Y. Ng", "M.I. Jordan" ],
+      "venue" : "JMLR, 3:993–1022",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : null,
+      "year" : 2003
+    }, {
+      "title" : "Structured topic models for language",
+      "author" : [ "H.M. Wallach" ],
+      "venue" : "PhD thesis, University of Cambridge",
+      "citeRegEx" : "29",
+      "shortCiteRegEx" : null,
+      "year" : 2008
+    }, {
+      "title" : "Data clustering: A user’s dilemma",
+      "author" : [ "A. Jain", "M. Law" ],
+      "venue" : "Lecture Notes in Comp. Sci., 3776:1–10",
+      "citeRegEx" : "30",
+      "shortCiteRegEx" : null,
+      "year" : 2005
+    }, {
+      "title" : "Hierarchical Dirichlet processes",
+      "author" : [ "Y.W. Teh", "M.I. Jordan", "M.J. Beal", "D.M. Blei" ],
+      "venue" : "J. Amer. Statist. Assoc., 101(476):1566–1581",
+      "citeRegEx" : "31",
+      "shortCiteRegEx" : null,
+      "year" : 2006
+    }, {
+      "title" : "Generative supervised classification using Dirichlet process priors",
+      "author" : [ "M. Davy", "J.Y. Tourneret" ],
+      "venue" : "TPAMI, 32(10):1781–1794",
+      "citeRegEx" : "32",
+      "shortCiteRegEx" : null,
+      "year" : 2010
+    }, {
+      "title" : "Iterative shrinking method for clustering problems",
+      "author" : [ "P. Franti", "O. Virmajoki" ],
+      "venue" : "PR, 39(5):761–765",
+      "citeRegEx" : "33",
+      "shortCiteRegEx" : null,
+      "year" : 2006
+    }, {
+      "title" : "Determinantal clustering process – a nonparametric bayesian approach to kernel based semi-supervised clustering",
+      "author" : [ "A. Shah", "Z. Ghahramani" ],
+      "venue" : "UAI",
+      "citeRegEx" : "35",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Information theoretic measures for clusterings comparison: variants",
+      "author" : [ "N.X. Vinh", "J. Epps", "J. Bailey" ],
+      "venue" : "properties, normalization and correction for chance. JMLR, (11):2837–2854",
+      "citeRegEx" : "36",
+      "shortCiteRegEx" : null,
+      "year" : 2010
+    }, {
+      "title" : "SVMlin: Fast linear SVM solvers for supervised and semisupervised learning",
+      "author" : [ "V. Sindhwani", "P. Niyogi", "M. Belkin" ],
+      "venue" : "NIPS Workshop on Machine Learning Open Source Software",
+      "citeRegEx" : "37",
+      "shortCiteRegEx" : null,
+      "year" : 2006
+    }, {
+      "title" : "Visualizing high-dimensional data using t-SNE",
+      "author" : [ "L.J.P. van der Maaten", "G.E. Hinton" ],
+      "venue" : null,
+      "citeRegEx" : "38",
+      "shortCiteRegEx" : "38",
+      "year" : 2008
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 0,
+      "context" : "Typical deterministic methods include the well known kmeans [1], nCut [2], support vector clustering [3], Bregman divergence clustering [4, 5], and the methods built on the very effective max-margin principle [6–9].",
+      "startOffset" : 60,
+      "endOffset" : 63
+    }, {
+      "referenceID" : 1,
+      "context" : "Typical deterministic methods include the well known kmeans [1], nCut [2], support vector clustering [3], Bregman divergence clustering [4, 5], and the methods built on the very effective max-margin principle [6–9].",
+      "startOffset" : 70,
+      "endOffset" : 73
+    }, {
+      "referenceID" : 2,
+      "context" : "Typical deterministic methods include the well known kmeans [1], nCut [2], support vector clustering [3], Bregman divergence clustering [4, 5], and the methods built on the very effective max-margin principle [6–9].",
+      "startOffset" : 101,
+      "endOffset" : 104
+    }, {
+      "referenceID" : 3,
+      "context" : "Typical deterministic methods include the well known kmeans [1], nCut [2], support vector clustering [3], Bregman divergence clustering [4, 5], and the methods built on the very effective max-margin principle [6–9].",
+      "startOffset" : 136,
+      "endOffset" : 142
+    }, {
+      "referenceID" : 4,
+      "context" : "Typical deterministic methods include the well known kmeans [1], nCut [2], support vector clustering [3], Bregman divergence clustering [4, 5], and the methods built on the very effective max-margin principle [6–9].",
+      "startOffset" : 136,
+      "endOffset" : 142
+    }, {
+      "referenceID" : 9,
+      "context" : "For example, by defining a Dirichlet process (DP) prior on the mixing probability of Gaussian mixtures, Dirichlet process Gaussian mixture models [10] (DPGMM) can infer the number of clusters in the dataset.",
+      "startOffset" : 146,
+      "endOffset" : 150
+    }, {
+      "referenceID" : 13,
+      "context" : "Other priors on latent structures include the hierarchical cluster structure [11–13], coclustering structure [14], etc.",
+      "startOffset" : 109,
+      "endOffset" : 113
+    }, {
+      "referenceID" : 14,
+      "context" : "Technically, BMC leverages the regularized Bayesian inference (RegBayes) principle [15], which has shown promise on supervised learning tasks, such as classification [16, 17], link prediction [18], and matrix factorisation [19], where max-margin constraints are introduced to improve the discriminative power of a Bayesian",
+      "startOffset" : 83,
+      "endOffset" : 87
+    }, {
+      "referenceID" : 15,
+      "context" : "Technically, BMC leverages the regularized Bayesian inference (RegBayes) principle [15], which has shown promise on supervised learning tasks, such as classification [16, 17], link prediction [18], and matrix factorisation [19], where max-margin constraints are introduced to improve the discriminative power of a Bayesian",
+      "startOffset" : 166,
+      "endOffset" : 174
+    }, {
+      "referenceID" : 16,
+      "context" : "Technically, BMC leverages the regularized Bayesian inference (RegBayes) principle [15], which has shown promise on supervised learning tasks, such as classification [16, 17], link prediction [18], and matrix factorisation [19], where max-margin constraints are introduced to improve the discriminative power of a Bayesian",
+      "startOffset" : 166,
+      "endOffset" : 174
+    }, {
+      "referenceID" : 17,
+      "context" : "Technically, BMC leverages the regularized Bayesian inference (RegBayes) principle [15], which has shown promise on supervised learning tasks, such as classification [16, 17], link prediction [18], and matrix factorisation [19], where max-margin constraints are introduced to improve the discriminative power of a Bayesian",
+      "startOffset" : 192,
+      "endOffset" : 196
+    }, {
+      "referenceID" : 18,
+      "context" : "Technically, BMC leverages the regularized Bayesian inference (RegBayes) principle [15], which has shown promise on supervised learning tasks, such as classification [16, 17], link prediction [18], and matrix factorisation [19], where max-margin constraints are introduced to improve the discriminative power of a Bayesian",
+      "startOffset" : 223,
+      "endOffset" : 227
+    }, {
+      "referenceID" : 19,
+      "context" : "Note that distinct from the clustering models using maximum entropy principle [20, 21] or posterior regularisation [22], BMC is more general due to the intrinsic generality of RegBayes [15].",
+      "startOffset" : 78,
+      "endOffset" : 86
+    }, {
+      "referenceID" : 20,
+      "context" : "Note that distinct from the clustering models using maximum entropy principle [20, 21] or posterior regularisation [22], BMC is more general due to the intrinsic generality of RegBayes [15].",
+      "startOffset" : 78,
+      "endOffset" : 86
+    }, {
+      "referenceID" : 21,
+      "context" : "Note that distinct from the clustering models using maximum entropy principle [20, 21] or posterior regularisation [22], BMC is more general due to the intrinsic generality of RegBayes [15].",
+      "startOffset" : 115,
+      "endOffset" : 119
+    }, {
+      "referenceID" : 14,
+      "context" : "Note that distinct from the clustering models using maximum entropy principle [20, 21] or posterior regularisation [22], BMC is more general due to the intrinsic generality of RegBayes [15].",
+      "startOffset" : 185,
+      "endOffset" : 189
+    }, {
+      "referenceID" : 14,
+      "context" : "We first briefly overview the principle of regularised Bayesian inference (RegBayes) [15].",
+      "startOffset" : 85,
+      "endOffset" : 89
+    }, {
+      "referenceID" : 14,
+      "context" : "Then, posterior inference via the Bayes’ theorem is equivalent to solving the following optimisation problem [15]:",
+      "startOffset" : 109,
+      "endOffset" : 113
+    }, {
+      "referenceID" : 14,
+      "context" : "Under mild regularity conditions, RegBayes admits a generic representation theorem to characterise the solution q(Θ) [15].",
+      "startOffset" : 117,
+      "endOffset" : 121
+    }, {
+      "referenceID" : 6,
+      "context" : "Inspired by conventional multiclass SVM [7, 23], we utilize P(ξ) in RegBayes (2) to encode the max-margin constraints based on Fk(xi), with the slack variable ξ penalised via their sum in U(ξ).",
+      "startOffset" : 40,
+      "endOffset" : 47
+    }, {
+      "referenceID" : 22,
+      "context" : "Inspired by conventional multiclass SVM [7, 23], we utilize P(ξ) in RegBayes (2) to encode the max-margin constraints based on Fk(xi), with the slack variable ξ penalised via their sum in U(ξ).",
+      "startOffset" : 40,
+      "endOffset" : 47
+    }, {
+      "referenceID" : 5,
+      "context" : "Note we found that the commonly adopted balance constraints in max-margin clustering models [6] either are unnecessary or do not help in our framework.",
+      "startOffset" : 92,
+      "endOffset" : 95
+    }, {
+      "referenceID" : 16,
+      "context" : "In order to obtain an analytic optimal distribution q that facilitates efficient Bayesian inference, we resort to the technique of Gibbs classifier [17] which approximates (in fact, upper bounds due to the convexity of max function) the second term in (5) by an expected hinge loss, i.",
+      "startOffset" : 148,
+      "endOffset" : 152
+    }, {
+      "referenceID" : 16,
+      "context" : "Problem (6) is still much more challenging than existing RegBayes models [17], which are restricted to supervised learning with two classes only.",
+      "startOffset" : 73,
+      "endOffset" : 77
+    }, {
+      "referenceID" : 23,
+      "context" : "Applying standard derivations in calculus of variation [24] and augmenting the model with {si}, we obtain an analytic form of the optimal solution to (6) by augmenting Θ (refer to Appendix A for details):",
+      "startOffset" : 55,
+      "endOffset" : 59
+    }, {
+      "referenceID" : 16,
+      "context" : "Second, since the max term in (7) obfuscates efficient sampling, we apply the augmentation technique introduced by [17], which showed that q(Θ, {si}) is identical to the marginal distribution of the augmented post-data posterior",
+      "startOffset" : 115,
+      "endOffset" : 119
+    }, {
+      "referenceID" : 24,
+      "context" : "Here λi is an augmented variable for xi that has an generalised inverse Gaussian distribution [25] given Θ and xi.",
+      "startOffset" : 94,
+      "endOffset" : 98
+    }, {
+      "referenceID" : 9,
+      "context" : "In a nonparametric setting, the number of clusters is allowed to be infinite, and the cluster yi that each data point belongs to is drawn from a Dirichlet process [10].",
+      "startOffset" : 163,
+      "endOffset" : 167
+    }, {
+      "referenceID" : 25,
+      "context" : "The prior p(Θ) is specified as: μk and Λk employ a standard Normal-inverse Wishart prior [26]: μk ∼ N (μk; m, (rΛk)), and Λk ∼ IW(Λk; S, ν).",
+      "startOffset" : 89,
+      "endOffset" : 93
+    }, {
+      "referenceID" : 9,
+      "context" : "Note this model of p(Θ,X), apart from ηk, is effectively the Dirichlet process Gaussian mixture model [10] (DPGMM).",
+      "startOffset" : 102,
+      "endOffset" : 106
+    }, {
+      "referenceID" : 14,
+      "context" : "This approach is different from previous work on RegBayes nonparametric models where truncated approximation is used to deal with the infinite dimensional model space [15, 18].",
+      "startOffset" : 167,
+      "endOffset" : 175
+    }, {
+      "referenceID" : 17,
+      "context" : "This approach is different from previous work on RegBayes nonparametric models where truncated approximation is used to deal with the infinite dimensional model space [15, 18].",
+      "startOffset" : 167,
+      "endOffset" : 175
+    }, {
+      "referenceID" : 5,
+      "context" : "Note that DPMMGM does not need the complicated class balance constraints [6] because the Gaussians in the pseudo likelihood would balance the clusters to some extent.",
+      "startOffset" : 73,
+      "endOffset" : 76
+    }, {
+      "referenceID" : 26,
+      "context" : "Note that we use an extension of the Reused Algorithm [27] to jointly sample (yi, si), which allows it to allocate to empty clusters in Bayesian nonparametric setting.",
+      "startOffset" : 54,
+      "endOffset" : 58
+    }, {
+      "referenceID" : 27,
+      "context" : "To this end, the latent Dirichlet allocation (LDA) [28] needs to be extended by introducing a cluster label into the model, and define each cluster as a mixture of topic distributions.",
+      "startOffset" : 51,
+      "endOffset" : 55
+    }, {
+      "referenceID" : 28,
+      "context" : "This cluster-based topic model [29] (CTM) can then be used in concert with BMC to enforce large margin between clusters in the posterior q(Θ).",
+      "startOffset" : 31,
+      "endOffset" : 35
+    }, {
+      "referenceID" : 15,
+      "context" : "Compared with the raw word space which is normally extremely high-dimensional and sparse, it is more reasonable to characterise the clustering structure in the latent feature space–the empirical latent topic distributions as in the MedLDA [16].",
+      "startOffset" : 239,
+      "endOffset" : 243
+    }, {
+      "referenceID" : 28,
+      "context" : "By extending CTM with max-margin, we note that many of the the sampling formulas are extension of those in CTM [29], with additional sampling for ηk, thus the sampling can be done fairly efficiently.",
+      "startOffset" : 111,
+      "endOffset" : 115
+    }, {
+      "referenceID" : 6,
+      "context" : "One remedy is to incorporate the cluster balance constraints into the model [7].",
+      "startOffset" : 76,
+      "endOffset" : 79
+    }, {
+      "referenceID" : 29,
+      "context" : "We first show the distinction between our DPMMGM and DPGMM by running both models on the non-Gaussian half-rings data set [30].",
+      "startOffset" : 122,
+      "endOffset" : 126
+    }, {
+      "referenceID" : 30,
+      "context" : "It turns out the cluster structure is insensitive to (α, r, S, ν), and so we use a standard sampling method to update α [31], while r, ν, S are sampled by employing Gamma, truncated Poisson, inverse Wishart priors respectively, as is done in [32].",
+      "startOffset" : 120,
+      "endOffset" : 124
+    }, {
+      "referenceID" : 31,
+      "context" : "It turns out the cluster structure is insensitive to (α, r, S, ν), and so we use a standard sampling method to update α [31], while r, ν, S are sampled by employing Gamma, truncated Poisson, inverse Wishart priors respectively, as is done in [32].",
+      "startOffset" : 242,
+      "endOffset" : 246
+    }, {
+      "referenceID" : 32,
+      "context" : "To test these implications, we run DPMMGM on a 2-dimensional synthetic dataset with 15 clusters [33].",
+      "startOffset" : 96,
+      "endOffset" : 100
+    }, {
+      "referenceID" : 9,
+      "context" : "Most existing algorithms simply fix the hyperparameters without examining their impacts on model performance [10, 35].",
+      "startOffset" : 109,
+      "endOffset" : 117
+    }, {
+      "referenceID" : 33,
+      "context" : "Most existing algorithms simply fix the hyperparameters without examining their impacts on model performance [10, 35].",
+      "startOffset" : 109,
+      "endOffset" : 117
+    }, {
+      "referenceID" : 34,
+      "context" : "We measure the quality of clustering results by using the standard normalised mutual information (NMI) criterion [36].",
+      "startOffset" : 113,
+      "endOffset" : 117
+    }, {
+      "referenceID" : 15,
+      "context" : "For the 20NEWS dataset, we combine the training and test datasets used in [16], which ends up with 20 categories/clusters with roughly balanced cluster sizes.",
+      "startOffset" : 74,
+      "endOffset" : 78
+    }, {
+      "referenceID" : 35,
+      "context" : "They are efficiently implemented in [37], and the related parameters are chosen by 5-fold cross validation.",
+      "startOffset" : 36,
+      "endOffset" : 40
+    }, {
+      "referenceID" : 15,
+      "context" : "As in [16], raw word frequencies are used as input features.",
+      "startOffset" : 6,
+      "endOffset" : 10
+    }, {
+      "referenceID" : 28,
+      "context" : "We also compare MMCTM with a Bayesian baseline–cluster based topic model (CTM) [29], the building block of MMCTM without the max-margin constraints.",
+      "startOffset" : 79,
+      "endOffset" : 83
+    }, {
+      "referenceID" : 15,
+      "context" : "Note we did not compare with the standard MedLDA [16] because it is supervised.",
+      "startOffset" : 49,
+      "endOffset" : 53
+    }, {
+      "referenceID" : 36,
+      "context" : "We finally plot the clustering results by embedding them into the 2dimensional plane using tSNE [38].",
+      "startOffset" : 96,
+      "endOffset" : 100
+    } ],
+    "year" : 2014,
+    "abstractText" : "We present max-margin Bayesian clustering (BMC), a general and robust framework that incorporates the max-margin criterion into Bayesian clustering models, as well as two concrete models of BMC to demonstrate its flexibility and effectiveness in dealing with different clustering tasks. The Dirichlet process max-margin Gaussian mixture is a nonparametric Bayesian clustering model that relaxes the underlying Gaussian assumption of Dirichlet process Gaussian mixtures by incorporating max-margin posterior constraints, and is able to infer the number of clusters from data. We further extend the ideas to present max-margin clustering topic model, which can learn the latent topic representation of each document while at the same time cluster documents in the max-margin fashion. Extensive experiments are performed on a number of real datasets, and the results indicate superior clustering performance of our methods compared to related baselines.",
+    "creator" : null
+  }
+}

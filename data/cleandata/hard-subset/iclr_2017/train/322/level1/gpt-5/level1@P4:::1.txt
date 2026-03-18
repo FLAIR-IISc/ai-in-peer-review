@@ -1,0 +1,54 @@
+Summary of contributions
+- Problem: Automatically selecting a good network size during a single training run rather than via expensive black-box model selection.
+- Proposed framework: “Nonparametric neural networks” that optimize over both weights and layer widths by (i) adding new units during training and (ii) removing redundant units using a group-regularizer. A key theoretical result (Theorem 1) shows the training objective attains a global minimum at finite dimensionality when using fan-in or fan-out regularization with λ>0 and 1≤p<∞, establishing that the nonparametric objective is well-posed.
+- Training machinery:
+  - CapNorm: a capped batch normalization variant that avoids canceling the effect of the regularizer by only scaling when the batch std>1 and without trainable affine parameters.
+  - AdaRad: a gradient method that decomposes per-unit fan-in gradients into radial (parallel) and angular (orthogonal) components, normalizes only the angular component, and uses two step sizes to separate learning dynamics from shrinkage; variants with momentum (AdaRad-M) are provided.
+  - Emphasis on self-similar nonlinearities (e.g., ReLU) to make scales irrelevant and allow a simple equivalence (Proposition 1) between per-layer λl and a single λ.
+- Empirical evaluation: Fully-connected models on MNIST, rectangles images, and convex; and a larger OpenML poker dataset. Nonparametric models often match or beat parametric models of the same size and sometimes approach or exceed black-box baselines while using fewer parameters; however, performance is poor on convex.
+
+Decision: Reject
+Key reasons: (1) Empirical evidence is insufficient and uneven, with limited and sometimes unfavorable results on standard benchmarks and no comparisons to the most relevant competing methods; (2) The proposed training components (AdaRad, CapNorm) are not ablated or compared against strong alternatives, leaving unclear whether the framework’s gains stem from the “nonparametric” mechanism per se.
+
+Supporting arguments
+- Motivation and positioning:
+  - The formulation and theorem address a real concern (degeneracy to infinite widths) and provide a principled justification for the framework. This is a strength.
+  - However, prior art on growing/pruning networks and group sparsity in NNs is substantial (e.g., Alvarez & Salzmann 2016; Dynamic Network Surgery; Wei et al. 2016; Net2Net; structured sparsity). The paper discusses some but does not empirically compare against them. In particular, methods that jointly train with group-lasso and then prune (or that grow via function-preserving transforms) are the most pertinent baselines.
+- Technical soundness:
+  - Theorem 1 appears carefully proved, initially under differentiability and then extended to directional derivatives. The assumptions (notably σ(0)=0) are reasonable for ReLU-like activations. The result establishes existence of a global minimum at finite width, which is valuable as a soundness guarantee.
+  - Proposition 1 is straightforward and correct given self-similarity.
+  - AdaRad’s decomposition into per-fan-in radial/angular components is well-motivated given the group regularizer; the update is consistent with proximal/group shrinkage logic, and the computational discussion is plausible.
+  - CapNorm’s rationale (preventing normalization from undoing regularization) is reasonable but ad-hoc; the paper does not analyze its effect theoretically or compare to alternatives (e.g., weight normalization, layer norm) that may avoid the conflict.
+- Empirical validation:
+  - Datasets are predominantly small, fully-connected settings; no convolutional experiments are shown although the introduction emphasizes applicability and the broader goal of avoiding global hyperparameter search. Given ICLR standards and the claims, results on standard conv benchmarks (CIFAR-10/100) would be expected.
+  - On convex the method underperforms parametric baselines of the same size, and the tendency to converge to small networks is harmful. The paper acknowledges this but does not provide mitigation or analysis.
+  - Comparisons: Parametric baselines use BN without L2 (authors state incompatibility), but this choice makes the comparison potentially unfair; weight decay on parameters not subject to BN scale, decoupled weight decay, or excluding BN parameters from L2 are common practices. Moreover, there is no comparison to group-lasso regularized parametric networks with pruning, or to methods that grow networks using f-equivalence (e.g., Net2Net).
+  - No ablations: There is no study showing the incremental benefit of (i) unit addition/removal, (ii) AdaRad vs RMSprop/Adam adapted to group shrinkage, (iii) CapNorm vs alternatives. The poker result is striking (very low error), but lacks comparison to modern baselines on that dataset and could benefit from careful leakage checks and protocol clarity.
+- Clarity:
+  - The paper is generally clear, with detailed algorithms and a thorough (if dense) appendix. Some sections (proofs) are heavy, but definitions are explicit.
+
+Additional feedback (to help improve, not central to the decision)
+- Provide strong, apples-to-apples baselines:
+  - Parametric networks with group-lasso fan-in/out regularization and pruning (e.g., Alvarez & Salzmann 2016).
+  - Dynamic pruning/growth approaches (Dynamic Network Surgery; Wei et al. 2016), and function-preserving growth (Net2Net).
+  - Alternatives to CapNorm (LayerNorm, WeightNorm) and to AdaRad (proximal variants with RMSprop/Adam; adaptive group-wise normalization).
+- Add ablation studies:
+  - Effect of unit addition rate ν and schedule; of αr vs αφ; of CapNorm on/off; AdaRad vs SGD/RMSprop/Adam with per-fan-in normalization; p=1 vs p=2.
+  - Show that the framework’s advantage is not just due to a particular optimizer or normalization choice.
+- Broaden experiments:
+  - Convolutional models on CIFAR and a text/NLP task; report final accuracy, parameter counts, training time, and wall-clock model selection time relative to black-box baselines for a fixed compute budget.
+  - For the convex dataset, analyze why the approach converges to too-small models and whether adaptive λ annealing alleviates it.
+- Fairness in comparisons:
+  - Revisit the statement that L2 is incompatible with BN; consider decoupled weight decay or excluding BN parameters from L2. Report results.
+- Theory/claims alignment:
+  - Theorem 1 shows existence of a finite global minimum, not that the training procedure finds it. Clarify this and, if possible, provide convergence or stationarity results for AdaRad with proximal/group shrinkage.
+
+Questions for the authors
+1. Baselines: Can you include comparisons to group-lasso regularized parametric networks that are pruned after training, and to Dynamic Network Surgery or Wei et al. (2016)/Net2Net-style growth? How does your method fare under the same compute budget?
+2. CapNorm: Why not compare to LayerNorm or WeightNorm, which might avoid negating the regularizer? Is CapNorm used at all layers? Any stability issues?
+3. Optimizer ablations: Could RMSprop/Adam be adapted to your setting by normalizing at the fan-in level while keeping the proximal shrinkage unscaled? How does that compare to AdaRad?
+4. Hyperparameters and sensitivity: How sensitive are results to ν, νfreq, αr/αφ, and λ? Do you anneal λ, and does that improve the convex dataset?
+5. Fairness of BN+L2 claim: Can you provide results for parametric networks with weight decay configured in standard ways (excluding BN params; decoupled weight decay) to address comparability concerns?
+6. Poker dataset: Please detail data splits, preprocessing, and measures taken to rule out leakage. Are results reproducible across seeds? Any class imbalance handling?
+7. Computational cost: What is the wall-clock time of your nonparametric run versus random/bayesian search baselines to reach similar accuracy? How does AdaRad’s overhead scale with width and depth?
+8. Extensibility: Do you foresee obstacles to applying this to convolutional layers, and how would you define group regularization and angular/radial updates for kernels?

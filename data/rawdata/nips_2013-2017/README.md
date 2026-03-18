@@ -1,0 +1,1 @@
+This folder contains 500 papers(100 for each year) randomly chosen from nips_2013-2017 in the PeerRead dataset. Scraping, parsing and formatting has been done as per the instructions given in https://github.com/allenai/PeerRead/blob/master/data/nips_2013-2017/README.md

@@ -1,0 +1,48 @@
+Summary and relation to prior work:
+The paper proposes Supervised Word Mover’s Distance (S-WMD), a supervised variant of WMD for document similarity. Instead of learning a document representation, S-WMD learns (i) a linear transform A applied to pre-trained word embeddings and (ii) a nonnegative word-importance vector w that reweights document histograms. The supervised objective follows the NCA framework: it minimizes a stochastic leave-one-out kNN classification loss where pairwise distances are WMDs computed with the learned ground metric and reweighted histograms. To make optimization feasible, the paper uses entropically regularized optimal transport (Sinkhorn) to approximate the transport plan and dual potentials, enabling O(p^2) per-pair computations (p = unique words per doc) and gradients. It initializes A by running NCA on word centroids (WCD), then performs batch SGD with nearest-neighbor truncation based on WCD.
+
+This builds on: WMD for document distances (Kusner et al. 2015), entropic OT/Sinkhorn (Cuturi 2013; Cuturi & Peyré), and metric learning/NCA (Goldberger et al.). Related supervised EMD work in vision (Wang & Guibas; Wang et al.) learned the ground metric for histograms but did not exploit word embeddings nor learn histogram reweighting. The contribution here is to adapt and integrate these ideas for text, use Sinkhorn to obtain gradients w.r.t. A and w, and show consistent gains across multiple datasets.
+
+Quality:
+- Technical soundness: The use of Sinkhorn to obtain both transport plans (T*λ) and dual potentials (α, β) for gradients is appropriate for the entropically regularized OT problem; the form ∂/∂A DA,w uses T*λ; ∂/∂w uses dual potentials derived from log u, log v/λ, which is standard up to additive constants. However, two aspects need clarification:
+  1) Objective/gradient mismatch: The loss uses DA,w as if it were the unregularized WMD, but gradients are taken through the entropically regularized solution. Please clarify whether the distance in the NCA probabilities is the regularized OT cost, and if so, state this explicitly and discuss the approximation error versus λ. If not, justify optimizing a surrogate whose gradients stem from a different objective.
+  2) Constraints on w: Since d̃ = (w ◦ d)/(w>d), w should be constrained to be nonnegative to keep histograms valid. The algorithm updates w via unconstrained gradient steps and does not mention projection or reparameterization (e.g., w = exp(θ)). This is a potential correctness issue and should be fixed/clarified.
+- Complexity: The per-pair Sinkhorn is O(p^2), which is standard. The paper claims gradient construction scales as O(d^2(p + r)). The expression ∑ij T_ij(xi−xj)(xi−xj)ᵀ naively costs O(p^2 d), and forming a full d×d matrix suggests O(p^2 d^2) unless structure is exploited. Please detail how the stated complexity is achieved (e.g., using moment decompositions or avoiding full d×d formation). Scalability is adequate for the reported datasets, but more discussion on practical p (unique terms per doc) and wall-clock scaling would help.
+- Empirics: The evaluation spans 8 datasets and 26 baselines (unsupervised and supervised with PCA+NCA/ITML/LMNN). Hyperparameters are tuned via BO, and kNN test errors are compared. S-WMD is best on 5/8 and best on average rank. The experimental section is solid but would benefit from:
+  - Ablations: Only-A, only-w, effect of λ, effect of neighbor truncation size M/N, effect of initialization.
+  - Robustness: Sensitivity to word embedding choice; performance with different k in kNN.
+  - Fairness: Supervised baselines are reduced to 200 dims via PCA whereas S-WMD operates in embedding space; discuss whether dimensionality differences affect results and, if so, provide variants to equalize.
+- Reproducibility: Code is promised; algorithmic details are mostly sufficient though some hyperparameter choices (learning rates, regularization, early stopping) are not fully specified.
+
+Clarity:
+The paper is generally clear and well-organized, with a good background section and concrete algorithmic steps. A few issues:
+- Be explicit that you optimize the entropic OT loss (if true) and use DA,w^λ consistently in formulas.
+- Define and enforce constraints (A parameterization, w ≥ 0).
+- There are small typos/notation collisions (e.g., p used as both exponent and dimension/all-ones scaling).
+
+Originality:
+Moderate. Learning the ground metric for EMD has precedents in vision; entropic OT for speed and differentiability is established. The novelty lies in porting this to text with word embeddings, combining NCA-style supervision with learned histogram reweighting, and providing efficient gradients via Sinkhorn duals. This is a meaningful and nontrivial integration.
+
+Significance:
+High practical relevance. Document similarity underpins retrieval/classification; improving WMD with supervision while retaining interpretability (word weights) is useful. The empirical gains over strong baselines (including unsupervised WMD and supervised metric learning on standard representations) across diverse datasets suggest the method will be adopted. The approach may also inspire supervised OT in other NLP tasks.
+
+Pros for acceptance:
+- Addresses an important problem with a principled and efficient method.
+- Solid integration of metric learning and entropic OT; clear algorithm.
+- Broad and competitive empirical evaluation; consistent improvements and code availability.
+- Interpretability via learned word weights; insightful visualizations.
+
+Cons for acceptance:
+- Potential correctness gap regarding nonnegativity of w and mismatch between loss and gradient if unregularized vs regularized distances are mixed.
+- Complexity derivation for ∂/∂A lacks detail; scalability to very large p not fully demonstrated.
+- Limited ablations; reliance on WCD-based neighbor pruning could bias training if WCD ordering is poor.
+- The claim “best document distance to date” is somewhat strong without comparisons to more recent neural encoders (though out of scope for pure distances).
+
+Questions/suggestions:
+1) Do you constrain w ≥ 0? If not, please add a projection or exponential parameterization and report impact.
+2) Clarify whether you optimize the entropic OT distance DA,w^λ throughout (both in loss and gradients). If yes, state λ selection and its effect; if not, justify the surrogate.
+3) Provide a derivation or reference for α, β from u, v, and for the O(d^2(p + r)) gradient complexity. Can you avoid forming d×d matrices or restrict A (e.g., low-rank/diagonal) for speed?
+4) Add ablations (only-A vs only-w; λ; neighbor truncation N; initialization) and a sensitivity analysis on embeddings.
+5) Report k values used in kNN and show robustness curves.
+
+Overall recommendation: Weak accept. The paper is technically solid and practically significant, with clear improvements over strong baselines. Addressing the noted clarity/correctness points (especially constraints on w and loss/gradient consistency) would strengthen it further.

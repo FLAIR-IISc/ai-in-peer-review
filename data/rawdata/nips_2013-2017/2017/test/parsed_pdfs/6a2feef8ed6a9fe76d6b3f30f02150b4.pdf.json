@@ -1,0 +1,600 @@
+{
+  "name" : "6a2feef8ed6a9fe76d6b3f30f02150b4.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Convergent Block Coordinate Descent for Training Tikhonov Regularized Deep Neural Networks",
+    "authors" : [ "Ziming Zhang" ],
+    "emails" : [ "brand}@merl.com" ],
+    "sections" : [ {
+      "heading" : null,
+      "text" : "By lifting the ReLU function into a higher dimensional space, we develop a smooth multi-convex formulation for training feed-forward deep neural networks (DNNs). This allows us to develop a block coordinate descent (BCD) training algorithm consisting of a sequence of numerically well-behaved convex optimizations. Using ideas from proximal point methods in convex analysis, we prove that this BCD algorithm will converge globally to a stationary point with R-linear convergence rate of order one. In experiments with the MNIST database, DNNs trained with this BCD algorithm consistently yielded better test-set error rates than identical DNN architectures trained via all the stochastic gradient descent (SGD) variants in the Caffe toolbox."
+    }, {
+      "heading" : "1 Introduction",
+      "text" : "Feed-forward deep neural networks (DNNs) are function approximators wherein weighted combinations inputs are filtered through nonlinear activation functions that are organized into a cascade of fully connected (FC) hidden layers. In recent years DNNs have become the tool of choice for many research areas such as machine translation and computer vision.\nThe objective function for training a DNN is highly non-convex, leading to numerous obstacles to global optimization [10], notably proliferation of saddle points [11] and prevalence of local extrema that offer poor generalization off the training sample [8]. These observations have motivated regularization schemes to smooth or simplify the energy surface, either explicitly such as weight decay [23] or implicitly such as dropout [32] and batch normalization [19], so that the solutions are more robust, i.e. better generalized to test data.\nTraining algorithms face many numerically difficulties that can make it difficult to even find a local optimum. One of the well-known issues is so-called vanishing gradient in back propagation (chain rule differentiation) [18], i.e. the long dependency chains between hidden layers (and corresponding variables) tend to drive gradients to zero far from the optimum. This issue leads to very slow improvements of the model parameters, an issue that becomes more and more serious in deeper networks [16]. The vanishing gradient problem can be partially ameliorated by using non-saturating activation functions such as rectified linear unit (ReLU) [25], and network architectures that have shorter input-to-output paths such as ResNet [17]. The saddle-point problem has been addressed by switching from deterministic gradient descent to stochastic gradient descent (SGD), which can achieve weak convergence in probability [6]. Classic proximal-point optimization methods such as the alternating direction method of multipliers (ADMM) have also shown promise for DNN training [34; 41], but in the DNN setting their convergence properties remain unknown.\nContributions: In this paper,\n31st Conference on Neural Information Processing Systems (NIPS 2017), Long Beach, CA, USA.\n1. We propose a novel Tikhonov regularized multi-convex formulation for deep learning, which can be used to learn both dense and sparse DNNs;\n2. We propose a novel block coordinate descent (BCD) based learning algorithm accordingly, which can guarantee to globally converge to stationary points with R-linear convergence rate of order one;\n3. We demonstrate empirically that DNNs estimated with BCD can produce better representations than DNNs estimated with SGD, in the sense of yielding better test-set classification rates.\nOur Tikhonov regularization is motivated by the fact that the ReLU activation function is equivalent to solving a smoothly penalized projection problem in a higher-dimensional Euclidean space. We use this to build a Tikhonov regularization matrix which encodes all the information of the networks, i.e. the architectures as well as their associated weights. In this way our training objective can be divided into three sub-problems, namely, (1) Tikhonov regularized inverse problem [37], (2) least-square regression, and (3) learning classifiers. Since each sub-problem is convex and coupled with the other two, our overall objective is multi-convex.\nBlock coordinate descent (BCD) is often used for problems where finding an exact solution of a sub-problem with respect to a subset (block) of variables is much simpler than finding the solution for all variables simultaneously [27]. In our case, each sub-problem isolates block of variables which can be solved easily (e.g. close-form solutions exist). One of the advantages of our decomposition into sub-problems is that the long-range dependency between hidden layers is captured within a subproblem whose solution helps to propagate the information between inputs and outputs to stabilize the networks (i.e. convergence). Therefore, it does not suffer from vanishing gradient at all. In our experiments, we demonstrate the effectiveness and efficiency of our algorithm by comparing with SGD based solvers."
+    }, {
+      "heading" : "1.1 Related Work",
+      "text" : "(1) Stochastic Regularization (SR) vs. Local Regularization vs. Tikhonov Regularization: SR is a widely-used technique in deep learning to prevent the training from overfitting. The basic idea in SR is to multiple the network weights with some random variables so that the learned network is more robust and generalized to test data. Dropout [32] and its variants such like [22] are classic examples of SR. Gal & Ghahramani [14] showed that SR in deep learning can be considered as approximate variational inference in Bayesian neural networks.\nRecently Baldassi et al. [2] proposed smoothing non-convex functions with local entropy, and latter Chaudhari et al. [8] proposed Entropy-SGD for training DNNs. The idea behind such methods is to locate solutions locally within large flat regions of the energy landscape that favors good generalization. In [9] Chaudhari et al. provided the mathematical justification for these methods from the perspective of partial differential equations (PDEs)\nIn contrast, our Tikhonov regularization tends to smooth the non-convex loss explicitly, globally, and data-dependently. We deterministically learn the Tikhonov matrix as well as the auxiliary variables in the ill-posed inverse problems. The Tikhonov matrix encodes all the information in the network, and the auxiliary variables represent the ideal outputs of the data from each hidden layer that minimize our objective. Conceptually these variables work similarly as target propagation [4].\n(2) SGD vs. BCD: In [6] Bottou et al. proved weak convergence of SGD for non-convex optimization. Ghadimi & Lan [15] showed that SGD can achieve convergence rates that scale as O ( t−1/2 ) for non-convex loss functions if the stochastic gradient is unbiased with bounded variance, where t denotes the number of iterations.\nFor non-convex optimization, the BCD based algorithm in [39] was proven to converge globally to stationary points. For parallel computing another BCD based algorithm, namely Parallel Successive Convex Approximation (PSCA), was proposed in [31] and proven to be convergent.\n(3) ADMM vs. BCD: Alternating direction method of multipliers (ADMM) is a proximal-point optimization framework from the 1970s and recently championed by Boyd [7]. It breaks a nearlyseparable problem into loosely-coupled smaller problems, some of which can be solved independently and thus in parallel. ADMM offers linear convergence for strictly convex problems, and for certain special non-convex optimization problems, ADMM can also converge [29; 36]. Unfortunately, thus\nfar there is no evidence or mathematical argument that DNN training is one of these special cases. Therefore, even though empirically it has been successfully applied to DNN training [34; 41], it still lacks of convergence guarantee.\nOur BCD-based DNN training algorithm is also amenable to ADMM-like parallelization. More importantly, as we prove in Sec. 4, it will converge globally to stationary points with R-linear convergence."
+    }, {
+      "heading" : "2 Tikhonov Regularization for Deep Learning",
+      "text" : ""
+    }, {
+      "heading" : "2.1 Problem Setup",
+      "text" : "Key Notations: We denote xi ∈ Rd0 as the i-th training data, yi ∈ Y as its corresponding class label from label set Y , ui,n ∈ Rdn as the output feature for xi from the n-th (1 ≤ n ≤ N ) hidden layer in our network, Wn,m ∈ Rdn×dm as the weight matrix between the n-th and m-th hidden layers,Mn as the input layer index set for the n-th hidden layer, V ∈ RdN+1×dN as the weight matrix between the last hidden layer and the output layer, U ,V,W as nonempty closed convex sets, and `(·, ·) as a convex loss function.\nNetwork Architectures: In our networks we only consider ReLU as the activation functions. To provide short paths through the DNN, we allow multi-input ReLU units which can take the outputs from multiple previous layers as its inputs.\nFig. 1 illustrates a network architecture that we consider, where the third hidden layers (with ReLU activations), for instance, takes the input data and the outputs from the first and second hidden layers as its inputs. Mathematically, we define our multi-input ReLU function at layer n for data xi as:\nui,n = { xi, ifn = 0 max { 0, ∑ m∈Mn Wn,mui,m } , otherwise (1)\nwhere max denotes the entry-wise max operator and 0 denotes a dn-dim zero vector. Note that multi-input ReLUs can be thought of as conventional ReLU with skip layers [17] where W’s are set to identity matrices accordingly.\nConventional Objective for Training DNNs with ReLU: We write down the general objective1 in a recursive way as used in [41] as follows for clarity:\nmin V∈V,W̃⊆W ∑ i `(yi,Vui,N ), s.t. ui,n = max\n{ 0,\n∑ m∈Mn Wn,mui,m\n} ,ui,0 = xi,∀i,∀n, (2)\nwhere W̃ = {Wn,m}. Note that we separate the last FC layer (with weight matrix V) from the rest hidden layers (with weight matrices in W̃) intentionally, because V is for learning classifiers while W̃ is for learning useful features. The network architectures we use in this paper are mainly for extracting features, on top of which any arbitrary classifier can be learned further.\nOur goal is to optimize Eq. 2. To that end, we propose a novel BCD based algorithm which can solve the relaxation of Eq. 2 using Tikhonov regularization with convergence guarantee."
+    }, {
+      "heading" : "2.2 Reinterpretation of ReLU",
+      "text" : "The ReLU, ordinarily defined as u = max{0,x} for x ∈ Rd, can be viewed as a projection onto a convex set (POCS) [3], and thus rewritten as a simple smooth convex optimization problem,\nmax{0,x} ≡ argmin u∈U ‖u− x‖22, (3)\nwhere ‖ · ‖2 denotes the `2 norm of a vector and U here is the nonnegative closed half-space. This non-negative least squares problem becomes the basis of our lifted objective.\n1For simplicity in this paper we always presume that the domain of each variable contains the regularization, e.g. `2-norm, without showing it in the objective explicitly."
+    }, {
+      "heading" : "2.3 Our Tikhonov Regularized Objective",
+      "text" : "We use Eq. 3 to lift and unroll the general training objective in Eq. 2 obtaining the relaxation:\nmin Ũ⊆U,V∈V,W̃⊆W f(Ũ ,V, W̃) ∆= ∑ i `(yi,Vui,N ) + ∑ i,n γn 2 ∥∥∥∥∥ui,n − ∑ m∈Mn Wn,mui,m ∥∥∥∥∥ 2\n2\n, (4)\ns.t. ui,n ≥ 0,ui,0 = xi,∀i,∀n ≥ 1,\nwhere Ũ = {ui,n} and γn ≥ 0,∀n denote predefined regularization constants. Larger γn values force ui,n,∀i to more closely approximate the output of ReLU at the n-th hidden layer. Arranging u and γ terms into a matrix Q, we rewrite Eq. 4 in familiar form as a Tikhonov regularized objective:\nmin Ũ⊆U,V∈V,W̃⊆W f(Ũ ,V, W̃) ≡ ∑ i { `(yi,VPui) + 1 2 uTi Q(W̃)ui } . (5)\nHere ui,∀i denotes the concatenating vector of all hidden outputs as well as the input data, i.e. ui = [ui,n] N n=0,∀i, P is a predefined constant matrix so that Pui = ui,N ,∀i, and Q(W̃) denotes another matrix constructed by the weight matrix set W̃ . Proposition 1. Q(W̃) is positive semidefinite, leading to the following Tikhonov regularization:\nuTi Q(W̃)ui ≡ (Γui)T (Γui) = ‖Γui‖22,∃Γ,∀i, where Γ is the Tikhonov matrix. Definition 1 (Block Multi-Convexity [38]). A function f is block multi-convex if for each block variable xi,∀i, f is a convex function of xi while all the other blocks are fixed. Proposition 2. f(Ũ ,V, W̃) is block multi-convex."
+    }, {
+      "heading" : "3 Block Coordinate Descent Algorithm",
+      "text" : ""
+    }, {
+      "heading" : "3.1 Training",
+      "text" : "Eq. 4 can be minimized using alternating optimization, which decomposes the problem into the following three convex sub-problems based on Lemma 2:\n• Tikhonov regularized inverse problem: minui∈U `(yi,VPui) + 12u T i Q(W̃)ui,∀i.\n• Least-square regression: min∀Wn,m∈W̃ γn 2 ∑ i ∥∥ui,n −∑m∈Mn Wn,mui,m∥∥22; • Classification using learned features: minV∈V ∑ i `(yi,VPui).\nAll the three sub-problems can be solved efficiently due to their convexity. In fact the inverse subproblem alleviates the vanishing gradient issue in traditional deep learning, because it tries to obtain the estimated solution for the output feature of each hidden layer, which are dependent on each other through the Tikhonov matrix. Such functionality is similar to that of target (i.e. estimated outputs of each layer) propagation [4], namely, propagating information between input data and output labels.\nUnfortunately, a simple alternating optimization scheme cannot guarantee the convergence to stationary points for solving Eq. 4. Therefore we propose a novel BCD based algorithm for training DNNs based on Eq. 4 as listed in Alg. 1. Basically we sequentially solve each sub-problem with an extra quadratic term. These extra terms as well as the convex combination rule guarantee the global convergence of the algorithm (see Sec. 4 for more details).\nOur algorithm involves solving a sequence of quadratic programs (QP), whose computational complexity is cubic, in general, in the input dimension [28]. In this paper we focus on the theoretical development of the algorithm, and consider fast implementations in future work."
+    }, {
+      "heading" : "3.2 Testing",
+      "text" : "Given a test sample x and learned network weights W̃∗,V∗, based on Eq. 4 the ideal decision function for classification should be y∗ = argminy∈Y { minu f(u,V ∗, W̃∗) } . This indicates that\nAlgorithm 1 Block Coordinate Descent (BCD) Algorithm for Training DNNs Input : training data {(xi,yi)} and regularization parameters {γn} Output :network weights W̃ Randomly initialize Ũ (0) ⊆ U ,V(0) ∈ V, W̃(0) ⊆ W; Set sequence {θt}∞t=1 so that 0 ≤ θt ≤ 1,∀t and sequence {∑∞ k=t θk 1−θk }∞ t=1 converges to zero, e.g. θt = 1t2 ; for t = 1, 2, · · · do u∗i ← argminui∈U `(yi,V(t−1)Pui) + 12u T i Q(W̃(t−1))ui + 12 (1− θt) 2‖ui − u(t−1)i ‖ 2 2, ∀i;\nu (t) i ← u (t−1) i + θt(u ∗ i − u (t−1) i ), ∀i; V∗ ← argminV∈V ∑ i `(yi,VPu (t) i ) + 1 2 (1− θt)2‖V −V(t−1)‖2F ; V(t) ← V(t−1) + θt(V∗ −V(t−1)); W̃∗ ← argminW̃⊆W ∑ i 1 2 [u (t) i ] TQ(W̃)u(t)i + 12 (1− θt) 2 ∑ n ∑ m∈Mn ‖Wn,m −W (t−1) n,m ‖2F W (t) n,m ←W(t−1)n,m + θt(W∗n,m −W (t−1) n,m ),∀n,∀m ∈Mn,W∗n,m ∈ W̃∗;\nend return W̃;\nfor each pair of test data and potential label we have to solve an optimization problem, leading to unaffordably high computational complexity that prevents us from using it.\nRecall that our goal is to train feed-forward DNNs using the BCD algorithm in Alg. 1. Considering this, we utilize the network weights W̃∗ to construct the network for extracting deep features. Since these features are the approximation of Ũ in Eq. 4 (in fact this is a feasible solution of an extreme case where γn = +∞,∀n), the learned classifier V∗ can never be reused at test time. Therefore, we retain the architecture and weights of the trained network and replace the classification layer (i.e. the last layer with weights V) with a linear support vector machine (SVM).\n3.3 Experiments\n3.3.1 MNIST Demonstration\nTo demonstrate the effectiveness and efficiency of our BCD based algorithm in Alg. 1, we conduct comprehensive experiments on MNIST [26] dataset using its 28 × 28 = 784 raw pixels as input features. We refer to our algorithm for learning dense networks as “BCD” and that for learning sparse networks as “BCD-S”, respectively. For sparse learning, we define the convex setW = {W | ‖Wk‖1 ≤ 1,∀k}, where Wk denotes the k-th row in matrix W and ‖ · ‖1 denotes the `1 norm of a vector. All the comparisons are performed on the same PC. We implement our algorithms using MATLAB GPU implementation without optimizing the code.\nWe compare our algorithms with the six SGD based solvers in Caffe [20], i.e. SGD [5], AdaDelta [40], AdaGrad [12], Adam [21], Nesterov [33], RMSProp [35], which are coded in Python. The network architecture that we implemented is illustrated in Fig. 2. This network has three hidden layers (with ReLU) with 784 nodes per layer, four FC layers, and three skip layers inside. Therefore, the mapping function from input xi to output yi defined by the network is:\nf(xi) = Vui,3, ui,3 = max{0,xi + ui,1 + W3,2ui,2}, ui,2 = max{0,xi + W2,1ui,1}, ui,1 = max{0,W1,0xi}.\nFor simplicity without loss of generality, we utilize MSE as the loss function, and learn the network parameters using different solvers with the same inputs and random initial weights for each FC layer.\nWithout fine-tuning the regularization parameters, we simply set γn = 0.1,∀n in Eq. 4 for both BCD and BCD-S algorithms. For the Caffe solvers, we modify the demo code in Caffe for MNIST and run the comparison with carefully tuning the parameters to achieve the best performance that we can. We report the results within 100 epochs by averaging three trials, because at this point the training of all the methods seems convergent already. For all competing algorithms, in each epoch the entire\ntraining data is passed through once to update parameters. Therefore, for our algorithms each epoch is equivalent to one iteration, and there are 100 iterations in total.\nConvergence: Fig. 3(a) shows the change of training objective with increase of epochs for BCD and BCD-S, respectively. As we see both curves decrease monotonically and become flatter and flatter eventually, indicating that both algorithms converge. BCD-S converges much faster than BCD, but its objective is higher than BCD. This is because BCD-S learns sparse models that may not fit data as well as dense models learned by BCD.\nTesting Error: As mentioned in Sec. 3.2, here we utilize linear SVMs and last-layer hidden features extracted from training data to retrain the classifier. Based on the network in Fig. 2 the feature extraction function is ui,3 = max{0,xi + max{0,W1,0xi} + W3,2 max{0,xi + W2,1 max{0,W1,0xi}}}. To conduct fair comparison, we retrain the classifiers for all the algorithms, and summarize the test-time results in Fig. 3(b) with 100 epochs. Our BCD algorithm which learns dense architectures, same as the SGD based solvers, performs best, while our BCD-S algorithm works still better than the SGD competitors, although it learns much sparser networks. These results are consistent with the training objectives in Fig. 3(a) as well.\nComputational Time: We compare the training time in Fig. 3(c). It seems that our BCD implementation is significantly faster than the Caffe solvers. For instance, our BCD achieves about 2.5 times speed-up than the competitors, while achieving best classification performance at test time.\nSparseness: In order to compare the difference in terms of weights between the dense and sparse networks learned by BCD and BCD-S, respectively, we compare the percentage of nonzero weights in each FC layer, and show the results in Fig. 3(d). As we see, expect the last FC layer (corresponding to parameter V as classifiers) BCD-S has the ability of learning much sparser networks for deep feature extraction. In our case BCD-S learns a network with 2.42% nonzero weights2, on average, with classification accuracy 1.34% lower than that of BCD which learns a network with 97.15% nonzero weights. Potentially this ability could be very useful in the scenarios such as embedding systems where sparse networks are desired."
+    }, {
+      "heading" : "3.3.2 Supervised Hashing",
+      "text" : "To further demonstrate the usage of our approach, we compare with [41]3 for the application of supervised hashing, which is the state-of-the-art in the literature. [41] proposed an ADMM based\n2Since we will retrain the classifiers after all, here we do not take the nonzeros in the last FC into account. 3MATLAB code is available at https://zimingzhang.wordpress.com/publications/.\noptimization algorithm to train DNNs with relaxed objective that is very related to ours. We train the same DNN on MNIST as used in [41], i.e. with 48 hidden layers and 256 nodes per layer that are sequentially and fully connected (see [41] for more details on the network). Using the same image features, we consistently observe marginal improvement over the results (i.e. precision, recall, mAP) reported in [41]. However, on the same PC we can finish training within 1 hour based on our implementation, while using the MATLAB code for [41] the training needs about 9 hours. Similar observations can be made on CIFAR-10 as used in [41] using a network with 16 hidden layers and 1024 nodes per layer."
+    }, {
+      "heading" : "4 Convergence Analysis",
+      "text" : ""
+    }, {
+      "heading" : "4.1 Preliminaries",
+      "text" : "Definition 2 (Lipschitz Continuity [13]). We say that function f is Lipschitz continuous with Lipschitz constant Lf on X , if there is a (necessarily nonnegative) constant Lf such that\n|f(x1)− f(x2)| ≤ Lf |x1 − x2|,∀x1, x2 ∈ X . Definition 3 (Global Convergence [24]). LetX be a set and x0 ∈ X a given point, Then an Algorithm, A, with initial point x0 is a point-to-set map A : X → P(X ) which generates a sequence {xk}∞k=1 via the rule xk+1 ∈ A(xk), k = 0, 1, · · · . A is said to be global convergent if for any chosen initial point x0, the sequence {xk}∞k=0 generated by xk+1 ∈ A(xk) (or a subsequence) converges to a point for which a necessary condition of optimality holds. Definition 4 (R-linear Convergence Rate [30]). Let {xk} be a sequence in Rn that converges to x∗. We say that convergence is R-linear if there is a sequence of nonnegative scalars {vk} such that ‖xk − x∗‖ ≤ vk,∀k, and {vk} converges Q-linearly to zero. Lemma 1 (3-Point Property [1]). If function φ(w) is convex and ŵ = argminw∈Rd φ(w)+ 12‖w− w0‖22, then for any w ∈ Rd,\nφ(ŵ) + 1\n2 ‖ŵ −w0‖22 ≤ φ(w) +\n1 2 ‖w −w0‖22 − 1 2 ‖w − ŵ‖22."
+    }, {
+      "heading" : "4.2 Theoretical Results",
+      "text" : "Definition 5 (Assumptions on f in Eq. 4). Let f1(Ũ) ∆ = f(Ũ , ·, ·), f2(V) ∆ = f(·,V, ·), f3(W̃) ∆ = f(·, ·, W̃) be the objectives of the three sub-problems, respectively. Then we assume that f is lower-bounded and f1, f2, f3 are Lipschitz continuous with constants Lf1 , Lf2 , Lf3 , respectively.\nProposition 3. Let x, y, x̂ ∈ X and y = (1− θ)x+ θx̂. Then 12‖x̂− y‖ 2 2 = 1 2 (1− θ) 2 ‖x̂− x‖22. Lemma 2. Let X be a nonempty closed convex set, function φ : X → R is convex and Lipschitz continuous with constant L, and scalar 0 ≤ θ ≤ 1. Suppose that ∀x ∈ X , x̂ = argminz∈X φ(z) + 1 2‖z − z0‖ 2 2 and z0 = y = (1− θ)x+ θx̂. Then we have\n1− θ θ ‖y − x‖22 ≤ φ(x)− φ(y) ≤ L‖y − x‖2 ⇒ ‖y − x‖2 ≤ Lθ 1− θ .\nProof. Based on the convexity of φ, Prop. 3, and Lemma 1, we have\nφ(x)− φ(y) ≥ φ(x)− [(1− θ)φ(x) + θφ(x̂)] = θ [φ(x)− φ(x̂)] ≥ θ [ 1\n2 ‖x− x̂‖22 +\n1 2 ‖x̂− z0‖22 − 1 2 ‖x− z0‖22\n] = θ (1− θ) ‖x− x̂‖22 =\n1− θ θ ‖y − x‖22,\nwhere ‖y − x‖22 = 0 if and only if x̂ = x (equivalently φ(x) = φ(y)); otherwise ‖y − x‖22 is lower-bounded from 0 provided that θ 6= 1. Based on Def. 2, we have φ(x)− φ(y) ≤ L‖y − x‖2.\nTheorem 1. Let {( Ũ (t),V(t), W̃(t) )}∞ t=1 ⊆ U×V×W be an arbitrary sequence from a closed con-\nvex set that is generated by Alg. 1. Suppose that 0 ≤ θt ≤ 1,∀t and the sequence {∑∞ k=t θk\n1−θk }∞ t=1\nconverges to zero. Then we have\n1. ( Ũ (∞),V(∞), W̃(∞) ) is a stationary point; 2. {( Ũ (t),V(t), W̃(t) )}∞ t=1 will converge to ( Ũ (∞),V(∞), W̃(∞) ) globally with R-linear\nconvergence rate.\nProof. 1. Suppose that for Ũ (∞) there exists a 4Ũ 6= ∅ so that f1(Ũ (∞) + 4Ũ) = f1(Ũ (∞)) (otherwise, it conflicts with the fact of Ũ (∞) being the limit point). From Lemma 2, f1(Ũ (∞) + 4Ũ) = f1(Ũ (∞)) is equivalent to Ũ (∞) + 4Ũ = Ũ (∞), and thus 4Ũ = ∅, which conflicts with the assumption of 4Ũ 6= ∅. Therefore, there is no direction that can decrease f1(Ũ (∞)), i.e. ∇f1(Ũ (∞)) = 0. Similarly we have ∇f2(V(∞)) = 0 and ∇f3(W̃(∞)) = 0. Therefore,( Ũ (∞),V(∞), W̃(∞) ) is a stationary point.\n2. Based on Def. 5 and Lemma 2, we have√√√√ ∑ ui,n∈Ũ ∥∥∥u(t)i,n − u(∞)i,n ∥∥∥2 2 + ∥∥V(t) −V(∞)∥∥2 F + ∑ Wn,m∈W̃ ∥∥∥W(t)n,m −W(∞)n,m∥∥∥2 F\n≤ ∑\nui,n∈Ũ\n∥∥∥u(t)i,n − u(∞)i,n ∥∥∥ 2 + ∥∥∥V(t) −V(∞)∥∥∥ F + ∑ Wn,m∈W̃ ∥∥∥W(t)n,m −W(∞)n,m∥∥∥ F\n= ∑\nui,n∈Ũ\n∥∥∥∥∥ ∞∑ k=t u (k) i,n − u (k+1) i,n ∥∥∥∥∥ 2 + ∥∥∥∥∥ ∞∑ k=t V(k) −V(k+1) ∥∥∥∥∥ F + ∑ Wn,m∈W̃ ∥∥∥∥∥ ∞∑ k=t W(k)n,m −W(k+1)n,m ∥∥∥∥∥ F\n≤ ∞∑ k=t  ∑ ui,n∈Ũ ∥∥∥u(k)i,n − u(k+1)i,n ∥∥∥ 2 + ∥∥∥V(k) −V(k+1)∥∥∥ F + ∑ Wn,m∈W̃ ∥∥∥W(k)n,m −W(k+1)n,m ∥∥∥ F  ≤ ∞∑ k=t  ∑ ui,n∈Ũ Lf1θk 1− θk + Lf2θk 1− θk + ∑ Wn,m∈W̃ Lf3θk 1− θk  = O( ∞∑ k=t θk 1− θk ) .\nBy combining this with Def. 3 and Def. 4 we can complete the proof. Corollary 1. Let θt = ( 1 t )p ,∀t. Then when p > 1, Alg. 1 will converge globally with order one.\nProof. ∞∑ k=t θk 1− θk = ∞∑ k=t 1 kp − 1 ≤ ∫ ∞ tp−1 1 x d(x+ 1) 1 p = 1 p ∫ ∞ tp−1 1 x (x+ 1) 1 p−1dx\n∵p>1 ≤ 1\np ∫ ∞ tp−1 x 1 p−2dx = (p− 1)−1(tp − 1) 1 p−1. (6)\nSince the sequence { (tp − 1) 1 p−1 }∞ t=1\n,∀p > 1 converges to zero sublinearly with order one, by combining these with Def. 4 and Thm. 1 we can complete the proof."
+    }, {
+      "heading" : "5 Conclusion",
+      "text" : "In this paper we first propose a novel Tikhonov regularization for training DNNs with ReLU as the activation functions. The Tikhonov matrix encodes the network architecture as well as parameterization. With its help we reformulate the network training as a block multi-convex minimization problem. Accordingly we further propose a novel block coordinate descent (BCD) based algorithm, which is proven to converge globally to stationary points with R-linear converge rate of order one. Our empirical results suggest that our algorithm does converge, is suitable for learning both dense and sparse networks, and may work better than traditional SGD based deep learning solvers."
+    } ],
+    "references" : [ {
+      "title" : "Subdominant dense clusters allow for simple learning and high computational performance in neural networks with discrete synapses",
+      "author" : [ "C. Baldassi", "A. Ingrosso", "C. Lucibello", "L. Saglietti", "R. Zecchina" ],
+      "venue" : "Physical review letters, 115(12):128101,",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "On projection algorithms for solving convex feasibility problems",
+      "author" : [ "H.H. Bauschke", "J.M. Borwein" ],
+      "venue" : "SIAM review, 38(3):367–426,",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : null,
+      "year" : 1996
+    }, {
+      "title" : "How auto-encoders could provide credit assignment in deep networks via target propagation",
+      "author" : [ "Y. Bengio" ],
+      "venue" : "arXiv preprint arXiv:1407.7906,",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Stochastic gradient descent tricks",
+      "author" : [ "L. Bottou" ],
+      "venue" : "Neural networks: Tricks of the trade, pages 421–436. Springer,",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Optimization methods for large-scale machine learning",
+      "author" : [ "L. Bottou", "F.E. Curtis", "J. Nocedal" ],
+      "venue" : "arXiv preprint arXiv:1606.04838,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Distributed optimization and statistical learning via the alternating direction method of multipliers",
+      "author" : [ "S. Boyd", "N. Parikh", "E. Chu", "B. Peleato", "J. Eckstein" ],
+      "venue" : "Foundations and Trends R  © in Machine Learning, 3(1):1–122,",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Entropy-sgd: Biasing gradient descent into wide valleys",
+      "author" : [ "P. Chaudhari", "A. Choromanska", "S. Soatto", "Y. LeCun" ],
+      "venue" : "arXiv preprint arXiv:1611.01838,",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Deep relaxation: partial differential equations for optimizing deep neural networks",
+      "author" : [ "P. Chaudhari", "A. Oberman", "S. Osher", "S. Soatto", "G. Carlier" ],
+      "venue" : "arXiv preprint arXiv:1704.04932,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : null,
+      "year" : 2017
+    }, {
+      "title" : "The loss surfaces of multilayer networks",
+      "author" : [ "A. Choromanska", "M. Henaff", "M. Mathieu", "G.B. Arous", "Y. LeCun" ],
+      "venue" : "AISTATS,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Identifying and attacking the saddle point problem in high-dimensional non-convex optimization",
+      "author" : [ "Y.N. Dauphin", "R. Pascanu", "C. Gulcehre", "K. Cho", "S. Ganguli", "Y. Bengio" ],
+      "venue" : "NIPS, pages 2933–2941,",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Adaptive subgradient methods for online learning and stochastic optimization",
+      "author" : [ "J. Duchi", "E. Hazan", "Y. Singer" ],
+      "venue" : "JMLR, 12(Jul):2121–2159,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Applied Mathematics Body and Soul: Vol I-III",
+      "author" : [ "K. Eriksson", "D. Estep", "C. Johnson" ],
+      "venue" : "Springer-Verlag Publishing,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : null,
+      "year" : 2003
+    }, {
+      "title" : "On modern deep learning and variational inference",
+      "author" : [ "Y. Gal", "Z. Ghahramani" ],
+      "venue" : "Advances in Approximate Bayesian Inference workshop, NIPS,",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Stochastic first-and zeroth-order methods for nonconvex stochastic programming",
+      "author" : [ "S. Ghadimi", "G. Lan" ],
+      "venue" : "SIAM Journal on Optimization, 23(4):2341–2368,",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Understanding the difficulty of training deep feedforward neural networks",
+      "author" : [ "X. Glorot", "Y. Bengio" ],
+      "venue" : "AISTATS, pages 249–256,",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : null,
+      "year" : 2010
+    }, {
+      "title" : "Deep residual learning for image recognition",
+      "author" : [ "K. He", "X. Zhang", "S. Ren", "J. Sun" ],
+      "venue" : "CVPR, pages 770–778,",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Gradient flow in recurrent nets: the difficulty of learning long-term dependencies",
+      "author" : [ "S. Hochreiter", "Y. Bengio", "P. Frasconi" ],
+      "venue" : "J. Kolen and S. Kremer, editors, Field Guide to Dynamical Recurrent Networks. IEEE Press,",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : null,
+      "year" : 2001
+    }, {
+      "title" : "Batch normalization: Accelerating deep network training by reducing internal covariate shift",
+      "author" : [ "S. Ioffe", "C. Szegedy" ],
+      "venue" : "arXiv preprint arXiv:1502.03167,",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Caffe: Convolutional architecture for fast feature embedding",
+      "author" : [ "Y. Jia", "E. Shelhamer", "J. Donahue", "S. Karayev", "J. Long", "R. Girshick", "S. Guadarrama", "T. Darrell" ],
+      "venue" : "ACM Multimedia, pages 675–678. ACM,",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Adam: A method for stochastic optimization",
+      "author" : [ "D. Kingma", "J. Ba" ],
+      "venue" : "arXiv preprint arXiv:1412.6980,",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Variational dropout and the local reparameterization trick",
+      "author" : [ "D.P. Kingma", "T. Salimans", "M. Welling" ],
+      "venue" : "NIPS, pages 2575–2583,",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "A simple weight decay can improve generalization",
+      "author" : [ "A. Krogh", "J.A. Hertz" ],
+      "venue" : "NIPS, pages 950–957,",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : null,
+      "year" : 1991
+    }, {
+      "title" : "On the convergence of the concave-convex procedure",
+      "author" : [ "G.R. Lanckriet", "B.K. Sriperumbudur" ],
+      "venue" : "NIPS, pages 1759–1767,",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : null,
+      "year" : 2009
+    }, {
+      "title" : "Deep learning",
+      "author" : [ "Y. LeCun", "Y. Bengio", "G. Hinton" ],
+      "venue" : "Nature, 521(7553):436–444,",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "The mnist database of handwritten digits",
+      "author" : [ "Y. LeCun", "C. Cortes", "C.J. Burges" ],
+      "venue" : null,
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : "26",
+      "year" : 1998
+    }, {
+      "title" : "Efficiency of coordinate descent methods on huge-scale optimization problems",
+      "author" : [ "Y. Nesterov" ],
+      "venue" : "SIAM Journal on Optimization, 22(2):341–362,",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Interior-point polynomial algorithms in convex programming",
+      "author" : [ "Y. Nesterov", "A. Nemirovskii" ],
+      "venue" : "SIAM,",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : null,
+      "year" : 1994
+    }, {
+      "title" : "A general analysis of the convergence of admm",
+      "author" : [ "R. Nishihara", "L. Lessard", "B. Recht", "A. Packard", "M.I. Jordan" ],
+      "venue" : "ICML, pages 343–352,",
+      "citeRegEx" : "29",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Numerical optimization",
+      "author" : [ "J. Nocedal", "S.J. Wright" ],
+      "venue" : "Springer, 1st. ed. 1999. corr. 2nd printing edition, Aug.",
+      "citeRegEx" : "30",
+      "shortCiteRegEx" : null,
+      "year" : 1999
+    }, {
+      "title" : "Parallel successive convex approximation for nonsmooth nonconvex optimization",
+      "author" : [ "M. Razaviyayn", "M. Hong", "Z.-Q. Luo", "J.-S. Pang" ],
+      "venue" : "NIPS, pages 1440–1448,",
+      "citeRegEx" : "31",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Dropout: a simple way to prevent neural networks from overfitting",
+      "author" : [ "N. Srivastava", "G.E. Hinton", "A. Krizhevsky", "I. Sutskever", "R. Salakhutdinov" ],
+      "venue" : "JMLR, 15(1):1929–1958,",
+      "citeRegEx" : "32",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "On the importance of initialization and momentum in deep learning",
+      "author" : [ "I. Sutskever", "J. Martens", "G.E. Dahl", "G.E. Hinton" ],
+      "venue" : "ICML, pages 1139–1147,",
+      "citeRegEx" : "33",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Training neural networks without gradients: A scalable admm approach",
+      "author" : [ "G. Taylor", "R. Burmeister", "Z. Xu", "B. Singh", "A. Patel", "T. Goldstein" ],
+      "venue" : "ICML,",
+      "citeRegEx" : "34",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Lecture 6.5-rmsprop: Divide the gradient by a running average of its recent magnitude",
+      "author" : [ "T. Tieleman", "G. Hinton" ],
+      "venue" : "COURSERA: Neural networks for machine learning,",
+      "citeRegEx" : "35",
+      "shortCiteRegEx" : "35",
+      "year" : 2012
+    }, {
+      "title" : "Global convergence of admm in nonconvex nonsmooth optimization",
+      "author" : [ "Y. Wang", "W. Yin", "J. Zeng" ],
+      "venue" : "arXiv preprint arXiv:1511.06324,",
+      "citeRegEx" : "36",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Solutions of ill-posed problems (an tikhonov and vy arsenin)",
+      "author" : [ "R.A. Willoughby" ],
+      "venue" : "SIAM Review, 21(2):266,",
+      "citeRegEx" : "37",
+      "shortCiteRegEx" : null,
+      "year" : 1979
+    }, {
+      "title" : "A block coordinate descent method for regularized multiconvex optimization with applications to nonnegative tensor factorization and completion",
+      "author" : [ "Y. Xu", "W. Yin" ],
+      "venue" : "SIAM Journal on imaging sciences, 6(3):1758–1789,",
+      "citeRegEx" : "38",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "A globally convergent algorithm for nonconvex optimization based on block coordinate update",
+      "author" : [ "Y. Xu", "W. Yin" ],
+      "venue" : "arXiv preprint arXiv:1410.1386,",
+      "citeRegEx" : "39",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Adadelta: an adaptive learning rate method",
+      "author" : [ "M.D. Zeiler" ],
+      "venue" : "arXiv preprint arXiv:1212.5701,",
+      "citeRegEx" : "40",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Efficient training of very deep neural networks for supervised hashing",
+      "author" : [ "Z. Zhang", "Y. Chen", "V. Saligrama" ],
+      "venue" : "CVPR, June",
+      "citeRegEx" : "41",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 8,
+      "context" : "The objective function for training a DNN is highly non-convex, leading to numerous obstacles to global optimization [10], notably proliferation of saddle points [11] and prevalence of local extrema that offer poor generalization off the training sample [8].",
+      "startOffset" : 117,
+      "endOffset" : 121
+    }, {
+      "referenceID" : 9,
+      "context" : "The objective function for training a DNN is highly non-convex, leading to numerous obstacles to global optimization [10], notably proliferation of saddle points [11] and prevalence of local extrema that offer poor generalization off the training sample [8].",
+      "startOffset" : 162,
+      "endOffset" : 166
+    }, {
+      "referenceID" : 6,
+      "context" : "The objective function for training a DNN is highly non-convex, leading to numerous obstacles to global optimization [10], notably proliferation of saddle points [11] and prevalence of local extrema that offer poor generalization off the training sample [8].",
+      "startOffset" : 254,
+      "endOffset" : 257
+    }, {
+      "referenceID" : 21,
+      "context" : "These observations have motivated regularization schemes to smooth or simplify the energy surface, either explicitly such as weight decay [23] or implicitly such as dropout [32] and batch normalization [19], so that the solutions are more robust, i.",
+      "startOffset" : 138,
+      "endOffset" : 142
+    }, {
+      "referenceID" : 30,
+      "context" : "These observations have motivated regularization schemes to smooth or simplify the energy surface, either explicitly such as weight decay [23] or implicitly such as dropout [32] and batch normalization [19], so that the solutions are more robust, i.",
+      "startOffset" : 173,
+      "endOffset" : 177
+    }, {
+      "referenceID" : 17,
+      "context" : "These observations have motivated regularization schemes to smooth or simplify the energy surface, either explicitly such as weight decay [23] or implicitly such as dropout [32] and batch normalization [19], so that the solutions are more robust, i.",
+      "startOffset" : 202,
+      "endOffset" : 206
+    }, {
+      "referenceID" : 16,
+      "context" : "One of the well-known issues is so-called vanishing gradient in back propagation (chain rule differentiation) [18], i.",
+      "startOffset" : 110,
+      "endOffset" : 114
+    }, {
+      "referenceID" : 14,
+      "context" : "This issue leads to very slow improvements of the model parameters, an issue that becomes more and more serious in deeper networks [16].",
+      "startOffset" : 131,
+      "endOffset" : 135
+    }, {
+      "referenceID" : 23,
+      "context" : "The vanishing gradient problem can be partially ameliorated by using non-saturating activation functions such as rectified linear unit (ReLU) [25], and network architectures that have shorter input-to-output paths such as ResNet [17].",
+      "startOffset" : 142,
+      "endOffset" : 146
+    }, {
+      "referenceID" : 15,
+      "context" : "The vanishing gradient problem can be partially ameliorated by using non-saturating activation functions such as rectified linear unit (ReLU) [25], and network architectures that have shorter input-to-output paths such as ResNet [17].",
+      "startOffset" : 229,
+      "endOffset" : 233
+    }, {
+      "referenceID" : 4,
+      "context" : "The saddle-point problem has been addressed by switching from deterministic gradient descent to stochastic gradient descent (SGD), which can achieve weak convergence in probability [6].",
+      "startOffset" : 181,
+      "endOffset" : 184
+    }, {
+      "referenceID" : 32,
+      "context" : "Classic proximal-point optimization methods such as the alternating direction method of multipliers (ADMM) have also shown promise for DNN training [34; 41], but in the DNN setting their convergence properties remain unknown.",
+      "startOffset" : 148,
+      "endOffset" : 156
+    }, {
+      "referenceID" : 39,
+      "context" : "Classic proximal-point optimization methods such as the alternating direction method of multipliers (ADMM) have also shown promise for DNN training [34; 41], but in the DNN setting their convergence properties remain unknown.",
+      "startOffset" : 148,
+      "endOffset" : 156
+    }, {
+      "referenceID" : 35,
+      "context" : "In this way our training objective can be divided into three sub-problems, namely, (1) Tikhonov regularized inverse problem [37], (2) least-square regression, and (3) learning classifiers.",
+      "startOffset" : 124,
+      "endOffset" : 128
+    }, {
+      "referenceID" : 25,
+      "context" : "Block coordinate descent (BCD) is often used for problems where finding an exact solution of a sub-problem with respect to a subset (block) of variables is much simpler than finding the solution for all variables simultaneously [27].",
+      "startOffset" : 228,
+      "endOffset" : 232
+    }, {
+      "referenceID" : 30,
+      "context" : "Dropout [32] and its variants such like [22] are classic examples of SR.",
+      "startOffset" : 8,
+      "endOffset" : 12
+    }, {
+      "referenceID" : 20,
+      "context" : "Dropout [32] and its variants such like [22] are classic examples of SR.",
+      "startOffset" : 40,
+      "endOffset" : 44
+    }, {
+      "referenceID" : 12,
+      "context" : "Gal & Ghahramani [14] showed that SR in deep learning can be considered as approximate variational inference in Bayesian neural networks.",
+      "startOffset" : 17,
+      "endOffset" : 21
+    }, {
+      "referenceID" : 0,
+      "context" : "[2] proposed smoothing non-convex functions with local entropy, and latter Chaudhari et al.",
+      "startOffset" : 0,
+      "endOffset" : 3
+    }, {
+      "referenceID" : 6,
+      "context" : "[8] proposed Entropy-SGD for training DNNs.",
+      "startOffset" : 0,
+      "endOffset" : 3
+    }, {
+      "referenceID" : 2,
+      "context" : "Conceptually these variables work similarly as target propagation [4].",
+      "startOffset" : 66,
+      "endOffset" : 69
+    }, {
+      "referenceID" : 13,
+      "context" : "Ghadimi & Lan [15] showed that SGD can achieve convergence rates that scale as O ( t−1/2 ) for non-convex loss functions if the stochastic gradient is unbiased with bounded variance, where t denotes the number of iterations.",
+      "startOffset" : 14,
+      "endOffset" : 18
+    }, {
+      "referenceID" : 37,
+      "context" : "For non-convex optimization, the BCD based algorithm in [39] was proven to converge globally to stationary points.",
+      "startOffset" : 56,
+      "endOffset" : 60
+    }, {
+      "referenceID" : 29,
+      "context" : "For parallel computing another BCD based algorithm, namely Parallel Successive Convex Approximation (PSCA), was proposed in [31] and proven to be convergent.",
+      "startOffset" : 124,
+      "endOffset" : 128
+    }, {
+      "referenceID" : 5,
+      "context" : "BCD: Alternating direction method of multipliers (ADMM) is a proximal-point optimization framework from the 1970s and recently championed by Boyd [7].",
+      "startOffset" : 146,
+      "endOffset" : 149
+    }, {
+      "referenceID" : 27,
+      "context" : "ADMM offers linear convergence for strictly convex problems, and for certain special non-convex optimization problems, ADMM can also converge [29; 36].",
+      "startOffset" : 142,
+      "endOffset" : 150
+    }, {
+      "referenceID" : 34,
+      "context" : "ADMM offers linear convergence for strictly convex problems, and for certain special non-convex optimization problems, ADMM can also converge [29; 36].",
+      "startOffset" : 142,
+      "endOffset" : 150
+    }, {
+      "referenceID" : 32,
+      "context" : "Therefore, even though empirically it has been successfully applied to DNN training [34; 41], it still lacks of convergence guarantee.",
+      "startOffset" : 84,
+      "endOffset" : 92
+    }, {
+      "referenceID" : 39,
+      "context" : "Therefore, even though empirically it has been successfully applied to DNN training [34; 41], it still lacks of convergence guarantee.",
+      "startOffset" : 84,
+      "endOffset" : 92
+    }, {
+      "referenceID" : 15,
+      "context" : "Note that multi-input ReLUs can be thought of as conventional ReLU with skip layers [17] where W’s are set to identity matrices accordingly.",
+      "startOffset" : 84,
+      "endOffset" : 88
+    }, {
+      "referenceID" : 39,
+      "context" : "Conventional Objective for Training DNNs with ReLU: We write down the general objective1 in a recursive way as used in [41] as follows for clarity:",
+      "startOffset" : 119,
+      "endOffset" : 123
+    }, {
+      "referenceID" : 1,
+      "context" : "The ReLU, ordinarily defined as u = max{0,x} for x ∈ R, can be viewed as a projection onto a convex set (POCS) [3], and thus rewritten as a simple smooth convex optimization problem, max{0,x} ≡ argmin u∈U ‖u− x‖(2)2, (3)",
+      "startOffset" : 111,
+      "endOffset" : 114
+    }, {
+      "referenceID" : 36,
+      "context" : "Definition 1 (Block Multi-Convexity [38]).",
+      "startOffset" : 36,
+      "endOffset" : 40
+    }, {
+      "referenceID" : 2,
+      "context" : "estimated outputs of each layer) propagation [4], namely, propagating information between input data and output labels.",
+      "startOffset" : 45,
+      "endOffset" : 48
+    }, {
+      "referenceID" : 26,
+      "context" : "Our algorithm involves solving a sequence of quadratic programs (QP), whose computational complexity is cubic, in general, in the input dimension [28].",
+      "startOffset" : 146,
+      "endOffset" : 150
+    }, {
+      "referenceID" : 24,
+      "context" : "1, we conduct comprehensive experiments on MNIST [26] dataset using its 28 × 28 = 784 raw pixels as input features.",
+      "startOffset" : 49,
+      "endOffset" : 53
+    }, {
+      "referenceID" : 18,
+      "context" : "We compare our algorithms with the six SGD based solvers in Caffe [20], i.",
+      "startOffset" : 66,
+      "endOffset" : 70
+    }, {
+      "referenceID" : 3,
+      "context" : "SGD [5], AdaDelta [40], AdaGrad [12], Adam [21], Nesterov [33], RMSProp [35], which are coded in Python.",
+      "startOffset" : 4,
+      "endOffset" : 7
+    }, {
+      "referenceID" : 38,
+      "context" : "SGD [5], AdaDelta [40], AdaGrad [12], Adam [21], Nesterov [33], RMSProp [35], which are coded in Python.",
+      "startOffset" : 18,
+      "endOffset" : 22
+    }, {
+      "referenceID" : 10,
+      "context" : "SGD [5], AdaDelta [40], AdaGrad [12], Adam [21], Nesterov [33], RMSProp [35], which are coded in Python.",
+      "startOffset" : 32,
+      "endOffset" : 36
+    }, {
+      "referenceID" : 19,
+      "context" : "SGD [5], AdaDelta [40], AdaGrad [12], Adam [21], Nesterov [33], RMSProp [35], which are coded in Python.",
+      "startOffset" : 43,
+      "endOffset" : 47
+    }, {
+      "referenceID" : 31,
+      "context" : "SGD [5], AdaDelta [40], AdaGrad [12], Adam [21], Nesterov [33], RMSProp [35], which are coded in Python.",
+      "startOffset" : 58,
+      "endOffset" : 62
+    }, {
+      "referenceID" : 33,
+      "context" : "SGD [5], AdaDelta [40], AdaGrad [12], Adam [21], Nesterov [33], RMSProp [35], which are coded in Python.",
+      "startOffset" : 72,
+      "endOffset" : 76
+    }, {
+      "referenceID" : 39,
+      "context" : "2 Supervised Hashing To further demonstrate the usage of our approach, we compare with [41]3 for the application of supervised hashing, which is the state-of-the-art in the literature.",
+      "startOffset" : 87,
+      "endOffset" : 91
+    }, {
+      "referenceID" : 39,
+      "context" : "We train the same DNN on MNIST as used in [41], i.",
+      "startOffset" : 42,
+      "endOffset" : 46
+    }, {
+      "referenceID" : 39,
+      "context" : "with 48 hidden layers and 256 nodes per layer that are sequentially and fully connected (see [41] for more details on the network).",
+      "startOffset" : 93,
+      "endOffset" : 97
+    }, {
+      "referenceID" : 39,
+      "context" : "precision, recall, mAP) reported in [41].",
+      "startOffset" : 36,
+      "endOffset" : 40
+    }, {
+      "referenceID" : 39,
+      "context" : "However, on the same PC we can finish training within 1 hour based on our implementation, while using the MATLAB code for [41] the training needs about 9 hours.",
+      "startOffset" : 122,
+      "endOffset" : 126
+    }, {
+      "referenceID" : 39,
+      "context" : "Similar observations can be made on CIFAR-10 as used in [41] using a network with 16 hidden layers and 1024 nodes per layer.",
+      "startOffset" : 56,
+      "endOffset" : 60
+    }, {
+      "referenceID" : 11,
+      "context" : "Definition 2 (Lipschitz Continuity [13]).",
+      "startOffset" : 35,
+      "endOffset" : 39
+    }, {
+      "referenceID" : 22,
+      "context" : "Definition 3 (Global Convergence [24]).",
+      "startOffset" : 33,
+      "endOffset" : 37
+    }, {
+      "referenceID" : 28,
+      "context" : "Definition 4 (R-linear Convergence Rate [30]).",
+      "startOffset" : 40,
+      "endOffset" : 44
+    } ],
+    "year" : 2017,
+    "abstractText" : "By lifting the ReLU function into a higher dimensional space, we develop a smooth multi-convex formulation for training feed-forward deep neural networks (DNNs). This allows us to develop a block coordinate descent (BCD) training algorithm consisting of a sequence of numerically well-behaved convex optimizations. Using ideas from proximal point methods in convex analysis, we prove that this BCD algorithm will converge globally to a stationary point with R-linear convergence rate of order one. In experiments with the MNIST database, DNNs trained with this BCD algorithm consistently yielded better test-set error rates than identical DNN architectures trained via all the stochastic gradient descent (SGD) variants in the Caffe toolbox.",
+    "creator" : null
+  }
+}

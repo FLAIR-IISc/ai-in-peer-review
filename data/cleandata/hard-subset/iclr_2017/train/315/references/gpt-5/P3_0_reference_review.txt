@@ -1,0 +1,59 @@
+Summary and contributions
+The paper investigates why large-batch (LB) training often yields worse test accuracy than small-batch (SB) training in deep networks. Through a set of empirical studies across several architectures and datasets, the authors argue that LB training converges to sharp minimizers—characterized by larger positive curvature—while SB training converges to flatter minima. They support this with: (i) 1D/curvilinear interpolations between LB/SB solutions showing steeper loss growth near LB solutions; (ii) a heuristic “sharpness” measure based on a constrained maximization of the loss in a small neighborhood; (iii) experiments indicating a batch-size “threshold” beyond which test accuracy degrades and sharpness increases; and (iv) warm-start experiments suggesting that early exploration with SB training enables subsequent LB training to find flatter minima. They also report partial mitigation via data augmentation and “conservative” proximal steps.
+
+Decision: Reject (weak)
+Key reasons:
+1) The empirical evidence does not adequately control for known confounders in large-batch training (optimizer choice, learning-rate scaling, update budget, and regularization), making the central causal claim (LB → sharp minima → poor generalization) insufficiently supported.
+2) The proposed sharpness metric is not invariant to common reparameterizations and is only a coarse proxy for curvature, raising concerns about the robustness of the conclusions.
+
+Supporting arguments
+- Baseline design and fairness: The LB configuration uses ADAM with batches as large as 10% of the dataset. ADAM is known to have different implicit regularization than SGD with momentum; generalization gaps for LB are highly sensitive to learning-rate schedules, warmup, weight decay calibration, and equalization of the number of optimization steps. The paper does not:
+  - Equalize the number of parameter updates (LB makes far fewer updates than SB at a fixed number of epochs).
+  - Apply batch-size–aware learning-rate scaling with warmup or retune weight decay per-sample/per-epoch to maintain comparable regularization across batch sizes.
+  - Compare to the canonical LB training recipe for CNNs (SGD + momentum + properly scaled LR/WD).
+  These omissions make it difficult to attribute the observed gap to batch size per se rather than to suboptimal hyperparameters and fewer updates.
+
+- Use of ADAM throughout: Many of the cited large-scale vision results (AlexNet/VGG-like) use SGD with momentum. ADAM’s generalization behavior differs markedly. The authors note some trials with other optimizers but do not provide a systematic comparison or tuned baselines for LB with SGD-momentum; this is essential for a strong claim about LB methods generally.
+
+- Sharpness metric and interpretation: The metric φx,f(ε, A) maximizes the loss over a box in either full space or a random subspace using 10 iterations of L-BFGS-B. While computationally convenient, it raises issues:
+  - Reparameterization sensitivity: Sharpness as defined depends on parameter scaling (e.g., rescaling layers in networks with batch normalization or changing representation). Without a robust normalization, comparisons across runs and models can be misleading.
+  - Approximation quality: Maximization with very few iterations in high dimensions over an arbitrary box (whose size depends on |A+x|+1 and A+) may conflate coordinate-system artifacts with true curvature.
+  - Limited coverage: p=100 random subspace in networks with millions of parameters probes a tiny slice of directions; correlation with actual top Hessian eigenvalues or spectrum is not verified (e.g., via power/Lanczos or Hutchinson trace).
+
+- 1D/curvilinear plots: Interpolations between two points in parameter space are visually compelling but are limited probes in high dimensions. The fact that loss rises faster near the LB solution along a particular path does not guarantee that LB minima are globally sharper. Additional diagnostics (Hessian spectral density, top eigenvalues, expected sharpness) would strengthen the claim.
+
+- Alternative explanations: The paper acknowledges that SB’s gradient noise can help escape sharp basins. However, the experiments do not disentangle this from confounded training dynamics:
+  - Update count: With 10% batch size, LB sees 10× fewer updates per epoch; with similar stopping criteria (“until the loss ceased to improve”), LB may be undertrained in terms of updates.
+  - Regularization: Effective weight decay per unit data exposure differs across batch sizes if not corrected, which alone can drive generalization differences.
+  - Initialization distance and parameter-space distances are not meaningful in BN networks due to scaling symmetries.
+
+- Scope and claims: The paper extrapolates from empirical correlation to causal statements (LB → sharp minima → worse generalization). Given the above confounders and the metric’s limitations, the claims should be tempered.
+
+Additional feedback to improve the paper (helpful, not essential to my decision)
+- Provide LB baselines with:
+  - SGD + momentum, cosine/step LR schedule, linear LR scaling with batch size and warmup.
+  - Weight decay calibrated per-sample/per-epoch to ensure comparable regularization across batch sizes.
+  - Equalized total number of optimizer updates (or matched training loss targets) to disambiguate undertraining effects.
+
+- Strengthen the sharpness analysis:
+  - Report top-k Hessian eigenvalues via power/Lanczos on representative models, or use stochastic trace/Hutchinson approximations for global curvature.
+  - Evaluate invariance: show that conclusions persist under simple reparameterizations (e.g., rescaling layers), or use scale-invariant measures (e.g., normalized Hessian, path-normalized sharpness).
+  - Compare with alternative flatness metrics (PAC-Bayes bounds, expected sharpness, or perturbation-based metrics that adapt perturbation radius to weight norms).
+
+- Expand ablations:
+  - Vary p (dimension of random subspace), ε, and the solver iteration budget to assess metric stability.
+  - Control for data augmentation strength consistently across SB/LB; consider label smoothing and mixup/cutout to test robustness.
+  - Test sharpness-aware optimizers (e.g., SAM/ASAM) with LB to see if explicitly seeking flat minima closes the gap.
+
+- Clarify stopping criteria and budgets:
+  - Report results for fixed epochs and fixed-update budgets, and show sensitivity to longer training for LB.
+  - Provide full hyperparameter settings and tuning effort parity between SB and LB.
+
+Questions for the authors
+1) How do results change when using SGD with momentum, linear LR scaling with batch size, warmup, and per-epoch weight decay calibration? Can you close most of the gap under such recipes?
+2) If you equalize the number of parameter updates between SB and LB (and adjust LR accordingly), do you still observe the same sharpness and generalization gap?
+3) How stable is φx,f to simple reparameterizations (e.g., scaling layers in BN networks)? Can you provide evidence that your metric correlates with top Hessian eigenvalues across runs?
+4) Can you report Hessian top eigenvalues or spectral density estimates at SB and LB solutions to corroborate the sharpness claim with a parameterization-agnostic diagnostic?
+5) In the warm-start study, is the effect attributable to entering a flatter basin or simply to having accumulated more updates at a higher effective learning rate? Can you replicate the effect with dynamic batch-size schedules while keeping updates constant?
+
+Overall, the paper tackles an important question and offers thought-provoking empirical evidence, but stronger baselines and more robust curvature analysis are needed to support the central causal claims.

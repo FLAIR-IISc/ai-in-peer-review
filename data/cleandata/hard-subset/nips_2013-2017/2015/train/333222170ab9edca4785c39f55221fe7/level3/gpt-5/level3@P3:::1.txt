@@ -1,0 +1,56 @@
+Summary and relation to prior work
+This paper formalizes “on-the-job learning” as a stochastic game grounded in Bayesian decision theory. The system receives an input, may issue real-time, asynchronous micro-queries to crowd workers about uncertain parts, and decides when to wait, ask more, or return a prediction. The policy trades off accuracy, latency, and cost via an expected-utility objective; exact optimization is intractable, so the authors approximate it with Monte Carlo Tree Search (MCTS) and progressive widening to handle continuous time. The prediction model is a CRF (for NER) that is updated online using received responses; the environment model factors crowd response accuracy and response-time distributions. Experiments on NER, sentiment, and image classification (faces) demonstrate cost reductions compared to pure crowd annotation and accuracy improvements over a purely automated online learner, with an additional comparison to a simple threshold heuristic.
+
+The contribution is best viewed as a more theoretically grounded formulation and generalization of prior “on-the-job” systems (e.g., Legion:AR) by casting the crowd→model transition as a Bayesian decision problem with a principled utility over cost/latency/accuracy. It is also related to value-of-information active classification (e.g., Gao & Koller; Greiner et al.; Esmeir & Markovitch) and POMDP-style control of crowdsourcing (e.g., TurKontrol). Unlike classic active learning, it seeks information pre-decision at test time to guarantee early accuracy, and unlike prior active classification with static policies, it updates the model online during deployment.
+
+Quality
+Strengths:
+- Clear, principled formulation of a difficult deployment setting; the utility explicitly captures accuracy, time, and money, and the game model yields intuitive behaviors (parallel vs sequential queries; redundancy when workers are noisy).
+- The MCTS+progressive widening approximation is reasonable for large, continuous-time trees and is implemented in a way that can generalize across tasks.
+- Empirical results show consistent cost reductions and competitive accuracy across three tasks; open-source code and datasets improve reproducibility.
+
+Weaknesses and missing details:
+- Some central technical details are underspecified or inconsistent:
+  • Utility and conditioning: Eq. (2) defines ExpAcc(p) without conditioning on the current state. Given U(σ) uses p(y | x, q, s, r, t), please clarify that ExpAcc should be ExpAcc(p(· | x, q, s, r, t)) and make the conditioning explicit on the LHS.
+  • Environment model: Eq. (3) uses pR(ri | yqi) but earlier the crowd’s move samples r′j∗ ∼ p(r′j∗ | x, r). Please explain the disappearance of y from pR and how the marginal p(r′ | x, r, q) is actually computed (i.e., you integrate over pθ(y | x); do you assume conditional independence of responses given y, and stationarity across time/positions?). Also justify the fixed 0.7 accuracy assumption and whether pR is learned/calibrated from observed workers (and adapts over time).
+  • Algorithm 1: Define N(s). The text defines N(σ) (state visit counts), but the pseudocode and description use both N(σ) and N(s). Please fix the notation and specify initialization, tie-breaking, and rollout policy.
+  • MCTS hyperparameters and stopping: What is c in UCT, simulation depth/rollout policy, and termination criteria? How sensitive are results to these choices?
+  • ExpAcc computation: How is Accuracy(argmax p(y′)) computed for structured outputs (token-level vs sequence-level), and how is the expectation approximated efficiently?
+- Baselines:
+  • The threshold baseline is quite weak and hand-tuned. The choice of 0.3 “uncertainty reduction per query” and the decision threshold (the paper text says 0.98; the draft mentions 0.88) need principled justification or tuning on validation data. Please clarify the exact values used and how they were selected.
+  • The “online learning” baseline may not be the best machine-only system available for these tasks circa 2015. For NER, strong CRFs with richer features (embeddings, gazetteers, Brown clusters) or BiLSTM-CRF; for sentiment, contemporary deep models (Socher et al., CNN/LSTM variants); for faces, modern deep features. If those stronger models close most of the accuracy gap, the observed gains may be largely attributable to human annotation rather than the proposed decision policy. Please either strengthen the ML baselines or frame results as “with a simple ML backend.”
+- Evaluation methodology:
+  • The main comparison to a single heuristic is underwhelming for establishing the value of the decision-theoretic policy. Consider additional baselines: myopic value-of-information, greedy uncertainty sampling with parallelization constraints, or a small POMDP solver on reduced instances.
+  • The “frozen pool” of 5 workers and simulated sampling without replacement simplifies evaluation but may bias results and under-represent real-time variance. Please discuss how conclusions change with a live pool and larger worker variation.
+  • Lack of error analysis. Provide examples where LENSE helps/hurts, break down errors by label type (e.g., PERSON vs LOCATION), and quantify when human redundancy resolves errors versus when the model suffices. This would help attribute gains to policy vs annotation volume.
+
+Clarity
+Generally well-written and organized, with intuitive figures and a clear problem statement. However, reproducibility requires the missing details above (conditioning, environment model, MCTS parameters, priors for pR and pT, and exact feature sets/regularization). Please also report the chosen weights wM and wT, and a sensitivity analysis.
+
+Originality
+Solid. The formulation as a stochastic game with a Bayesian utility and the use of MCTS with progressive widening in this human-in-the-loop, structured prediction context are novel combinations. The work goes beyond Legion:AR by providing a decision-theoretic backbone.
+
+Significance
+Promising. A principled framework for crowd→model transition at deployment time is valuable and likely to influence follow-on work. That said, the empirical section does not yet establish clear superiority over stronger baselines, and important ablations (e.g., policy ablations, sensitivity to worker accuracy) are missing.
+
+Specific questions and requests for clarification
+- Eq. (2): Please condition ExpAcc on (x, q, s, r, t) explicitly. Also reconcile pR(ri | yqi) with earlier r′ ~ p(· | x, r) and explain the disappearance of y in the sampling step.
+- Algorithm 1: Define N(s) (or replace with N(σ)), specify c, rollout policy, termination, and progressive widening constants.
+- Baseline thresholds: Justify the “0.3” factor and the decision threshold (0.98 in the paper; if 0.88 was intended, please correct). Were these tuned on validation data?
+- ML baselines: Are your “online” systems the strongest available for each task? If yes, please clarify; if not, add stronger baselines or discuss how results would change. Provide an error/ablation analysis showing when the policy, rather than extra human labels, drives gains.
+- Worker models: Are pR and pT learned online per worker/task or fixed? Any calibration of pθ and pR to avoid double-counting confidence?
+
+Pros
+- Principled formulation of an important problem; clean objective trading off accuracy, cost, latency.
+- Clever, practical approximation (MCTS + progressive widening) applicable across tasks.
+- Code/data release and real-time crowd infrastructure.
+- Consistent cost reductions with reasonable accuracy.
+
+Cons
+- Missing technical details impede reproduction and theoretical understanding.
+- Weak heuristic baseline; ML baselines may be suboptimal.
+- Limited analysis and ablations; attribution of gains is unclear.
+- Reliance on a small, frozen worker pool for evaluation.
+
+Overall assessment
+A reasonable and timely approach with a useful theoretical framing of the crowd→model transition. The ideas merit further investigation and could be impactful, but empirical and explanatory gaps limit the strength of the conclusions in the current form. With clarified notation, stronger baselines, and deeper analysis, this would be a compelling contribution. I lean borderline, with a recommendation to address the above clarifications and add ablations. Summary takeaway: the decision-theoretic framing is the main value; current experiments are suggestive but not yet conclusive.

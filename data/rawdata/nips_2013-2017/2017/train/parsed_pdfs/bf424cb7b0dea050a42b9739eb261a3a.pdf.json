@@ -1,0 +1,348 @@
+{
+  "name" : "bf424cb7b0dea050a42b9739eb261a3a.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Diving into the shallows: a computational perspective on large-scale shallow learning",
+    "authors" : [ "Siyuan Ma", "Mikhail Belkin" ],
+    "emails" : [ "mbelkin}@cse.ohio-state.edu" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "In recent years we have witnessed remarkable advances in many areas of artificial intelligence. Much of this progress has been due to machine learning methods, notably deep neural networks, applied to very large datasets. These networks are typically trained using variants of stochastic gradient descent (SGD), allowing training on large data with modern GPU hardware. Despite intense recent research and significant progress on SGD and deep architectures, it has not been easy to understand the underlying causes of that success. Broadly speaking, it can be attributed to (a) the structure of the function space represented by the network or (b) the properties of the optimization algorithms used. While these two aspects of learning are intertwined, they are distinct and may be disentangled.\nAs learning in deep neural networks is still largely resistant to theoretical analysis, progress can be made by exploring the limits of shallow methods on large datasets. Shallow methods, such as kernel methods, are a subject of an extensive and diverse literature, both theoretical and practical. In particular, kernel machines are universal learners, capable of learning nearly arbitrary functions given a sufficient number of examples [STC04, SC08]. Still, while kernel methods are easily implementable and show state-of-the-art performance on smaller datasets (see [CK11, HAS+14,\n31st Conference on Neural Information Processing Systems (NIPS 2017), Long Beach, CA, USA.\nDXH+14, LML+14, MGL+17] for some comparisons with DNN’s) there has been significantly less progress in applying these methods to large modern data. The goal of this work is to make a step toward understanding the subtle interplay between architecture and optimization and to take practical steps to improve performance of kernel methods on large data.\nThe paper consists of two main parts. First, we identify a basic underlying limitation in using gradient descent-based methods in conjunction with smooth (infinitely differentiable) kernels typically used in machine learning, showing that only very smooth functions can be approximated after polynomially many steps of gradient descent. This phenomenon is a result of fast spectral decay of smooth kernels and can be readily understood in terms of the spectral structure of the gradient descent operator in the least square regression/classification setting, which is the focus of our discussion. Slow convergence leads to severe over-regularization (over-smoothing) and suboptimal approximation for less smooth functions, which are arguably very common in practice, at least in the classification setting, where we expect fast transitions near the class boundaries.\nThis shortcoming of gradient descent is purely algorithmic and is not related to the sample complexity of the data. It is also not an intrinsic flaw of the kernel architecture, which is capable of approximating arbitrary functions but potentially requiring a very large number of gradient descent steps. The issue is particularly serious for large data, where direct second order methods cannot be used due to the computational constraints. While many approximate second-order methods are available, they rely on low-rank approximations and, as we discuss below, lead to over-regularization (approximation bias).\nIn the second part of the paper we propose EigenPro iteration (see http://www.github.com/EigenPro for the code), a direct and simple method to alleviate slow convergence resulting from fast eigen-decay for kernel (and covariance) matrices. EigenPro is a preconditioning scheme based on approximately computing a small number of top eigenvectors to modify the spectrum of these matrices. It can also be viewed as constructing a new kernel, specifically optimized for gradient descent. While EigenPro uses approximate second-order information, it is only employed to modify first-order gradient descent, leading to the same mathematical solution as gradient descent (without introducing a bias). EigenPro is also fully compatible with SGD, using a low-rank preconditioner with a low overhead per iteration. We analyze the step size in the SGD setting and provide a range of experimental results for different kernels and parameter settings showing five to 30-fold acceleration over the standard methods, such as Pegasos [SSSSC11]. For large data, when the computational budget is limited, that acceleration translates into significantly improved accuracy. In particular, we are able to improve or match the state-of-the-art results reported for large datasets in the kernel literature with only a small fraction of their computational budget."
+    }, {
+      "heading" : "2 Gradient descent for shallow methods",
+      "text" : "Shallow methods. In the context of this paper, shallow methods denote the family of algorithms consisting of a (linear or non-linear) feature map φ : RN → H to a (finite or infinite-dimensional) Hilbert spaceH followed by a linear regression/classification algorithm. This is a simple yet powerful setting amenable to theoretical analysis. In particular, it includes the class of kernel methods, where H is a Reproducing Kernel Hilbert Space (RKHS). Linear regression. Consider n labeled data points {(x1, y1), ..., (xn, yn) ∈ H × R}. To simplify the notation let us assume that the feature map has already been applied to the data, i.e., xi = φ(zi). Least square linear regression aims to recover the parameter vector α∗ that minimize the empirical loss such that α∗ = arg minα∈H L(α) where L(α) def = 1n ∑n i=1(〈α,xi〉H − yi)2. When α∗ is not uniquely defined, we can choose the smallest norm solution.\nMinimizing the empirical loss is related to solving a linear system of equations. Define the data matrix X def= (x1, ...,xn)T and the label vector y def = (y1, ..., yn)\nT , as well as the (non-centralized) covariance matrix/operator, H def= 1n ∑n i=1 xix T i . Rewrite the loss as L(α) = 1 n ‖Xα− y‖ 2 2. Since ∇L(α) |α=α∗= 0, minimizing L(α) is equivalent to solving the linear system Hα− b = 0 (1)\nwith b = XTy. When d = dim(H) <∞, the time complexity of solving the linear system in Eq. 1 directly (using Gaussian elimination or other methods typically employed in practice) is O(d3). For kernel methods we frequently have d =∞. Instead of solving Eq. 1, one solves the dual n×n system Kα − y = 0 where K def= [k(zi, zj)]i,j=1,...,n is the kernel matrix . The solution can be written as∑n i=1 k(zi, ·)α(zi). A direct solution would require O(n3) operations.\nGradient descent (GD). While linear systems of equations can be solved by direct methods, such as Gaussian elimination, their computational demands make them impractical for large data. Gradient descent-type methods potentially require a small number of O(n2) matrix-vector multiplications, a much more manageable task. Moreover, these methods can typically be used in a stochastic setting, reducing computational requirements and allowing for efficient GPU implementations. These schemes are adopted in popular kernel methods implementations such as NORMA [KSW04], SDCA [HCL+08], Pegasos [SSSSC11], and DSGD [DXH+14]. For linear systems of equations gradient descent takes a simple form known as the Richardson iteration [Ric11]. It is given by\nα(t+1) = α(t) − η(Hα(t) − b) (2) It is easy to see that for convergence of αt to α∗ as t→∞ we need to ensure that ‖I − ηH‖ < 1, and hence 0 < η < 2/λ1(H). The explicit formula is α(t+1) − α∗ = (I − ηH)t(α(1) − α∗) (3) We can now describe the computational reach of gradient descent CRt, i.e. the set of vectors which can be -approximated by gradient descent after t steps, CRt( ) def = {v ∈ H, s.t.‖(I − ηH)tv‖ <\n‖v‖}. It is important to note that any α∗ /∈ CRt( ) cannot be -approximated by gradient descent in less than t+ 1 iterations. Note that we typically care about the quality of the solution ‖Hα(t) − b‖, rather than the error estimating the parameter vector ‖α(t) − α∗‖ which is reflected in the definition. We will assume that the initialization α(1) = 0. Choosing a different starting point does not change the analysis unless second order information is incorporated in the initialization conditions. To get a better idea of the space CRt( ) consider the eigendecomposition of H . Let λ1 ≥ λ2 ≥ . . . be its eigenvalues and e1, e2, . . . the corresponding eigenvectors/eigenfunctions. We have H = ∑ λieie T i . Writing Eq. 3 in terms of eigendirection yields α\n(t+1) − α∗ = ∑ (1− ηλi)t〈ei, α(1) − α∗〉ei. Hence putting ai def = 〈ei,v〉 gives CRt( ) =\n{v, s.t. ∑\n(1− ηλi)2ta2i < 2 ‖v‖ 2}. Recalling that η < 2/λ1 and using the fact that (1− 1/z)z ≈ 1/e, we see that a necessary condition for v ∈ CRt is 13 ∑ i,s.t.λi< λ1 2t a2i < ∑ i (1− ηλi)2ta2i <\n2 ‖v‖2. This is a convenient characterization, we will denote CR′t( ) def = {v, s.t. ∑ i,s.t.λi< λ1 2t a2i <\n2 ‖v‖2} ⊃ CRt( ). Another convenient but less precise necessary condition for v ∈ CRt is that∣∣∣(1− 2λi/λ1)t 〈ei,v〉∣∣∣ < ‖v‖. Noting that log(1− x) < −x and assuming λ1 > 2λi, we have t > λ1(2λi) −1 log ( |〈ei,v〉| −1 ‖v‖−1 ) (4)\nThe condition number. We are primarily interested in the case when d is infinite or very large and the corresponding operators/matrices are extremely ill-conditioned with infinite or approaching infinity condition number. In that case instead of a single condition number, one should consider the properties of eigenvalue decay. Gradient descent, smoothness and kernel methods. We now proceed to analyze the computational reach for kernel methods. We will start by discussing the case of infinite data (the population case). It is both easier to analyze and allows us to demonstrate the purely computational (non-statistical) nature of limitations of gradient descent. We will see that when the kernel is smooth, the reach of gradient descent is limited to very smooth, at least infinitely differentiable functions. Moreover, to approximate a function with less smoothness within some accuracy in the L2 norm one needs a super-polynomial (or even exponential) in 1/ number of iterations of gradient descent. Let the data be sampled from a probability with a smooth density µ on a compact domain Ω ⊂ Rp. In the case of infinite data H becomes an integral operator corresponding to a positive definite kernel k(·, ·) such that Kf(x) def= ∫ Ω k(x, z)f(z)dµz . This is a compact self-adjoint operator with an infinite positive spectrum λ1, λ2, . . ., limi→∞ λi = 0. We have (see the full paper for discussion and references):\nTheorem 1. If k is an infinitely differentiable kernel, the rate of eigenvalue decay is super-polynomial, i.e. λi = O(i−P ) ∀P ∈ N. Moreover, if k is the Gaussian kernel, there exist constants C,C ′ > 0 such that for large enough i, λi < C ′ exp ( −Ci1/p ) .\nThe computational reach of kernel methods. Consider the eigenfunctions of K, Kei = λiei, which form an orthonormal basis for L2(Ω). We can write a function f ∈ L2(Ω) as f = ∑∞ i=1 aiei.\nWe have ‖f‖2L2 = ∑∞ i=1 a 2 i . We can now describe the reach of kernel methods with smooth kernel (in the infinite data setting). Specifically, functions which can be approximated in a polynomial number of iterations must have super-polynomial coefficient decay.\nTheorem 2. Suppose f ∈ L2(Ω) is such that it can be approximated within using a polynomial in 1/ number of gradient descent iterations, i.e. ∀ >0f ∈ CR −M ( ) for some M ∈ N. Then any N ∈ N and i large enough |ai| < i−N . Corollary 1. Any f ∈ L2(Ω) which can be -approximated with polynomial in 1/ number of steps of gradient descent is infinitely differentiable. In particular, f function must belong to the intersection of all Sobolev spaces on Ω. Gradient descent for periodic functions on R. Let us now consider a simple but important special case, where the reach can be analyzed very explicitly. Let Ω be a circle with the uniform measure, or, equivalently, consider periodic functions on the interval [0, 2π]. Let ks(x, z) be the heat kernel on the circle [Ros97]. This kernel is very close to the Gaussian kernel ks(x, z) ≈ 1√2πs exp ( − (x−z) 2 4s ) . The eigenfunctions ej of the integral operator K corresponding to ks(x, z) are simply the Fourier harmonics sin jx and cos jx. The corresponding eigenvalues are {1, e−s, e−s, e−4s, e−4s, . . . , e−bj/2+1c2s, . . .}. Given a function f on [0, 2π], we can write its Fourier series f =\n∑∞ j=0 ajej . A direct computation shows that for any f ∈ CRt( ), we have∑\ni> √\n2 ln 2t s\na2i < 3 2 ‖v‖2. We see that the space f ∈ CRt( ) is “frozen\" as\n√ 2 ln 2ts grows\nextremely slowly as the number of iterations t increases. As a simple example consider the Heaviside step function f(x) (on a circle), taking 1 and −1 values for x ∈ (0, π] and x ∈ (π, 2π], respectively. The step function can be written as f(x) = 4π ∑ j=1,3,... 1 j sin(jx). From the analysis above, we need O(exp( s 2 )) iterations of gradient descent to obtain an -approximation to the function. It is important to note that the Heaviside step function is a rather natural example, especially in the classification setting, where it represents the simplest two-class classification problem. The situation is not much better for functions with more smoothness unless they happen to be extremely smooth with super-exponential Fourier component decay. In contrast, a direct computation of inner products 〈f, ei〉 yields exact function recovery for any function in L2([0, 2π]) using the amount of computation equivalent to just one step of gradient descent. Thus, we see that the gradient descent is an extremely inefficient way to recover Fourier series for a general periodic function. The situation is only mildly improved in dimension d, where the span of at most O∗ ( (log t)d/2 ) eigenfunctions of a Gaussian\nkernel or O ( t1/p ) eigenfunctions of an arbitrary p-differentiable kernel can be approximated in t iterations. The discussion above shows that the gradient descent with a smooth kernel can be viewed as a heavy regularization of the target function. It is essentially a band-limited approximation no more than O(ln t) Fourier harmonics. While regularization is often desirable from a generalization/finite sample point of view , especially when the number of data points is small, the bias resulting from the application of the gradient descent algorithm cannot be overcome in a realistic number of iterations unless target functions are extremely smooth or the kernel itself is not infinitely differentiable. Remark: Rate of convergence vs statistical fit. Note that we can improve convergence by changing the shape parameter of the kernel, i.e. making it more “peaked” (e.g., decreasing the bandwidth s in the definition of the Gaussian kernel) While that does not change the exponential nature of the asymptotics of the eigenvalues, it slows their decay. Unfortunately improved convergence comes at the price of overfitting. In particular, for finite data, using a very narrow Gaussian kernel results in an approximation to the 1-NN classifier, a suboptimal method which is up to a factor of two inferior to the Bayes optimal classifier in the binary classification case asymptotically. Finite sample effects, regularization and early stopping. It is well known (e.g., [B+05, RBV10]) that the top eigenvalues of kernel matrices approximate the eigenvalues of the underlying integral operators. Therefore computational obstructions encountered in the infinite case persist whenever the data set is large enough. Note that for a kernel method, t iterations of gradient descent for n data points require t · n2 operations. Thus, gradient descent is computationally pointless unless t n. That would allow us to fit only about O(log t) eigenvectors. In practice we need t to be much smaller than n, say, t < 1000. At this point we should contrast our conclusions with the important analysis of early stopping for gradient descent provided in [YRC07] (see also [RWY14, CARR16]). The authors analyze gradient descent for kernel methods obtaining the optimal number of iterations of the form t = nθ, θ ∈ (0, 1). That seems to contradict our conclusion that a very large, potentially exponential, number of iterations may be needed to guarantee convergence. The apparent contradiction stems from the assumption in [YRC07] that the regression function f∗ belongs to the range of some power of the kernel operator K. For an infinitely differentiable kernel, that implies super-polynomial spectral decay (ai = O(λNi ) for any N > 0). In particular, it implies that f\n∗ belongs to any Sobolev space. We do not typically expect such high degree of smoothness in practice, particularly in classification problems, where the Heaviside step function seems to be a reasonable model. In particular, we expect\nsharp transitions of label probabilities across class boundaries to be typical for many classifications datasets. These areas of near-discontinuity will necessarily result in slow decay of Fourier coefficients and require many iterations of gradient descent to approximate1.\nDataset Metric Number of iterations1 80 1280 10240 81920 MNIST-10k L2 loss train 4.07e-1 9.61e-2 2.60e-2 2.36e-3 2.17e-5 test 4.07e-1 9.74e-2 4.59e-2 3.64e-2 3.55e-2\nc-error (test) 38.50% 7.60% 3.26% 2.39% 2.49%\nHINT-M-10k L2 loss train 8.25e-2 4.58e-2 3.08e-2 1.83e-2 4.21e-3test 7.98e-2 4.24e-2 3.34e-2 3.14e-2 3.42e-2 To illustrate this point, we show (right table) the results of gradient descent for two datasets of 10000 points (see Section 6). The regression error on the training set is roughly inverse to the number of iterations, i.e. every extra bit of precision requires twice the number of iterations for the previous bit. For comparison, we see that the minimum regression (L2) error on both test sets is achieved at over 10000 iterations. This results is at least cubic computational complexity equivalent to that of a direct method. Regularization. Note that typical regularization, e.g., adding λ‖f‖, results in discarding information along the directions with small eigenvalues (below λ). While this improves the condition number it comes at a high cost in terms of over-regularization. In the Fourier analysis example this is similar to considering band-limited functions with ∼ √ log(1/λ)/s Fourier components. Even for λ = 10−16 (limit of double precision) and s = 1 we can only fit about 10 Fourier components. We argue that there is little need for explicit regularization for most iterative methods in the big data regimes."
+    }, {
+      "heading" : "3 Extending the reach of gradient descent: EigenPro iteration",
+      "text" : "We will now propose practical measures to alleviate the over-regularization of linear regression by gradient descent. As seen above, one of the key shortcomings of shallow learning methods based on smooth kernels (and their approximations, e.g., Fourier and RBF features) is their fast spectral decay. That suggests modifying the corresponding matrix H by decreasing its top eigenvalues, enabling the algorithm to approximate more target functions in the same number of iterations. Moreover, this can be done in a way compatible with stochastic gradient descent thus obviating the need to materialize full covariance/kernel matrices in memory. Accurate approximation of top eigenvectors can be obtained from a subsample of the data with modest computational expenditure. Combining these observations we propose EigenPro, a low overhead preconditioned Richardson iteration. Preconditioned (stochastic) gradient descent. We will modify the linear system in Eq. 1 with an invertible matrix P , called a left preconditioner. PHα− Pb = 0. Clearly, this modified system and the original system in Eq. 1 have the same solution. The Richardson iteration corresponding to the modified system (preconditioned Richardson iteration) is\nα(t+1) = α(t) − ηP (Hα(t) − b) (5) It is easy to see that as long as η‖PH‖ < 1 it converges to α∗, the solution of the original linear system. Preconditioned SGD can be defined similarly by\nα← α− ηP (Hmα− bm) (6) where we define Hm def = 1mX T mXm and bm def = 1mX T mym using sampled mini-batch (Xm,ym). Preconditioning as a linear feature map. It is easy to see that the preconditioned iteration is in fact equivalent to the standard Richardson iteration in Eq. 2 on a dataset transformed with the linear feature map, φP (x) def = P 1 2x. This is a convenient point of view as the transformed data can be stored for future use. It also shows that preconditioning is compatible with most computational methods both in practice and, potentially, in terms of analysis. Linear EigenPro. We will now discuss properties desired to make preconditioned GD/SGD methods effective on large scale problems. Thus for the modified iteration in Eq. 5 we would like to choose P to meet the following targets: (Acceleration) The algorithm should provide high accuracy in a small number of iterations. (Initial cost) The preconditioning matrix P should be accurately computable, without materializing the full covariance matrix. (Cost per iteration) Preconditioning by P should be efficient per iteration in terms of computation and memory. The convergence of the preconditioned algorithm with the along the i-th eigendirection is dependent on the ratio of eigenvalues λi(PH)/λ1(PH). This leads us to choose the preconditioner P to maximize the ratio λi(PH)/λ1(PH) for each i. We see that modifying the top eigenvalues of H makes the most difference in convergence. For example, decreasing λ1 improves convergence along all directions, while decreasing any other eigenvalue only speeds up convergence in that\n1Interestingly they can lead to lower sample complexity for optimal classifiers (cf. Tsybakov margin condition [Tsy04]).\ndirection. However, decreasing λ1 below λ2 does not help unless λ2 is decreased as well. Therefore it is natural to decrease the top k eigenvalues to the maximum amount, i.e. to λk+1, leading to\nAlgorithm: EigenPro(X,y, k,m, η, τ,M) input training data (X,y), number of eigen-\ndirections k, mini-batch size m, step size η, damping factor τ , subsample size M\noutput weight of the linear model α 1: [E,Λ, λ̂k+1] = RSVD(X, k + 1,M)\n2: P def = I − E(I − τ λ̂k+1Λ−1)ET 3: Initialize α← 0 4: while stopping criteria is False do 5: (Xm,ym)←m rows sampled from (X,y) without replacement 6: g← 1m (X T m(Xmα)−XTmym) 7: α← α− ηPg 8: end while\nP def = I − k∑ i=1 (1− λk+1/λi)eieTi (7)\nWe see that P -preconditioned iteration increases convergence by a factor λ1/λk. However, exact construction of P involves computing the eigendecomposition of the d × d matrix H , which is not feasible for large data. Instead we use subsampled randomized SVD [HMT11] to obtain an approximate preconditioner P̂τ\ndef = I −∑k\ni=1 (1− τ λ̂k+1/λ̂i)êiêTi . Here algorithm RSVD (detailed in the full paper ) computes the approximate top eigenvectorsE ← (ê1, . . . , êk) and eigenvalues Λ ← diag(λ̂1, . . . , λ̂k) and λ̂k+1 for subsample covariance matrix HM . We introduce the parameter τ to counter the effect of approximate top eigenvectors “spilling” into the span of the remaining eigensystem. Using τ < 1 is preferable to the obvious alternative of decreasing the step size η as it does not decrease the step size in the directions nearly orthogonal to the span of (ê1, . . . , êk). That allows the iteration to converge faster in those directions. In particular, when (ê1, . . . , êk) are computed exactly, the step size in other eigendirections will not be affected by the choice of τ . We call SGD with the preconditioner P̂τ (Eq. 6) EigenPro iteration. See Algorithm EigenPro for details. Moreover, the key step size parameter η can be selected in a theoretically sound way discussed below. Kernel EigenPro. We will now discuss modifications needed to work directly in the RKHS (primal) setting. A positive definite kernel k(·, ·) : RN × RN → R implies a feature map from X to an RKHS space H. The feature map can be written as φ : x 7→ k(x, ·),RN → H. This feature map leads to the learning problem f∗ = arg minf∈H 1n ∑n i=1 (〈f, k(xi, ·)〉H − yi)2. Using properties of\nRKHS, EigenPro iteration in H becomes f ← f − ηP(K(f) − b) where b def= 1n ∑n i=1 yik(xi, ·)\nand covariance operator K = 1n ∑n i=1 k(xi, ·)⊗ k(xi, ·). The top eigensystem of K forms the\npreconditioner P def= I− ∑k i=1 (1− τλk+1(K)/λi(K)) ei(K)⊗ ei(K). By the Representer theo-\nrem [Aro50], f∗ admits a representation of the form ∑n i=1 αi k(xi, ·). Parameterizing the above iteration accordingly and applying some linear algebra lead to the following iteration in a finitedimensional vector space, α← α−ηP (Kα−y) whereK def= [k(xi,xj)]i,j=1,...,n is the kernel matrix and EigenPro preconditioner P is defined using the top eigensystem of K (assume Kei = λiei), P def = I − ∑k i=1 λi\n−1(1− τλk+1/λi)eieTi . This differs from that for the linear case (Eq. 7) (with an extra factor of 1/λi) due to the difference between the parameter space of α and the RKHS space. EigenPro as kernel learning. Another way to view EigenPro is in terms of kernel learning. Assuming that the preconditioner is computed exactly, EigenPro is equivalent to computing the (distributiondependent) kernel, kEP (x, z) def = ∑k i=1 λk+1ei(x)ei(z) + ∑∞ i=k+1 λiei(x)ei(z). Notice that the RKHS spaces corresponding to kEP and k contain the same functions but have different norms. The norm in kEP is a finite rank modification of the norm in the RKHS corresponding to k, a setting reminiscent of [SNB05] where unlabeled data was used to “warp” the norm for semi-supervised learning. However, in our paper the “warping\" is purely for computational efficiency. Acceleration. EigenPro can obtain acceleration factor of up to λ1λk+1 over the standard gradient descent. That factor assumes full gradient descent and exact computation of the preconditioner. See below for an acceleration analysis in the SGD setting. Initial cost. To construct the preconditioner P , we perform RSVD to compute the approximate top eigensystem of covarianceH . RSVD has time complexityO(Md log k+(M+d)k2) (see [HMT11]). The subsample size M can be much smaller than the data size n while preserving the accuracy of estimation. In addition, extra kd memory is needed to store the eigenvectors. Cost per iteration. For standard SGD using d kernel centers (or random Fourier features) and mini-batch of size m, the computational cost per iteration is O(md). In comparison, EigenPro iteration using top-k eigen-directions costs O(md+ kd). Specifically, applying preconditioner P in EigenPro requires left multiplication by a matrix of rank k. This involves k vector-vector dot products resulting in k · d additional operations per iteration. These can be implemented efficiently on a GPU."
+    }, {
+      "heading" : "4 Step Size Selection for EigenPro Preconditioned Methods",
+      "text" : "We will now discuss the key issue of the step size selection for EigenPro iteration. For iteration involving covariance matrix H , λ1(H) −1 = ‖H‖−1 results in optimal (within a factor of 2) convergence. This suggests choosing the corresponding step size η = ‖PH‖−1 = λ−1k+1. In practice this will lead to divergence due to (1) approximate computation of eigenvectors (2) the randomness inherent in SGD. One (costly) possibility is to compute ‖PHm‖ at every step. As the mini-batch can be assumed to be chosen at random, we propose using a lower bound on ‖Hm‖−1 (with high probability) as the step size to guarantee convergence at each iteration. Linear EigenPro. Consider the EigenPro preconditioned SGD in Eq. 6. For this analysis assume that P is formed by the exact eigenvectors.Interpreting P 1 2 as a linear feature map as in Section 2, makes P 1 2HmP 1 2 a random subsample on the dataset XP 1 2 . Using matrix Bernstein [Tro15] yields Theorem 3. If ‖x‖22 ≤ κ for any x ∈ X and λk+1 = λk+1(H), with probability at least 1 − δ, ‖PHm‖ ≤ λk+1 + 2(λk+1 + κ)(3m)−1(ln 2dδ−1) + √ 2λk+1κm−1(ln 2dδ−1).\nKernel EigenPro. For EigenPro iteration in RKHS, we can bound ‖P ◦Km‖ with a very similar result based on operator Bernstein [Min17]. Note that dimension d in Theorem 3 is replaced by the intrinsic dimension [Tro15]. See the arXiv version of this paper for details. Choice of the step size. In the spectral norm bounds λk+1 is the dominant term when the mini-batch size m is large. However, in most large-scale settings, m is small, and √ 2λk+1κ/m becomes the\ndominant term. This suggests choosing step size η ∼ 1/ √ λk+1 leading to acceleration on the order\nof λ1/ √ λk+1 over the standard (unpreconditioned) SGD. That choice works well in practice."
+    }, {
+      "heading" : "5 EigenPro and Related Work",
+      "text" : "Large scale machine learning imposes fairly specific limitations on optimization methods. The computational budget allocated to the problem must not exceed O(n2) operations, a small number of matrix-vector multiplications. That rules out most direct second order methods which require O(n3) operations. Approximate second order methods are far more efficient. However, they typically rely on low rank matrix approximation, a strategy which (similarly to regularization) in conjunction with smooth kernels discards information along important eigen-directions with small eigenvalues. On the other hand, first order methods can be slow to converge along eigenvectors with small eigenvalues. An effective method must thus be a hybrid approach using approximate second order information in a first order method. EigenPro is an example of such an approach as the second order information is used in conjunction with a first order method. The things that make EigenPro effective are as follows: 1. The second order information (eigenvalues and eigenvectors) is computed efficiently from a subsample of the data. Due to the quadratic loss function, that computation needs to be conducted only once. Moreover, the step size can be fixed throughout the iterations. 2. Preconditioning by a low rank modification of the identity matrix results in low overhead per iteration. The update is computed without materializing the full preconditioned covariance matrix. 3. EigenPro iteration converges (mathematically) to the same result even if the second order approximation is not accurate. That makes EigenPro relatively robust to errors in the second order preconditioning term P , in contrast to most approximate second order methods. Related work: First order optimization methods. Gradient based methods, such as gradient descent (GD), stochastic gradient descent (SGD), are classical methods [She94, DJS96, BV04, Bis06]. Recent success of neural networks had drawn significant attention to improving and accelerating these methods. Methods like SAGA [RSB12] and SVRG [JZ13] improve stochastic gradient by periodically evaluating full gradient to achieve variance reduction. Algorithms in [DHS11, TH12, KB14] compute adaptive step size for each gradient coordinate. Scalable kernel methods. There is a significant literature on scalable kernel methods including [KSW04, HCL+08, SSSSC11, TBRS13, DXH+14] Most of these are first order optimization methods. To avoid the O(n2) computation and memory requirement typically involved in constructing the kernel matrix, they often adopt approximations like RBF features [WS01, QB16, TRVR16] or random Fourier features [RR07, LSS13, DXH+14, TRVR16]. Second order/hybrid optimization methods. Second order methods use the inverse of the Hessian matrix or its approximation to accelerate convergence [SYG07, BBG09, MNJ16, BHNS16, ABH16]. These methods often need to compute the full gradient every iteration [LN89, EM15, ABH16] making less suitable for large data. [EM15] analyzed a hybrid first/second order method for general convex optimization with a rescaling term based on the top eigenvectors of the Hessian. That can be viewed as preconditioning the Hessian at every GD iteration. A related recent work [GOSS16]\nanalyses a hybrid method designed to accelerate SGD convergence for ridge regression. The data are preprocessed by rescaling points along the top singular vectors of the data matrix. Another second order method PCG [ACW16] accelerates the convergence of conjugate gradient for large kernel ridge regression using a preconditioner which is the inverse of an approximate covariance generated with random Fourier features. [TRVR16] achieves similar preconditioning effects by solving a linear system involving a subsampled kernel matrix every iteration. While not strictly a preconditioner Nyström with gradient descent(NYTRO) [CARR16] also improves the condition number. Compared to many of these methods EigenPro directly addresses the underlying issues of slow convergence without introducing a bias in directions with small eigenvalues. Additionally EigenPro incurs only a small overhead per iteration both in memory and computation."
+    }, {
+      "heading" : "6 Experimental Results",
+      "text" : "Computing Resource/Data/Metrics. Experiments were run on a workstation with 128GB main memory, two Intel Xeon(R) E5-2620 CPUs, and one GTX Titan X (Maxwell) GPU. For multiclass datasets, we report classification error (c-error) for binary valued labels and mean squared error (mse) for real valued labels. See the arXiv version for details and more experimental results. Kernel methods/Hyperparameters. For smaller datasets direct solution of kernel regularized least squares (KRLS) is used to obtain the reference error. We compare with the primal method Pegasos [SSSSC11]. For even larger datasets, we use Random Fourier Features [RR07] (RF) with SGD as in [DXH+14, TRVR16]. The results of these methods are presented as baselines. For consistent comparison, all iterative methods use mini-batch of size m = 256. EigenPro preconditioner is constructed using the top k = 160 eigenvectors of a subsampled dataset of size M = 4800. For EigenPro-RF, we set the damping factor τ = 1/4. For primal EigenPro τ = 1.\nDataset Size Gaussian Laplace CauchyEigPro Pega EigPro Pega EigPro Pega MNIST 6 · 104 7 77 4 143 7 78 CIFAR-10 5 · 104 5 56 13 136 6 107 SVHN 7 · 104 8 54 14 297 17 191 HINT-S 5 · 104 19 164 15 308 13 126 Acceleration for different kernels. The table on the right presents the number of epochs needed by EigenPro and Pegasos to reach the error of the optimal kernel classifier. We see that EigenPro provides acceleration of 6 to 35 times in terms of the number of epochs required without any loss of accuracy. The actual acceleration is about 20% less due to the overhead of maintaining and applying a preconditioner. Comparisons on large datasets. Table below compares EigenPro to Pegasos/SGD-RF on several large datasets for 10 epochs. We see that EigenPro consistently outperforms Pegasos/SGD-RF within a fixed computational budget. Note that we adopt Gaussian kernel and 2 · 105 random features.\nDataset Size Metric EigenPro Pegasos EigenPro-RF SGD-RFresult GPU hours result GPU hours result GPU hours result GPU hours HINT-S 2 · 105\nc-error\n10.0% 0.1 11.7% 0.1 10.3% 0.2 11.5% 0.1 TIMIT 1 · 106 31.7% 3.2 33.0% 2.2 32.6% 1.5 33.3% 1.0 MNIST-8M 1 · 10 6 0.8% 3.0 1.1% 2.7 0.8% 0.8 1.0% 0.7\n8 · 106 - - 0.7% 7.2 0.8% 6.0\nHINT-M 1 · 10 6 mse 2.3e-2 1.9 2.7e-2 1.5 2.4e-2 0.8 2.7e-2 0.6 7 · 106 - - 2.1e-2 5.8 2.4e-2 4.1\nComparisons to state-of-the-art. In the below table, we provide a comparison to several large scale kernel results reported in the literature. EigenPro improves or matches performance on each dataset at a much lower computational budget. We note that [MGL+17] achieves error 30.9% on TIMIT using an AWS cluster. The method uses a novel supervised feature selection method, hence is not directly comparable. EigenPro can plausibly further improve the training error using this new feature set.\nDataset Size EigenPro (use 1 GTX Titan X) Reported resultserror GPU hours epochs source error description MNIST 1 · 10 6 0.70% 4.8 16 [ACW16] 0.72% 1.1 hours/189 epochs/1344 AWS vCPUs\n6.7 · 106 0.80%† 0.8 10 [LML+14] 0.85% less than 37.5 hours on 1 Tesla K20m\nTIMIT 2 · 106 31.7% (32.5%)‡\n3.2 10 [HAS +14] 33.5% 512 IBM BlueGene/Q cores\n[TRVR16] 33.5% 7.5 hours on 1024 AWS vCPUs SUSY 4 · 106 19.8% 0.1 0.6 [CAS16] ≈ 20% 0.6 hours on IBM POWER8 † The result is produced by EigenPro-RF using 1 × 106 data points. ‡ Our TIMIT training set (1 × 106 data points) was generated\nfollowing a standard practice in the speech community [PGB+11] by taking 10ms frames and dropping the glottal stop ’q’ labeled frames in core test set (1.2% of total test set). [HAS+14] adopts 5ms frames, resulting in 2 × 106 data points, and keeping the glottal stop ’q’. In the worst case scenario EigenPro, if we mislabel all glottal stops, the corresponding frame-level error increases from 31.7% to 32.5%.\nAcknowledgements. We thank Adam Stiff, Eric Fosler-Lussier, Jitong Chen, and Deliang Wang for providing TIMIT and HINT datasets. This work is supported by NSF IIS-1550757 and NSF CCF-1422830. Part of this work was completed while the second author was at the Simons Institute at Berkeley. In particular, he thanks Suvrit Sra, Daniel Hsu, Peter Bartlett, and Stefanie Jegelka for many discussions and helpful suggestions."
+    } ],
+    "references" : [ {
+      "title" : "Second order stochastic optimization in linear time",
+      "author" : [ "Naman Agarwal", "Brian Bullins", "Elad Hazan" ],
+      "venue" : "arXiv preprint arXiv:1602.03943,",
+      "citeRegEx" : "Agarwal et al\\.,? \\Q2016\\E",
+      "shortCiteRegEx" : "Agarwal et al\\.",
+      "year" : 2016
+    }, {
+      "title" : "Faster kernel ridge regression using sketching and preconditioning",
+      "author" : [ "H. Avron", "K. Clarkson", "D. Woodruff" ],
+      "venue" : "arXiv preprint arXiv:1611.03220,",
+      "citeRegEx" : "Avron et al\\.,? \\Q2016\\E",
+      "shortCiteRegEx" : "Avron et al\\.",
+      "year" : 2016
+    }, {
+      "title" : "Spectral properties of the kernel matrix and their relation to kernel methods in machine learning",
+      "author" : [ "Mikio Ludwig Braun" ],
+      "venue" : "PhD thesis,",
+      "citeRegEx" : "Braun,? \\Q2005\\E",
+      "shortCiteRegEx" : "Braun",
+      "year" : 2005
+    }, {
+      "title" : "SGD-QN: Careful quasi-newton stochastic gradient descent",
+      "author" : [ "Antoine Bordes", "Léon Bottou", "Patrick Gallinari" ],
+      "venue" : "JMLR, 10:1737–1754,",
+      "citeRegEx" : "Bordes et al\\.,? \\Q2009\\E",
+      "shortCiteRegEx" : "Bordes et al\\.",
+      "year" : 2009
+    }, {
+      "title" : "A stochastic quasi-newton method for large-scale optimization",
+      "author" : [ "Richard H Byrd", "SL Hansen", "Jorge Nocedal", "Yoram Singer" ],
+      "venue" : "SIAM Journal on Optimization,",
+      "citeRegEx" : "Byrd et al\\.,? \\Q2016\\E",
+      "shortCiteRegEx" : "Byrd et al\\.",
+      "year" : 2016
+    }, {
+      "title" : "NYTRO: When subsampling meets early stopping",
+      "author" : [ "Raffaello Camoriano", "Tomás Angles", "Alessandro Rudi", "Lorenzo Rosasco" ],
+      "venue" : "In AISTATS,",
+      "citeRegEx" : "Camoriano et al\\.,? \\Q2016\\E",
+      "shortCiteRegEx" : "Camoriano et al\\.",
+      "year" : 2016
+    }, {
+      "title" : "Hierarchically compositional kernels for scalable nonparametric learning",
+      "author" : [ "Jie Chen", "Haim Avron", "Vikas Sindhwani" ],
+      "venue" : "arXiv preprint arXiv:1608.00860,",
+      "citeRegEx" : "Chen et al\\.,? \\Q2016\\E",
+      "shortCiteRegEx" : "Chen et al\\.",
+      "year" : 2016
+    }, {
+      "title" : "Arccosine kernels: Acoustic modeling with infinite neural networks",
+      "author" : [ "Chih-Chieh Cheng", "Brian Kingsbury" ],
+      "venue" : "In ICASSP,",
+      "citeRegEx" : "Cheng and Kingsbury.,? \\Q2011\\E",
+      "shortCiteRegEx" : "Cheng and Kingsbury.",
+      "year" : 2011
+    }, {
+      "title" : "Adaptive subgradient methods for online learning and stochastic optimization",
+      "author" : [ "John Duchi", "Elad Hazan", "Yoram Singer" ],
+      "venue" : "JMLR, 12:2121–2159,",
+      "citeRegEx" : "Duchi et al\\.,? \\Q2011\\E",
+      "shortCiteRegEx" : "Duchi et al\\.",
+      "year" : 2011
+    }, {
+      "title" : "Numerical methods for unconstrained optimization and nonlinear equations",
+      "author" : [ "John E Dennis Jr.", "Robert B Schnabel" ],
+      "venue" : null,
+      "citeRegEx" : "Jr and Schnabel.,? \\Q1996\\E",
+      "shortCiteRegEx" : "Jr and Schnabel.",
+      "year" : 1996
+    }, {
+      "title" : "Scalable kernel methods via doubly stochastic gradients",
+      "author" : [ "B. Dai", "B. Xie", "N. He", "Y. Liang", "A. Raj", "M. Balcan", "L. Song" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "Dai et al\\.,? \\Q2014\\E",
+      "shortCiteRegEx" : "Dai et al\\.",
+      "year" : 2014
+    }, {
+      "title" : "Convergence rates of sub-sampled newton methods",
+      "author" : [ "M. Erdogdu", "A. Montanari" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "Erdogdu and Montanari.,? \\Q2015\\E",
+      "shortCiteRegEx" : "Erdogdu and Montanari.",
+      "year" : 2015
+    }, {
+      "title" : "Solving ridge regression using sketched preconditioned svrg",
+      "author" : [ "Alon Gonen", "Francesco Orabona", "Shai Shalev-Shwartz" ],
+      "venue" : "In ICML,",
+      "citeRegEx" : "Gonen et al\\.,? \\Q2016\\E",
+      "shortCiteRegEx" : "Gonen et al\\.",
+      "year" : 2016
+    }, {
+      "title" : "Kernel methods match deep neural networks on timit",
+      "author" : [ "Po-Sen Huang", "Haim Avron", "Tara N Sainath", "Vikas Sindhwani", "Bhuvana Ramabhadran" ],
+      "venue" : "In ICASSP,",
+      "citeRegEx" : "Huang et al\\.,? \\Q2014\\E",
+      "shortCiteRegEx" : "Huang et al\\.",
+      "year" : 2014
+    }, {
+      "title" : "A dual coordinate descent method for large-scale linear svm",
+      "author" : [ "Cho-Jui Hsieh", "Kai-Wei Chang", "Chih-Jen Lin", "S Sathiya Keerthi", "Sellamanickam Sundararajan" ],
+      "venue" : "In Proceedings of the 25th international conference on Machine learning,",
+      "citeRegEx" : "Hsieh et al\\.,? \\Q2008\\E",
+      "shortCiteRegEx" : "Hsieh et al\\.",
+      "year" : 2008
+    }, {
+      "title" : "Finding structure with randomness: Probabilistic algorithms for constructing approximate matrix decompositions",
+      "author" : [ "Nathan Halko", "Per-Gunnar Martinsson", "Joel A Tropp" ],
+      "venue" : "SIAM review,",
+      "citeRegEx" : "Halko et al\\.,? \\Q2011\\E",
+      "shortCiteRegEx" : "Halko et al\\.",
+      "year" : 2011
+    }, {
+      "title" : "Accelerating stochastic gradient descent using predictive variance reduction",
+      "author" : [ "Rie Johnson", "Tong Zhang" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "Johnson and Zhang.,? \\Q2013\\E",
+      "shortCiteRegEx" : "Johnson and Zhang.",
+      "year" : 2013
+    }, {
+      "title" : "Adam: A method for stochastic optimization",
+      "author" : [ "Diederik Kingma", "Jimmy Ba" ],
+      "venue" : "arXiv preprint arXiv:1412.6980,",
+      "citeRegEx" : "Kingma and Ba.,? \\Q2014\\E",
+      "shortCiteRegEx" : "Kingma and Ba.",
+      "year" : 2014
+    }, {
+      "title" : "Online learning with kernels",
+      "author" : [ "Jyrki Kivinen", "Alexander J Smola", "Robert C Williamson" ],
+      "venue" : "Signal Processing, IEEE Transactions on,",
+      "citeRegEx" : "Kivinen et al\\.,? \\Q2004\\E",
+      "shortCiteRegEx" : "Kivinen et al\\.",
+      "year" : 2004
+    }, {
+      "title" : "How to scale up kernel methods to be as good as deep neural nets",
+      "author" : [ "Zhiyun Lu", "Avner May", "Kuan Liu", "Alireza Bagheri Garakani", "Dong Guo", "Aurélien Bellet", "Linxi Fan", "Michael Collins", "Brian Kingsbury", "Michael Picheny" ],
+      "venue" : "arXiv preprint arXiv:1411.4000,",
+      "citeRegEx" : "Lu et al\\.,? \\Q2014\\E",
+      "shortCiteRegEx" : "Lu et al\\.",
+      "year" : 2014
+    }, {
+      "title" : "On the limited memory bfgs method for large scale optimization",
+      "author" : [ "Dong C Liu", "Jorge Nocedal" ],
+      "venue" : "Mathematical programming,",
+      "citeRegEx" : "Liu and Nocedal.,? \\Q1989\\E",
+      "shortCiteRegEx" : "Liu and Nocedal.",
+      "year" : 1989
+    }, {
+      "title" : "Fastfood-approximating kernel expansions in loglinear time",
+      "author" : [ "Quoc Le", "Tamás Sarlós", "Alex Smola" ],
+      "venue" : "In Proceedings of the international conference on machine learning,",
+      "citeRegEx" : "Le et al\\.,? \\Q2013\\E",
+      "shortCiteRegEx" : "Le et al\\.",
+      "year" : 2013
+    }, {
+      "title" : "Kernel approximation methods for speech recognition",
+      "author" : [ "Avner May", "Alireza Bagheri Garakani", "Zhiyun Lu", "Dong Guo", "Kuan Liu", "Aurélien Bellet", "Linxi Fan", "Michael Collins", "Daniel Hsu", "Brian Kingsbury" ],
+      "venue" : "arXiv preprint arXiv:1701.03577,",
+      "citeRegEx" : "May et al\\.,? \\Q2017\\E",
+      "shortCiteRegEx" : "May et al\\.",
+      "year" : 2017
+    }, {
+      "title" : "On some extensions of bernstein’s inequality for self-adjoint operators",
+      "author" : [ "Stanislav Minsker" ],
+      "venue" : "Statistics & Probability Letters,",
+      "citeRegEx" : "Minsker.,? \\Q2017\\E",
+      "shortCiteRegEx" : "Minsker.",
+      "year" : 2017
+    }, {
+      "title" : "A linearly-convergent stochastic l-bfgs algorithm",
+      "author" : [ "P. Moritz", "R. Nishihara", "M. Jordan" ],
+      "venue" : "In AISTATS,",
+      "citeRegEx" : "Moritz et al\\.,? \\Q2016\\E",
+      "shortCiteRegEx" : "Moritz et al\\.",
+      "year" : 2016
+    }, {
+      "title" : "The kaldi speech recognition toolkit",
+      "author" : [ "D. Povey", "A. Ghoshal", "G. Boulianne", "L. Burget", "O. Glembek", "N. Goel", "M. Hannemann", "P. Motlicek", "Y. Qian", "P. Schwarz" ],
+      "venue" : "In ASRU,",
+      "citeRegEx" : "Povey et al\\.,? \\Q2011\\E",
+      "shortCiteRegEx" : "Povey et al\\.",
+      "year" : 2011
+    }, {
+      "title" : "Back to the future: Radial basis function networks revisited",
+      "author" : [ "Qichao Que", "Mikhail Belkin" ],
+      "venue" : "In AISTATS,",
+      "citeRegEx" : "Que and Belkin.,? \\Q2016\\E",
+      "shortCiteRegEx" : "Que and Belkin.",
+      "year" : 2016
+    }, {
+      "title" : "On learning with integral operators",
+      "author" : [ "Lorenzo Rosasco", "Mikhail Belkin", "Ernesto De Vito" ],
+      "venue" : "Journal of Machine Learning Research,",
+      "citeRegEx" : "Rosasco et al\\.,? \\Q2010\\E",
+      "shortCiteRegEx" : "Rosasco et al\\.",
+      "year" : 2010
+    }, {
+      "title" : "The approximate arithmetical solution by finite differences of physical problems involving differential equations, with an application to the stresses in a masonry dam",
+      "author" : [ "Lewis Fry Richardson" ],
+      "venue" : "Philosophical Transactions of the Royal Society of London. Series A,",
+      "citeRegEx" : "Richardson.,? \\Q1911\\E",
+      "shortCiteRegEx" : "Richardson.",
+      "year" : 1911
+    }, {
+      "title" : "The Laplacian on a Riemannian manifold: an introduction to analysis on manifolds. Number 31",
+      "author" : [ "Steven Rosenberg" ],
+      "venue" : null,
+      "citeRegEx" : "Rosenberg.,? \\Q1997\\E",
+      "shortCiteRegEx" : "Rosenberg.",
+      "year" : 1997
+    }, {
+      "title" : "Random features for large-scale kernel machines",
+      "author" : [ "A. Rahimi", "B. Recht" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "Rahimi and Recht.,? \\Q2007\\E",
+      "shortCiteRegEx" : "Rahimi and Recht.",
+      "year" : 2007
+    }, {
+      "title" : "A stochastic gradient method with an exponential convergence _rate for finite training sets",
+      "author" : [ "Nicolas L Roux", "Mark Schmidt", "Francis R Bach" ],
+      "venue" : "In Advances in Neural Information Processing Systems,",
+      "citeRegEx" : "Roux et al\\.,? \\Q2012\\E",
+      "shortCiteRegEx" : "Roux et al\\.",
+      "year" : 2012
+    }, {
+      "title" : "Early stopping and non-parametric regression: an optimal data-dependent stopping",
+      "author" : [ "G. Raskutti", "M. Wainwright", "B. Yu" ],
+      "venue" : "rule. JMLR,",
+      "citeRegEx" : "Raskutti et al\\.,? \\Q2014\\E",
+      "shortCiteRegEx" : "Raskutti et al\\.",
+      "year" : 2014
+    }, {
+      "title" : "Support vector machines",
+      "author" : [ "Ingo Steinwart", "Andreas Christmann" ],
+      "venue" : "Springer Science & Business Media,",
+      "citeRegEx" : "Steinwart and Christmann.,? \\Q2008\\E",
+      "shortCiteRegEx" : "Steinwart and Christmann.",
+      "year" : 2008
+    }, {
+      "title" : "An introduction to the conjugate gradient method without the agonizing pain",
+      "author" : [ "Jonathan Richard Shewchuk" ],
+      "venue" : null,
+      "citeRegEx" : "Shewchuk.,? \\Q1994\\E",
+      "shortCiteRegEx" : "Shewchuk.",
+      "year" : 1994
+    }, {
+      "title" : "Beyond the point cloud: from transductive to semi-supervised learning",
+      "author" : [ "Vikas Sindhwani", "Partha Niyogi", "Mikhail Belkin" ],
+      "venue" : "In Proceedings of the 22nd international conference on Machine learning,",
+      "citeRegEx" : "Sindhwani et al\\.,? \\Q2005\\E",
+      "shortCiteRegEx" : "Sindhwani et al\\.",
+      "year" : 2005
+    }, {
+      "title" : "Pegasos: Primal estimated sub-gradient solver for SVM",
+      "author" : [ "Shai Shalev-Shwartz", "Yoram Singer", "Nathan Srebro", "Andrew Cotter" ],
+      "venue" : "Mathematical programming,",
+      "citeRegEx" : "Shalev.Shwartz et al\\.,? \\Q2011\\E",
+      "shortCiteRegEx" : "Shalev.Shwartz et al\\.",
+      "year" : 2011
+    }, {
+      "title" : "Kernel methods for pattern analysis",
+      "author" : [ "John Shawe-Taylor", "Nello Cristianini" ],
+      "venue" : "Cambridge university press,",
+      "citeRegEx" : "Shawe.Taylor and Cristianini.,? \\Q2004\\E",
+      "shortCiteRegEx" : "Shawe.Taylor and Cristianini.",
+      "year" : 2004
+    }, {
+      "title" : "A stochastic quasi-newton method for online convex optimization",
+      "author" : [ "Nicol N Schraudolph", "Jin Yu", "Simon Günter" ],
+      "venue" : "In AISTATS,",
+      "citeRegEx" : "Schraudolph et al\\.,? \\Q2007\\E",
+      "shortCiteRegEx" : "Schraudolph et al\\.",
+      "year" : 2007
+    }, {
+      "title" : "Lecture 6.5-rmsprop: Divide the gradient by a running average of its recent magnitude",
+      "author" : [ "Tijmen Tieleman", "Geoffrey Hinton" ],
+      "venue" : "COURSERA: Neural Networks for Machine Learning,",
+      "citeRegEx" : "Tieleman and Hinton.,? \\Q2012\\E",
+      "shortCiteRegEx" : "Tieleman and Hinton.",
+      "year" : 2012
+    }, {
+      "title" : "An introduction to matrix concentration inequalities",
+      "author" : [ "Joel A Tropp" ],
+      "venue" : "arXiv preprint arXiv:1501.01571,",
+      "citeRegEx" : "Tropp.,? \\Q2015\\E",
+      "shortCiteRegEx" : "Tropp.",
+      "year" : 2015
+    }, {
+      "title" : "Large scale kernel learning using block coordinate descent",
+      "author" : [ "S. Tu", "R. Roelofs", "S. Venkataraman", "B. Recht" ],
+      "venue" : "arXiv preprint arXiv:1602.05310,",
+      "citeRegEx" : "Tu et al\\.,? \\Q2016\\E",
+      "shortCiteRegEx" : "Tu et al\\.",
+      "year" : 2016
+    }, {
+      "title" : "Optimal aggregation of classifiers in statistical learning",
+      "author" : [ "Alexandre B Tsybakov" ],
+      "venue" : "Annals of Statistics,",
+      "citeRegEx" : "Tsybakov.,? \\Q2004\\E",
+      "shortCiteRegEx" : "Tsybakov.",
+      "year" : 2004
+    }, {
+      "title" : "Using the Nyström method to speed up kernel machines",
+      "author" : [ "Christopher Williams", "Matthias Seeger" ],
+      "venue" : "In NIPS,",
+      "citeRegEx" : "Williams and Seeger.,? \\Q2001\\E",
+      "shortCiteRegEx" : "Williams and Seeger.",
+      "year" : 2001
+    }, {
+      "title" : "On early stopping in gradient descent learning",
+      "author" : [ "Yuan Yao", "Lorenzo Rosasco", "Andrea Caponnetto" ],
+      "venue" : "Constructive Approximation,",
+      "citeRegEx" : "Yao et al\\.,? \\Q2007\\E",
+      "shortCiteRegEx" : "Yao et al\\.",
+      "year" : 2007
+    } ],
+    "referenceMentions" : [ ],
+    "year" : 2017,
+    "abstractText" : "Remarkable recent success of deep neural networks has not been easy to analyze theoretically. It has been particularly hard to disentangle relative significance of architecture and optimization in achieving accurate classification on large datasets. On the flip side, shallow methods (such as kernel methods) have encountered obstacles in scaling to large data, despite excellent performance on smaller datasets, and extensive theoretical analysis. Practical methods, such as variants of gradient descent used so successfully in deep learning, seem to perform below par when applied to kernel methods. This difficulty has sometimes been attributed to the limitations of shallow architecture. In this paper we identify a basic limitation in gradient descent-based optimization methods when used in conjunctions with smooth kernels. Our analysis demonstrates that only a vanishingly small fraction of the function space is reachable after a polynomial number of gradient descent iterations. That drastically limits the approximating power of gradient descent leading to over-regularization. The issue is purely algorithmic, persisting even in the limit of infinite data. To address this shortcoming in practice, we introduce EigenPro iteration, a simple and direct preconditioning scheme using a small number of approximately computed eigenvectors. It can also be viewed as learning a kernel optimized for gradient descent. Injecting this small, computationally inexpensive and SGD-compatible, amount of approximate second-order information leads to major improvements in convergence. For large data, this leads to a significant performance boost over the state-of-the-art kernel methods. In particular, we are able to match or improve the results reported in the literature at a small fraction of their computational budget. For complete version of this paper see https://arxiv.org/abs/1703.10622.",
+    "creator" : null
+  }
+}

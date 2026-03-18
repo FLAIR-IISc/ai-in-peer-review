@@ -1,0 +1,461 @@
+{
+  "name" : "50c3d7614917b24303ee6a220679dab3.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Approximate Inference in Continuous Determinantal Processes",
+    "authors" : [ "Raja Hafiz Affandi", "Emily B. Fox", "Ben Taskar" ],
+    "emails" : [ "rajara@wharton.upenn.edu" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Samples from a determinantal point process (DPP) [15] are sets of points that tend to be spread out. More specifically, given Ω ⊆ Rd and a positive semidefinite kernel function L : Ω × Ω 7→ R, the probability density of a point configuration A ⊂ Ω under a DPP with kernel L is given by\nPL(A) ∝ det(LA) , (1) where LA is the |A| × |A| matrix with entries L(x,y) for each x,y ∈ A. The tendency for repulsion is captured by the determinant since it depends on the volume spanned by the selected points in the associated Hilbert space of L. Intuitively, points similar according to L or points that are nearly linearly dependent are less likely to be selected.\nBuilding on the foundational work in [5] for the case where Ω is discrete and finite, DPPs have been used in machine learning as a model for subset selection in which diverse sets are preferred [2, 3, 9, 12, 13]. These methods build on the tractability of sampling based on the algorithm of Hough et al. [10], which relies on the eigendecomposition of the kernel matrix to recursively sample points based on their projections onto the subspace spanned by the selected eigenvectors.\nRepulsive point processes, like hard core processes [7, 16], many based on thinned Poisson processes and Gibbs/Markov distributions, have a long history in the spatial statistics community, where considering continuous Ω is key. Many naturally occurring phenomena exhibit diversity—trees tend to grow in the least occupied space [17], ant hill locations are over-dispersed relative to uniform placement [4] and the spatial distribution of nerve fibers is indicative of neuropathy, with hard-core processes providing a critical tool [25]. Repulsive processes on continuous spaces have garnered interest in machine learning as well, especially relating to generative mixture modeling [18, 29].\nThe computationally attractive properties of DPPs make them appealing to consider in these applications. On the surface, it seems that the eigendecomposition and projection algorithm of [10] for discrete DPPs would naturally extend to the continuous case. While this is true in a formal sense as L\nbecomes an operator instead of a matrix, the key steps such as the eigendecomposition of the kernel and projection of points on subspaces spanned by eigenfunctions are computationally infeasible except in a few very limited cases where approximations can be made [14]. The absence of a tractable DPP sampling algorithm for general kernels in continuous spaces has hindered progress in developing DPP-based models for repulsion.\nIn this paper, we propose an efficient algorithm to sample from DPPs in continuous spaces using low-rank approximations of the kernel function. We investigate two such schemes: Nyström and random Fourier features. Our approach utilizes a dual representation of the DPP, a technique that has proven useful in the discrete Ω setting as well [11]. For k-DPPs, which only place positive probability on sets of cardinality k [13], we also devise a Gibbs sampler that iteratively samples points in the k-set conditioned on all k − 1 other points. The derivation relies on representing the conditional DPPs using the Schur complement of the kernel. Our methods allow us to handle a broad range of typical kernels and continuous subspaces, provided certain simple integrals of the kernel function can be computed efficiently. Decomposing our kernel into quality and similarity terms as in [13], this includes, but is not limited to, all cases where the (i) spectral density of the quality and (ii) characteristic function of the similarity kernel can be computed efficiently. Our methods scale well with dimension, in particular with complexity growing linearly in d.\nIn Sec. 2, we review sampling algorithms for discrete DPPs and the challenges associated with sampling from continuous DPPs. We then propose continuous DPP sampling algorithms based on low-rank kernel approximations in Sec. 3 and Gibbs sampling in Sec. 4. An empirical analysis of the two schemes is provided in Sec. 5. Finally, we apply our methods to repulsive mixture modeling and human pose synthesis in Sec. 6 and 7."
+    }, {
+      "heading" : "2 Sampling from a DPP",
+      "text" : "When Ω is discrete with cardinality N , an efficient algorithm for sampling from a DPP is given in [10]. The algorithm, which is detailed in the supplement, uses an eigendecomposition of the kernel matrix L = ∑N n=1 λnvnv > n and recursively samples points xi as follows, resulting in a set A ∼ DPP(L) with A = {xi}:\nPhase 1 Select eigenvector vn with probability λnλn+1 . Let V be the selected eigenvectors (k = |V |).\nPhase 2 For i = 1, . . . , k, sample points xi ∈ Ω sequentially with probability based on the projection of xi onto the subspace spanned by V . Once xi is sampled, update V by excluding the subspace spanned by the projection of xi onto V .\nWhen Ω is discrete, both steps are straightforward since the first phase involves eigendecomposing a kernel matrix and the second phase involves sampling from discrete probability distributions based on inner products between points and eigenvectors. Extending this algorithm to a continuous space was considered by [14], but for a very limited set of kernels L and spaces Ω. For general L and Ω, we face difficulties in both phases. Extending Phase 1 to a continuous space requires knowledge of the eigendecomposition of the kernel function. When Ω is a compact rectangle in Rd, [14] suggest approximating the eigendecomposition using an orthonormal Fourier basis.\nEven if we are able to obtain the eigendecomposition of the kernel function (either directly or via approximations as considered in [14] and Sec. 3), we still need to implement Phase 2 of the sampling algorithm. Whereas the discrete case only requires sampling from a discrete probability function, here we have to sample from a probability density. When Ω is compact, [14] suggest using a rejection sampler with a uniform proposal on Ω. The authors note that the acceptance rate of this rejection sampler decreases with the number of points sampled, making the method inefficient in sampling large sets from a DPP. In most other cases, implementing Phase 2 even via rejection sampling is infeasible since the target density is in general non-standard with unknown normalization. Furthermore, a generic proposal distribution can yield extremely low acceptance rates.\nIn summary, current algorithms can sample approximately from a continuous DPP only for translationinvariant kernels defined on a compact space. In Sec. 3, we propose a sampling algorithm that allows us to sample approximately from DPPs for a wide range of kernels L and spaces Ω."
+    }, {
+      "heading" : "3 Sampling from a low-rank continuous DPP",
+      "text" : "Again considering Ω discrete with cardinality N , the sampling algorithm of Sec. 2 has complexity dominated by the eigendecomposition, O(N3). If the kernel matrix L is low-rank, i.e. L = B>B, with B a D×N matrix and D N , [11] showed that the complexity of sampling can be reduced to O(ND2 +D3). The basic idea is to exploit the fact that L and the dual kernel matrix C = BB>, which is D ×D, share the same nonzero eigenvalues, and for each eigenvector vk of L, Bvk is the corresponding eigenvector of C. See the supplement for algorithmic details.\nWhile the dependence on N in the dual is sharply reduced, in continuous spaces, N is infinite. In order to extend the algorithm, we must find efficient ways to compute C for Phase 1 and manipulate eigenfunctions implicitly for the projections in Phase 2. Generically, consider sampling from a DPP on a continuous space Ω with kernel L(x,y) = ∑∞ n=1 λnφn(x)φn(y),where λn and φn(x) are eigenvalues and eigenfunctions, and φn(y) is the complex conjugate of φn(y). Assume that we can approximate L by a low-dimensional (generally complex-valued) mapping, B(x) : Ω 7→ CD:\nL̃(x,y) = B(x)∗B(y) ,where B(x) = [B1(x), . . . , BD(x)]>. (2) Here, A∗ denotes complex conjugate transpose of A. We consider two efficient low-rank approximation schemes in Sec. 3.1 and 3.2. Using such a low-rank representation, we propose an analog of the dual sampling algorithm for continuous spaces, described in Algorithm 1. A similar algorithm provides samples from a k-DPP, which only gives positive probability to sets of a fixed cardinality k [13]. The only change required is to the for-loop in Phase 1 to select exactly k eigenvectors using an efficient O(Dk) recursion. See the supplement for details.\nAlgorithm 1 Dual sampler for a low-rank continuous DPP Input: L̃(x,y) = B(x)∗B(y),\na rank-D DPP kernel PHASE 1 Compute C = ∫ Ω B(x)B(x)∗dx\nCompute eigendecomp. C = ∑D k=1 λkvkv ∗ k J ← ∅ for k = 1, . . . , D do J ← J ∪ {k} with probability λkλk+1 V ← { vk√ v∗kCvk }k∈J\nPHASE 2 X ← ∅ while |V | > 0 do\nSample x̂ from f(x) = 1|V | ∑ v∈V |v∗B(x)|2 X ← X ∪ {x̂} Let v0 be a vector in V such that v∗0B(x̂) 6= 0 Update V ← {v − v\n∗B(x̂) v∗0B(x̂)\nv0 | v ∈ V − {v0}} Orthonormalize V w.r.t. 〈v1,v2〉 = v∗1Cv2\nOutput: X\nIn this dual view, we still have the same two-phase structure, and must address two key challenges:\nPhase 1 Assuming a low-rank kernel function decomposition as in Eq. (2), we need to able to compute the dual kernel matrix, given by an integral:\nC = ∫ Ω B(x)B(x)∗dx . (3)\nPhase 2 In general, sampling directly from the density f(x) is difficult; instead, we can compute the cumulative distribution function (CDF) and sample x using the inverse CDF method [21]:\nF (x̂ = (x̂1, . . . , x̂d)) = d∏ l=1 ∫ x̂l −∞ f(x)1{xl∈Ω}dxl. (4)\nAssuming (i) the kernel function L̃ is finite-rank and (ii) the terms C and f(x) are computable, Algorithm 1 provides exact samples from a DPP with kernel L̃. In what follows, approximations only arise from approximating general kernels L with low-rank kernels L̃. If given a finite-rank kernel L to begin with, the sampling procedure is exact.\nOne could imagine approximating L as in Eq. (2) by simply truncating the eigendecomposition (either directly or using numerical approximations). However, this simple approximation for known decompositions does not necessarily yield a tractable sampler, because the products of eigenfunctions required in Eq. (3) might not be efficiently integrable. For our approximation algorithm to work, not only do we need methods that approximate the kernel function well, but also that enable us to solve Eq. (3) and (4) directly for many different kernel functions. We consider two such approaches that enable an efficient sampler for a wide range of kernels: Nyström and random Fourier features."
+    }, {
+      "heading" : "3.1 Sampling from RFF-approximated DPP",
+      "text" : "Random Fourier features (RFF) [19] is an approach for approximating shift-invariant kernels, k(x,y) = k(x − y), using randomly selected frequencies. The frequencies are sampled independently from the Fourier transform of the kernel function, ωj ∼ F(k(x− y)), and letting:\nk̃(x− y) = 1 D D∑ j=1 exp{iω>j (x− y)} , x,y ∈ Ω . (5)\nTo apply RFFs, we factor L into a quality function q and similarity kernel k (i.e., q(x) = √ L(x,x)):\nL(x,y) = q(x)k(x,y)q(y) , x,y ∈ Ω where k(x,x) = 1. (6)\nThe RFF approximation can be applied to cases where the similarity function has a known characteristic function, e.g., Gaussian, Laplacian and Cauchy. Using Eq. (5), we can approximate the similarity kernel function to obtain a low-rank kernel and dual matrix:\nL̃RFF (x,y) = 1\nD D∑ j=1 q(x) exp{iω>j (x− y)}q(y), CRFFjk = 1 D ∫ Ω q2(x) exp{i(ωj − ωk)>x}dx.\nThe CDF of the sampling distribution f(x) in Algorithm 1 is given by:\nFRFF (x̂) = 1 |V | ∑ v∈V D∑ j=1 D∑ k=1 vjv ∗ k d∏ l=1 ∫ x̂l −∞ q2(x) exp{i(ωj − ωk)>x}1{xl∈Ω}dxl. (7)\nwhere vj denotes the jth element of vector v. Note that equations CRFF and FRFF can be computed for many different combinations of Ω and q(x). In fact, this method works for any combination of (i) translation-invariant similarity kernel k with known characteristic function and (ii) quality function q with known spectral density. The resulting kernel L need not be translation invariant. In the supplement, we illustrate this method by considering a common and important example where Ω = Rd, q(x) is Gaussian, and k(x,y) is any kernel with known Fourier transform."
+    }, {
+      "heading" : "3.2 Sampling from a Nyström-approximated DPP",
+      "text" : "Another approach to kernel approximation is the Nyström method [27]. In particular, given z1, . . . , zD landmarks sampled from Ω, we can approximate the kernel function and dual matrix as,\nL̃Nys(x,y) = D∑ j=1 D∑ k=1 W 2jkL(x, zj)L(zk,y), C Nys jk = D∑ n=1 D∑ m=1 WjnWmk ∫ Ω L(zn,x)L(x, zm)dx,\nwhere Wjk = L(zj , zk)−1/2. Denoting wj(v) = ∑D n=1Wjnvn, the CDF of f(x) in Alg. 1 is:\nFNys(x̂) = 1 |V | ∑ v∈V D∑ j=1 D∑ k=1 wj(v)wk(v) d∏ l=1 ∫ x̂l −∞ L(x, zj)L(zk,x)1{xl∈Ω}dxl. (8)\nAs with the RFF case, we consider a decomposition L(x,y) = q(x)k(x,y)q(y). Here, there are no translation-invariant requirements, even for the similarity kernel k. In the supplement, we provide the important example where Ω = Rd and both q(x) and k(x,y) are Gaussians and also when k(x,y) is polynomial, a case that cannot be handled by RFF since it is not translationally invariant."
+    }, {
+      "heading" : "4 Gibbs sampling",
+      "text" : "For k-DPPs, we can consider a Gibbs sampling scheme. In the supplement, we derive that the full conditional for the inclusion of point xk given the inclusion of the k−1 other points is a 1-DPP with a modified kernel, which we know how to sample from. Let the kernel function be represented as before: L(x,y) = q(x)k(x,y)q(y). Denoting J\\k = {xj}j 6=k and M\\k = L−1J\\k the full conditional can be simplified using Schur’s determinantal equality [22]:\np(xk|{xj}j 6=k) ∝ L(xk,xk)− ∑ i,j 6=k M \\k ij L(xi,xk)L(xj ,xk). (9)\nIn general, sampling directly from this full conditional is difficult. However, for a wide range of kernel functions, including those which can be handled by the Nyström approximation in Sec. 3.2, the CDF can be computed analytically and xk can be sampled using the inverse CDF method:\nF (x̂l|{xj}j 6=k) = ∫ x̂l −∞ L(xl,xl)− ∑ i,j 6=kM \\k ij L(xi,xl)L(xj ,xl)1{xl∈Ω}dxl∫\nΩ L(x,x)− ∑ i,j 6=kM \\k ij L(xi,x)L(xj ,x)dx\n(10)\nIn the supplement, we illustrate this method by considering the case where Ω = Rd and q(x) and k(x,y) are Gaussians. We use this same Schur complement scheme for sampling from the full conditionals in the mixture model application of Sec. 6. A key advantage of this scheme for several types of kernels is that the complexity of sampling scales linearly with the number of dimensions d making it suitable in handling high-dimensional spaces.\nAs with any Gibbs sampling scheme, the mixing rate is dependent on the correlations between variables. In cases where the kernel introduces low repulsion we expect the Gibbs sampler to mix well, while in a high repulsion setting the sampler can mix slowly due to the strong dependencies between points and fact that we are only doing one-point-at-a-time moves. We explore the dependence of convergence on repulsion strength in the supplementary materials. Regardless, this sampler provides a nice tool in the k-DPP setting. Asymptotically, theory suggests that we get exact (though correlated) samples from the k-DPP. To extend this approach to standard DPPs, we can first sample k (this assumes knowledge of the eigenvalues of L) and then apply the above method to get a sample. This is fairly inefficient if many samples are needed. A more involved but potentially efficient approach is to consider a birth-death sampling scheme where the size of the set can grow/shrink by 1 at every step."
+    }, {
+      "heading" : "5 Empirical analysis",
+      "text" : "To evaluate the performance of the RFF and Nyström approximations, we compute the total variational distance ‖PL − PL̃‖1 = 1 2 ∑ X |PL(X)− PL̃(X)|, where PL(X) denotes the probability of set X under a DPP with kernel L, as given by Eq. (1). We restrict our analysis to the case where the quality function and similarity kernel are Gaussians with isotropic covariances Γ = diag(ρ2, . . . , ρ2) and Σ = diag(σ2, . . . , σ2), respectively, enabling our analysis based on the easily computed eigenvalues [8]. We also focus on sampling from k-DPPs for which the size of the set X is always k. Details are in the supplement.\nFig. 1 displays estimates of the total variational distance for the RFF and Nyström approximations when ρ2 = 1, varying σ2 (the repulsion strength) and the dimension d. Note that the RFF method performs slightly worse as σ2 increases and is rather invariant to d while the Nyström method performs much better for increasing σ2 but worse for increasing d.\nWhile this phenomenon seems perplexing at first, a study of the eigenvalues of the Gaussian kernel across dimensions sheds light on the rationale (see Fig. 1). Note that for fixed σ2 and ρ2, the decay of eigenvalues is slower in higher dimensions. It has been previously demonstrated that the Nyström method performs favorably in kernel learning tasks compared to RFF in cases where there is a large eigengap in the kernel matrix [28]. The plot of the eigenvalues seems to indicate the same phenomenon here. Furthermore, this result is consistent with the comparison of RFF to Nyström in approximating DPPs in the discrete Ω case provided in [3].\nThis behavior can also be explained by looking at the theory behind these two approximations. For the RFF, while the kernel approximation is guaranteed to be an unbiased estimate of the true kernel element-wise, the variance is fairly high [19]. In our case, we note that the RFF estimates of minors are biased because of non-linearity in matrix entries, overestimating probabilities for point\nconfigurations that are more spread out, which leads to samples that are overly-dispersed. For the Nyström method, on the other hand, the quality of the approximation depends on how well the landmarks cover Ω. In our experiments the landmarks are sampled i.i.d. from q(x). When either the similarity bandwidth σ2 is small or the dimension d is high, the effective distance between points increases, thereby decreasing the accuracy of the approximation. Theoretical bounds for the Nyström DPP approximation in the case when Ω is finite are provided in [3]. We believe the same result holds for continuous Ω by extending the eigenvalues and spectral norm of the kernel matrix to operator eigenvalues and operator norms, respectively.\nIn summary, for moderate values of σ2 it is generally good to use the Nyström approximation for low-dimensional settings and RFF for high-dimensional settings."
+    }, {
+      "heading" : "6 Repulsive priors for mixture models",
+      "text" : "Mixture models are used in a wide range of applications from clustering to density estimation. A common issue with such models, especially in density estimation tasks, is the introduction of redundant, overlapping components that increase the complexity and reduce interpretability of the resulting model. This phenomenon is especially prominent when the number of samples is small. In a Bayesian setting, a common fix to this problem is to consider a sparse Dirichlet prior on the mixture weights, which penalizes the addition of non-zero-weight components. However, such approaches run the risk of inaccuracies in the parameter estimates [18]. Instead, [18] show that sampling the location parameters using repulsive priors leads to better separated clusters while maintaining the accuracy of the density estimate. They propose a class of repulsive priors that rely on explicitly defining a distance metric and the manner in which small distances are penalized. The resulting posterior computations can be fairly complex.\nThe theoretical properties of DPPs make them an appealing choice as a repulsive prior. In fact, [29] considered using DPPs as repulsive priors in latent variable models. However, in the absence of a feasible continuous DPP sampling algorithm, their method was restricted to performing MAP inference. Here we propose a fully generative probabilistic mixture model using a DPP prior for the location parameters, with a K-component model using a K-DPP.\nIn the common case of mixtures of Gaussians (MoG), our posterior computations can be performed using Gibbs sampling with nearly the same simplicity of the standard case where the location parameters µk are assumed to be i.i.d.. In particular, with the exception of updating the location parameters {µ1, . . . , µK}, our sampling steps are identical to standard MoG Gibbs updates in the uncollapsed setting. For the location parameters, instead of sampling each µk independently from its conditional posterior, our full conditional depends upon the other locations µ\\k as well. Details are in the supplement, where we show that this full conditional has an interpretation as a single draw from a tilted 1-DPP. As such, we can employ the Gibbs sampling scheme of Sec. 4.\nWe assess the clustering and density estimation performance of the DPP-based model on both synthetic and real datasets. In each case, we run 10,000 Gibbs iterations, discard 5,000 as burn-in and thin the chain by 10. Hyperparameter settings are in the supplement. We randomly permute the labels in each iteration to ensure balanced label switching. Draws are post-processed following the algorithm of [23] to address the label switching issue.\nSynthetic data To assess the role of the prior in a density estimation task, we generated a small sample of 100 observations from a mixture of two Gaussians. We consider two cases, the first with well-separated components and the second with poorly-separated components. We compare a mixture model with locations sampled i.i.d. (IID) to our DPP repulsive prior (DPP). In both cases, we set an upper bound of six mixture components. In Fig. 2, we see that both IID and DPP provide very similar density estimates. However, IID uses many large-mass components to describe the density. As a measure of simplicity of the resulting density description, we compute the average entropy of the posterior mixture membership distribution, which is a reasonable metric given the similarity of the overall densities. Lower entropy indicates a more concise representation in an information-theoretic sense. We also assess the accuracy of the density estimate by computing both (i) Hamming distance error relative to true cluster labels and (ii) held-out log-likelihood on 100 observations. The results are summarized in Table 1. We see that DPP results in (i) significantly lower entropy, (ii) lower overall clustering error, and (iii) statistically indistinguishable held-out log-likelihood. These results signify that we have a sparser representation with well-separated (interpretable) clusters while maintaining the accuracy of the density estimate.\nReal data We also tested our DPP model on three real density estimation tasks considered in [20]: 82 measurements of velocity of galaxies diverging from our own (galaxy), acidity measurement of 155 lakes in Wisconsin (acidity), and the distribution of enzymatic activity in the blood of 245 individuals (enzyme). We once again judge the complexity of the density estimates using the posterior mixture membership entropy as a proxy. To assess the accuracy of the density estimates, we performed 5-fold cross validation to estimate the predictive held-out log-likelihood. As with the synthetic data, we find that DPP visually results in better separated clusters (Fig. 2). The DPP entropy measure is also significantly lower for data that are not well separated (acidity and galaxy) while the differences in predictive log-likelihood estimates are not statistically significant (Table 2).\nFinally, we consider a classification task based on the iris dataset: 150 observations from three iris species with four length measurements. For this dataset, there has been significant debate on the optimal number of clusters. While there are three species in the data, it is known that two have very low separation. Based on loss minimization, [24, 26] concluded that the optimal number of clusters was two. Table 2 compares the classification error using DPP and IID when we assume for evaluation the real data has three or two classes (by collapsing two low-separation classes) , but consider a model with a maximum of six components. While both methods perform similarly for three classes, DPP has significantly lower classification error under the assumption of two classes, since DPP places large posterior mass on only two mixture components. This result hints at the possibility of using the DPP mixture model as a model selection method."
+    }, {
+      "heading" : "7 Generating diverse sample perturbations",
+      "text" : "We consider another possible application of continuous-space sampling. In many applications of inverse reinforcement learning or inverse optimal control, the learner is presented with control trajectories executed by an expert and tries to estimate a reward function that would approximately reproduce such policies [1]. In order to estimate the reward function, the learner needs to compare the rewards of a large set of trajectories (or all, if possible), which becomes intractable in highdimensional spaces with complex non-linear dynamics. A typical approximation is to use a set of perturbed expert trajectories as a comparison set, where a good set of trajectories should cover as large a part of the space as possible.\nWe propose using DPPs to sample a large-coverage set of trajectories, in particular focusing on a human motion application where we assume a set of motion capture (MoCap) training data taken from the CMU database [6]. Here, our dimension d is 62, corresponding to a set of joint angle measurements. For a given activity, such as dancing, we aim to select a reference pose and synthesize a set of diverse, perturbed poses. To achieve this, we build a kernel with Gaussian quality and similarity using covariances estimated from the training data associated with the activity. The Gaussian quality is centered about the selected reference pose and we synthesize new poses by sampling from our continuous DPP using the low-rank approximation scheme. In Fig. 3, we show an example of such DPP-synthesized poses. For the activity dance, to quantitatively assess our performance in covering the activity space, we compute a coverage rate metric based on a random sample of 50 poses from a DPP. For each training MoCap frame, we compute whether the frame has a neighbor in the DPP sample within an neighborhood. We compare our coverage to that of i.i.d. sampling from a multivariate Gaussian chosen to have variance matching our DPP sample. Despite favoring the i.i.d. case by inflating the variance to match the diverse DPP sample, the DPP poses still provide better average coverage over 100 runs. See Fig. 3 (right) for an assessment of the coverage metric. A visualization of the samples is in the supplement. Note that the i.i.d. case requires on average = 253 to cover all data whereas the DPP only requires = 82. By = 40, we cover over 90% of the data on average. Capturing the rare poses is extremely challenging with i.i.d. sampling, but the diversity encouraged by the DPP overcomes this issue."
+    }, {
+      "heading" : "8 Conclusion",
+      "text" : "Motivated by the recent successes of DPP-based subset modeling in finite-set applications and the growing interest in repulsive processes on continuous spaces, we considered methods by which continuous-DPP sampling can be straightforwardly and efficiently approximated for a wide range of kernels. Our low-rank approach harnessed approximations provided by Nyström and random Fourier feature methods and then utilized a continuous dual DPP representation. The resulting approximate sampler garners the same efficiencies that led to the success of the DPP in the discrete case. One can use this method as a proposal distribution and correct for the approximations via Metropolis-Hastings, for example. For k-DPPs, we devised an exact Gibbs sampler that utilized the Schur complement representation. Finally, we demonstrated that continuous-DPP sampling is useful both for repulsive mixture modeling (which utilizes the Gibbs sampling scheme) and in synthesizing diverse human poses (which we demonstrated with the low-rank approximation method). As we saw in the MoCap example, we can handle high-dimensional spaces d, with our computations scaling just linearly with d. We believe this work opens up opportunities to use DPPs as parts of many models.\nAcknowledgements: RHA and EBF were supported in part by AFOSR Grant FA9550-12-1-0453 and DARPA Grant FA9550-12-1-0406 negotiated by AFOSR. BT was partially supported by NSF CAREER Grant 1054215 and by STARnet, a Semiconductor Research Corporation program sponsored by MARCO and DARPA."
+    } ],
+    "references" : [ {
+      "title" : "Apprenticeship learning via inverse reinforcement learning",
+      "author" : [ "P. Abbeel", "A.Y. Ng" ],
+      "venue" : "Proc. ICML",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : null,
+      "year" : 2004
+    }, {
+      "title" : "Markov determinantal point processes",
+      "author" : [ "R.H. Affandi", "A. Kulesza", "E.B. Fox" ],
+      "venue" : "Proc. UAI",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Nyström approximation for large-scale determinantal processes",
+      "author" : [ "R.H. Affandi", "A. Kulesza", "E.B. Fox", "B. Taskar" ],
+      "venue" : "Proc. AISTATS",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : null,
+      "year" : 2013
+    }, {
+      "title" : "Partitioning of space in communities of ants",
+      "author" : [ "R.A. Bernstein", "M. Gobbel" ],
+      "venue" : "Journal of Animal Ecology, 48(3):931–942",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : null,
+      "year" : 1979
+    }, {
+      "title" : "Eynard-Mehta theorem",
+      "author" : [ "A. Borodin", "E.M. Rains" ],
+      "venue" : "Schur process, and their Pfaffian analogs. Journal of statistical physics, 121(3):291–317",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : null,
+      "year" : 2005
+    }, {
+      "title" : "An introduction to the theory of point processes: Volume I: Elementary theory and methods",
+      "author" : [ "D.J. Daley", "D. Vere-Jones" ],
+      "venue" : "Springer",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : null,
+      "year" : 2003
+    }, {
+      "title" : "Stable evaluation of Gaussian radial basis function interpolants",
+      "author" : [ "G.E. Fasshauer", "M.J. McCourt" ],
+      "venue" : "SIAM Journal on Scientific Computing, 34(2):737–762",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Discovering diverse and salient threads in document collections",
+      "author" : [ "J. Gillenwater", "A. Kulesza", "B. Taskar" ],
+      "venue" : "Proc. EMNLP",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Determinantal processes and independence",
+      "author" : [ "J.B. Hough", "M. Krishnapur", "Y. Peres", "B. Virág" ],
+      "venue" : "Probability Surveys, 3:206–229",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : null,
+      "year" : 2006
+    }, {
+      "title" : "Structured determinantal point processes",
+      "author" : [ "A. Kulesza", "B. Taskar" ],
+      "venue" : "Proc. NIPS",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : null,
+      "year" : 2010
+    }, {
+      "title" : "k-DPPs: Fixed-size determinantal point processes",
+      "author" : [ "A. Kulesza", "B. Taskar" ],
+      "venue" : "ICML",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Determinantal point processes for machine learning",
+      "author" : [ "A. Kulesza", "B. Taskar" ],
+      "venue" : "Foundations and Trends in Machine Learning, 5(2–3)",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Statistical aspects of determinantal point processes",
+      "author" : [ "F. Lavancier", "J. Møller", "E. Rubak" ],
+      "venue" : "arXiv preprint arXiv:1205.4818",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "The coincidence approach to stochastic point processes",
+      "author" : [ "O. Macchi" ],
+      "venue" : "Advances in Applied Probability, pages 83–122",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : null,
+      "year" : 1975
+    }, {
+      "title" : "Spatial variation",
+      "author" : [ "B. Matérn" ],
+      "venue" : "Springer-Verlag",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : null,
+      "year" : 1986
+    }, {
+      "title" : "Markov point processes for modeling of spatial forest patterns in Amazonia derived from interferometric height",
+      "author" : [ "T. Neeff", "G.S. Biging", "L.V. Dutra", "C.C. Freitas", "J.R. Dos Santos" ],
+      "venue" : "Remote Sensing of Environment, 97(4):484–494",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : null,
+      "year" : 2005
+    }, {
+      "title" : "Repulsive mixtures",
+      "author" : [ "F. Petralia", "V. Rao", "D. Dunson" ],
+      "venue" : "NIPS",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Random features for large-scale kernel machines",
+      "author" : [ "A. Rahimi", "B. Recht" ],
+      "venue" : "NIPS",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : null,
+      "year" : 2007
+    }, {
+      "title" : "On Bayesian analysis of mixtures with an unknown number of components (with discussion)",
+      "author" : [ "S. Richardson", "P.J. Green" ],
+      "venue" : "JRSS:B, 59(4):731–792",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : null,
+      "year" : 1997
+    }, {
+      "title" : "Monte Carlo Statistical Methods",
+      "author" : [ "C.P. Robert", "G. Casella" ],
+      "venue" : "Springer, 2nd edition",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : null,
+      "year" : 2004
+    }, {
+      "title" : "Über potenzreihen",
+      "author" : [ "J Schur" ],
+      "venue" : "die im innern des einheitskreises beschränkt sind. Journal für die reine und angewandte Mathematik, 147:205–232",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : null,
+      "year" : 1917
+    }, {
+      "title" : "Dealing with label switching in mixture models",
+      "author" : [ "M. Stephens" ],
+      "venue" : "JRSS:B, 62(4):795–809",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : null,
+      "year" : 2000
+    }, {
+      "title" : "Finding the number of clusters in a dataset: An informationtheoretic approach",
+      "author" : [ "C.A. Sugar", "G.M. James" ],
+      "venue" : "JASA, 98(463):750–763",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : null,
+      "year" : 2003
+    }, {
+      "title" : "Second-order spatial analysis of epidermal nerve fibers",
+      "author" : [ "L.A. Waller", "A. Särkkä", "V. Olsbo", "M. Myllymäki", "I.G. Panoutsopoulou", "W.R. Kennedy", "G. Wendelschafer-Crabb" ],
+      "venue" : "Statistics in Medicine, 30(23):2827–2841",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Consistent selection of the number of clusters via crossvalidation",
+      "author" : [ "J. Wang" ],
+      "venue" : "Biometrika, 97(4): 893–904",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : null,
+      "year" : 2010
+    }, {
+      "title" : "Using the Nyström method to speed up kernel machines",
+      "author" : [ "C.K.I. Williams", "M. Seeger" ],
+      "venue" : "NIPS",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : null,
+      "year" : 2000
+    }, {
+      "title" : "Nyström method vs random fourier features: A theoretical and empirical comparison",
+      "author" : [ "T. Yang", "Y.-F. Li", "M. Mahdavi", "R. Jin", "Z.-H. Zhou" ],
+      "venue" : "NIPS",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Priors for diversity in generative latent variable models",
+      "author" : [ "J. Zou", "R.P. Adams" ],
+      "venue" : "NIPS",
+      "citeRegEx" : "29",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 13,
+      "context" : "Samples from a determinantal point process (DPP) [15] are sets of points that tend to be spread out.",
+      "startOffset" : 49,
+      "endOffset" : 53
+    }, {
+      "referenceID" : 4,
+      "context" : "Building on the foundational work in [5] for the case where Ω is discrete and finite, DPPs have been used in machine learning as a model for subset selection in which diverse sets are preferred [2, 3, 9, 12, 13].",
+      "startOffset" : 37,
+      "endOffset" : 40
+    }, {
+      "referenceID" : 1,
+      "context" : "Building on the foundational work in [5] for the case where Ω is discrete and finite, DPPs have been used in machine learning as a model for subset selection in which diverse sets are preferred [2, 3, 9, 12, 13].",
+      "startOffset" : 194,
+      "endOffset" : 211
+    }, {
+      "referenceID" : 2,
+      "context" : "Building on the foundational work in [5] for the case where Ω is discrete and finite, DPPs have been used in machine learning as a model for subset selection in which diverse sets are preferred [2, 3, 9, 12, 13].",
+      "startOffset" : 194,
+      "endOffset" : 211
+    }, {
+      "referenceID" : 7,
+      "context" : "Building on the foundational work in [5] for the case where Ω is discrete and finite, DPPs have been used in machine learning as a model for subset selection in which diverse sets are preferred [2, 3, 9, 12, 13].",
+      "startOffset" : 194,
+      "endOffset" : 211
+    }, {
+      "referenceID" : 10,
+      "context" : "Building on the foundational work in [5] for the case where Ω is discrete and finite, DPPs have been used in machine learning as a model for subset selection in which diverse sets are preferred [2, 3, 9, 12, 13].",
+      "startOffset" : 194,
+      "endOffset" : 211
+    }, {
+      "referenceID" : 11,
+      "context" : "Building on the foundational work in [5] for the case where Ω is discrete and finite, DPPs have been used in machine learning as a model for subset selection in which diverse sets are preferred [2, 3, 9, 12, 13].",
+      "startOffset" : 194,
+      "endOffset" : 211
+    }, {
+      "referenceID" : 8,
+      "context" : "[10], which relies on the eigendecomposition of the kernel matrix to recursively sample points based on their projections onto the subspace spanned by the selected eigenvectors.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 5,
+      "context" : "Repulsive point processes, like hard core processes [7, 16], many based on thinned Poisson processes and Gibbs/Markov distributions, have a long history in the spatial statistics community, where considering continuous Ω is key.",
+      "startOffset" : 52,
+      "endOffset" : 59
+    }, {
+      "referenceID" : 14,
+      "context" : "Repulsive point processes, like hard core processes [7, 16], many based on thinned Poisson processes and Gibbs/Markov distributions, have a long history in the spatial statistics community, where considering continuous Ω is key.",
+      "startOffset" : 52,
+      "endOffset" : 59
+    }, {
+      "referenceID" : 15,
+      "context" : "Many naturally occurring phenomena exhibit diversity—trees tend to grow in the least occupied space [17], ant hill locations are over-dispersed relative to uniform placement [4] and the spatial distribution of nerve fibers is indicative of neuropathy, with hard-core processes providing a critical tool [25].",
+      "startOffset" : 100,
+      "endOffset" : 104
+    }, {
+      "referenceID" : 3,
+      "context" : "Many naturally occurring phenomena exhibit diversity—trees tend to grow in the least occupied space [17], ant hill locations are over-dispersed relative to uniform placement [4] and the spatial distribution of nerve fibers is indicative of neuropathy, with hard-core processes providing a critical tool [25].",
+      "startOffset" : 174,
+      "endOffset" : 177
+    }, {
+      "referenceID" : 23,
+      "context" : "Many naturally occurring phenomena exhibit diversity—trees tend to grow in the least occupied space [17], ant hill locations are over-dispersed relative to uniform placement [4] and the spatial distribution of nerve fibers is indicative of neuropathy, with hard-core processes providing a critical tool [25].",
+      "startOffset" : 303,
+      "endOffset" : 307
+    }, {
+      "referenceID" : 16,
+      "context" : "Repulsive processes on continuous spaces have garnered interest in machine learning as well, especially relating to generative mixture modeling [18, 29].",
+      "startOffset" : 144,
+      "endOffset" : 152
+    }, {
+      "referenceID" : 27,
+      "context" : "Repulsive processes on continuous spaces have garnered interest in machine learning as well, especially relating to generative mixture modeling [18, 29].",
+      "startOffset" : 144,
+      "endOffset" : 152
+    }, {
+      "referenceID" : 8,
+      "context" : "On the surface, it seems that the eigendecomposition and projection algorithm of [10] for discrete DPPs would naturally extend to the continuous case.",
+      "startOffset" : 81,
+      "endOffset" : 85
+    }, {
+      "referenceID" : 12,
+      "context" : "becomes an operator instead of a matrix, the key steps such as the eigendecomposition of the kernel and projection of points on subspaces spanned by eigenfunctions are computationally infeasible except in a few very limited cases where approximations can be made [14].",
+      "startOffset" : 263,
+      "endOffset" : 267
+    }, {
+      "referenceID" : 9,
+      "context" : "Our approach utilizes a dual representation of the DPP, a technique that has proven useful in the discrete Ω setting as well [11].",
+      "startOffset" : 125,
+      "endOffset" : 129
+    }, {
+      "referenceID" : 11,
+      "context" : "For k-DPPs, which only place positive probability on sets of cardinality k [13], we also devise a Gibbs sampler that iteratively samples points in the k-set conditioned on all k − 1 other points.",
+      "startOffset" : 75,
+      "endOffset" : 79
+    }, {
+      "referenceID" : 11,
+      "context" : "Decomposing our kernel into quality and similarity terms as in [13], this includes, but is not limited to, all cases where the (i) spectral density of the quality and (ii) characteristic function of the similarity kernel can be computed efficiently.",
+      "startOffset" : 63,
+      "endOffset" : 67
+    }, {
+      "referenceID" : 8,
+      "context" : "When Ω is discrete with cardinality N , an efficient algorithm for sampling from a DPP is given in [10].",
+      "startOffset" : 99,
+      "endOffset" : 103
+    }, {
+      "referenceID" : 12,
+      "context" : "Extending this algorithm to a continuous space was considered by [14], but for a very limited set of kernels L and spaces Ω.",
+      "startOffset" : 65,
+      "endOffset" : 69
+    }, {
+      "referenceID" : 12,
+      "context" : "When Ω is a compact rectangle in R, [14] suggest approximating the eigendecomposition using an orthonormal Fourier basis.",
+      "startOffset" : 36,
+      "endOffset" : 40
+    }, {
+      "referenceID" : 12,
+      "context" : "Even if we are able to obtain the eigendecomposition of the kernel function (either directly or via approximations as considered in [14] and Sec.",
+      "startOffset" : 132,
+      "endOffset" : 136
+    }, {
+      "referenceID" : 12,
+      "context" : "When Ω is compact, [14] suggest using a rejection sampler with a uniform proposal on Ω.",
+      "startOffset" : 19,
+      "endOffset" : 23
+    }, {
+      "referenceID" : 9,
+      "context" : "L = B>B, with B a D×N matrix and D N , [11] showed that the complexity of sampling can be reduced to O(ND(2) +D(3)).",
+      "startOffset" : 39,
+      "endOffset" : 43
+    }, {
+      "referenceID" : 11,
+      "context" : "A similar algorithm provides samples from a k-DPP, which only gives positive probability to sets of a fixed cardinality k [13].",
+      "startOffset" : 122,
+      "endOffset" : 126
+    }, {
+      "referenceID" : 19,
+      "context" : "Phase 2 In general, sampling directly from the density f(x) is difficult; instead, we can compute the cumulative distribution function (CDF) and sample x using the inverse CDF method [21]:",
+      "startOffset" : 183,
+      "endOffset" : 187
+    }, {
+      "referenceID" : 17,
+      "context" : "1 Sampling from RFF-approximated DPP Random Fourier features (RFF) [19] is an approach for approximating shift-invariant kernels, k(x,y) = k(x − y), using randomly selected frequencies.",
+      "startOffset" : 67,
+      "endOffset" : 71
+    }, {
+      "referenceID" : 25,
+      "context" : "2 Sampling from a Nyström-approximated DPP Another approach to kernel approximation is the Nyström method [27].",
+      "startOffset" : 106,
+      "endOffset" : 110
+    }, {
+      "referenceID" : 20,
+      "context" : "Denoting J\\k = {xj}j 6=k and M\\k = L−1 J\\k the full conditional can be simplified using Schur’s determinantal equality [22]:",
+      "startOffset" : 119,
+      "endOffset" : 123
+    }, {
+      "referenceID" : 6,
+      "context" : ", σ(2)), respectively, enabling our analysis based on the easily computed eigenvalues [8].",
+      "startOffset" : 86,
+      "endOffset" : 89
+    }, {
+      "referenceID" : 26,
+      "context" : "It has been previously demonstrated that the Nyström method performs favorably in kernel learning tasks compared to RFF in cases where there is a large eigengap in the kernel matrix [28].",
+      "startOffset" : 182,
+      "endOffset" : 186
+    }, {
+      "referenceID" : 2,
+      "context" : "Furthermore, this result is consistent with the comparison of RFF to Nyström in approximating DPPs in the discrete Ω case provided in [3].",
+      "startOffset" : 134,
+      "endOffset" : 137
+    }, {
+      "referenceID" : 17,
+      "context" : "For the RFF, while the kernel approximation is guaranteed to be an unbiased estimate of the true kernel element-wise, the variance is fairly high [19].",
+      "startOffset" : 146,
+      "endOffset" : 150
+    }, {
+      "referenceID" : 2,
+      "context" : "Theoretical bounds for the Nyström DPP approximation in the case when Ω is finite are provided in [3].",
+      "startOffset" : 98,
+      "endOffset" : 101
+    }, {
+      "referenceID" : 16,
+      "context" : "However, such approaches run the risk of inaccuracies in the parameter estimates [18].",
+      "startOffset" : 81,
+      "endOffset" : 85
+    }, {
+      "referenceID" : 16,
+      "context" : "Instead, [18] show that sampling the location parameters using repulsive priors leads to better separated clusters while maintaining the accuracy of the density estimate.",
+      "startOffset" : 9,
+      "endOffset" : 13
+    }, {
+      "referenceID" : 27,
+      "context" : "In fact, [29] considered using DPPs as repulsive priors in latent variable models.",
+      "startOffset" : 9,
+      "endOffset" : 13
+    }, {
+      "referenceID" : 21,
+      "context" : "Draws are post-processed following the algorithm of [23] to address the label switching issue.",
+      "startOffset" : 52,
+      "endOffset" : 56
+    }, {
+      "referenceID" : 18,
+      "context" : "Real data We also tested our DPP model on three real density estimation tasks considered in [20]: 82 measurements of velocity of galaxies diverging from our own (galaxy), acidity measurement of 155 lakes in Wisconsin (acidity), and the distribution of enzymatic activity in the blood of 245 individuals (enzyme).",
+      "startOffset" : 92,
+      "endOffset" : 96
+    }, {
+      "referenceID" : 22,
+      "context" : "Based on loss minimization, [24, 26] concluded that the optimal number of clusters was two.",
+      "startOffset" : 28,
+      "endOffset" : 36
+    }, {
+      "referenceID" : 24,
+      "context" : "Based on loss minimization, [24, 26] concluded that the optimal number of clusters was two.",
+      "startOffset" : 28,
+      "endOffset" : 36
+    }, {
+      "referenceID" : 0,
+      "context" : "In many applications of inverse reinforcement learning or inverse optimal control, the learner is presented with control trajectories executed by an expert and tries to estimate a reward function that would approximately reproduce such policies [1].",
+      "startOffset" : 245,
+      "endOffset" : 248
+    } ],
+    "year" : 2013,
+    "abstractText" : "Determinantal point processes (DPPs) are random point processes well-suited for modeling repulsion. In machine learning, the focus of DPP-based models has been on diverse subset selection from a discrete and finite base set. This discrete setting admits an efficient sampling algorithm based on the eigendecomposition of the defining kernel matrix. Recently, there has been growing interest in using DPPs defined on continuous spaces. While the discrete-DPP sampler extends formally to the continuous case, computationally, the steps required are not tractable in general. In this paper, we present two efficient DPP sampling schemes that apply to a wide range of kernel functions: one based on low rank approximations via Nyström and random Fourier feature techniques and another based on Gibbs sampling. We demonstrate the utility of continuous DPPs in repulsive mixture modeling and synthesizing human poses spanning activity spaces.",
+    "creator" : null
+  }
+}

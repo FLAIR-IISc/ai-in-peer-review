@@ -1,0 +1,74 @@
+Summary
+This paper extends Generative Moment Matching Networks (GMMN) from the joint to the conditional setting. The key idea is to learn a generator y = f(x, h; w) that maps a conditioning input x and exogenous noise h to an output y, and to train f by minimizing a conditional maximum mean discrepancy (CMMD) between the empirical conditional distribution Pdata(Y|X) and the model distribution Pmodel(Y|X). The CMMD objective measures the Hilbert–Schmidt distance between conditional mean embedding operators CY|X of P(Y|X) in RKHS, estimated empirically as Φ(K+λI)−1Υ⊤, with Φ the output feature matrix and Υ the input feature matrix. The resulting loss (Eq. 2) is expressed entirely via kernel Gram matrices on inputs and outputs, enabling end-to-end training of deep generators with backpropagation. Experiments cover (i) predictive modeling (MNIST, SVHN) by conditioning on images and generating label scores; (ii) conditional generation (MNIST, Yale Faces) by conditioning on labels; and (iii) “Bayesian dark knowledge” where a CGMMN distills predictions from a Bayesian teacher (PBP) on Boston Housing.
+
+Relation to prior work: This builds on MMD two-sample testing and kernel mean embeddings [Gretton et al., Song et al., Grunewälder et al.], and on GMMN for joint generative modeling [Li et al.]. It is complementary to conditional GANs [Mirza & Osindero] and conditional VAEs [Sohn et al.], offering a simpler, adversary-free objective. It also connects to conditional deep generative modeling and distillation [Korattikara et al.].
+
+Strengths
+- Conceptual: A principled, kernel-based conditional objective that generalizes MMD, with a clear sufficiency condition (matching conditional operators implies matching all conditionals).
+- Practical: Simple sampling and training loop; compatible with CNN/MLP architectures; stable optimization (no adversarial game).
+- Breadth: Demonstrates use for classification, conditional generation, and Bayesian model distillation.
+- Results: Competitive predictive performance on MNIST/SVHN relative to other DGMs; plausible conditional samples; distillation maintains teacher performance on a standard regression task.
+
+Weaknesses
+- Clarity: The presentation of CMMD and Eq. (2) is heavy on formalism and light on intuition; the derivation, assumptions, and practical consequences are under-explained. The path from Eq. (2) to the implemented mini-batch algorithm is insufficiently detailed; the supplemental material is hard to follow.
+- Computational aspects: The paper does not quantify the cost of per-batch kernel construction and K̃−1, nor discuss numerical stability, regularization, or approximations (e.g., Nyström/random features). The O(m^3) per-batch inversion cost is a practical constraint.
+- Experimental scope: Conditional generation is evaluated mostly visually; no quantitative measures (as used in contemporary works) or ablations (batch size, λ, kernels) are provided. Comparisons to conditional baselines (cGAN, CVAE) are missing on the same tasks.
+- Methodological details: Kernels and bandwidth selection for X and Y, choice of λ, whether inputs are exactly matched across data/model batches, and how perturbations are used are not clearly specified in the main text.
+
+Quality
+The core objective is technically sound and consistent with conditional mean embedding theory. However, key derivational steps and computational considerations are not adequately documented, leaving ambiguity about correctness and efficiency of the practical estimator and gradients.
+
+Clarity
+Writing is generally fluent, but the conditional objective’s intuition, Eq. (2)’s derivation, and the algorithmic mapping need significant improvements. See requests below.
+
+Originality
+Moderate. Conditional mean embeddings are known; the novelty is in turning them into a practical deep conditional generator trained by CMMD. This is a meaningful extension of GMMN with a clean objective distinct from cGAN/CVAE.
+
+Significance
+Moderate. The approach is broadly applicable and empirically competitive, but the absence of stronger conditional baselines and limited quantitative evaluation reduce the immediate impact.
+
+Requested clarifications and suggestions to improve the manuscript
+1) Intuitive derivation of Eq. (2)
+- Start from CMMD: L2 = ||CdY|X − CsY|X||2HS = Tr[(Cd − Cs)⊤(Cd − Cs)] in F⊗G.
+- Use the standard empirical conditional operator with Tikhonov regularization: ĈY|X = Φ(K+λI)−1Υ⊤, where K = Υ⊤Υ is the input Gram matrix and Φ stacks output feature maps.
+- Expand the squared norm:
+  ||ΦdK̃−1d Υ⊤d − ΦsK̃−1s Υ⊤s||2HS
+  = Tr(Υ⊤d Υd K̃−1d Φ⊤d Φd K̃−1d) + Tr(Υ⊤s Υs K̃−1s Φ⊤s Φs K̃−1s)
+    − 2 Tr(Υ⊤s Υd K̃−1d Φ⊤d Φs K̃−1s).
+- Identify Gram matrices: Kd=Υ⊤d Υd, Ks=Υ⊤s Υs, Ksd=Υ⊤s Υd, Ld=Φ⊤d Φd, Ls=Φ⊤s Φs, Lds=Φ⊤d Φs, yielding Eq. (2).
+- Intuition: MMD compares empirical kernel means with uniform weights. CMMD compares output features with weights induced by input similarity via (K+λI)−1, so outputs are matched “locally” around each x. If all inputs were equally similar (K≈1), CMMD reduces to MMD up to constants.
+
+2) Step-by-step mapping from Eq. (2) to the practical algorithm
+- Inputs: Mini-batch B={(xi, yi)d}i=1..m from data. For each xi, sample noise hi and produce ysi=f(xi,hi;w) to form B′.
+- Choose kernels:
+  • kx on inputs X (often RBF; not required to be differentiable since K terms do not depend on w).
+  • ky on outputs Y (e.g., RBF over logits or labels for classification; RBF over pixels or latent codes for images).
+- Compute Gram matrices:
+  • Kd = [kx(xi,xj)]i,j, Ks = [kx(xi,xj)]i,j (same x’s if you mirror the batch), Ksd = [kx(xi,xj)]i,j.
+  • Ld = [ky(yid, yjd)], Ls = [ky(ysi, ysj)], Lds = [ky(yid, ysj)].
+- Regularize and invert per batch: K̃d=Kd+λI, K̃s=Ks+λI; compute inverses (or Cholesky solves).
+- Evaluate loss via Eq. (2): Tr(Kd K̃−1d Ld K̃−1d) + Tr(Ks K̃−1s Ls K̃−1s) − 2 Tr(Ksd K̃−1d Lds K̃−1s).
+- Gradients:
+  • Only Ls and Lds depend on w. Differentiate loss w.r.t. these matrices, then apply chain rule through ky to ysi, and backpropagate through f.
+  • Example for RBF ky(y,y′)=exp(−||y−y′||2/(2σ2)): ∂ky/∂y = ky(y,y′) (y′−y)/σ2.
+- Complexity and stability:
+  • Forming Gram matrices: O(m2). Inversion per batch: O(m3); feasible for m~128–512 (use Cholesky). λ controls stability.
+  • For larger m, consider Nyström or random Fourier features to avoid inverses, turning CMMD into an MMD on learned conditional features.
+- Implementation details to specify:
+  • Whether x batches are shared across data/model (recommended for efficiency and variance reduction).
+  • Kernel choices and bandwidth selection strategy (median heuristic or cross-validation).
+  • λ values and sensitivity.
+  • Any input perturbations used for distillation or generation.
+
+Pros for acceptance
+- Principled, general conditional objective; fills an identifiable gap between GMMN and conditional DGMs.
+- Simple training; stable in practice.
+- Broad applicability demonstrated; competitive predictive results; neat application to Bayesian distillation.
+
+Cons for acceptance
+- Insufficient clarity on the conditional objective’s intuition and derivation; Eq. (2) to algorithm mapping is underspecified.
+- Computational cost and numerical aspects not analyzed.
+- Experimental evaluation of conditional generation is limited and lacks comparisons to cGAN/CVAE.
+
+Overall recommendation
+Borderline accept. The idea is sound and useful, and the paper would be much stronger if the authors add the intuitive derivation, the algorithmic mapping (as above), and a brief computational analysis, plus clarifications on kernels and hyperparameters.

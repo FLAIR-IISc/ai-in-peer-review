@@ -1,0 +1,272 @@
+{
+  "name" : "289dff07669d7a23de0ef88d2f7129e7.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "CMA-ES with Optimal Covariance Update and Storage Complexity",
+    "authors" : [ "Oswin Krause" ],
+    "emails" : [ "oswin.krause@di.ku.dk", "didac@di.ku.dk", "igel@di.ku.dk" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "The covariance matrix adaptation evolution strategy, CMA-ES [Hansen and Ostermeier, 2001], is recognized as one of the most competitive derivative-free algorithms for real-valued optimization [Beyer, 2007; Eiben and Smith, 2015]. The algorithm has been successfully applied in many unbiased performance comparisons and numerous real-world applications. In machine learning, it is mainly used for direct policy search in reinforcement learning and hyperparameter tuning in supervised learning (e.g., see Gomez et al. [2008]; Heidrich-Meisner and Igel [2009a,b]; Igel [2010], and references therein).\nThe CMA-ES is a Monte Carlo method for optimizing functions f : Rd → R. The objective function f does not need to be continuous and can be multi-modal, constrained, and disturbed by noise. In each iteration, the CMA-ES samples from a d-dimensional multivariate normal distribution, the search distribution, and ranks the sampled points according to their objective function values. The mean and the covariance matrix of the search distribution are then adapted based on the ranked points. Given the ranking of the sampled points, the runtime of one CMA-ES iteration is ω(d2) because the square root of the covariance matrix is required, which is typically computed by an eigenvalue decomposition. If the objective function can be evaluated efficiently and/or d is large, the computation of the matrix square root can easily dominate the runtime of the optimization process.\nVarious strategies have been proposed to address this problem. The basic approach for reducing the runtime is to perform an update of the matrix only every τ ∈ Ω(d) steps [Hansen and Ostermeier,\n30th Conference on Neural Information Processing Systems (NIPS 2016), Barcelona, Spain.\n1996, 2001], effectively reducing the time complexity to O(d2). However, this forces the algorithm to use outdated matrices during most iterations and can increase the amount of function evaluations. Furthermore, it leads to an uneven distribution of computation time over the iterations. Another approach is to restrict the model complexity of the search distribution [Poland and Zell, 2001; Ros and Hansen, 2008; Sun et al., 2013; Akimoto et al., 2014; Loshchilov, 2014, 2015], for example, to consider only diagonal matrices [Ros and Hansen, 2008]. However, this can lead to a drastic increase in function evaluations needed to approximate the optimum if the objective function is not compatible with the restriction, for example, when optimizing highly non-separable problems while only adapting the diagonal of the covariance matrix [Omidvar and Li, 2011]. More recently, methods were proposed that update the Cholesky factor of the covariance matrix instead of the covariance matrix itself [Suttorp et al., 2009; Krause and Igel, 2015]. This works well for some CMA-ES variations (e.g., the (1+1)-CMA-ES and the multi-objective MO-CMA-ES [Suttorp et al., 2009; Krause and Igel, 2015; Bringmann et al., 2013]), however, the original CMA-ES relies on the matrix square root, which cannot be replaced one-to-one by a Cholesky factor.\nIn the following, we explore the use of the triangular Cholesky factorization instead of the square root in the standard CMA-ES. In contrast to previous attempts in this direction, we present an approach that comes with a theoretical justification for why it does not deteriorate the algorithm’s performance. This approach leads to the optimal asymptotic storage and runtime complexity when adaptation of the full covariance matrix is required, as is the case for non-separable ill-conditioned problems. Our CMA-ES variant, referred to as Cholesky-CMA-ES, reduces the runtime complexity of the algorithm with no significant change in the number of objective function evaluations. It also reduces the memory footprint of the algorithm.\nSection 2 briefly describes the original CMA-ES algorithm (for details we refer Hansen [2015]). In section 3 we propose our new method for approximating the step-size adaptation. We give a theoretical justification for the convergence of the new algorithm. We provide empirical performance results comparing the original CMA-ES with the new Cholesky-CMA-ES using various benchmark functions in section 4. Finally, we discuss our results and draw our conclusions."
+    }, {
+      "heading" : "2 Background",
+      "text" : "Before we briefly describe the CMA-ES to fix our notation, we discuss some basic properties of using a Cholesky decomposition to sample from a multi-variate Gaussian distribution. Sampling from a d-dimensional multi-variate normal distribution N (m,Σ), m ∈ Rd ,Σ ∈ Rd×d is usually done using a decomposition of the covariance matrix Σ. This could be the square root of the matrix Σ = HH ∈ Rd×d or a lower triangular Cholesky factorization Σ = AAT , which is related to the square root by the QR-decomposition H = AE where E is an orthogonal matrix. We can sample a point x from N (m,Σ) using a sample z ∼ N (0, I) by x = Hz +m = AEz +m = Ay +m, where we set y = Ez. We have y ∼ N (0, I) since E is orthogonal. Thus, as long as we are only interested in the value of x and do not need y, we can sample using the Cholesky factor instead of the matrix square root."
+    }, {
+      "heading" : "2.1 CMA-ES",
+      "text" : "The CMA-ES has been proposed by Hansen and Ostermeier [1996, 2001] and its most recent version is described by Hansen [2015]. In the tth iteration of the algorithm, the CMA-ES samples λ points from a multivariate normal distribution N (mt, σ2t · Ct), evaluates the objective function f at these points, and adapts the parameters Ct ∈ Rd×d,mt ∈ Rd, and σt ∈ R+. In the following, we present the update procedure in a slightly simplified form (for didactic reasons, we refer to Hansen [2015] for the details). All parameters (µ, λ, ω, cσ , dσ , cc, c1, cµ) are set to their default values [Hansen, 2015, Table 1].\nFor a minimization task, the λ points are ranked by function value such that f(x1,t) ≤ f(x2,t) ≤ · · · ≤ f(xλ,t). The distribution mean is set to the weighted average mt+1 = ∑µ i=1 ωixi,t. The weights depend only on the ranking, not on the function values directly. This renders the algorithm invariant under order-preserving transformation of the objective function. Points with smaller ranks (i.e., better objective function values) are given a larger weight ωi with ∑λ i=1 ωi = 1. The weights are zero for ranks larger than µ < λ, which is typically µ = λ/2. Thus, points with function values worse than the median do not enter the adaptation process of the parameters. The covariance matrix\nis updated using two terms, a rank-1 and a rank-µ update. For the rank-1 update, a long term average of the changes ofmt is maintained\npc,t+1 = (1− cc)pc,t + √ cc(2− cc)µeff\nmt+1 −mt σt , (1)\nwhere µeff = 1/ ∑µ i=1 ω 2 i is the effective sample size given the weights. Note that pc,t is large when the algorithm performs steps in the same direction, while it becomes small when the algorithm performs steps in alternating directions.1 The rank-µ update estimates the covariance of the weighted steps xi,t −mt, 1 ≤ i ≤ µ. Combining rank-1 and rank-µ update gives the final update rule for Ct, which can be motivated by principles from information geometry [Akimoto et al., 2012]:\nCt+1 = (1− c1 − cµ)Ct + c1pc,t+1pTc,t+1 + cµ σ2t µ∑ i=1 ωi (xi,t −mt) (xi,t −mt)T (2)\nSo far, the update is (apart from initialization) invariant under affine linear transformations (i.e., x 7→ Bx+ b, B ∈ GL(d,R)). The update of the global step-size parameter σt is based on the cumulative step-size adaptation algorithm (CSA). It measures the correlation of successive steps in a normalized coordinate system. The goal is to adapt σt such that the steps of the algorithm become uncorrelated. Under the assumption that uncorrelated steps are standard normally distributed, a carefully designed long term average over the steps should have the same expected length as a χ-distributed random variable, denoted by E{χ}. The long term average has the form\npσ,t+1 = (1− cσ)pσ,t + √ cσ(2− cσ)µeff C−1/2t\nmt+1 −mt σt\n(3)\nwith pσ,1 = 0. The normalization by the factor C −1/2 t is the main difference between equations (1) and (3). It is important because it corrects for a change of Ct between iterations. Without this correction, it is difficult to measure correlations accurately in the un-normalized coordinate system. For the update, the length of pσ,t+1 is compared to the expected length E{χ} and σt is changed depending on whether the average step taken is longer or shorter than expected:\nσt+1 = σt exp ( cσ dσ ( ‖pσ,t+1‖ E{χ} − 1 ))\n(4)\nThis update is not proven to preserve invariance under affine linear transformations [Auger, 2015], and it is it conjectured that it does not."
+    }, {
+      "heading" : "3 Cholesky-CMA-ES",
+      "text" : "In general, computing the matrix square root or the Cholesky factor from an n× n matrix has time complexity ω(d2) (i.e., scales worse than quadratically). To reduce this complexity, Suttorp et al. [2009] have suggested to replace the process of updating the covariance matrix and decomposing it afterwards by updates directly operating on the decomposition (i.e., the covariance matrix is never computed and stored explicitly, only its factorization is maintained). Krause and Igel [2015] have shown that the update ofCt in equation (2) can be rewritten as a quadratic-time update of its triangular Cholesky factor At with Ct = AtATt . They consider the special case µ = λ = 1. We propose to extend this update to the standard CMA-ES, which leads to a runtime O(µd2). As typically µ = O(log(d)), this gives a large speed-up compared to the explicit recomputation of the Cholesky factor or the inverse of the covariance matrix.\nUnfortunately, the fast Cholesky update can not be applied directly to the original CMA-ES. To see this, consider the term st = C −1/2 t (mt+1 −mt) in equation (3). Rewriting pσ,t+1 in terms of st in a non-recursive fashion, we obtain\npσ,t+1 = √ cσ(2− cσ)µeff t∑ k=1 (1− cσ)t−k σk sk .\n1Given cc, the factors in (1) are chosen to compensate for the change in variance when adding distributions. If the ranking of the points would be purely random, √ µeff · (mt+1 −mt)/σt ∼ N (0, Ct) and if Ct = I and pc,t ∼ N (0, I) then pc,t+1 ∼ N (0, I).\nAlgorithm 1: The Cholesky-CMA-ES. input :λ, µ,m1, ωi=1...µ, cσ , dσ , cc, c1 and cµ A1 = I, pc,1 = 0, pσ,1 = 0 for t = 1, 2, . . . do\nfor i = 1, . . . , λ do xi,t = σtAtyi,t +mt, yi,t ∼ N (0, I)\nSort xi,t, i = 1, . . . , λ increasing by f(xi,t) mt+1 = ∑µ i=1 ωixi,t\npc,t+1 = (1− cc)pc,t + √ cc(2− cc)µeff mt+1−mtσt // Apply formula (2) to At At+1 ← √ 1− c1 − cµAt At+1 ← rankOneUpdate(At+1, c1, pc,t+1) for i = 1, . . . , µ do\nAt+1 ← rankOneUpdate(At+1, cµωi, xi,t−mtσt ) // Update σ using ŝk as in (5) pσ,t+1 = (1− cσ)pσ,t + √ cσ(2− cσ)µeffA−1t mt+1−mt σt\nσt+1 = σt exp ( cσ dσ ( ‖pσ,t+1‖ E{χ} − 1 ))\nAlgorithm 2: rankOneUpdate(A, β,v) input :Cholesky factor A ∈ Rd×d of C, β ∈ R, v ∈ Rd output : Cholesky factor A′ of C + βvvT α← v b← 1 for j = 1, . . . , d do\nA′jj ← √ A2jj + β bα 2 j γ ← A2jjb+ βα2j for k = j + 1, . . . , d do\nαk ← αk − αjAjjAkj A′kj = A′jj Ajj Akj + A′jjβαj γ αk\nb← b+ β α 2 j\nA2jj\nBy the RQ-decomposition, we can find C1/2t = AtEt with Et being an orthogonal matrix and At lower triangular. When replacing st by ŝt = A−1t (mt+1 −mt), we obtain\npσ,t+1 = √ cσ(2− cσ)µeff t∑ k=1 (1− cσ)t−k σk ETk ŝk .\nThus, replacing C−1/2t by A −1 t introduces a new random rotation matrix E T t , which changes in every iteration. Obtaining Et from At can be achieved by the polar-decomposition, which is a cubic-time operation: currently there are no algorithms known that can update an existing polar decomposition from an updated Cholesky factor in less than cubic time. Thus, if our goal is to apply the fast Cholesky update, we have to perform the update without this correction factor\npσ,t+1 ≈ √ cσ(2− cσ)µeff t∑ k=1 (1− cσ)t−k σk ŝk . (5)\nThis introduces some error, but we will show in the following that we can expect this error to be small and to decrease over time as the algorithm converges to the optimum. For this, we need the following result:\nLemma 1. Consider the sequence of symmetric positive definite matrices C̄∞t=0 with C̄t = Ct(detCt) −1/d. Assume that C̄t t→∞−→ C̄ and that C̄ is symmetric positive definite with det C̄ = 1. Let C̄1/2t = ĀtEt denote the RQ-decomposition of C̄ 1/2 t , where Et is orthogonal and Āt lower triangular. Then it holds ETt−1Et t→∞−→ I .\nProof. Let C̄ = ĀE, the RQ-decomposition of C̄. As det C̄ 6= 0, this decomposition is unique. Because the RQ-decomposition is continuous, it maps convergent sequences to convergent sequences. Therefore Et t→∞−→ E and thus, ETt−1Et t→∞−→ ETE = I .\nThis result establishes that, when Ct converges to a certain shape (but not necessary to a certain scaling), At and thus Et will also converge (up to scaling). Thus, as we only need the norm of pσ,t+1, we can rotate the coordinate system and by multiplying with Et we obtain\n‖pσ,t+1‖ = ‖Etpσ,t+1‖ = √ cσ(2− cσ)µeff ∥∥∥∥∥ t∑\nk=1\n(1− cσ)t−k\nσk EtE\nT k ŝk ∥∥∥∥∥ . (6) Therefore, if EtETt−1\nt→∞−→ I , the error in the norm will also vanish due to the exponential weighting in the summation. Note that this does not hold for any decomposition Ct = BtBTt . If we do not constrain Bt to be triangular and allow any matrix, we do not have a bijective mapping between Ct and Bt anymore and the introduction of d(d−1) 2 degrees of freedom (as, e.g., in the update proposed by Suttorp et al. [2009]) allows the creation of non-converging sequences of Et even for Ct = const.\nAs the CMA-ES is a randomized algorithm, we cannot assume convergence of Ct. However, in simplified algorithms the expectation of Ct converges [Beyer, 2014]. Still, the reasoning behind Lemma 1 establishes that the error caused by replacing st by ŝt is small if Ct changes slowly. Equation (6) establishes that the error depends only on the rotation of coordinate systems. As the mapping from Ct to the triangular factor At is one-to-one and smooth, the coordinate system changes in every step will be small – and because of the exponentially decaying weighting, only the last few coordinate systems matter at a particular time step t.\nThe Cholesky-CMA-ES algorithm is given in Algorithm 1. One can derive the algorithm from the standard CMA-ES by decomposing (2) into a number of rank-1 updates Ct+1 = (((αCt+β1v1vT1 )+ β2v2v T 2 ) . . . ) and applying them to the Cholesky factor using Algorithm 2.\nProperties of the update rule. The O(µd2) complexity of the update in the Cholesky-CMAES is asymptotically optimal.2 Apart from the theoretical guarantees, there are several additional advantages compared to approaches using a non-triangular Cholesky factorization (e.g., Suttorp et al. [2009]). First, as only triangular matrices have to be stored, the storage complexity is optimal. Second, the diagonal elements of a triangular Cholesky factor are the square roots of the eigenvalues of the factorized matrix, that is, we get the eigenvalues of the covariance matrix for free. These are important, for example, for monitoring the conditioning of the optimization problem and, in particular, to enforce lower bounds on the variances of σtCt projected on its principal components. Third, a triangular matrix can be inverted in quadratic time. Thus, we can efficiently compute A−1t from At when needed, instead of having two separate quadratic-time updates for A−1t and At, which requires more memory and is prone to numerical instabilities."
+    }, {
+      "heading" : "4 Experiments and Results",
+      "text" : "Experiments. We compared the Cholesky-CMA-ES with other CMA-ES variants.3 The reference CMA-ES implementation uses a delay strategy in which the matrix square root is computed every max { 1, 110d(c1+cµ) } iterations [Hansen, 2015], which equals one for the dimensions considered\n2Actually, the complexity is related to the complexity of multiplying two µ× d matrices. We assume a naïve implementation of matrix multiplication. With a faster multiplication algorithm, the complexity can be reduced accordingly.\n3We added our algorithm to the open-source machine learning library Shark [Igel et al., 2008] and used LAPACK for high efficiency.\nin our experiments. We call this variant CMA-ES-Ref. As an alternative, we experimented with delaying the update for d steps. We refer to this variant as CMA-ES/d. We also adapted the nontriangular Cholesky factor approach by Suttorp et al. [2009] to the state-of-the art implementation of the CMA-ES. We refer to the resulting algorithm as Suttorp-CMA-ES.\nWe considered standard benchmark functions for derivative-free optimization given in Table 1. Sphere is considered to show that on a spherical function the step size adaption does not behave differently; Cigar/Discus/Ellipsoid model functions with different convex shapes near the optimum; Rosenbrock tests learning a function with d− 1 bends, which lead to slowly converging covariance matrices in the optimization process; Diffpowers is an example of a function with arbitrarily bad conditioning.\nTo test rotation invariance, we applied a rotation matrix to the variables, x 7→ Bx, B ∈ SO(d,R). This is done for every benchmark function, and a rotation matrix was chosen randomly at the beginning of each trial. All starting points were drawn uniformly from [0, 1], except for Sphere, where we sampled fromN (0, I). For each function, we vary d ∈ {4, 8, 16, . . . , 256}. Due to the long running times, we only compute CMA-ES-Ref up to d = 128. For the given range of dimensions, for every choice of d, we ran 100 trials from different initial points and monitored the number of iterations and the wall-clock time needed to sample a point with a function value below 10−14. For Rosenbrock we excluded the trials in which the algorithm did not converge to the global optimum.\nWe further evaluated the algorithms on additional benchmark functions inspired by Stich and Müller [2012] and measured the change of rotation introduced by the Cholesky-CMA-ES at each iteration (Et), see supplementary material.\nResults. Figure 1 shows that CMA-ES-Ref and Cholesky-CMA-ES required the same amount of function evaluations to reach a given objective value. The CMA-ES/d required slightly more evaluations depending on the benchmark function. When considering the wall-clock runtime, the Cholesky-CMA-ES was significantly faster than the other algorithms. As expected from the theoretical analysis, the higher the dimensionality the more pronounced the differences, see Figure 2 (note logarithmic scales). For d = 64 the Cholesky-CMA-ES was already 20 times faster than the CMA-ES-Ref. The drastic differences in runtime become apparent when inspecting single trials. Note that for d = 256 the matrix size exceeded the L2 cache, which affected the performance of the Cholesky-CMA-ES and Suttorp-CMA-ES. Figure 3 plots the trials with runtimes closest to the corresponding median runtimes for d = 128."
+    }, {
+      "heading" : "5 Conclusion",
+      "text" : "CMA-ES is a ubiquitous algorithm for derivative-free optimization. The CMA-ES has proven to be a highly efficient direct policy search algorithm and to be a useful tool for model selection in supervised learning. We propose the Cholesky-CMA-ES, which can be regarded as an approximation of the original CMA-ES. We gave theoretical arguments for why our approximation, which only affects the global step-size adaptation, does not impair performance. The Cholesky-CMA-ES achieves a better, asymptotically optimal time complexity of O(µd2) for the covariance update and optimal memory complexity. It allows for numerically stable computation of the inverse of the Cholesky factor in quadratic time and provides the eigenvalues of the covariance matrix without additional costs. We empirically compared the Cholesky-CMA-ES to the state-of-the-art CMA-ES with delayed covariance matrix decomposition. Our experiments demonstrated a significant increase in optimizaton speed. As expected, the Cholesky-CMA-ES needed the same amount of objective function evaluations as the standard CMA-ES, but required much less wall-clock time – and this speed-up increases with the search space dimensionality. Still, our algorithm scales quadratically with the problem dimensionality. If the dimensionality gets so large that maintaining a full covariance matrix becomes computationally infeasible, one has to resort to low-dimensional approximations [e.g., Loshchilov, 2015], which, however, bear the risk of a significant drop in optimization performance. Thus, we advocate our new Cholesky-CMA-ES for scaling up CMA-ES to large optimization problems for which updating and storing the covariance matrix is still possible, for example, for training neural networks in direct policy search.\nAcknowledgement. We acknowledge support from the Innovation Fund Denmark through the projects “Personalized breast cancer screening” (OK, CI) and “Cyber Fraud Detection Using Advanced Machine Learning Techniques” (DRA, CI)."
+    } ],
+    "references" : [ {
+      "title" : "Theoretical foundation for CMA-ES from information geometry perspective",
+      "author" : [ "Y. Akimoto", "Y. Nagata", "I. Ono", "S. Kobayashi" ],
+      "venue" : null,
+      "citeRegEx" : "Akimoto et al\\.,? \\Q2012\\E",
+      "shortCiteRegEx" : "Akimoto et al\\.",
+      "year" : 2012
+    }, {
+      "title" : "Comparison-based natural gradient optimization in high dimension",
+      "author" : [ "Y. Akimoto", "A. Auger", "N. Hansen" ],
+      "venue" : "In Proceedings of the 16th Annual Genetic and Evolutionary Computation Conference (GECCO),",
+      "citeRegEx" : "Akimoto et al\\.,? \\Q2014\\E",
+      "shortCiteRegEx" : "Akimoto et al\\.",
+      "year" : 2014
+    }, {
+      "title" : "Analysis of Comparison-based Stochastic Continous Black-Box Optimization Algorithms",
+      "author" : [ "A. Auger" ],
+      "venue" : "Habilitation thesis, Faculté des Sciences d’Orsay, Université Paris-Sud,",
+      "citeRegEx" : "Auger.,? \\Q2015\\E",
+      "shortCiteRegEx" : "Auger.",
+      "year" : 2015
+    }, {
+      "title" : "Convergence analysis of evolutionary algorithms that are based on the paradigm of information geometry",
+      "author" : [ "H.-G. Beyer" ],
+      "venue" : "Evolutionary Computation,",
+      "citeRegEx" : "Beyer.,? \\Q2014\\E",
+      "shortCiteRegEx" : "Beyer.",
+      "year" : 2014
+    }, {
+      "title" : "Speeding up many-objective optimization by Monte Carlo approximations",
+      "author" : [ "K. Bringmann", "T. Friedrich", "C. Igel", "T. Voß" ],
+      "venue" : "Artificial Intelligence,",
+      "citeRegEx" : "Bringmann et al\\.,? \\Q2013\\E",
+      "shortCiteRegEx" : "Bringmann et al\\.",
+      "year" : 2013
+    }, {
+      "title" : "From evolutionary computation to the evolution of things",
+      "author" : [ "A.E. Eiben", "Jim Smith" ],
+      "venue" : "Nature, 521:476–482,",
+      "citeRegEx" : "Eiben and Smith.,? \\Q2015\\E",
+      "shortCiteRegEx" : "Eiben and Smith.",
+      "year" : 2015
+    }, {
+      "title" : "Accelerated neural evolution through cooperatively coevolved synapses",
+      "author" : [ "F. Gomez", "J. Schmidhuber", "R. Miikkulainen" ],
+      "venue" : "Journal of Machine Learning Research,",
+      "citeRegEx" : "Gomez et al\\.,? \\Q2008\\E",
+      "shortCiteRegEx" : "Gomez et al\\.",
+      "year" : 2008
+    }, {
+      "title" : "Adapting arbitrary normal mutation distributions in evolution strategies: The covariance matrix adaptation",
+      "author" : [ "N. Hansen", "A. Ostermeier" ],
+      "venue" : "In Proceedings of IEEE International Conference on Evolutionary Computation (CEC",
+      "citeRegEx" : "Hansen and Ostermeier.,? \\Q1996\\E",
+      "shortCiteRegEx" : "Hansen and Ostermeier.",
+      "year" : 1996
+    }, {
+      "title" : "Completely derandomized self-adaptation in evolution strategies",
+      "author" : [ "N. Hansen", "A. Ostermeier" ],
+      "venue" : "Evolutionary Computation,",
+      "citeRegEx" : "Hansen and Ostermeier.,? \\Q2001\\E",
+      "shortCiteRegEx" : "Hansen and Ostermeier.",
+      "year" : 2001
+    }, {
+      "title" : "The CMA evolution strategy: A tutorial",
+      "author" : [ "N. Hansen" ],
+      "venue" : "Technical report, Inria Saclay – Île-de-France, Université Paris-Sud,",
+      "citeRegEx" : "Hansen.,? \\Q2015\\E",
+      "shortCiteRegEx" : "Hansen.",
+      "year" : 2015
+    }, {
+      "title" : "Hoeffding and Bernstein races for selecting policies in evolutionary direct policy search",
+      "author" : [ "V. Heidrich-Meisner", "C. Igel" ],
+      "venue" : "In Proceedings of the 26th International Conference on Machine Learning (ICML",
+      "citeRegEx" : "Heidrich.Meisner and Igel.,? \\Q2009\\E",
+      "shortCiteRegEx" : "Heidrich.Meisner and Igel.",
+      "year" : 2009
+    }, {
+      "title" : "Neuroevolution strategies for episodic reinforcement learning",
+      "author" : [ "V. Heidrich-Meisner", "C. Igel" ],
+      "venue" : "Journal of Algorithms,",
+      "citeRegEx" : "Heidrich.Meisner and Igel.,? \\Q2009\\E",
+      "shortCiteRegEx" : "Heidrich.Meisner and Igel.",
+      "year" : 2009
+    }, {
+      "title" : "Evolutionary kernel learning",
+      "author" : [ "C. Igel" ],
+      "venue" : "In Encyclopedia of Machine Learning. Springer-Verlag,",
+      "citeRegEx" : "Igel.,? \\Q2010\\E",
+      "shortCiteRegEx" : "Igel.",
+      "year" : 2010
+    }, {
+      "title" : "A more efficient rank-one covariance matrix update for evolution strategies",
+      "author" : [ "O. Krause", "C. Igel" ],
+      "venue" : "In Proceedings of the 2015 ACM Conference on Foundations of Genetic Algorithms (FOGA XIII),",
+      "citeRegEx" : "Krause and Igel.,? \\Q2015\\E",
+      "shortCiteRegEx" : "Krause and Igel.",
+      "year" : 2015
+    }, {
+      "title" : "A computationally efficient limited memory CMA-ES for large scale optimization",
+      "author" : [ "I. Loshchilov" ],
+      "venue" : "In Proceedings of the 16th Annual Genetic and Evolutionary Computation Conference (GECCO),",
+      "citeRegEx" : "Loshchilov.,? \\Q2014\\E",
+      "shortCiteRegEx" : "Loshchilov.",
+      "year" : 2014
+    }, {
+      "title" : "LM-CMA: An alternative to L-BFGS for large scale black-box optimization",
+      "author" : [ "I. Loshchilov" ],
+      "venue" : "Evolutionary Computation,",
+      "citeRegEx" : "Loshchilov.,? \\Q2015\\E",
+      "shortCiteRegEx" : "Loshchilov.",
+      "year" : 2015
+    }, {
+      "title" : "A comparative study of CMA-ES on large scale global optimisation",
+      "author" : [ "M.N. Omidvar", "X. Li" ],
+      "venue" : "In AI 2010: Advances in Artificial Intelligence,",
+      "citeRegEx" : "Omidvar and Li.,? \\Q2011\\E",
+      "shortCiteRegEx" : "Omidvar and Li.",
+      "year" : 2011
+    }, {
+      "title" : "Main vector adaptation: A CMA variant with linear time and space complexity",
+      "author" : [ "J. Poland", "A. Zell" ],
+      "venue" : "In Proceedings of the 10th Annual Genetic and Evolutionary Computation Conference (GECCO),",
+      "citeRegEx" : "Poland and Zell.,? \\Q2001\\E",
+      "shortCiteRegEx" : "Poland and Zell.",
+      "year" : 2001
+    }, {
+      "title" : "A simple modification in CMA-ES achieving linear time and space complexity",
+      "author" : [ "R. Ros", "N. Hansen" ],
+      "venue" : "In Parallel Problem Solving from Nature (PPSN X),",
+      "citeRegEx" : "Ros and Hansen.,? \\Q2008\\E",
+      "shortCiteRegEx" : "Ros and Hansen.",
+      "year" : 2008
+    }, {
+      "title" : "On spectral invariance of randomized Hessian and covariance matrix adaptation schemes",
+      "author" : [ "S.U. Stich", "C.L. Müller" ],
+      "venue" : "In Parallel Problem Solving from Nature (PPSN XII),",
+      "citeRegEx" : "Stich and Müller.,? \\Q2012\\E",
+      "shortCiteRegEx" : "Stich and Müller.",
+      "year" : 2012
+    }, {
+      "title" : "A linear time natural evolution strategy for non-separable functions",
+      "author" : [ "Y. Sun", "T. Schaul", "F. Gomez", "J. Schmidhuber" ],
+      "venue" : "In 15th Annual Conference on Genetic and Evolutionary Computation Conference Companion,",
+      "citeRegEx" : "Sun et al\\.,? \\Q2013\\E",
+      "shortCiteRegEx" : "Sun et al\\.",
+      "year" : 2013
+    }, {
+      "title" : "Efficient covariance matrix update for variable metric evolution strategies",
+      "author" : [ "T. Suttorp", "N. Hansen", "C. Igel" ],
+      "venue" : "Machine Learning,",
+      "citeRegEx" : "Suttorp et al\\.,? \\Q2009\\E",
+      "shortCiteRegEx" : "Suttorp et al\\.",
+      "year" : 2009
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 8,
+      "context" : "The covariance matrix adaptation evolution strategy, CMA-ES [Hansen and Ostermeier, 2001], is recognized as one of the most competitive derivative-free algorithms for real-valued optimization [Beyer, 2007; Eiben and Smith, 2015].",
+      "startOffset" : 60,
+      "endOffset" : 89
+    }, {
+      "referenceID" : 5,
+      "context" : "The covariance matrix adaptation evolution strategy, CMA-ES [Hansen and Ostermeier, 2001], is recognized as one of the most competitive derivative-free algorithms for real-valued optimization [Beyer, 2007; Eiben and Smith, 2015].",
+      "startOffset" : 192,
+      "endOffset" : 228
+    }, {
+      "referenceID" : 17,
+      "context" : "Another approach is to restrict the model complexity of the search distribution [Poland and Zell, 2001; Ros and Hansen, 2008; Sun et al., 2013; Akimoto et al., 2014; Loshchilov, 2014, 2015], for example, to consider only diagonal matrices [Ros and Hansen, 2008].",
+      "startOffset" : 80,
+      "endOffset" : 189
+    }, {
+      "referenceID" : 18,
+      "context" : "Another approach is to restrict the model complexity of the search distribution [Poland and Zell, 2001; Ros and Hansen, 2008; Sun et al., 2013; Akimoto et al., 2014; Loshchilov, 2014, 2015], for example, to consider only diagonal matrices [Ros and Hansen, 2008].",
+      "startOffset" : 80,
+      "endOffset" : 189
+    }, {
+      "referenceID" : 20,
+      "context" : "Another approach is to restrict the model complexity of the search distribution [Poland and Zell, 2001; Ros and Hansen, 2008; Sun et al., 2013; Akimoto et al., 2014; Loshchilov, 2014, 2015], for example, to consider only diagonal matrices [Ros and Hansen, 2008].",
+      "startOffset" : 80,
+      "endOffset" : 189
+    }, {
+      "referenceID" : 1,
+      "context" : "Another approach is to restrict the model complexity of the search distribution [Poland and Zell, 2001; Ros and Hansen, 2008; Sun et al., 2013; Akimoto et al., 2014; Loshchilov, 2014, 2015], for example, to consider only diagonal matrices [Ros and Hansen, 2008].",
+      "startOffset" : 80,
+      "endOffset" : 189
+    }, {
+      "referenceID" : 18,
+      "context" : ", 2014; Loshchilov, 2014, 2015], for example, to consider only diagonal matrices [Ros and Hansen, 2008].",
+      "startOffset" : 81,
+      "endOffset" : 103
+    }, {
+      "referenceID" : 16,
+      "context" : "However, this can lead to a drastic increase in function evaluations needed to approximate the optimum if the objective function is not compatible with the restriction, for example, when optimizing highly non-separable problems while only adapting the diagonal of the covariance matrix [Omidvar and Li, 2011].",
+      "startOffset" : 286,
+      "endOffset" : 308
+    }, {
+      "referenceID" : 21,
+      "context" : "More recently, methods were proposed that update the Cholesky factor of the covariance matrix instead of the covariance matrix itself [Suttorp et al., 2009; Krause and Igel, 2015].",
+      "startOffset" : 134,
+      "endOffset" : 179
+    }, {
+      "referenceID" : 13,
+      "context" : "More recently, methods were proposed that update the Cholesky factor of the covariance matrix instead of the covariance matrix itself [Suttorp et al., 2009; Krause and Igel, 2015].",
+      "startOffset" : 134,
+      "endOffset" : 179
+    }, {
+      "referenceID" : 21,
+      "context" : ", the (1+1)-CMA-ES and the multi-objective MO-CMA-ES [Suttorp et al., 2009; Krause and Igel, 2015; Bringmann et al., 2013]), however, the original CMA-ES relies on the matrix square root, which cannot be replaced one-to-one by a Cholesky factor.",
+      "startOffset" : 53,
+      "endOffset" : 122
+    }, {
+      "referenceID" : 13,
+      "context" : ", the (1+1)-CMA-ES and the multi-objective MO-CMA-ES [Suttorp et al., 2009; Krause and Igel, 2015; Bringmann et al., 2013]), however, the original CMA-ES relies on the matrix square root, which cannot be replaced one-to-one by a Cholesky factor.",
+      "startOffset" : 53,
+      "endOffset" : 122
+    }, {
+      "referenceID" : 4,
+      "context" : ", the (1+1)-CMA-ES and the multi-objective MO-CMA-ES [Suttorp et al., 2009; Krause and Igel, 2015; Bringmann et al., 2013]), however, the original CMA-ES relies on the matrix square root, which cannot be replaced one-to-one by a Cholesky factor.",
+      "startOffset" : 53,
+      "endOffset" : 122
+    }, {
+      "referenceID" : 0,
+      "context" : "Combining rank-1 and rank-μ update gives the final update rule for Ct, which can be motivated by principles from information geometry [Akimoto et al., 2012]:",
+      "startOffset" : 134,
+      "endOffset" : 156
+    }, {
+      "referenceID" : 2,
+      "context" : "This update is not proven to preserve invariance under affine linear transformations [Auger, 2015], and it is it conjectured that it does not.",
+      "startOffset" : 85,
+      "endOffset" : 98
+    }, {
+      "referenceID" : 3,
+      "context" : "However, in simplified algorithms the expectation of Ct converges [Beyer, 2014].",
+      "startOffset" : 66,
+      "endOffset" : 79
+    }, {
+      "referenceID" : 9,
+      "context" : "3 The reference CMA-ES implementation uses a delay strategy in which the matrix square root is computed every max { 1, 1 10d(c1+cμ) } iterations [Hansen, 2015], which equals one for the dimensions considered",
+      "startOffset" : 145,
+      "endOffset" : 159
+    } ],
+    "year" : 2016,
+    "abstractText" : "The covariance matrix adaptation evolution strategy (CMA-ES) is arguably one of the most powerful real-valued derivative-free optimization algorithms, finding many applications in machine learning. The CMA-ES is a Monte Carlo method, sampling from a sequence of multi-variate Gaussian distributions. Given the function values at the sampled points, updating and storing the covariance matrix dominates the time and space complexity in each iteration of the algorithm. We propose a numerically stable quadratic-time covariance matrix update scheme with minimal memory requirements based on maintaining triangular Cholesky factors. This requires a modification of the cumulative step-size adaption (CSA) mechanism in the CMA-ES, in which we replace the inverse of the square root of the covariance matrix by the inverse of the triangular Cholesky factor. Because the triangular Cholesky factor changes smoothly with the matrix square root, this modification does not change the behavior of the CMA-ES in terms of required objective function evaluations as verified empirically. Thus, the described algorithm can and should replace the standard CMA-ES if updating and storing the covariance matrix matters.",
+    "creator" : null
+  }
+}

@@ -1,0 +1,331 @@
+{
+  "name" : "5314b9674c86e3f9d1ba25ef9bb32895.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Supervised Learning with Tensor Networks",
+    "authors" : [ "E. M. Stoudenmire", "David J. Schwab" ],
+    "emails" : [ ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Recently there has been growing appreciation for tensor methods in machine learning. Tensor decompositions can solve non-convex optimization problems [1, 2] and be used for other important tasks such as extracting features from input data and parameterizing neural nets [3, 4, 5]. Tensor methods have also become prominent in the field of physics, especially the use of tensor networks which accurately capture very high-order tensors while avoiding the the curse of dimensionality through a particular geometry of low-order contracted tensors [6]. The most successful use of tensor networks in physics has been to approximate exponentially large vectors arising in quantum mechanics [7, 8].\nAnother context where very large vectors arise is non-linear kernel learning, where input vectors x are mapped into a higher dimensional space via a feature map Φ(x) before being classified by a decision function f(x) = W · Φ(x) . (1) The feature vector Φ(x) and weight vector W can be exponentially large or even infinite. One approach to deal with such large vectors is the well-known kernel trick, which only requires working with scalar products of feature vectors [9].\nIn what follows we propose a rather different approach. For certain learning tasks and a specific class of feature map Φ, we find the optimal weight vector W can be approximated as a tensor network—a contracted sequence of low-order tensors. Representing W as a tensor network and optimizing it directly (without passing to the dual representation) has many interesting consequences. Training the model scales only linearly in the training set size; the evaluation cost for a test input is independent of training set size. Tensor networks are also adaptive: dimensions of tensor indices internal to the network grow and shrink during training to concentrate resources on the particular correlations within the data most useful for learning. The tensor network form of W presents opportunities to extract information hidden within the trained model and to accelerate training by optimizing different internal tensors in parallel [10]. Finally, the tensor network form is an additional type of regularization beyond the choice of feature map, and could have interesting consequences for generalization.\nOne of the best understood types of tensor networks is the matrix product state (MPS) [11, 8], also known as the tensor train decomposition [12]. Though MPS are best at capturing one-dimensional correlations, they are powerful enough to be applied to distributions with higher-dimensional correlations as well. MPS have been very useful for studying quantum systems, and have recently\n30th Conference on Neural Information Processing Systems (NIPS 2016), Barcelona, Spain.\nbeen investigated for machine learning applications such as learning features by decomposing tensor representations of data [4] and compressing the weight layers of neural networks [5].\nWhile applications of MPS to machine learning have been a success, one aim of the present work is to have tensor networks play a more central role in developing learning models; another is to more easily incorporate powerful algorithms and tensor networks which generalize MPS developed by the physics community for studying higher dimensional and critical systems [13, 14, 15]. But in what follows, we only consider the case of MPS tensor networks as a proof of principle.\nThe MPS decomposition is an approximation of an order-N tensor by a contracted chain of N lowerorder tensors shown in Fig. 1. (Throughout we will use tensor diagram notation: shapes represent tensors and lines emanating from them are tensor indices; connecting two lines implies contraction of a pair of indices. We emphasize that tensor diagrams are not merely schematic, but have a rigorous algorithmic interpretation. For a helpful review of this notation, see Cichocki [16].)\nRepresenting the weightsW of Eq. (1) as an MPS allows one to efficiently optimize these weights and adaptively change their number by varying W locally a few tensors at a time, in close analogy to the density matrix renormalization group (DMRG) algorithm used in physics [17, 8]. Similar alternating least squares methods for tensor trains have been explored more recently in applied mathematics [18].\nThis paper is organized as follows: first we propose our general approach and describe an algorithm for optimizing the weight vector W in MPS form. Then we test our approach on the MNIST handwritten digit set and find very good performance for remarkably small MPS bond dimensions. Finally, we discuss the structure of the functions realized by our proposed models.\nFor researchers interested in reproducing our results, we have made our codes publicly available at: https://github.com/emstoudenmire/TNML. The codes are based on the ITensor library [19]."
+    }, {
+      "heading" : "2 Encoding Input Data",
+      "text" : "Tensor networks in physics are typically used in a context where combining N independent systems corresponds to taking a tensor product of a vector describing each system. With the goal of applying similar tensor networks to machine learning, we choose a feature map of the form\nΦs1s2···sN (x) = φs1(x1)⊗ φs2(x2)⊗ · · ·φsN (xN ) . (2) The tensor Φs1s2···sN is the tensor product of a local feature map φsj (xj) applied to each input component xj of the N -dimensional vector x (where j = 1, 2, . . . , N ). The indices sj run from 1 to d, where d is known as the local dimension and is a hyper-parameter defining the classification model. Though one could use a different local feature map for each input component xj , we will only consider the case of homogeneous inputs with the same local map applied to each xj . Thus each xj is mapped to a d-dimensional vector, and the full feature map Φ(x) can be viewed as a vector in a dN -dimensional space or as an order-N tensor. The tensor diagram for Φ(x) is shown in Fig. 2. This type of tensor is said be rank-1 since it is manifestly the product of N order-1 tensors.\nFor a concrete example of this type of feature map, which we will use later, consider inputs which are grayscale images with N pixels, where each pixel value ranges from 0.0 for white to 1.0 for black. If the grayscale value of pixel number j is xj ∈ [0, 1], a simple choice for the local map φsj (xj) is\nφsj (xj) = [ cos (π\n2 xj\n) , sin (π 2 xj )] (3)\nand is illustrated in Fig. 3. The full image is represented as a tensor product of these local vectors. The above feature map is somewhat ad-hoc, and is motivated by “spin” vectors encountered in quantum systems. More research is needed to understand the best choices for φs(x), but the most crucial property seems to be that ~φ(x) · ~φ(x′) is a smooth and slowly varying function of x and x′, and induces a distance metric in feature space that tends to cluster similar images together.\nThe feature map Eq. (2) defines a kernel which is the product of N local kernels, one for each component xj of the input data. Kernels of this type have been discussed previously in Vapnik [20, p. 193] and have been argued by Waegeman et al. [21] to be useful for data where no relationship is assumed between different components of the input vector prior to learning."
+    }, {
+      "heading" : "3 Classification Model",
+      "text" : "In what follows we are interested in classifying data with pre-assigned hidden labels, for which we choose a “one-versus-all” strategy, which we take to mean optimizing a set of functions indexed by a label ` f `(x) = W ` · Φ(x) (4) and classifying an input x by choosing the label ` for which |f `(x)| is largest. Since we apply the same feature map Φ to all input data, the only quantity that depends on the label ` is the weight vector W `. Though one can view W ` as a collection of vectors labeled by `, we will prefer to view W ` as an order N + 1 tensor where ` is a tensor index and f `(x) is a function mapping inputs to the space of labels. The tensor diagram for evaluating f `(x) for a particular input is depicted in Fig. 4.\nBecause the weight tensor W `s1s2···sN has NL · dN components, where NL is the number of labels, we need a way to regularize and optimize this tensor efficiently. The strategy we will use is to represent W ` as a tensor network, namely as an MPS which have the key advantage that methods for manipulating and optimizing them are well understood and highly efficient. An MPS decomposition of the weight tensor W ` has the form\nand is illustrated in Fig. 5. Each A tensor has dm2 elements which are the latent variables parameterizing the approximation of W ; the A tensors are in general not unique and can be constrained to bestow nice properties on the MPS, like making the A tensors partial isometries.\nThe dimensions of each internal index αj of an MPS are known as the bond dimensions and are the (hyper) parameters controlling complexity of the MPS approximation. For sufficiently large bond dimensions an MPS can represent any tensor [22]. The name matrix product state refers to the fact that any specific component of the full tensor W `s1s2···sN can be recovered efficiently by summing over the {αj} indices from left to right via a sequence of matrix products (the term “state” refers to the original use of MPS to describe quantum states of matter).\nIn the above decomposition Eq. (5), the label index ` was arbitrarily placed on the tensor at some position j, but this index can be moved to any other tensor of the MPS without changing the overall W ` tensor it represents. To do so, one contracts the tensor at position j with one of its neighbors, then decomposes this larger tensor using a singular value decomposition such that ` now belongs to the neighboring tensor—see Fig. 7(a)."
+    }, {
+      "heading" : "4 “Sweeping” Optimization Algorithm",
+      "text" : "Inspired by the very successful DMRG algorithm developed for physics applications [17, 8], here we propose a similar algorithm which “sweeps” back and forth along an MPS, iteratively minimizing the cost function defining the classification task.\nTo describe the algorithm in concrete terms, we wish to optimize the quadratic cost C = 12 ∑NT n=1 ∑ `(f\n`(xn)− y`n)2 where n runs over the NT training inputs and y`n is the vector of desired outputs for input n. If the correct label of xn is Ln, then yLnn = 1 and y ` n = 0 for all other labels ` (i.e. a one-hot encoding).\nOur strategy for minimizing this cost function will be to vary only two neighboring MPS tensors at a time within the approximation Eq. (5). We could conceivably just vary one at a time, but varying two tensors makes it simple to adaptively change the MPS bond dimension.\nSay we want to improve the tensors at sites j and j + 1. Assume we have moved the label index ` to the MPS tensor at site j. First we combine the MPS tensors A`sj and Asj+1 into a single “bond tensor” Bαj−1`αj+1sjsj+1 by contracting over the index αj as shown in Fig. 6(a).\nNext we compute the derivative of the cost function C with respect to the bond tensor B` in order to update it using a gradient descent step. Because the rest of the MPS tensors are kept fixed, let us show that to compute the gradient it suffices to feed, or project, each input xn through the fixed “wings” of the MPS as shown on the left-hand side of Fig. 6(b) (connected lines in the diagram indicate sums over pairs of indices). The result is a projected, four-index version of the input Φ̃n shown on the right-hand of Fig. 6(b). The current decision function can be efficiently computed from this projected input Φ̃n and the current bond tensor B` as\nf `(xn) = ∑\nαj−1αj+1\n∑\nsjsj+1\nBαj−1`αj+1sjsj+1 (Φ̃n) sjsj+1 αj−1`αj+1\n(6)\nor as illustrated in Fig. 6(c). The gradient update to the tensor B` can be computed as\n∆B` = − ∂C ∂B` =\nNT∑\nn=1\n(y`n − f `(xn))Φ̃n . (7)\nThe tensor diagram for ∆B` is shown in Fig. 6(d).\nHaving computed the gradient, we use it to make a small update to B`, replacing it with B` + η∆B` for some small η. Having obtained our improved B`, we must decompose it back into separate MPS tensors to maintain efficiency and apply our algorithm to the next bond. Assume the next bond we want to optimize is the one to the right (bond j + 1). Then we can compute a singular value decomposition (SVD) of B`, treating it as a matrix with a collective row index (αj−1, sj) and collective column index (`, αj+1, sj+1) as shown in Fig. 7(a). Computing the SVD this way restores the MPS form, but with the ` index moved to the tensor on site j + 1. If the SVD of B` is given by\nBαj−1`αj+1sjsj+1 = ∑\nα′jαj\nU αj−1 sjα′j Sα ′ j αjV αj`αj+1 sj+1 , (8)\nthen to proceed to the next step we define the new MPS tensor at site j to be A′sj = Usj and the new tensor at site j+1 to be A′`sj+1 = SV ` sj+1 where a matrix multiplication over the suppressed α indices is implied. Crucially at this point, only the m largest singular values in S are kept and the rest are truncated (along with the corresponding columns of U and V †) in order to control the computational cost of the algorithm. Such a truncation is guaranteed to produce an optimal approximation of the tensor B` (minimizes the norm of the difference before and after truncation); furthermore if all of the MPS tensors to the left and right of B` are formed from (possibly truncated) unitary matrices similar to the definition of A′sj above, then the optimality of the truncation of B\n` applies globally to the entire MPS as well. For further background reading on these technical aspects of MPS, see Refs. [8] and [16].\nFinally, when proceeding to the next bond, it would be inefficient to fully project each training input over again into the configuration in Fig. 6(b). Instead it is only necessary to advance the projection by one site using the MPS tensor set from a unitary matrix after the SVD as shown in Fig. 7(b). This allows the cost of each local step of the algorithm to remain independent of the size of the input space, making the total algorithm scale only linearly with input space size (i.e. the number of components of an input vector x).\nThe above algorithm highlights a key advantage of MPS and tensor networks relevant to machine learning applications. Following the SVD of the improved bond tensor B′`, the dimension of the new MPS bond can be chosen adaptively based on the number of large singular values encountered in the SVD (defined by a threshold chosen in advance). Thus the MPS form of W ` can be compressed as much as possible, and by different amounts on each bond, while still ensuring an accurate approximation of the optimal decision function.\nThe scaling of the above algorithm is d3m3N NLNT , where recall m is the typical MPS bond dimension; N the number of components of input vectors x; NL the number of labels; and NT the size of the training data set. Thus the algorithm scales linearly in the training set size: a major improvement over typical kernel-trick methods which typically scale at least as N2T without specialized techniques [23]. This scaling assumes that the MPS bond dimension m needed is independent of NT , which should be satisfied once NT is a large, representative sample.\nIn practice, the training cost is dominated by the large size of the training set NT , so it would be very desirable to reduce this cost. One solution could be to use stochastic gradient descent, but our experiments at blending this approach with the MPS sweeping algorithm did not match the accuracy of using the full, or batch gradient. Mixing stochastic gradient with MPS sweeping thus appears to be non-trivial but is a promising direction for further research."
+    }, {
+      "heading" : "5 MNIST Handwritten Digit Test",
+      "text" : "To test the tensor network approach on a realistic task, we used the MNIST data set [24]. Each image was scaled down from 28× 28 to 14× 14 by averaging clusters of four pixels; otherwise we performed no further modifications to the training or test sets. Working with smaller images reduced the time needed for training, with the tradeoff of having less information available for learning.\nWhen approximating the weight tensor as an MPS, one must choose a one-dimensional ordering of the local indices s1, s2, . . . , sN . We chose a “zig-zag” ordering meaning the first row of pixels are mapped to the first 14 external MPS indices; the second row to the next 14 MPS indices; etc. We then mapped each grayscale image x to a tensor Φ(x) using the local map Eq. (3).\nUsing the sweeping algorithm in Section 4 to optimize the weights, we found the algorithm quickly converged after a few passes, or sweeps, over the MPS. Typically five or less sweeps were needed to see good convergence, with test error rates changing only hundreths of a percent thereafter.\nTest error rates also decreased rapidly with the maximum MPS bond dimension m. For m = 10 we found both a training and test error of about 5%; for m = 20 the error dropped to only 2%. The largest bond dimension we tried was m = 120, where after three sweeps we obtained a test error of 0.97%; the corresponding training set error was 0.05%. MPS bond dimensions in physics applications can reach many hundreds or even thousands, so it is remarkable to see such small classification errors for only m = 120."
+    }, {
+      "heading" : "6 Interpreting Tensor Network Models",
+      "text" : "A natural question is which set of functions of the form f `(x) = W ` · Φ(x) can be realized when using a tensor-product feature map Φ(x) of the form Eq. (2) and a tensor-network decomposition of W `. As we will argue, the possible set of functions is quite general, but taking the tensor network structure into account provides additional insights, such as determining which features the model actually uses to perform classification."
+    }, {
+      "heading" : "6.1 Representational Power",
+      "text" : "To simplify the question of which decision functions can be realized for a tensor-product feature map of the form Eq. (2), let us fix ` to a single label and omit it from the notation. We will also temporarily consider W to be a completely general order-N tensor with no tensor network constraint. Then f(x) is a function of the form\nf(x) = ∑\n{s} Ws1s2···sNφ\ns1(x1)⊗ φs2(x2)⊗ · · ·φsN (xN ) . (9)\nIf the functions {φs(x)}, s = 1, 2, . . . , d form a basis for a Hilbert space of functions over x ∈ [0, 1], then the tensor product basis φs1(x1)⊗ φs2(x2)⊗ · · ·φsN (xN ) forms a basis for a Hilbert space of functions over x ∈ [0, 1]×N . Moreover, in the limit that the basis {φs(x)} becomes complete, then the tensor product basis would also be complete and f(x) could be any square integrable function; however, practically reaching this limit would eventually require prohibitively large tensor dimensions."
+    }, {
+      "heading" : "6.2 Implicit Feature Selection",
+      "text" : "Of course we have not been considering an arbitrary weight tensor W ` but instead approximating the weight tensor as an MPS tensor network. The MPS form implies that the decision function f `(x) has interesting additional structure. One way to analyze this structure is to separate the MPS into a central tensor, or core tensor Cαi`αi+1 on some bond i and constrain all MPS site tensors to be left orthogonal for sites j ≤ i or right orthogonal for sites j ≥ i. This means W ` has the decomposition\nW `s1s2···sN =∑\n{α} Uα1s1 · · ·Uαiαi−1siC`αiαi+1V αi+1si+1αi+2 · · ·V αN−1sN (10)\nas illustrated in Fig. 8(a). To say the U and V tensors are left or right orthogonal means when viewed as matrices Uαj−1sj αj and V αj−1 sjαj these tensors have the property U †U = I and V V † = I where I is the identity; these orthogonality conditions can be understood more clearly in terms of the diagrams in Fig. 8(b). Any MPS can be brought into the form Eq. (10) through an efficient sequence of tensor contractions and SVD operations similar to the steps in Fig. 7(a).\nThe form in Eq. (10) suggests an interpretation where the decision function f `(x) acts in three stages. First, an input x is mapped into the dN dimensional feature space defined by Φ(x), which is exponentially larger than the dimension N of the input space. Next, the feature vector Φ is mapped into a much smaller m2 dimensional space by contraction with all the U and V site tensors of the MPS. This second step defines a new feature map Φ̃(x) withm2 components as illustrated in Fig. 8(c). Finally, f `(x) is computed by contracting Φ̃(x) with C`.\nTo justify calling Φ̃(x) a feature map, it follows from the left- and right-orthogonality conditions of the U and V tensors of the MPS Eq. (10) that the indices αi and αi+1 of the core tensor C label an orthonormal basis for a subspace of the original feature space. The vector Φ̃(x) is the projection of Φ(x) into this subspace.\nThe above interpretation implies that training an MPS model uncovers a relatively small set of important features and simultaneously trains a decision function using only these reduced features. The feature selection step occurs when computing the SVD in Eq. (8), where any basis elements αj which do not contribute meaningfully to the optimal bond tensor are discarded. (In our MNIST experiment the first and last tensors of the MPS completely factorized during training, implying they were not useful for classification as the pixels at the corners of each image were always white.) Such a picture is roughly similar to popular interpretations of simultaneously training the hidden and output layers of shallow neural network models [25]. (MPS were first proposed for learning features in Bengua et al. [4], but with a different, lower-dimensional data representation than what is used here.)"
+    }, {
+      "heading" : "7 Discussion",
+      "text" : "We have introduced a framework for applying quantum-inspired tensor networks to supervised learning tasks. While using an MPS ansatz for the model parameters worked well even for the two-dimensional data in our MNIST experiment, other tensor networks such as PEPS [6], which are explicitly designed for two-dimensional systems, or MERA tensor networks [15], which have a multi-scale structure and can capture power-law correlations, may be more suitable and offer superior performance. Much work remains to determine the best tensor network for a given domain.\nThere is also much room to improve the optimization algorithm by incorporating standard techniques such as mini-batches, momentum, or adaptive learning rates. It would be especially interesting to investigate unsupervised techniques for initializing the tensor network. Additionally, while the tensor network parameterization of a model clearly regularizes it in the sense of reducing the number of parameters, it would be helpful to understand the consquences of this regularization for specific learning tasks. It could also be fruitful to include standard regularizations of the parameters of the tensor network, such as weight decay or L1 penalties. We were surprised to find good generalization without using explicit parameter regularization.\nWe anticipate models incorporating tensor networks will continue be successful for quite a large variety of learning tasks because of their treatment of high-order correlations between features and their ability to be adaptively optimized. With the additional opportunities they present for interpretation of trained models due to the internal, linear tensor network structure, we believe there are many promising research directions for tensor network models.\nNote: while we were preparing our final manuscript, Novikov et al. [26] published a related framework for using MPS (tensor trains) to parameterize supervised learning models."
+    } ],
+    "references" : [ {
+      "title" : "Tensor decompositions for learning latent variable models",
+      "author" : [ "Animashree Anandkumar", "Rong Ge", "Daniel Hsu", "Sham M. Kakade", "Matus Telgarsky" ],
+      "venue" : "Journal of Machine Learning Research,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : "1",
+      "year" : 2014
+    }, {
+      "title" : "A tensor approach to learning mixed membership community models",
+      "author" : [ "Animashree Anandkumar", "Rong Ge", "Daniel Hsu", "Sham M. Kakade" ],
+      "venue" : "J. Mach. Learn. Res.,",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 2014
+    }, {
+      "title" : "Tensor decompositions for feature extraction and classification of high dimensional datasets",
+      "author" : [ "Anh Huy Phan", "Andrzej Cichocki" ],
+      "venue" : "Nonlinear theory and its applications, IEICE,",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 2010
+    }, {
+      "title" : "Optimal feature extraction and classification of tensors via matrix product state decomposition",
+      "author" : [ "J.A. Bengua", "H.N. Phien", "H.D. Tuan" ],
+      "venue" : "2015 IEEE Intl. Congress on Big Data (BigData Congress), pages 669–672, June",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Tensor network states and geometry",
+      "author" : [ "Glen Evenbly", "Guifré Vidal" ],
+      "venue" : "Journal of Statistical Physics,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : "6",
+      "year" : 2011
+    }, {
+      "title" : "Hand-waving and interpretive dance",
+      "author" : [ "Jacob C. Bridgeman", "Christopher T. Chubb" ],
+      "venue" : "An introductory course on tensor networks",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : "7",
+      "year" : 2016
+    }, {
+      "title" : "The density-matrix renormalization group in the age of matrix product states",
+      "author" : [ "U. Schollwöck" ],
+      "venue" : "Annals of Physics, 326(1):96–192,",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "An introduction to kernel-based learning algorithms",
+      "author" : [ "K.R. Muller", "S. Mika", "G. Ratsch", "K. Tsuda", "B. Scholkopf" ],
+      "venue" : "IEEE Transactions on Neural Networks, 12(2):181–201, Mar",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : null,
+      "year" : 2001
+    }, {
+      "title" : "Real-space parallel density matrix renormalization group",
+      "author" : [ "E.M. Stoudenmire", "Steven R. White" ],
+      "venue" : "Phys. Rev. B,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : "10",
+      "year" : 2013
+    }, {
+      "title" : "Thermodynamic limit of density matrix renormalization",
+      "author" : [ "Stellan Östlund", "Stefan Rommer" ],
+      "venue" : "Phys. Rev. Lett.,",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 1995
+    }, {
+      "title" : "Tensor-train decomposition",
+      "author" : [ "I. Oseledets" ],
+      "venue" : "SIAM Journal on Scientific Computing, 33(5): 2295–2317,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : null,
+      "year" : 2011
+    }, {
+      "title" : "Renormalization algorithms for quantum-many body systems in two and higher dimensions",
+      "author" : [ "F. Verstraete", "J.I. Cirac" ],
+      "venue" : "cond-mat/0407066,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : null,
+      "year" : 2004
+    }, {
+      "title" : "Entanglement renormalization",
+      "author" : [ "Guifré Vidal" ],
+      "venue" : "Phys. Rev. Lett., 99(22):220405,",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 2007
+    }, {
+      "title" : "Algorithms for entanglement renormalization",
+      "author" : [ "Glen Evenbly", "Guifré Vidal" ],
+      "venue" : "Phys. Rev. B,",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : "15",
+      "year" : 2009
+    }, {
+      "title" : "Tensor networks for big data analytics and large-scale optimization problems",
+      "author" : [ "Andrzej Cichocki" ],
+      "venue" : null,
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : "16",
+      "year" : 2014
+    }, {
+      "title" : "Density matrix formulation for quantum renormalization groups",
+      "author" : [ "Steven R. White" ],
+      "venue" : "Phys. Rev. Lett.,",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : "17",
+      "year" : 1992
+    }, {
+      "title" : "The alternating linear scheme for tensor optimization in the tensor train format",
+      "author" : [ "Sebastian Holtz", "Thorsten Rohwedder", "Reinhold Schneider" ],
+      "venue" : "SIAM Journal on Scientific Computing,",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : "18",
+      "year" : 2012
+    }, {
+      "title" : "The Nature of Statistical Learning Theory",
+      "author" : [ "Vladimir Vapnik" ],
+      "venue" : null,
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : "20",
+      "year" : 2000
+    }, {
+      "title" : "A kernel-based framework for learning graded relations from data",
+      "author" : [ "W. Waegeman", "T. Pahikkala", "A. Airola", "T. Salakoski", "M. Stock", "B. De Baets" ],
+      "venue" : "Fuzzy Systems, IEEE Transactions on, 20 (6):1090–1101, Dec",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    }, {
+      "title" : "Density matrix renormalization group and periodic boundary conditions: A quantum information perspective",
+      "author" : [ "F. Verstraete", "D. Porras", "J.I. Cirac" ],
+      "venue" : "Phys. Rev. Lett., 93(22):227205, Nov",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : null,
+      "year" : 2004
+    }, {
+      "title" : "On the complexity of learning with kernels",
+      "author" : [ "N. Cesa-Bianchi", "Y. Mansour", "O. Shamir" ],
+      "venue" : "Proceedings of The 28th Conference on Learning Theory, pages 297–325,",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Neural Networks and Deep Learning",
+      "author" : [ "Michael Nielsen" ],
+      "venue" : "Determination Press,",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : "25",
+      "year" : 2015
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 0,
+      "context" : "Tensor decompositions can solve non-convex optimization problems [1, 2] and be used for other important tasks such as extracting features from input data and parameterizing neural nets [3, 4, 5].",
+      "startOffset" : 65,
+      "endOffset" : 71
+    }, {
+      "referenceID" : 1,
+      "context" : "Tensor decompositions can solve non-convex optimization problems [1, 2] and be used for other important tasks such as extracting features from input data and parameterizing neural nets [3, 4, 5].",
+      "startOffset" : 65,
+      "endOffset" : 71
+    }, {
+      "referenceID" : 2,
+      "context" : "Tensor decompositions can solve non-convex optimization problems [1, 2] and be used for other important tasks such as extracting features from input data and parameterizing neural nets [3, 4, 5].",
+      "startOffset" : 185,
+      "endOffset" : 194
+    }, {
+      "referenceID" : 3,
+      "context" : "Tensor decompositions can solve non-convex optimization problems [1, 2] and be used for other important tasks such as extracting features from input data and parameterizing neural nets [3, 4, 5].",
+      "startOffset" : 185,
+      "endOffset" : 194
+    }, {
+      "referenceID" : 4,
+      "context" : "Tensor methods have also become prominent in the field of physics, especially the use of tensor networks which accurately capture very high-order tensors while avoiding the the curse of dimensionality through a particular geometry of low-order contracted tensors [6].",
+      "startOffset" : 263,
+      "endOffset" : 266
+    }, {
+      "referenceID" : 5,
+      "context" : "The most successful use of tensor networks in physics has been to approximate exponentially large vectors arising in quantum mechanics [7, 8].",
+      "startOffset" : 135,
+      "endOffset" : 141
+    }, {
+      "referenceID" : 6,
+      "context" : "The most successful use of tensor networks in physics has been to approximate exponentially large vectors arising in quantum mechanics [7, 8].",
+      "startOffset" : 135,
+      "endOffset" : 141
+    }, {
+      "referenceID" : 7,
+      "context" : "One approach to deal with such large vectors is the well-known kernel trick, which only requires working with scalar products of feature vectors [9].",
+      "startOffset" : 145,
+      "endOffset" : 148
+    }, {
+      "referenceID" : 8,
+      "context" : "The tensor network form of W presents opportunities to extract information hidden within the trained model and to accelerate training by optimizing different internal tensors in parallel [10].",
+      "startOffset" : 187,
+      "endOffset" : 191
+    }, {
+      "referenceID" : 9,
+      "context" : "One of the best understood types of tensor networks is the matrix product state (MPS) [11, 8], also known as the tensor train decomposition [12].",
+      "startOffset" : 86,
+      "endOffset" : 93
+    }, {
+      "referenceID" : 6,
+      "context" : "One of the best understood types of tensor networks is the matrix product state (MPS) [11, 8], also known as the tensor train decomposition [12].",
+      "startOffset" : 86,
+      "endOffset" : 93
+    }, {
+      "referenceID" : 10,
+      "context" : "One of the best understood types of tensor networks is the matrix product state (MPS) [11, 8], also known as the tensor train decomposition [12].",
+      "startOffset" : 140,
+      "endOffset" : 144
+    }, {
+      "referenceID" : 3,
+      "context" : "been investigated for machine learning applications such as learning features by decomposing tensor representations of data [4] and compressing the weight layers of neural networks [5].",
+      "startOffset" : 124,
+      "endOffset" : 127
+    }, {
+      "referenceID" : 11,
+      "context" : "While applications of MPS to machine learning have been a success, one aim of the present work is to have tensor networks play a more central role in developing learning models; another is to more easily incorporate powerful algorithms and tensor networks which generalize MPS developed by the physics community for studying higher dimensional and critical systems [13, 14, 15].",
+      "startOffset" : 365,
+      "endOffset" : 377
+    }, {
+      "referenceID" : 12,
+      "context" : "While applications of MPS to machine learning have been a success, one aim of the present work is to have tensor networks play a more central role in developing learning models; another is to more easily incorporate powerful algorithms and tensor networks which generalize MPS developed by the physics community for studying higher dimensional and critical systems [13, 14, 15].",
+      "startOffset" : 365,
+      "endOffset" : 377
+    }, {
+      "referenceID" : 13,
+      "context" : "While applications of MPS to machine learning have been a success, one aim of the present work is to have tensor networks play a more central role in developing learning models; another is to more easily incorporate powerful algorithms and tensor networks which generalize MPS developed by the physics community for studying higher dimensional and critical systems [13, 14, 15].",
+      "startOffset" : 365,
+      "endOffset" : 377
+    }, {
+      "referenceID" : 14,
+      "context" : "For a helpful review of this notation, see Cichocki [16].",
+      "startOffset" : 52,
+      "endOffset" : 56
+    }, {
+      "referenceID" : 15,
+      "context" : "(1) as an MPS allows one to efficiently optimize these weights and adaptively change their number by varying W locally a few tensors at a time, in close analogy to the density matrix renormalization group (DMRG) algorithm used in physics [17, 8].",
+      "startOffset" : 238,
+      "endOffset" : 245
+    }, {
+      "referenceID" : 6,
+      "context" : "(1) as an MPS allows one to efficiently optimize these weights and adaptively change their number by varying W locally a few tensors at a time, in close analogy to the density matrix renormalization group (DMRG) algorithm used in physics [17, 8].",
+      "startOffset" : 238,
+      "endOffset" : 245
+    }, {
+      "referenceID" : 16,
+      "context" : "Similar alternating least squares methods for tensor trains have been explored more recently in applied mathematics [18].",
+      "startOffset" : 116,
+      "endOffset" : 120
+    }, {
+      "referenceID" : 18,
+      "context" : "[21] to be useful for data where no relationship is assumed between different components of the input vector prior to learning.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 19,
+      "context" : "For sufficiently large bond dimensions an MPS can represent any tensor [22].",
+      "startOffset" : 71,
+      "endOffset" : 75
+    }, {
+      "referenceID" : 15,
+      "context" : "Inspired by the very successful DMRG algorithm developed for physics applications [17, 8], here we propose a similar algorithm which “sweeps” back and forth along an MPS, iteratively minimizing the cost function defining the classification task.",
+      "startOffset" : 82,
+      "endOffset" : 89
+    }, {
+      "referenceID" : 6,
+      "context" : "Inspired by the very successful DMRG algorithm developed for physics applications [17, 8], here we propose a similar algorithm which “sweeps” back and forth along an MPS, iteratively minimizing the cost function defining the classification task.",
+      "startOffset" : 82,
+      "endOffset" : 89
+    }, {
+      "referenceID" : 20,
+      "context" : "Thus the algorithm scales linearly in the training set size: a major improvement over typical kernel-trick methods which typically scale at least as N(2) T without specialized techniques [23].",
+      "startOffset" : 187,
+      "endOffset" : 191
+    }, {
+      "referenceID" : 21,
+      "context" : ") Such a picture is roughly similar to popular interpretations of simultaneously training the hidden and output layers of shallow neural network models [25].",
+      "startOffset" : 152,
+      "endOffset" : 156
+    }, {
+      "referenceID" : 3,
+      "context" : "[4], but with a different, lower-dimensional data representation than what is used here.",
+      "startOffset" : 0,
+      "endOffset" : 3
+    } ],
+    "year" : 2016,
+    "abstractText" : "Tensor networks are approximations of high-order tensors which are efficient to work with and have been very successful for physics and mathematics applications. We demonstrate how algorithms for optimizing tensor networks can be adapted to supervised learning tasks by using matrix product states (tensor trains) to parameterize non-linear kernel learning models. For the MNIST data set we obtain less than 1% test set classification error. We discuss an interpretation of the additional structure imparted by the tensor network to the learned model.",
+    "creator" : null
+  }
+}

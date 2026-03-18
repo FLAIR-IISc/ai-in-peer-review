@@ -1,0 +1,53 @@
+1. Summary of claims and contributions
+- Problem: selecting network size (number of hidden units) without expensive outer-loop searches.
+- Proposal: “nonparametric neural networks” that optimize over widths during a single training run by adding zero-units and removing units whose fan-in/out shrink to zero under an lp (primarily l2 group) regularizer.
+- Theory: Theorem 1 proves the objective (empirical loss + fan-in/out lp penalty) attains a global minimum at a finite network size, justifying optimization over an infinite union of parameter spaces. Proposition 1 shows self-similar nonlinearities equalize per-layer regularization strengths up to rescaling.
+- Methods: Two practical ingredients enabling stable training while growing/shrinking width:
+  - CapNorm (capped batch normalization) to avoid neutralizing the regularizer via scale invariance of standard BN.
+  - AdaRad (adaptive radial–angular gradient descent) that decomposes fan-in gradients into radial and angular components; it normalizes only the angular part to let new units learn while preserving shrinkage dynamics; a momentum variant (AdaRad-M) is described.
+- Empirics: MLPs on MNIST, rectangles images, convex, and a larger OpenML poker task. Networks start tiny, incrementally add units, and prune via l2 fan-in shrinkage. On MNIST and rectangles, nonparametric training yields better accuracy than parametric networks of the same size and competitive with random search across sizes; on convex, performance is weaker. On poker, nonparametric nets scale and match/exceed parametric baselines, sometimes achieving extremely low error.
+
+2. Decision: Reject
+Key reasons:
+- Empirical validation is limited and mixed: only small MLP benchmarks, with a notable failure on the convex dataset, and no comparisons on modern vision/NLP architectures where architectural size selection is most impactful.
+- The experimental design lacks critical ablations and baselines to isolate the source of gains (nonparametric growth + group penalty vs. AdaRad vs. CapNorm vs. training schedule), leaving the central claims insufficiently supported.
+
+3. Supporting arguments
+- Scope and placement in literature:
+  - The idea of growing/shrinking networks with structured penalties connects to group-lasso pruning and constructive networks; the theoretical guarantee of a finite optimum over widths is a nice addition. However, related lines (e.g., structured sparsity, pruning during training, grow-and-prune methods) are not empirically contrasted, and the novelty over, e.g., group-lasso pruning combined with occasional growth is primarily in the specific optimizer/normalization choices.
+- Theoretical soundness:
+  - The existence theorem is carefully stated with clear regularity assumptions (directional differentiability suffices), and the proof strategy (bounding activations/gradients; showing large widths cannot be B-local minima) appears technically sound. It convincingly addresses the potential degenerate “infinite width” minimum under lp regularization. This gives conceptual legitimacy to the nonparametric formulation.
+  - Proposition 1 is an elegant observation about self-similar nonlinearities reducing per-layer λ tuning.
+- Experimental support:
+  - Positives: The training pipeline is described in detail; the MNIST/rectangles analyses (size trajectories, fan-in/out norms, impact of αr vs. αφ) are insightful. Scaling to a 1M-point dataset is commendable.
+  - Concerns: (i) Only fully-connected MLPs, with no convolutional/sequence experiments; (ii) the convex dataset underperformance suggests brittleness and undermines the claim of reliably finding good sizes; (iii) comparisons to parametric baselines are not entirely apples-to-apples: nonparametric nets use CapNorm (no learned BN affine), group-l2 regularization, special annealing including turning off λ late in training, and AdaRad; parametric baselines do not receive an equivalent set of design advantages (e.g., what if parametric nets used the same CapNorm, or group-l2, or AdaRad?). (iv) Missing ablations: How much of the gain comes from AdaRad vs. standard optimizers? What is the effect of CapNorm alone? What if units are added but trained with standard RMSProp/Adam and group-lasso? (v) The poker result of 0% test error on 100k examples is surprising; more analysis (data leakage checks, class balance, variance across seeds) is needed.
+  - Hyperparameter fairness: Nonparametric nets have several crucial hyperparameters (ν, νfreq, αr, αφ, λ) and a carefully staged training schedule; parametric baselines receive grid/random search but fewer multi-phase tricks. Without ablations, it is hard to ascribe gains to the nonparametric idea rather than to strong engineering choices.
+- Clarity and reproducibility:
+  - The paper is generally well written with detailed pseudo-code and a lengthy appendix. Some proofs are dense but readable. Experimental protocols are specified, which is a plus. However, key figures/tables are essential for interpretation; more quantitative summaries (means/STD across seeds) would strengthen claims.
+
+4. Additional feedback (to help improve the paper; not all decisive for my recommendation)
+- Provide strong ablations:
+  - Nonparametric with standard optimizer (RMSProp/Adam) vs. AdaRad.
+  - Parametric networks with CapNorm (without affine) vs. standard BN, and with/without l2 group penalties.
+  - Nonparametric but without turning off λ late, to see if late-stage annealing, not growth/pruning, drives gains.
+  - Sensitivity to ν, νfreq, αr, αφ; learning curves for different settings.
+- Baselines:
+  - Compare to structured sparsity methods that prune during training (e.g., Alvarez & Salzmann, Wen et al.) and to grow-and-prune schemes that do not require a good initial model (Wei et al.). Include methods that add units based on validation or gradient signals.
+- Broaden evaluation:
+  - Add convolutional experiments (e.g., CIFAR-10/100) where width-selection matters, or at least MLPs on more diverse real-world tabular datasets with standard splits. Demonstrate whether the approach can recover reasonable channel counts in conv layers.
+- Poker dataset:
+  - Investigate the surprising zero-error test result: confirm the split protocol, check for duplicates between train/test, report variance across seeds, and compare to well-regularized gradient boosting/trees and calibrated linear models.
+- Theory:
+  - Discuss the practical relevance of the existence theorem: does the found solution approach the global minimum, or are we at local minima whose sizes may still be large? Are there bounds connecting λ, p, and the attained width?
+- Practicality:
+  - Report wall-clock and memory overheads vs. strong baselines, including time-to-best-validation for both nonparametric and parametric runs, since gradual growth delays reaching useful capacity.
+- Presentation:
+  - Clarify the intuition behind angular vs. radial updates with a simple 2D schematic. Provide concrete pseudocode for shrinkage operator used and detail handling of numerical issues (e.g., near-zero fan-ins).
+
+Questions for the authors
+- How much of the performance gain over same-size parametric nets remains if you train those parametric nets with CapNorm and the same optimizer (AdaRad) and late-stage λ=0 schedule?
+- Can you show an ablation isolating AdaRad’s benefit by training nonparametric networks with RMSProp/Adam while keeping the rest identical?
+- On convex, why does the method converge to too-small networks? Is this due to λ selection, αr/αφ, or the unit addition policy? Can adaptive λ or more aggressive ν close the gap?
+- For poker, can you provide multiple seeds, checks for duplicate examples across splits, and comparisons to strong tree/boosting baselines? How sensitive is the zero-error result?
+- How does the method behave on convolutional layers (group norms over channels)? Any preliminary results?
+- What is the computational overhead (FLOPs and time) of AdaRad vs. RMSProp per step and end-to-end to best validation?

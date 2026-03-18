@@ -1,0 +1,52 @@
+Summary and contributions
+The paper tackles single-image super-resolution (SR) from a principled Bayesian perspective. It argues that empirical risk minimization with convex pixel losses (MSE/MAE) yields perceptually implausible reconstructions due to posterior averaging, and proposes amortised MAP inference instead: for each LR input x, output a HR y that maximizes log pY(y) subject to A y = x. The key technical ingredient is an affine projection layer ŷ = ΠAx fθ(x) = (I − A+A) fθ(x) + A+ x that enforces exact data-consistency (A ŷ = x) for any fθ, with A a known downsampling operator and A+ its Moore–Penrose pseudoinverse. With this constraint, amortised MAP reduces to minimizing the cross-entropy H[qθ, pY] where qθ is the marginal distribution of model outputs for x ∼ pX, eliminating the need for paired LR-HR during training.
+
+They instantiate three ways to approximate the cross-entropy: (1) AffGAN, a GAN variant whose generator is ΠAx fθ(x) and whose generator loss corresponds to KL[qθ || pY] under an optimal discriminator; they introduce “instance noise” (additive noise to real and fake samples, annealed over training) to stabilize GAN training when supports don’t overlap. (2) AffDG, which uses a denoiser to estimate ∇y log pY(y) and backpropagate it through ΠAx fθ(x). (3) AffLL, which fits a differentiable high-capacity density model (PixelCNN-like with MCGSM likelihood) and directly maximizes Eŷ log p̂Y(ŷ).
+
+Experiments include a 2D Swiss roll toy problem (where MAP is tractable), textures, CelebA, and ImageNet. The affine projection improves training dynamics and enforces exact consistency; AffGAN produces sharper, more “plausible” images than MSE/MAE and soft constraints, though sometimes hallucinates content; AffDG and AffLL underperform (blurry, unstable). The paper also discusses limitations of MAP (coordinate dependence; atypicality of modes) and provides a variational-inference reinterpretation of a stochastic AffGAN (Appendix F).
+
+Decision: Reject
+Key reasons: (i) Empirical support is limited and selective: of the three proposed approximations, only AffGAN works well; comparisons to strong baselines and perceptual evaluations are insufficient. (ii) The central claim of amortised MAP is not convincingly validated on realistic SR benchmarks, and the method sometimes hallucinates content inconsistent with x beyond low frequencies. (iii) The novelty over concurrent GAN-based SR works is incremental: the affine projection/data-consistency idea is valuable but not sufficiently explored or compared against standard conditional-GAN formulations with data-consistency penalties.
+
+Supporting arguments
+- Technical framing: The derivation from constrained amortised MAP (maximize Ex log pY(fθ(x)) s.t. A fθ(x)=x) to minimizing H[qθ,pY] is elegant and clarifies why discriminative priors (GAN/denoiser/density) are relevant. The affine projection formalizes exact data-consistency and is a clean architectural device. The “instance noise” rationale is well motivated by support-mismatch pathologies in GANs.
+
+- However, “amortised MAP” in practice: The optimization of Ey log pY(ŷ) averaged over x does not ensure per-input MAP if the function class or training dynamics couple inputs; more importantly, the AffGAN objective actually minimizes KL[qθ||pY], which differs from cross-entropy by H[qθ]. The paper acknowledges this but then evaluates primarily visually, not verifying that for each x the output is near argmaxy:Ay=x log pY(y). The Swiss roll study is helpful but too simple.
+
+- Affine projection vs soft constraints: The consistency gains are clear (zero reconstruction error under A). But the empirical differences to a strong soft-constraint baseline are not comprehensively quantified. Importantly, the discriminator is not conditioned on x, so the generator is only constrained by A ŷ = x and the prior; this can encourage hallucinations with correct low frequencies but incorrect semantics (the snake-to-water example). Conditioning D on x would be a natural and widely used alternative to improve faithfulness; this baseline is absent.
+
+- Evaluation and baselines: The image experiments omit standard SR benchmarks (Set5/Set14/BSD100/Urban100) and perceptual user studies. No comparisons to SRGAN/SRGAN+perceptual losses (Ledig et al.) with matched training setups, nor to recent content-consistent GANs. AffDG and AffLL are introduced as core contributions but then largely abandoned due to poor performance; the analysis is qualitative, and hyperparameter/architecture efforts are unclear. The density model used to guide AffLL is acknowledged as potentially inadequate; as such, the claim that amortised MAP via density or denoiser is viable remains unsupported.
+
+- Practicality and assumptions: The method assumes known A and computes A+ numerically with finite kernels; results hinge on training and test A matching. Real pipelines (bicubic, camera ISP) deviate; robustness is not studied. The “no paired data needed” claim is somewhat misleading: pX is generated by applying A to HR samples in training.
+
+- Theory: The modified GAN generator loss → KL[q||p] derivation is correct under an optimal/unique discriminator; instance noise improves that condition. The variational inference reinterpretation (Appendix F) is interesting but not empirically instantiated.
+
+Constructive feedback and questions
+- Compare to conditional GANs with D(y,x) and explicit data-consistency penalties, and to SRGAN-like perceptual + adversarial losses, on standard SR benchmarks. Include LPIPS or a small-scale human study to substantiate perceptual claims.
+
+- Evaluate robustness to A mismatch (train with Gaussian+stride, test with bicubic/bilinear/camera ISP). How does the affine projection behave then? Does the hard constraint hurt?
+
+- Analyze per-input optimality: For held-out x, approximate the posterior over Ay = x under a learned prior and measure how close ŷ is to the per-x MAP (e.g., via MCMC on a tractable prior surrogate). Alternatively, report Ex log p̂Y(ŷ) improvements over alternatives.
+
+- Condition the discriminator on x: Does this reduce hallucinations while keeping sharpness? Ablate instance noise (schedule, magnitude), and report training stability metrics across seeds.
+
+- For AffDG and AffLL: strengthen the density model (e.g., modern continuous autoregressive flows) and denoiser capacity; quantify gradient quality vs σ; clarify engineering/training details and provide negative results more systematically.
+
+- Clarify the “unpaired” claim: you still need pX consistent with A; discuss the applicability when LR images come from unknown/downstream operators.
+
+- Release code and pre-trained A+ for typical downsampling kernels.
+
+Questions for the authors
+1) Did you try a conditional discriminator D(y, x) with the same affine projection? How did it affect faithfulness and artifacts?
+
+2) How sensitive is AffGAN to mismatch between the true downsampling kernel and the A used to define ΠAx? Any quantitative results?
+
+3) In practice, does minimizing KL[qθ||pY] via the proposed generator loss outperform the non-saturating GAN loss in SR? Please provide ablations.
+
+4) Can you quantify per-input MAP-ness (e.g., by comparing ŷ to the mode under a learned density along the affine slice Ay = x)?
+
+5) For AffDG, how does σ scheduling influence stability and final quality? Did you test score-matching or modern score-based diffusion priors to improve gradient estimates?
+
+6) What is the effect of instance noise choice (Gaussian vs heavy-tailed) and annealing schedule on convergence and diversity?
+
+Overall, the paper presents a neat architectural idea and a principled framing, but the empirical evidence and comparisons are not yet sufficient for acceptance.

@@ -1,0 +1,533 @@
+{
+  "name" : "b9f94c77652c9a76fc8a442748cd54bd.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Conditional Random Field Autoencoders for Unsupervised Structured Prediction",
+    "authors" : [ "Waleed Ammar", "Chris Dyer", "Noah A. Smith" ],
+    "emails" : [ "wammar@cs.cmu.edu", "cdyer@cs.cmu.edu", "nasmith@cs.cmu.edu" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "Conditional random fields [24] are used to model structure in numerous problem domains, including natural language processing (NLP), computational biology, and computer vision. They enable efficient inference while incorporating rich features that capture useful domain-specific insights. Despite their ubiquity in supervised settings, CRFs—and, crucially, the insights about effective feature sets obtained by developing them—play less of a role in unsupervised structure learning, a problem which traditionally requires jointly modeling observations and the latent structures of interest. For unsupervised structured prediction problems, less powerful models with stronger independence assumptions are standard.1 This state of affairs is suboptimal in at least three ways: (i) adhering to inconvenient independence assumptions when designing features is limiting—we contend that effective feature engineering is a crucial mechanism for incorporating inductive bias in unsupervised learning problems; (ii) features and their weights have different semantics in joint and conditional models (see §3.1); and (iii) modeling the generation of high-dimensional observable data with feature-rich models is computationally challenging, requiring expensive marginal inference in the inner loop of iterative parameter estimation algorithms (see §3.1).\nOur approach leverages the power and flexibility of CRFs in unsupervised learning without sacrificing their attractive computational properties or changing the semantics of well-understood feature sets. Our approach replaces the standard joint model of observed data and latent structure with a twolayer conditional random field autoencoder that first generates latent structure with a CRF (conditional on the observed data) and then (re)generates the observations conditional on just the predicted structure. For the reconstruction model, we use distributions which offer closed-form maximum\n1For example, a first-order hidden Markov model requires that yi ⊥ xi+1 | yi+1 for a latent sequence y = 〈y1, y2, . . .〉 generating x = 〈x1, x2, . . .〉, while a first-order CRF allows yi to directly depend on xi+1.\nExtension: partial reconstruction. In our running POS example, the reconstruction model pθ(x̂i | yi) defines a distribution over words given tags. Because word distributions are heavytailed, estimating such a distribution reliably is quite challenging. Our solution is to define a func-\ntion π : X → X̂ such that |X̂ | ≪ |X |, and let x̂i = π(xi) be a deterministic transformation of the original structured observation. We can add indirect supervision by defining π such that it represents observed information relevant to the latent structure of interest. For example, we found reconstructing Brown clusters [5] of tokens instead of their surface forms to improve POS induction. Other possible reconstructions include word embeddings, morphological and spelling features of words.\nMore general graphs. We presented the CRF autoencoder in terms of sequential Markovian assumptions for ease of exposition; however, this framework can be used to model arbitrary hidden structures. For example, instantiations of this model can be used for unsupervised learning of parse trees [21], semantic role labels [42], and coreference resolution [35] (in NLP), motif structures [1] in computational biology, and object recognition [46] in computer vision. The requirements for applying the CRF autoencoder model are:\n• An encoding discriminative model defining pλ(y | x,φ). The encoder may be any model family where supervised learning from 〈x,y〉 pairs is efficient.\n• A reconstruction model that defines pθ(x̂ | y,φ) such that inference over y given 〈x, x̂〉 is efficient.\n• The independencies among y | x, x̂ are not strictly weaker than those among y | x."
+    }, {
+      "heading" : "2.1 Learning & Inference",
+      "text" : "Model parameters are selected to maximize the regularized conditional log likelihood of reconstructed observations x̂ given the structured observation x:\nℓℓ(λ,θ) = R1(λ) +R2(θ) + ∑ (x,x̂)∈T log ∑ y pλ(y | x)× pθ(x̂ | y) (2)\nWe apply block coordinate descent, alternating between maximizing with respect to the CRF parameters (λ-step) and the reconstruction parameters (θ-step). Each λ-step applies one or two iterations of a gradient-based convex optimizer.5 The θ-step applies one or two iterations of EM [10], with a closed-form solution in the M-step in each EM iteration. The independence assumptions among y make the marginal inference required in both steps straightforward; we omit details for space.\nIn the experiments below, we apply a squared L2 regularizer for the CRF parameters λ, and a symmetric Dirichlet prior for categorical parameters θ.\nThe asymptotic runtime complexity of each block coordinate descent iteration, assuming the firstorder Markov dependencies in Fig. 2 (right), is:\nO ( |θ|+ |λ|+ |T | × |x|max × |Y|max × (|Y|max × |Fyi−1,yi |+ |Fx,yi |) )\n(3)\nwhere Fyi−1,yi are the active “label bigram” features used in 〈yi−1, yi〉 factors, Fx,yi are the active emission-like features used in 〈x, yi〉 factors. |x|max is the maximum length of an observation sequence. |Y|max is the maximum cardinality 6 of the set of possible assignments of yi.\nAfter learning the λ and θ parameters of the CRF autoencoder, test-time predictions are made using maximum a posteriori estimation, conditioning on both observations and reconstructions, i.e., ŷMAP = argmaxy pλ,θ(y | x, x̂)."
+    }, {
+      "heading" : "3 Connections To Previous Work",
+      "text" : "This work relates to several strands of work in unsupervised learning. Two broad types of models have been explored that support unsupervised learning with flexible feature representations. Both are\n5We experimented with AdaGrad [12] and L-BFGS. When using AdaGrad, we accummulate the gradient vectors across block coordinate ascent iterations.\n6In POS induction, |Y| is a constant, the number of syntactic classes which we configure to 12 in our experiments. In word alignment, |Y| is the size of the source sentence plus one, therefore |Y|max is the maximum length of a source sentence in the bitext corpus.\nfully generative models that define joint distributions over x and y. We discuss these “undirected” and “directed” alternatives next, then turn to less closely related methods."
+    }, {
+      "heading" : "3.1 Existing Alternatives for Unsupervised Learning with Features",
+      "text" : "Undirected models. A Markov random field (MRF) encodes the joint distribution through local potential functions parameterized using features. Such models “normalize globally,” requiring during training the calculation of a partition function summing over all possible inputs and outputs. In our notation:\nZ(θ) = ∑\nx∈X∗\n∑\ny∈Y|x|\nexpλ⊤ḡ(x,y) (4)\nwhere ḡ collects all the local factorization by cliques of the graph, for clarity. The key difficulty is in the summation over all possible observations. Approximations have been proposed, including contrastive estimation, which sums over subsets of X ∗ [38, 43] (applied variously to POS learning by Haghighi and Klein [18] and word alignment by Dyer et al. [14]) and noise contrastive estimation [30].\nDirected models. The directed alternative avoids the global partition function by factorizing the joint distribution in terms of locally normalized conditional probabilities, which are parameterized in terms of features. For unsupervised sequence labeling, the model was called a “feature HMM” by Berg-Kirkpatrick et al. [3]. The local emission probabilities p(xi | yi) in a first-order HMM for POS tagging are reparameterized as follows (again, using notation close to ours):\npλ(xi | yi) = expλ⊤g(xi, yi) ∑\nx∈X expλ ⊤ g(x, yi)\n(5)\nThe features relating hidden to observed variables must be local within the factors implied by the directed graph. We show below that this locality restriction excludes features that are useful (§A.1).\nPut in these terms, the proposed autoencoding model is a hybrid directed-undirected model.\nAsymptotic Runtime Complexity of Inference. The models just described cannot condition on arbitrary amounts of x without increasing inference costs. Despite the strong independence assumptions of those models, the computational complexity of inference required for learning with CRF autoencoders is better (§2.1).\nConsider learning the parameters of an undirected model by maximizing likelihood of the observed data. Computing the gradient for a training instance x requires time\nO ( |λ|+ |T | × |x| × |Y| × (|Y| × |Fyi−1,yi |+|X | × |Fxi,yi |) ) ,\nwhere Fxi−yi are the emission-like features used in an arbitrary assignment of xi and yi. When the multiplicative factor |X | is large, inference is slow compared to CRF autoencoders.\nInference in directed models is faster than in undirected models, but still slower than CRF autoencoder models. In directed models [3], each iteration requires time\nO ( |λ|+ |T | × |x| × |Y| × (|Y| × |Fyi−1,yi |+ |Fxi,yi |)+|θ ′| ×max(|Fyi−1,yi |, |FX ,yi |) ) ,\nwhere Fxi,yi are the active emission features used in an arbitrary assignment of xi and yi, FX ,yi is the union of all emission features used with an arbitrary assignment of yi, and θ\n′ are the local emission and transition probabilities. When |X | is large, the last term |θ′|×max(|Fyi−1,yi |, |FX ,yi |) can be prohibitively large."
+    }, {
+      "heading" : "3.2 Other Related Work",
+      "text" : "The proposed CRF autoencoder is more distantly related to several important ideas in less-thansupervised learning.\nAutoencoders and other “predict self” methods. Our framework borrows its general structure,\nFig. 2 (left), as well as its name, from neural network autoencoders. The goal of neural autoencoders has been to learn feature representations that improve generalization in otherwise supervised learning problems [44, 8, 39]. In contrast, the goal of CRF autoencoders is to learn specific interpretable regularities of interest.7 It is not clear how neural autoencoders could be used to learn the latent structures that CRF autoencoders learn, without providing supervised training examples. Stoyanov et al. [40] presented a related approach for discriminative graphical model learning, including features and latent variables, based on backpropagation, which could be used to instantiate the CRF autoencoder.\nDaumé III [9] introduced a reduction of an unsupervised problem instance to a series of singlevariable supervised classifications. The first series of these construct a latent structure y given the entire x, then the second series reconstruct the input. The approach can make use of any supervised learner; if feature-based probabilistic models were used, a |X | summation (akin to Eq. 5) would be required. On unsupervised POS induction, this approach performed on par with the undirected model of Smith and Eisner [38].\nMinka [29] proposed cascading a generative model and a discriminative model, where class labels (to be predicted at test time) are marginalized out in the generative part first, and then (re)generated in the discriminative part. In CRF autoencoders, observations (available at test time) are conditioned on in the discriminative part first, and then (re)generated in the generative part.\nPosterior regularization. Introduced by Ganchev et al. [16], posterior regularization is an effective method for specifying constraint on the posterior distributions of the latent variables of interest; a similar idea was proposed independently by Bellare et al. [2]. For example, in POS induction, every sentence might be expected to contain at least one verb. This is imposed as a soft constraint, i.e., a feature whose expected value under the model’s posterior is constrained. Such expectation constraints are specified directly by the domain-aware model designer.8 The approach was applied to unsupervised POS induction, word alignment, and parsing. Although posterior regularization was applied to directed feature-less generative models, the idea is orthogonal to the model family and can be used to add more inductive bias for training CRF autoencoder models."
+    }, {
+      "heading" : "4 Evaluation",
+      "text" : "We evaluate the effectiveness of CRF autoencoders for learning from unlabeled examples in POS induction and word alignment. We defer the detailed experimental setup to Appendix A.\nPart-of-Speech Induction Results. Fig. 3 compares predictions of the CRF autoencoder model in seven languages to those of a featurized first-order HMM model [3] and a standard (feature-less) first-order HMM, using V-measure [37] (higher is better). First, note the large gap between both feature-rich models on the one hand, and the feature-less HMM model on the other hand. Second, note that CRF autoencoders outperform featurized HMMs in all languages, except Italian, with an average relative improvement of 12%.\nThese results provide empirical evidence that feature engineering is an important source of inductive bias for unsupervised structured prediction problems. In particular, we found that using Brown cluster reconstructions and specifying features which span multiple words significantly improve the performance. Refer to Appendix A for more analysis.\nBitext Word Alignment Results. First, we consider an intrinsic evaluation on a Czech-English dataset of manual alignments, measuring the alignment error rate (AER; [32]). We also perform an\n7This is possible in CRF autoencoders due to the interdependencies among variables in the hidden structure and the manually specified feature templates which capture the relationship between observations and their hidden structures.\n8In a semi-supervised setting, when some labeled examples of the hidden structure are available, Druck and McCallum [11] used labeled examples to estimate desirable expected values. We leave semi-supervised applications of CRF autoencoders to future work; see also Suzuki and Isozaki [41].\nextrinsic evaluation of translation quality in three language pairs, using case-insensitive Bleu [33] of a machine translation system (cdec9 [13]) built using the word alignment predictions of each model.\nAER for variants of each model (forward, reverse, and symmetrized) are shown in Table 1 (left). Our model significantly outperforms both baselines. Bleu scores on the three language pairs are shown in Table 1; alignments obtained with our CRF autoencoder model improve translation quality of the Czech-English and Urdu-English translation systems, but not of Chinese-English. This is unsurprising, given that Chinese orthography does not use letters, so that source-language spelling and morphology features our model incorporates introduce only noise here. Better feature engineering, or more data, is called for.\nWe have argued that the feature-rich CRF autoencoder will scale better than its feature-rich alternatives. Fig. 5 (in Appendix A.2) shows the average per-sentence inference runtime for the CRF autoencoder compared to exact inference in an MRF [14] with a similar feature set, as a function of the number of sentences in the corpus. For CRF autoencoders, the average inference runtime grows slightly due to the increased number of parameters, while it grows substantially with vocabulary size in MRF models [14].10"
+    }, {
+      "heading" : "5 Conclusion",
+      "text" : "We have presented a general and scalable framework to learn from unlabeled examples for structured prediction. The technique allows features with global scope in observed variables with favorable asymptotic inference runtime. We achieve this by embedding a CRF as the encoding model in the\n9http://www.cdec-decoder.org/ 10We only compare runtime, instead of alignment quality, because retraining the MRF model with exact\ninference was too expensive.\ninput layer of an autoencoder, and reconstructing a transformation of the input at the output layer using simple categorical distributions. The key advantages of the proposed model are scalability and modeling flexibility. We applied the model to POS induction and bitext word alignment, obtaining results that are competitive with the state of the art on both tasks."
+    }, {
+      "heading" : "Acknowledgments",
+      "text" : "We thank Brendan O’Connor, Dani Yogatama, Jeffrey Flanigan, Manaal Faruqui, Nathan Schneider, Phil Blunsom and the anonymous reviewers for helpful suggestions. We also thank Taylor BergKirkpatrick for providing his implementation of the POS induction baseline, and Phil Blunsom for sharing POS induction evaluation scripts. This work was sponsored by the U.S. Army Research Laboratory and the U.S. Army Research Office under contract/grant number W911NF-10-1-0533. The statements made herein are solely the responsibility of the authors."
+    } ],
+    "references" : [ {
+      "title" : "Unsupervised learning of multiple motifs in biopolymers using expectation maximization",
+      "author" : [ "T.L. Bailey", "C. Elkan" ],
+      "venue" : "Machine learning,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : "1",
+      "year" : 1995
+    }, {
+      "title" : "Alternating projections for learning with expectation constraints",
+      "author" : [ "K. Bellare", "G. Druck", "A. McCallum" ],
+      "venue" : "In Proc. of UAI,",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 2009
+    }, {
+      "title" : "Painless unsupervised learning with features",
+      "author" : [ "T. Berg-Kirkpatrick", "A. Bouchard-Côté", "J. DeNero", "D. Klein" ],
+      "venue" : "In Proc. of NAACL,",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 2010
+    }, {
+      "title" : "Discriminative word alignment with conditional random fields",
+      "author" : [ "P. Blunsom", "T. Cohn" ],
+      "venue" : "In Proc. of Proceedings of ACL,",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : "4",
+      "year" : 2006
+    }, {
+      "title" : "Class-based n-gram models of natural language",
+      "author" : [ "P.F. Brown", "P.V. deSouza", "R.L. Mercer", "V.J.D. Pietra", "J.C. Lai" ],
+      "venue" : "Computational Linguistics,",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : "5",
+      "year" : 1992
+    }, {
+      "title" : "The mathematics of statistical machine translation: parameter estimation",
+      "author" : [ "P.F. Brown", "V.J.D. Pietra", "S.A.D. Pietra", "R.L. Mercer" ],
+      "venue" : "In Computational Linguistics,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : "6",
+      "year" : 1993
+    }, {
+      "title" : "CoNLL-X shared task on multilingual dependency parsing",
+      "author" : [ "S. Buchholz", "E. Marsi" ],
+      "venue" : "In CoNLL-X,",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : "7",
+      "year" : 2006
+    }, {
+      "title" : "A unified architecture for natural language processing: Deep neural networks with multitask learning",
+      "author" : [ "R. Collobert", "J. Weston" ],
+      "venue" : "In Proc. of ICML,",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : "8",
+      "year" : 2008
+    }, {
+      "title" : "Unsupervised search-based structured prediction",
+      "author" : [ "H. Daumé III" ],
+      "venue" : "In Proceedings of the 26th Annual International Conference on Machine Learning,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : "9",
+      "year" : 2009
+    }, {
+      "title" : "Maximum likelihood from incomplete data via the em algorithm",
+      "author" : [ "A.P. Dempster", "N.M. Laird", "D.B. Rubin" ],
+      "venue" : "Journal of the Royal statistical Society,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : "10",
+      "year" : 1977
+    }, {
+      "title" : "High-performance semi-supervised learning using discriminatively constrained generative models",
+      "author" : [ "G. Druck", "A. McCallum" ],
+      "venue" : "In Proc. of ICML,",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : "11",
+      "year" : 2010
+    }, {
+      "title" : "Adaptive subgradient methods for online learning and stochastic optimization",
+      "author" : [ "J. Duchi", "E. Hazan", "Y. Singer" ],
+      "venue" : null,
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : "12",
+      "year" : 2011
+    }, {
+      "title" : "cdec: A decoder, alignment, and learning framework for finite-state and contextfree translation models",
+      "author" : [ "C. Dyer", "A. Lopez", "J. Ganitkevitch", "J. Weese", "F. Ture", "P. Blunsom", "H. Setiawan", "V. Eidelman", "P. Resnik" ],
+      "venue" : "In Proc. of ACL,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : "13",
+      "year" : 2010
+    }, {
+      "title" : "Unsupervised word alignment with arbitrary features",
+      "author" : [ "C. Dyer", "J. Clark", "A. Lavie", "N.A. Smith" ],
+      "venue" : "In Proc. of ACL-HLT,",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : "14",
+      "year" : 2011
+    }, {
+      "title" : "A simple, fast, and effective reparameterization of IBM Model 2",
+      "author" : [ "C. Dyer", "V. Chahuneau", "N.A. Smith" ],
+      "venue" : "In Proc. of NAACL,",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : "15",
+      "year" : 2013
+    }, {
+      "title" : "Posterior regularization for structured latent variable models",
+      "author" : [ "K. Ganchev", "J. Graça", "J. Gillenwater", "B. Taskar" ],
+      "venue" : "Journal of Machine Learning Research,",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : "16",
+      "year" : 2010
+    }, {
+      "title" : "Parallel implementations of word alignment tool",
+      "author" : [ "Q. Gao", "S. Vogel" ],
+      "venue" : "In In Proc. of the ACL workshop,",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : "17",
+      "year" : 2008
+    }, {
+      "title" : "Prototype-driven learning for sequence models",
+      "author" : [ "A. Haghighi", "D. Klein" ],
+      "venue" : "In Proc. of NAACL- HLT,",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : "18",
+      "year" : 2006
+    }, {
+      "title" : "Statistical Methods for Speech Recognition",
+      "author" : [ "F. Jelinek" ],
+      "venue" : null,
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : "19",
+      "year" : 1997
+    }, {
+      "title" : "Why doesn’t EM find good HMM POS-taggers",
+      "author" : [ "M. Johnson" ],
+      "venue" : "In Proc. of EMNLP,",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : "20",
+      "year" : 2007
+    }, {
+      "title" : "Corpus-based induction of syntactic structure: Models of dependency and constituency",
+      "author" : [ "D. Klein", "C.D. Manning" ],
+      "venue" : "In Proc. of ACL,",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : "21",
+      "year" : 2004
+    }, {
+      "title" : "Statistical Machine Translation",
+      "author" : [ "P. Koehn" ],
+      "venue" : null,
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : "22",
+      "year" : 2010
+    }, {
+      "title" : "Statistical phrase-based translation",
+      "author" : [ "P. Koehn", "F.J. Och", "D. Marcu" ],
+      "venue" : "In Proc. of NAACL,",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : "23",
+      "year" : 2003
+    }, {
+      "title" : "Conditional random fields: Probabilistic models for segmenting and labeling sequence data",
+      "author" : [ "J. Lafferty", "A. McCallum", "F. Pereira" ],
+      "venue" : "In Proc. of ICML,",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : "24",
+      "year" : 2001
+    }, {
+      "title" : "Semi-supervised learning for natural language",
+      "author" : [ "P. Liang" ],
+      "venue" : "In Thesis,",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : "25",
+      "year" : 2005
+    }, {
+      "title" : "The cmu submission for the shared task on language identification in code-switched data",
+      "author" : [ "C.-C. Lin", "W. Ammar", "C. Dyer", "L. Levin" ],
+      "venue" : "In First Workshop on Computational Approaches to Code Switching at EMNLP,",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : "26",
+      "year" : 2014
+    }, {
+      "title" : "Genemark. hmm: new solutions for gene finding",
+      "author" : [ "A.V. Lukashin", "M. Borodovsky" ],
+      "venue" : "Nucleic acids research,",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : "27",
+      "year" : 1998
+    }, {
+      "title" : "Tagging english text with a probabilistic model",
+      "author" : [ "B. Merialdo" ],
+      "venue" : "In Comp. Ling.,",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : "28",
+      "year" : 1994
+    }, {
+      "title" : "Discriminative models, not discriminative training",
+      "author" : [ "T. Minka" ],
+      "venue" : "Technical report, Technical Report MSR-TR-2005-144, Microsoft Research,",
+      "citeRegEx" : "29",
+      "shortCiteRegEx" : "29",
+      "year" : 2005
+    }, {
+      "title" : "A fast and simple algorithm for training neural probabilistic language models",
+      "author" : [ "A. Mnih", "Y.W. Teh" ],
+      "venue" : "In Proc. of ICML,",
+      "citeRegEx" : "30",
+      "shortCiteRegEx" : "30",
+      "year" : 2012
+    }, {
+      "title" : "The CoNLL 2007 shared task on dependency parsing",
+      "author" : [ "J. Nivre", "J. Hall", "S. Kubler", "R. McDonald", "J. Nilsson", "S. Riedel", "D. Yuret" ],
+      "venue" : "In Proc. of CoNLL,",
+      "citeRegEx" : "31",
+      "shortCiteRegEx" : "31",
+      "year" : 2007
+    }, {
+      "title" : "A systematic comparison of various statistical alignment models",
+      "author" : [ "F. Och", "H. Ney" ],
+      "venue" : "Computational Linguistics,",
+      "citeRegEx" : "32",
+      "shortCiteRegEx" : "32",
+      "year" : 2003
+    }, {
+      "title" : "Bleu: a method for automatic evaluation of machine translation",
+      "author" : [ "K. Papineni", "S. Roukos", "T. Ward", "W.-J. Zhu" ],
+      "venue" : "In Proc. of ACL,",
+      "citeRegEx" : "33",
+      "shortCiteRegEx" : "33",
+      "year" : 2002
+    }, {
+      "title" : "A universal part-of-speech tagset",
+      "author" : [ "S. Petrov", "D. Das", "R. McDonald" ],
+      "venue" : "In Proc. of LREC,",
+      "citeRegEx" : "34",
+      "shortCiteRegEx" : "34",
+      "year" : 2012
+    }, {
+      "title" : "Joint unsupervised coreference resolution with Markov logic",
+      "author" : [ "H. Poon", "P. Domingos" ],
+      "venue" : "In Proc. of EMNLP,",
+      "citeRegEx" : "35",
+      "shortCiteRegEx" : "35",
+      "year" : 2008
+    }, {
+      "title" : "Substring-based transliteration with conditional random fields",
+      "author" : [ "S. Reddy", "S. Waxmonsky" ],
+      "venue" : "In Proc. of the Named Entities Workshop,",
+      "citeRegEx" : "36",
+      "shortCiteRegEx" : "36",
+      "year" : 2009
+    }, {
+      "title" : "V-measure: A conditional entropy-based external cluster evaluation measure",
+      "author" : [ "A. Rosenberg", "J. Hirschberg" ],
+      "venue" : "In EMNLP-CoNLL,",
+      "citeRegEx" : "37",
+      "shortCiteRegEx" : "37",
+      "year" : 2007
+    }, {
+      "title" : "Contrastive estimation: Training log-linear models on unlabeled data",
+      "author" : [ "N.A. Smith", "J. Eisner" ],
+      "venue" : "In Proc. of ACL,",
+      "citeRegEx" : "38",
+      "shortCiteRegEx" : "38",
+      "year" : 2005
+    }, {
+      "title" : "Learning continuous phrase representations and syntactic parsing with recursive neural networks",
+      "author" : [ "R. Socher", "C.D. Manning", "A.Y. Ng" ],
+      "venue" : "In NIPS workshop,",
+      "citeRegEx" : "39",
+      "shortCiteRegEx" : "39",
+      "year" : 2010
+    }, {
+      "title" : "Empirical risk minimization of graphical model parameters given approximate inference, decoding, and model structure",
+      "author" : [ "V. Stoyanov", "A. Ropson", "J. Eisner" ],
+      "venue" : "In Proc. of AISTATS,",
+      "citeRegEx" : "40",
+      "shortCiteRegEx" : "40",
+      "year" : 2011
+    }, {
+      "title" : "Semi-supervised sequential labeling and segmentation using gigaword scale unlabeled data",
+      "author" : [ "J. Suzuki", "H. Isozaki" ],
+      "venue" : "In Proc. of ACL,",
+      "citeRegEx" : "41",
+      "shortCiteRegEx" : "41",
+      "year" : 2008
+    }, {
+      "title" : "Unsupervised semantic role labelling",
+      "author" : [ "R. Swier", "S. Stevenson" ],
+      "venue" : "In Proc. of EMNLP,",
+      "citeRegEx" : "42",
+      "shortCiteRegEx" : "42",
+      "year" : 2004
+    }, {
+      "title" : "Non-local contrastive objectives",
+      "author" : [ "D. Vickrey", "C.C. Lin", "D. Koller" ],
+      "venue" : "In Proc. of ICML,",
+      "citeRegEx" : "43",
+      "shortCiteRegEx" : "43",
+      "year" : 2010
+    }, {
+      "title" : "Extracting and composing robust features with denoising autoencoders",
+      "author" : [ "P. Vincent", "H. Larochelle", "Y. Bengio", "P.-A. Manzagol" ],
+      "venue" : "In Proc. of ICML,",
+      "citeRegEx" : "44",
+      "shortCiteRegEx" : "44",
+      "year" : 2008
+    }, {
+      "title" : "Hmm-based word alignment in statistical translation",
+      "author" : [ "S. Vogel", "H. Ney", "C. Tillmann" ],
+      "venue" : "In Proc. of COLING,",
+      "citeRegEx" : "45",
+      "shortCiteRegEx" : "45",
+      "year" : 1996
+    }, {
+      "title" : "Unsupervised learning of models for recognition",
+      "author" : [ "M. Weber", "M. Welling", "P. Perona" ],
+      "venue" : null,
+      "citeRegEx" : "46",
+      "shortCiteRegEx" : "46",
+      "year" : 2000
+    }, {
+      "title" : "Recognizing human action in time-sequential images using hidden Markov model",
+      "author" : [ "J. Yamato", "J. Ohya", "K. Ishii" ],
+      "venue" : "In Proc. of CVPR,",
+      "citeRegEx" : "47",
+      "shortCiteRegEx" : "47",
+      "year" : 1992
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 23,
+      "context" : "Conditional random fields [24] are used to model structure in numerous problem domains, including natural language processing (NLP), computational biology, and computer vision.",
+      "startOffset" : 26,
+      "endOffset" : 30
+    }, {
+      "referenceID" : 4,
+      "context" : "For example, we found reconstructing Brown clusters [5] of tokens instead of their surface forms to improve POS induction.",
+      "startOffset" : 52,
+      "endOffset" : 55
+    }, {
+      "referenceID" : 20,
+      "context" : "For example, instantiations of this model can be used for unsupervised learning of parse trees [21], semantic role labels [42], and coreference resolution [35] (in NLP), motif structures [1] in computational biology, and object recognition [46] in computer vision.",
+      "startOffset" : 95,
+      "endOffset" : 99
+    }, {
+      "referenceID" : 41,
+      "context" : "For example, instantiations of this model can be used for unsupervised learning of parse trees [21], semantic role labels [42], and coreference resolution [35] (in NLP), motif structures [1] in computational biology, and object recognition [46] in computer vision.",
+      "startOffset" : 122,
+      "endOffset" : 126
+    }, {
+      "referenceID" : 34,
+      "context" : "For example, instantiations of this model can be used for unsupervised learning of parse trees [21], semantic role labels [42], and coreference resolution [35] (in NLP), motif structures [1] in computational biology, and object recognition [46] in computer vision.",
+      "startOffset" : 155,
+      "endOffset" : 159
+    }, {
+      "referenceID" : 0,
+      "context" : "For example, instantiations of this model can be used for unsupervised learning of parse trees [21], semantic role labels [42], and coreference resolution [35] (in NLP), motif structures [1] in computational biology, and object recognition [46] in computer vision.",
+      "startOffset" : 187,
+      "endOffset" : 190
+    }, {
+      "referenceID" : 45,
+      "context" : "For example, instantiations of this model can be used for unsupervised learning of parse trees [21], semantic role labels [42], and coreference resolution [35] (in NLP), motif structures [1] in computational biology, and object recognition [46] in computer vision.",
+      "startOffset" : 240,
+      "endOffset" : 244
+    }, {
+      "referenceID" : 9,
+      "context" : "The θ-step applies one or two iterations of EM [10], with a closed-form solution in the M-step in each EM iteration.",
+      "startOffset" : 47,
+      "endOffset" : 51
+    }, {
+      "referenceID" : 11,
+      "context" : "Both are (5)We experimented with AdaGrad [12] and L-BFGS.",
+      "startOffset" : 41,
+      "endOffset" : 45
+    }, {
+      "referenceID" : 37,
+      "context" : "Approximations have been proposed, including contrastive estimation, which sums over subsets of X ∗ [38, 43] (applied variously to POS learning by Haghighi and Klein [18] and word alignment by Dyer et al.",
+      "startOffset" : 100,
+      "endOffset" : 108
+    }, {
+      "referenceID" : 42,
+      "context" : "Approximations have been proposed, including contrastive estimation, which sums over subsets of X ∗ [38, 43] (applied variously to POS learning by Haghighi and Klein [18] and word alignment by Dyer et al.",
+      "startOffset" : 100,
+      "endOffset" : 108
+    }, {
+      "referenceID" : 17,
+      "context" : "Approximations have been proposed, including contrastive estimation, which sums over subsets of X ∗ [38, 43] (applied variously to POS learning by Haghighi and Klein [18] and word alignment by Dyer et al.",
+      "startOffset" : 166,
+      "endOffset" : 170
+    }, {
+      "referenceID" : 13,
+      "context" : "[14]) and noise contrastive estimation [30].",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 29,
+      "context" : "[14]) and noise contrastive estimation [30].",
+      "startOffset" : 39,
+      "endOffset" : 43
+    }, {
+      "referenceID" : 2,
+      "context" : "In directed models [3], each iteration requires time",
+      "startOffset" : 19,
+      "endOffset" : 22
+    }, {
+      "referenceID" : 43,
+      "context" : "The goal of neural autoencoders has been to learn feature representations that improve generalization in otherwise supervised learning problems [44, 8, 39].",
+      "startOffset" : 144,
+      "endOffset" : 155
+    }, {
+      "referenceID" : 7,
+      "context" : "The goal of neural autoencoders has been to learn feature representations that improve generalization in otherwise supervised learning problems [44, 8, 39].",
+      "startOffset" : 144,
+      "endOffset" : 155
+    }, {
+      "referenceID" : 38,
+      "context" : "The goal of neural autoencoders has been to learn feature representations that improve generalization in otherwise supervised learning problems [44, 8, 39].",
+      "startOffset" : 144,
+      "endOffset" : 155
+    }, {
+      "referenceID" : 39,
+      "context" : "[40] presented a related approach for discriminative graphical model learning, including features and latent variables, based on backpropagation, which could be used to instantiate the CRF autoencoder.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 8,
+      "context" : "Daumé III [9] introduced a reduction of an unsupervised problem instance to a series of singlevariable supervised classifications.",
+      "startOffset" : 10,
+      "endOffset" : 13
+    }, {
+      "referenceID" : 37,
+      "context" : "On unsupervised POS induction, this approach performed on par with the undirected model of Smith and Eisner [38].",
+      "startOffset" : 108,
+      "endOffset" : 112
+    }, {
+      "referenceID" : 28,
+      "context" : "Minka [29] proposed cascading a generative model and a discriminative model, where class labels (to be predicted at test time) are marginalized out in the generative part first, and then (re)generated in the discriminative part.",
+      "startOffset" : 6,
+      "endOffset" : 10
+    }, {
+      "referenceID" : 15,
+      "context" : "[16], posterior regularization is an effective method for specifying constraint on the posterior distributions of the latent variables of interest; a similar idea was proposed independently by Bellare et al.",
+      "startOffset" : 0,
+      "endOffset" : 4
+    }, {
+      "referenceID" : 2,
+      "context" : "3 compares predictions of the CRF autoencoder model in seven languages to those of a featurized first-order HMM model [3] and a standard (feature-less) first-order HMM, using V-measure [37] (higher is better).",
+      "startOffset" : 118,
+      "endOffset" : 121
+    }, {
+      "referenceID" : 36,
+      "context" : "3 compares predictions of the CRF autoencoder model in seven languages to those of a featurized first-order HMM model [3] and a standard (feature-less) first-order HMM, using V-measure [37] (higher is better).",
+      "startOffset" : 185,
+      "endOffset" : 189
+    }, {
+      "referenceID" : 31,
+      "context" : "First, we consider an intrinsic evaluation on a Czech-English dataset of manual alignments, measuring the alignment error rate (AER; [32]).",
+      "startOffset" : 133,
+      "endOffset" : 137
+    }, {
+      "referenceID" : 10,
+      "context" : "(8)In a semi-supervised setting, when some labeled examples of the hidden structure are available, Druck and McCallum [11] used labeled examples to estimate desirable expected values.",
+      "startOffset" : 118,
+      "endOffset" : 122
+    }, {
+      "referenceID" : 40,
+      "context" : "We leave semi-supervised applications of CRF autoencoders to future work; see also Suzuki and Isozaki [41].",
+      "startOffset" : 102,
+      "endOffset" : 106
+    }, {
+      "referenceID" : 36,
+      "context" : "Figure 3: V-measure [37] of induced parts of speech in seven languages.",
+      "startOffset" : 20,
+      "endOffset" : 24
+    }, {
+      "referenceID" : 32,
+      "context" : "extrinsic evaluation of translation quality in three language pairs, using case-insensitive Bleu [33] of a machine translation system (cdec(9) [13]) built using the word alignment predictions of each model.",
+      "startOffset" : 97,
+      "endOffset" : 101
+    }, {
+      "referenceID" : 12,
+      "context" : "extrinsic evaluation of translation quality in three language pairs, using case-insensitive Bleu [33] of a machine translation system (cdec(9) [13]) built using the word alignment predictions of each model.",
+      "startOffset" : 143,
+      "endOffset" : 147
+    }, {
+      "referenceID" : 13,
+      "context" : "2) shows the average per-sentence inference runtime for the CRF autoencoder compared to exact inference in an MRF [14] with a similar feature set, as a function of the number of sentences in the corpus.",
+      "startOffset" : 114,
+      "endOffset" : 118
+    }, {
+      "referenceID" : 13,
+      "context" : "For CRF autoencoders, the average inference runtime grows slightly due to the increased number of parameters, while it grows substantially with vocabulary size in MRF models [14].",
+      "startOffset" : 174,
+      "endOffset" : 178
+    } ],
+    "year" : 2014,
+    "abstractText" : "We introduce a framework for unsupervised learning of structured predictors with overlapping, global features. Each input’s latent representation is predicted conditional on the observed data using a feature-rich conditional random field (CRF). Then a reconstruction of the input is (re)generated, conditional on the latent structure, using a generative model which factorizes similarly to the CRF. The autoencoder formulation enables efficient exact inference without resorting to unrealistic independence assumptions or restricting the kinds of features that can be used. We illustrate connections to traditional autoencoders, posterior regularization, and multi-view learning. We then show competitive results with instantiations of the framework for two canonical tasks in natural language processing: part-of-speech induction and bitext word alignment, and show that training the proposed model can be substantially more efficient than a comparable feature-rich baseline.",
+    "creator" : null
+  }
+}

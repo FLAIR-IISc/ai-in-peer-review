@@ -1,0 +1,35 @@
+Summary and contributions
+- The paper proposes a hierarchical character-level NMT architecture (DCNMT) that aims to learn morphology while maintaining efficiency. The encoder includes a novel character-to-word composition: two RNNs compute (i) prefix representations over characters and (ii) per-position weights, aggregated into a word vector. The decoder is hierarchical: a word-level decoder produces states that initialize a character-level “HGRU,” which generates characters for each word until a delimiter is produced. A batching trick “unfolds” word-level states over character time steps to enable efficient training.
+- Claimed contributions as I see them:
+  1) A compositional word encoder over characters that uses a second RNN to compute position-wise “energies/weights,” purportedly learning morphemes and their composition.
+  2) A hierarchical decoder with a “settable-state” GRU (HGRU) and a simple unfolding mechanism for efficient batch training of character-level decoders conditioned on word-level states.
+  3) Empirical results on WMT En–Fr, En–Cs, and Cs–En showing competitive BLEU to strong character models with fewer parameters, along with qualitative analyses suggesting morphology learning and robustness to misspellings/nonce forms.
+
+Strengths
+- Competitive performance with compact models: On En–Fr (30.56 BLEU) and Cs–En (22.48 BLEU), DCNMT matches or slightly improves over reported character/subword baselines while using fewer parameters (~54M vs ~69–76M). Early-epoch performance (after 1 epoch) is strong, suggesting learning efficiency.
+- Practical decoder engineering: The settable-state HGRU combined with the unfolding matrix R is a neat, pragmatic solution to batched training of hierarchical character decoders. This is likely of interest to practitioners wanting character-level generation without paying prohibitive training costs.
+- Qualitative evidence of morphological awareness: The word-encoder analysis (PCA plots for “-ability/-ibility” derivations, energy peaks at morpheme boundaries for “any*”/“every*”) is suggestive that the encoder captures recurring morphemic patterns. The examples on misspellings and nonce words (e.g., “convenienter”) highlight a tangible benefit of character-level modeling.
+- End-to-end, fully character output: Unlike hybrid word–char approaches that fall back to word softmax, the model decodes characters throughout, addressing closed-vocabulary issues associated with softmax over large word vocabularies.
+
+Weaknesses
+- Novelty is incremental and overlaps with prior work: The overall design strongly overlaps with existing lines: character-to-word encoders (C2W; Ling et al.), fully character decoders (Lee et al.; Luong & Manning), and hierarchical decoders. The proposed word encoder resembles an attention/gating over character positions; the HGRU is a GRU with occasional state resets. The paper would benefit from a clearer positioning and ablations that isolate what is genuinely new and necessary relative to known alternatives.
+- Ambiguities and technical clarity issues: Key equations are underspecified or inconsistent. For the encoder, wt is defined via exp(aff(ht)) but then the text says “instead of normalizing by sum exp, we use tanh,” leaving unclear whether weights are normalized, signed, or how scaling is controlled. The HGRU equations (Eqns. 2–6) mix indices (gt−1 = (1−at−1)gt−1 + at−1 sit) and later define sit via unfolding; shapes and broadcasting are not clearly explained. The delimiter definition and a_t construction are only implicit (whitespace? special token?). These hinder reproducibility and make it hard to assess correctness.
+- Limited and uneven empirical validation: 
+  - Ablations are missing. The table includes a “CNMT” baseline (ordinary RNN word encoder) only for En–Fr; it’s not shown for En–Cs/Cs–En, and there is no ablation replacing HGRU with a standard GRU/LSTM + explicit reset, nor analysis of the unfolding trick’s contribution.
+  - Comparisons mix numbers from different papers with different hardware, preprocessing, and data splits; training “days” are not comparable. Beam size and decoding details are not reported. Statistical significance is not assessed.
+  - The subword baseline is a single bpe2bpe configuration; stronger BPE settings (merge ops, shared vocabularies) could change outcomes.
+- Morphology evaluation is anecdotal: The PCA plots and a few token-level segmentations are illustrative but not rigorous. Some segmentations (“consum-er-s”) are linguistically questionable. No intrinsic or extrinsic morphology benchmark (e.g., segmentation F1, lemmatization, or correlation with morphological tags) is provided to substantiate the central “learning morphology” claim.
+- “Open vocabulary” claim is partially undercut: The model limits the character set to the top 120 characters and maps others to <unk>, which may be pragmatic but weakens the argument about fully open vocabulary, especially for multilingual scripts or noisy input.
+- Presentation/writing issues: Numerous typos, inconsistent notation, incomplete references, and figures/tables that are hard to parse. Some dataset choices are unclear (e.g., En–Fr uses newstest2015 as test, whereas many En–Fr works report on WMT14; this affects comparability).
+
+Questions to authors
+- Word encoder: Please precisely specify the weighting. Is wt = tanh(exp(aff(ht)))? Are weights normalized across positions? If not, how do you control the scale of the aggregate tanh(sum_t w_t r_t)? Did you try explicit attention/softmax normalization?
+- HGRU: What exactly is the delimiter symbol on the target side (space, special token)? How is a_t constructed during training and during decoding? Could a standard GRU/LSTM with explicit state reset (set hidden=gating*s_i + (1-gating)*h) replicate HGRU? Any ablations?
+- Unfolding matrix R: What is its computational and memory overhead for long sentences? How does it behave with very long words or highly agglutinative languages?
+- Experimental setup: 
+  - What beam sizes were used at the character level? Any length/word penalties?
+  - Are all reported baselines trained/evaluated on exactly the same data, preprocessing, and tokenization? If not, can you re-run stronger BPE/char baselines under your setup?
+  - Please report CNMT vs DCNMT on En–Cs and Cs–En to isolate the contribution of the word encoder.
+- Morphology: Can you provide a quantitative evaluation of the discovered boundaries (e.g., on MorphoChallenge or SIGMORPHON segmentation), or downstream gains on rare/morphologically complex words?
+
+Overall, the paper tackles an important problem and presents a practically useful hierarchical character decoder and an intuitively appealing character-to-word encoder. However, to merit acceptance, it needs clearer technical specification, stronger ablations, and more rigorous and fair empirical comparisons, especially to disentangle novelty and to substantiate the morphology-learning claims.

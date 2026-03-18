@@ -1,0 +1,55 @@
+Summary and relation to prior work:
+The paper proposes “on-the-job learning”: when an unlabeled input arrives, the system can query the crowd (at token- or item-level), wait for responses that arrive asynchronously, and then predict once sufficiently confident. As more instances are processed, the model improves, so later examples require fewer queries. The central contribution is a Bayesian decision-theoretic formulation of this process as a stochastic game: actions are to issue queries, wait, or return, trading off expected accuracy against query cost and latency. Because computing the optimal policy is intractable, the authors approximate with Monte Carlo Tree Search (MCTS/UCT) and progressive widening to handle continuous time. They instantiate this with a CRF (for NER) and simple response/time models, and evaluate on NER, sentiment, and face classification, claiming large cost reductions versus full crowdsourcing and accuracy gains over a single human and an “online learning” baseline.
+
+The idea intersects several lines of work: online learning (e.g., Cesa-Bianchi & Lugosi), active learning (Settles), test-time active classification (Greiner et al.; Gao & Koller), decision-theoretic crowdsourcing/POMDPs (TurKontrol; Dai, Mausam & Weld), and real-time crowdsourcing (retainer pools; Bernstein et al.). Compared to Legion:AR (Lasecki et al.), this paper provides a formal stochastic-game formulation with structured outputs and a planning algorithm. Compared to POMDP-based control in crowdsourcing, this work emphasizes structured prediction and addressing continuous time with progressive widening.
+
+Quality:
+Strengths:
+- Clear decision-theoretic modeling with explicit utility trading accuracy, money, and time. The asynchronous, real-time, partially observable setting is well captured by the game formulation.
+- The use of MCTS with progressive widening is technically appropriate for continuous-time branching and large action spaces; the paper gives a plausible algorithmic recipe.
+- The experimental framework leverages a retainer pool for realistic response times and explores three tasks, including structured NER where correlations matter.
+- Empirical results suggest nontrivial cost savings and improved accuracy over simple human and machine baselines, and show the intended “use the crowd as a crutch” behavior.
+
+Weaknesses/concerns:
+- Environment modeling is oversimplified: pR is fixed at 0.7 and uniform across labels, items, and workers. This ignores worker heterogeneity, instance difficulty, and confusion structure, which strongly affect optimal redundancy and query timing. The planning policy is sensitive to this.
+- Utility mismatch: the utility uses expected “Accuracy(argmax p(y))” but evaluation reports F1 (especially for NER). It is unclear whether the utility approximates token-wise accuracy, sequence accuracy, or F1. Misalignment may bias the learned policy; please clarify and, ideally, align the loss used in planning with the evaluation metric or show robustness.
+- Baselines are weak. The threshold heuristic is a strawman; the “online learning” baseline disallows any pre-prediction querying (making it incomparable to the proposed method whose defining advantage is pre-prediction access to humans). Missing comparisons:
+  - Myopic value-of-information policies for test-time querying.
+  - POMDP-based control with learned worker reliabilities (TurKontrol-like) on unstructured tasks (sentiment/faces).
+  - Static active-classification policies (e.g., Gao & Koller) trained on labeled data, to show the benefit of on-the-job adaptation.
+- Evaluation methodology relies heavily on pre-collected small pools (five responses per label) and simulates both responses and delays by sampling without replacement. This might reduce variance in a way the planner can exploit and may not reflect real deployment variability. No sensitivity analysis is shown on response accuracy distributions, response-time distributions, or mis-specified pR.
+- Clarity gaps in core computation: how is ExpAcc computed for structured outputs? Is it exact (e.g., for Hamming loss via marginals) or approximated? What inference is used in the CRF within MCTS rollouts? What is the planning horizon, branching factor, and computational overhead per example?
+- Learning from noisy responses: the CRF is trained online using crowd responses as ground truth, but the model already assumes a noise model pR. There is no joint estimation of the true labels and worker reliabilities (e.g., Dawid–Skene), which could improve both training and planning.
+- Constraints on actions (cannot issue a new query while waiting for the next response) may meaningfully hurt optimality in the low-latency regime; the impact should be quantified.
+
+Clarity:
+The paper is generally well written and easy to follow. The formal game specification is helpful. However, key details are under-specified: (a) definition of Accuracy in the utility, and how ExpAcc is computed for sequences; (b) response-time model estimation; (c) computational cost of planning and wall-clock latency contribution from MCTS; (d) feature details and hyperparameters for all tasks. Figures/tables are referenced but more numerical detail (e.g., standard errors, per-task cost/latency/accuracy curves) would strengthen the narrative.
+
+Originality:
+The on-the-job perspective with a structured model and a real-time stochastic game formulation is novel and timely. Using UCT with progressive widening for this crowdsourced, continuous-time setting is a creative combination. That said, the high-level ingredients (decision-theoretic control of queries, POMDP-like modeling, test-time acquisition) have prior art; the main novelty lies in adapting them for asynchronous crowds + structured prediction and demonstrating end-to-end behavior.
+
+Significance:
+If validated with stronger baselines and more robust environment modeling, this could influence how practitioners deploy models with immediate quality guarantees and taper crowd cost over time. The NER results are especially promising. However, the current evaluation choices and modeling simplifications limit external validity. Demonstrating robustness to noise/latency misspecification and competing against stronger VOI/POMDP baselines would substantially raise impact.
+
+Pros:
+- Principled decision-theoretic formulation; handles accuracy–cost–latency trade-offs.
+- Technically sound use of MCTS/progressive widening for continuous-time planning.
+- Demonstrates benefits on structured prediction with real-time crowd queries.
+- Open-source implementation and reproducibility artifacts.
+
+Cons:
+- Oversimplified noise model; no learning of worker reliabilities or item difficulty.
+- Utility–metric mismatch; unclear computation of ExpAcc for structured outputs.
+- Missing comparisons to strong decision-theoretic baselines.
+- Simulation methodology may underestimate real-world variability; limited sensitivity analysis.
+- Computational overhead and latency contribution of planning not reported.
+
+Suggestions for improvement:
+- Learn a richer pR: per-worker confusion matrices and/or per-item difficulty, and update them online; propagate uncertainty in pR into planning. Compare to Dawid–Skene or TurKontrol-style estimation.
+- Align the planning loss with the evaluation metric (e.g., expected F1 approximations) or justify token-wise loss if used; report ablations.
+- Add baselines: (i) myopic VOI (greedy expected utility gain per query); (ii) POMDP controller with learned reliabilities on unstructured tasks; (iii) static active-classification policy trained offline.
+- Provide sensitivity analyses to mis-specified pR and pT, and to different cost/latency weights (wM, wT).
+- Report computational cost per example and end-to-end latency including planning; quantify the effect of the “no new query while waiting” restriction.
+- Clarify training under noisy labels; consider EM or posterior regularization that accounts for pR.
+
+Recommendation: Borderline accept. The problem is important, the formulation is thoughtful, and initial results are promising. With stronger baselines, clearer alignment of utility and evaluation, and more realistic noise modeling, this could be a solid NeurIPS contribution.

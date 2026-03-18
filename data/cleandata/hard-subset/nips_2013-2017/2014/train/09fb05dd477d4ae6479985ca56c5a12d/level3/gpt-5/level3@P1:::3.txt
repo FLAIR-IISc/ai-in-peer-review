@@ -1,0 +1,57 @@
+This paper proposes LSDA, an approach to turn image classifiers into object detectors when only a subset of categories has bounding box annotations. Starting from a Krizhevsky/ILSVRC-2012 pre-trained CNN, the authors: (1) replace the final layer to train K image classifiers using image-level labels for all K categories; (2) fine-tune layers 1–7 and add a background class using region proposals but only for the m categories with detection annotations (set B); and (3) adapt category-specific parameters for the remaining K−m categories (set A) by transferring the average parameter change observed for their nearest neighbors in B (based on fc8 similarity): W^d_j = W^c_j + (1/k) Σ_i δ_B(N_B(j,i)). At test time, they score region proposals with a K+1-way softmax and subtract the background score. Relative to R-CNN, LSDA requires boxes only for a subset of categories and omits per-class SVMs/bbox regression to keep training simple and fast.
+
+Relation to prior work: The method builds directly on R-CNN’s insight that fine-tuning for detection matters, but differs by framing the problem as task/domain adaptation from classification to detection and transferring both category-invariant changes (layers 1–7, plus an explicit background class) and a lightweight category-specific adjustment. It contrasts with weakly supervised MIL approaches that learn detectors from image-level labels alone; the authors position LSDA as complementary but do not compare experimentally. It also differs from standard domain adaptation for detection that assumes detection labels for all categories in source/target domains.
+
+Empirical results: On ILSVRC’13 detection with 200 classes, the authors simulate having detection labels for only 100 classes and evaluate on the other 100. Adapting layers 1–7 and learning a background class improves mAP from ~10.3% (classification-only applied to proposals) to ~15.85%; the neighbor-based category-specific adaptation yields a small additional gain to ~16.15% (p=0.017). Error analysis shows substantial reductions in localization and background confusion. They further demonstrate a 7.6K-category detector by adapting 7.4K classification-only categories, and a faster variant using SPP/fast proposals (about 2 fps), with models released.
+
+Strengths
+- Clear, simple idea with a principled decomposition: generic task adaptation via fine-tuning plus a light category-specific transfer.
+- Addresses a significant scalability bottleneck: the scarcity of bounding boxes relative to image-level labels.
+- Solid ablations isolating the impact of background modeling and feature-level adaptation; helpful error analysis.
+- Practical contribution: public release of a large detector and a faster inference variant.
+
+Weaknesses and missing baselines
+- Critical baselines are absent, making it hard to attribute gains to the proposed adaptation rather than to strong CNN features and fine-tuning:
+  1) Full-image positives with region negatives: train a detector by taking the full image (or a single “whole-image”/largest proposal) as positive for positive labels and treat proposals from negative images as negatives, with the same fine-tuning and background modeling. This tests whether LSDA’s benefits exceed a simple supervision proxy with identical architecture/training budget.
+  2) MIL-based region selection: apply a standard MIL pipeline over proposals using only image labels (as in [6,7]) to select positive boxes, then fine-tune the same detection network. Without this, it is unclear whether LSDA outperforms competitive weakly supervised detectors on held-out categories.
+  3) Center/mean-box classifier baseline: a simple baseline that classifies a fixed proposal (center/mean box) per image and applies non-max suppression. This gauges task/dataset difficulty and whether gains partly reflect dataset biases toward centered objects.
+- Attribution concern: Most of the gain comes from category-invariant fine-tuning with a background class; the category-specific transfer (nearest-neighbor δ averaging) contributes little. The paper’s main novelty may have limited practical effect in current form.
+- Architectural specificity: The approach is tailored to AlexNet-like architectures; generality across deeper nets or different detection heads is not evaluated.
+- Clarity: Table 1 needs explicit mapping from each row to the precise training configuration (which layers updated, whether background was added, how score combination was done). Some experimental details (k sensitivity for neighbor averaging, effect of m, impact on the m categories themselves) are under-specified.
+
+Quality
+- Technically sound and carefully implemented. The adaptation formulation is straightforward, and training protocol is consistent with R-CNN-era practice.
+- Empirical support is compelling but incomplete due to missing baselines noted above. An upper bound with full detection supervision is provided.
+
+Clarity
+- Generally well written and organized. The method description and figures are clear.
+- Improve experimental section by explicitly tying each variant in Table 1 to model changes (layers, loss, background, scoring), reporting k-sweep for neighbor averaging, and specifying how region proposals and negatives are sampled.
+
+Originality
+- Moderate. The key ideas—fine-tuning for detection with a background class and weight transfer—are incremental relative to R-CNN and standard transfer learning, though the “learn the classifier→detector delta on seen classes and apply it to unseen ones” is a neat twist.
+
+Significance
+- High practical significance: enables scaling detection to thousands of categories with minimal bounding box labels and offers a released 7.6K model.
+- Scientific impact would be strengthened by demonstrating superiority over the missing weakly supervised baselines and by broader architectural validation.
+
+Requested additional experiments/analyses
+- Add the three baselines above with identical proposal sets, fine-tuning protocol, and evaluation. Report both mAP and error breakdowns.
+- Analyze sensitivity to k and to the number of detection-labeled categories m (e.g., m in {25, 50, 100}), showing transfer efficiency.
+- Compare neighbor selection by visual (fc8) similarity vs. semantic (WordNet) similarity.
+- Report performance and any degradation on categories in B after adaptation, and per-class gains on A.
+- Clarify Table 1 configurations and provide ablations with/without background score subtraction.
+- Optionally, include a variant with SVMs/bbox regression to show whether the adaptation benefits persist when using the stronger R-CNN head.
+
+Pros for acceptance
+- Addresses an important, timely problem with a simple, effective method.
+- Clear ablations and error analysis; open-source models/code.
+- Demonstrates scalability to thousands of categories.
+
+Cons against acceptance
+- Missing strong baselines prevent a definitive assessment of the core contribution.
+- Limited novelty beyond adapting R-CNN-style fine-tuning and background modeling.
+- Dependence on a specific architecture; limited analysis of transfer sensitivity.
+
+Recommendation: Weak accept, contingent on adding the missing baselines and clarifying the experimental variants.
+
+Confidence: Medium.

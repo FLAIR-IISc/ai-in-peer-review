@@ -1,0 +1,53 @@
+Summary and relation to prior work
+This paper addresses large-scale sparse precision matrix estimation via the CLIME estimator. The authors propose an inexact ADMM scheme that linearizes the quadratic penalty and adds a proximal term, yielding simple per-iteration updates consisting of elementwise soft-thresholding/box-projection and matrix multiplications. They establish O(1/T) convergence for both the objective gap and optimality residuals. To scale to ultra-high dimensions, they (a) operate on column-blocks of the precision matrix rather than single columns to exploit matrix–matrix multiplications, (b) leverage low rank of the sample covariance (C = A A′, with n ≪ p) to reduce matmul cost from O(p2k) to O(npk), and (c) use block-cyclic data distribution within a distributed-memory framework (OpenMPI + ScaLAPACK) for load balance and efficient use of memory hierarchies. Experiments on synthetic and real data compare against CLIME/flare, TIGER, and DC-QUIC, and demonstrate near-linear speedups and a run with p = 10^6 (≈10^12 parameters) in 11 hours on 400 cores.
+
+The work builds on: CLIME and its guarantees (Cai et al.), ADMM and inexact/linearized ADMM (Boyd et al.; He & Yuan), scalable matrix multiplication and cache-aware blocking (Lam et al.; GotoBLAS), and distributed ADMM/GPBS (Parikh & Boyd). It complements scalable inverse covariance methods such as QUIC/DC-QUIC and covariance thresholding into components.
+
+Strengths
+- Clear system goal with a simple, implementable algorithm: closed-form proximal steps and BLAS-3 matmuls.
+- Convergence guarantees (O(1/T)) for both objective and KKT residuals under standard assumptions on η.
+- Sensible exploitation of problem structure: column-blocking for matmul efficiency, low-rank C = A A′, and potential sparsity in iterates.
+- Practical distributed framework with block-cyclic distribution and parallel I/O; use of commodity libraries (OpenMP/MPI/ScaLAPACK).
+- Strong empirical scaling, including million-dimensional precision estimation; comparisons to relevant baselines (TIGER, flare ADMM, DC-QUIC).
+
+Weaknesses and suggestions
+- Clarity/notation: Several symbols (e.g., ρ, η) are introduced late or ambiguously; notation is scattered. Suggest a notation/variables table and explicit dimensions for all variables in Algorithm 1. Fix minor typos (“tuning,” “summarized”), and define E when first used in box(·).
+- Distributed details missing: The “distributed algorithm” section reads more like an implementation sketch. Please quantify per-iteration communication (messages and words) for W = A′X and U = AW, the synchronization points, and overlap of communication/computation. A breakdown of time per iteration (compute vs communication) and weak/strong scaling would substantiate the claims.
+- Load balance claims: Block-cyclic distribution is plausible, but evidence is anecdotal. Include experiments comparing large-block vs block-cyclic layouts, reporting load imbalance metrics (e.g., max/avg time per process), cache miss rates, and resulting speedups.
+- Choice of column-block size k: Currently ad hoc. Provide guidance/heuristics or an auto-tuning strategy based on process grid, block sizes (pb, nb, kb), cache sizes, memory per node, and sparsity. Even a simple model predicting arithmetic intensity vs cache size would help.
+- Evaluation metrics: On synthetic data, matching sparsity is not necessarily matching statistical quality. Consider reporting held-out negative log-likelihood or estimation error norms vs time, and residual/objective traces, to compare convergence behavior across methods.
+- Perturbation/sparsification of C: Theorem 3 assumes independent sub-exponential perturbations; this is non-constructive for a practical truncation rule. Provide the concrete truncation threshold implied by your bound, and an experiment showing that truncation to achieve sparsity preserves downstream graph recovery and estimation error.
+- Positioning: The algorithmic core (linearized ADMM with O(1/T) rate) is close to known results; the novelty is largely in the systems design (column-blocking, low-rank matmuls, block-cyclic distribution). Please make this explicit and better contrast with prior ADMM-based solvers for CLIME and GPBS-style distributed splitting.
+
+Quality
+- Technical soundness: The inexact ADMM updates and convergence statements are reasonable and consistent with prior analyses. Proofs are summarized; full details are deferred—fine for NIPS if included in the supplement. Claims about load balancing and distribution would benefit from quantitative communication analysis and ablation studies.
+- Empirics: Scaling results are compelling, but could be strengthened with accuracy vs time, communication breakdowns, and more systematic studies of k and block sizes.
+
+Clarity
+- Generally readable, with actionable improvements: consolidate notation; define all variables on first use; correct typos; clarify Algorithm 1 (dimensions, definitions of box/soft, E).
+
+Originality
+- Moderate. Linearized ADMM and CLIME are established; the contributions are in (i) column-block formulation/use of matmul, (ii) practical distributed framework with block-cyclic layout, and (iii) applying low-rank products to CLIME at scale. The perturbation result is interesting but not central nor fully developed empirically.
+
+Significance
+- High practical significance: enabling CLIME at million-scale is valuable for practitioners and may spur further work on distributed constrained optimization. The methodological novelty is incremental, but the systems contribution and demonstrated scale are impactful.
+
+Specific questions for the authors
+- How do you set ρ and η in practice to satisfy η ≥ ρ λ_max(C)^2 without being overly conservative? Sensitivity?
+- What is the per-iteration communication cost (in words) for W = A′X and U = AW under your block-cyclic mapping? Any overlap with compute?
+- How is X distributed when k is not a multiple of kb, and how do you handle load balance at the tail blocks?
+- Do you exploit symmetry of Ω to reduce computation/storage?
+- Can you report weak scaling (increasing p and cores proportionally) and a compute/communication time breakdown?
+
+Pros for acceptance
+- Addresses an important, timely scalability problem with a practical, well-engineered solution.
+- Solid convergence guarantees; sensible exploitation of low-rank structure.
+- Strong empirical scaling to p = 10^6 with open-source-friendly tooling.
+
+Cons against acceptance
+- Limited novelty in optimization; distributed aspects under-specified.
+- Insufficient analysis/evidence for load balance and communication claims.
+- Evaluation emphasizes runtime; needs stronger accuracy vs time comparisons and guidance on k/parameter selection.
+
+Overall recommendation: 7 (accept if space allows; strong systems contribution with clear practical value; minor revisions would further strengthen)
+Confidence: 0.75

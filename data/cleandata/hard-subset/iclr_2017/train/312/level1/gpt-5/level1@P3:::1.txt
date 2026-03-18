@@ -1,0 +1,46 @@
+Summary and contributions
+The paper proposes Neural Architecture Search (NAS), a method that uses a recurrent “controller” to generate neural network architectures (for CNNs and RNN cells) and optimizes the controller via policy gradient (REINFORCE) on a non-differentiable reward: the validation accuracy/perplexity of the “child” model trained to convergence. Key contributions include: (a) a flexible, variable-length search space that can express skip connections and branching; (b) an RL training scheme with variance-reduction baseline and large-scale asynchronous parallelization; (c) an extension to search over recurrent cell structures using a tree-structured parametrization; and (d) strong empirical results: 3.65% test error on CIFAR-10 and 62.4 perplexity on PTB word LM, with transfer to PTB character LM and GNMT. Control experiments compare against random search and expand the search space. The work is ambitious and demonstrates that from-scratch architecture discovery can match or surpass expert designs on competitive benchmarks.
+
+Decision: Accept
+Primary reasons:
+1) Novel, general, and well-motivated approach to variable-length architecture design with strong empirical performance across vision and language, including transfer.
+2) Careful experimental protocol (held-out validation, final test evaluation once), ablations (random search control), and practical engineering enabling a previously infeasible search regime.
+
+Supporting arguments
+- Problem and motivation: The paper tackles automated architecture design beyond fixed-length hyperparameter tuning, addressing a central bottleneck in deep learning workflows. Prior Bayesian optimization and SMBO can handle limited structure but generally assume fixed-length encodings or require problem-specific encodings; neuroevolution is flexible but less scalable. Framing architecture generation as a sequence prediction problem optimized by policy gradients is natural and well placed in the literature (seq2seq, RL for non-differentiable metrics), and the paper connects appropriately to meta-learning/program induction.
+
+- Methodological soundness: The REINFORCE derivation is standard and correct; the moving-average baseline reduces variance. Representing skip connections via content-based sigmoids is neat and keeps the whole process in the policy-gradient framework. The recurrent cell search space is well defined via a tree with learnable composition/activation selections and explicit handling of c_{t-1}/c_t. The distributed training scheme (parameter-server, asynchronous updates) is sensible for this workload.
+
+- Empirical rigor: 
+  • CIFAR-10: The search uses a growing depth schedule and evaluates 12.8k architectures trained for 50 epochs under a standard recipe. The best-found architectures are competitive; the top model (after increasing filters by +40) reaches 3.65% and is reported to be 1.05x faster than a DenseNet baseline at 3.74%. Ablations on skip connections (dense/no-skip) show sensitivity, suggesting the search is finding meaningful topologies. Test set is used only once. 
+  • PTB word LM: The controller searches only the cell, fixes other hparams during search, then performs a modest post-hoc grid search on training hparams for the selected cell. The best cell improves over strong LSTM and RHN baselines by ~3.6 perplexity and is computationally cheaper than RHN. 
+  • Transfer: The learned cell improves char-level PTB and yields a small BLEU gain when dropped into GNMT without tuning, indicating some robustness. 
+  • Controls: Random search baseline is included; policy gradient outperforms in best-of-N and top-k averages; robustness to adding more ops (max, sin) is shown.
+
+- Significance and impact: Demonstrates that end-to-end automatic architecture design can rival/exceed human designs on canonical tasks. The approach is general and likely to inspire substantial follow-up work.
+
+Reservations (not blocking)
+- Compute demands are extreme (hundreds of GPUs/CPUs for days), limiting reproducibility and accessibility. The paper partially mitigates with code release and by fixing child training budgets, but sample efficiency remains a concern.
+- Search space engineering (e.g., padding, fallback connections, depth schedules, restricted op sets) may bias the outcomes; nonetheless, this is typical in early NAS work.
+- Some comparisons (e.g., DenseNet) are not perfectly apples-to-apples due to differing use of 1x1 reductions and the manual +40 filters adjustment.
+
+Additional feedback to improve the paper (helpful, not central to decision)
+- Clarify fairness and compute: Report total GPU/CPU-days for search and for final training, and wall-clock for top models. Include sensitivity of results to the number of architectures evaluated (learning curves vs number of samples).
+- Report variance across multiple independent controller runs and across different random seeds for child training; provide confidence intervals for the final test metrics.
+- Reward shaping: Justify the choice of cubing the max validation accuracy over last 5 epochs; provide ablation on reward definitions (e.g., mean vs max, exponent).
+- Asynchrony: Discuss staleness and whether gradient lag affects controller convergence; any mitigations beyond accumulating 10 gradients?
+- Search-space ablations: Quantify the contributions of skip-connection mechanism, inclusion of pooling/stride choices, and the “compilation failure” fallbacks. How often do fallbacks trigger?
+- Random search baseline: Ensure equalized evaluation budgets and report distributions (e.g., top-1, top-5, median). Consider a strong SMBO baseline operating on the same discrete search space to strengthen claims over Bayesian optimization.
+- CIFAR comparisons: Provide throughput and parameter/FLOP counts for the final model vs baselines. Avoid post-selection manual capacity changes if possible; otherwise clearly separate “as-searched” vs “capacity-scaled” results.
+- PTB metrics: For character-level PTB, report bits-per-character (bpc) explicitly (the text calls it perplexity). Provide a matched, tuned LSTM with the same training recipe as a baseline to isolate cell vs training effects.
+- Transfer: The GNMT BLEU gain is modest; brief analysis of failure modes and where the cell might help (e.g., gradient flow, gating patterns) would be valuable.
+
+Questions for the authors
+1) Compute/sample efficiency: How does performance scale with the number of evaluated architectures? What is the smallest budget (architectures, epochs per child) that still yields competitive results?
+2) Controller stability: How sensitive are results to controller architecture (hidden size, depth) and optimizer settings? Did you try variance-reduction methods beyond EMA baselines (e.g., advantage normalization, entropy regularization)?
+3) Reward design: Why use the cube of max validation accuracy over last 5 epochs? Does this bias towards models with slower learning curves? Any evidence this helps controller learning vs alternatives?
+4) Search-space design: How often do the skip-connection “fallbacks” (e.g., defaulting to image input, concatenation/padding) occur, and do they correlate with top-performing models?
+5) Post-hoc tuning: For CIFAR-10 and PTB, what fraction of the final gain over baselines comes from the searched architecture vs the grid-searched training hyperparameters?
+6) Fairness to baselines: Can you provide apples-to-apples comparisons with DenseNet (matching 1x1 usage and capacity) and with an LSTM trained under the exact same PTB recipe used for the discovered cell?
+7) Generalization: Did you attempt to apply the discovered CIFAR-10 architecture (or variations) to CIFAR-100 or SVHN without re-search? Similarly, how does the discovered PTB cell fare on WikiText-2?
+8) Reproducibility: Will you release the controller and search code, and are there guidelines for scaling the method to modest compute budgets?

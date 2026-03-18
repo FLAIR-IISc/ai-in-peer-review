@@ -1,0 +1,65 @@
+Summary and relation to prior work
+The paper introduces Stochastic Gradient Richardson–Romberg Langevin Dynamics (SGRRLD), which applies Richardson–Romberg (RR) extrapolation to SG-MCMC, primarily SGLD. The key idea is to run two discretizations of the same diffusion with step sizes γ and γ/2 up to the same time horizon and combine their time-averaged estimates in the RR combination to cancel the leading-order discretization bias. The paper uses correlated Brownian increments to control variance, proving a CLT (Theorem 1) and non-asymptotic bias/MSE bounds (Theorem 2). The method is simple to implement (two nearly standard SGLD chains, with appropriate coupling). Experiments on a linear-Gaussian model and large-scale matrix factorization show improved accuracy.
+
+This work builds on: (a) classical RR extrapolation for SDEs (Talay–Tubaro; Lemaire–Pagès–Panloup), (b) SG-MCMC theory and higher-order integrators (e.g., Chen et al. NIPS’15; Teh et al. JMLR’16), and (c) variance control via correlated Brownian increments (e.g., duplicated diffusions). The novelty is to adapt RR to the SG setting, provide finite-time and asymptotic analysis, and demonstrate empirical gains.
+
+Strengths
+- Clear, elegant idea: an RR scheme that upgrades first-order SG-MCMC to second-order accuracy with minimal code changes.
+- Solid theoretical development: CLT with optimal correlation choice, and finite-time bias/MSE bounds. The result that constant-stepsize MSE bound achieves O(K^-4/5) (optimized over γ) is compelling, matching the accuracy of high-order integrators while retaining a first-order update.
+- Generic applicability to other SG-MCMC methods (SGHMC example provided).
+- Empirical results broadly support theory; synthetic experiments are well controlled.
+
+Concerns and weaknesses
+Major technical concern (derivation and interpretation of rates)
+- The paper states several rates in different regimes (decreasing vs constant steps). The link from Theorem 1 (decreasing steps) to the stated “rate of convergence” O(K^-((1-α)/2 ∧ 2α)), optimized at α=1/5 with O(K^-2/5), appears to be about root-MSE (or typical error magnitude under CLT scaling), whereas Theorem 2 (constant steps) gives an MSE upper bound O(γ^4 + 1/(Kγ)) optimized at γ ∝ K^-1/5 yielding MSE O(K^-4/5). The paper should explicitly reconcile these two statements:
+  - Clarify that Theorem 1 controls fluctuations under decreasing steps and yields an error rate O(K^-2/5) (i.e., RMSE), while Theorem 2 under constant steps gives MSE O(K^-4/5); thus the two are consistent (RMSE O(K^-2/5)), but they apply to different stepsize regimes and error notions. As written, the transitions between these claims are easy to misread.
+  - Additionally, constants in Theorem 2 depend on moments of the gradient noise and problem parameters; discuss their dependence (especially in d) and when the asymptotic-in-K optimization is predictive at finite K.
+If the paper already has this reconciliation in the supplement, please bring a brief, self-contained derivation into the main text.
+
+Practical evaluation fairness
+- Cost on a single core: SGRRLD performs one coarse step and two fine steps per “cycle” (≈3 gradient evaluations). The large-scale experiments run two chains in parallel so the wall-clock times are “nearly exactly the same,” but this leverages extra cores. On a single core, SGRRLD would be ≈3× slower per cycle. Consequently, Figure 5 should be interpreted with care. A fair baseline is to compare at matched gradient-evaluation counts or normalized wall-clock time that accounts for parallel resources. At minimum, the SGLD time curves should be scaled (approximately by 2/3) to reflect that SGRRLD uses two cores; the reported gap would shrink.
+- Parallelism also exists for SGLD (e.g., parallel minibatch gradient computation); please discuss whether such parallelism was enabled.
+
+Empirical inconsistencies
+- Figure 3 (bias plot): the best slope visually appears at α=0.2 (red), not α=1/3 as claimed in the text for bias with decreasing steps. Please reconcile this discrepancy. If the “optimal” curve fluctuates substantially, its empirical slope may be misestimated; provide error bars, longer runs, or smoothing to make the rate comparison reliable.
+- Line 256 discussion: for very small stepsize, the 1/(Kγ) term should dominate both bias and MSE. The paper explains this behavior for SGRRLD (Figure 2), but SGLD should exhibit the same phenomenon (MSE bound O(γ^2 + 1/(Kγ))). Why is this not observed for SGLD in the same figure? Please explain whether K was adapted, burn-in differences, or estimator variance masking the trend.
+
+Quality
+- Theory appears careful and builds on well-known machinery (Poisson equation, Taylor expansion, martingale CLTs). Assumptions (e.g., existence of C^9 solution to the Poisson equation) are strong but standard in this literature; it would help to state precise smoothness/Lyapunov/ergodicity conditions in the main text.
+- The correlated Brownian increments argument is persuasive and nicely extends duplicated-diffusion results to the SG setting.
+
+Clarity
+- Generally well-written. However, a few definitions and notational issues hinder readability (see Minor comments).
+- Please add a short pseudo-code for SGRRLD in the main text.
+
+Originality
+- Applying RR extrapolation in SG-MCMC with correlated increments and deriving finite-time/asymptotic rates is novel and timely.
+
+Significance
+- If the computational overhead can be amortized via parallelism (common in modern hardware), the method is practically attractive and likely to be adopted. The idea is generic and may spur further RR/MLMC ideas in SG-MCMC.
+
+Questions for the authors
+- Can you provide a unified, side-by-side table of rates (bias, RMSE, MSE) for SGLD vs SGRRLD under constant and decreasing steps, indicating the optimal α/γ and the role of constants?
+- In practice, how sensitive is SGRRLD to imperfect correlation of minibatches across the two chains? Does sharing indices across chains materially help?
+- For SGHMC, do you also correlate momentum noise in the RR coupling? Any differences vs Langevin?
+
+Minor comments
+- Eq. (1) uses ϑ, while the rest uses θ; please unify symbols.
+- “RR” first appears around line 94 without definition; define Richardson–Romberg on first use.
+- ΓK is first used around line 131 but not defined; please define Γ(n)K and ΓK in the main text before usage.
+- “smooth function f” (line ~160): specify smoothness (e.g., f∈C^p with polynomial growth; which p?).
+- Figure labeling: around line 249, some axes/legends are ambiguous (Bias vs time vs dimension); ensure consistent labels and units.
+- Use bold font for vectors throughout to avoid ambiguity.
+
+Pros
+- Simple, general method; strong theory with better rates.
+- Easy to implement; minimal changes to existing SG-MCMC.
+- Good empirical performance; supports claims.
+
+Cons
+- Rate statements need clearer, self-contained derivations and consistent empirical validation.
+- Fairness of wall-clock comparisons relies on extra cores; needs normalization.
+- Some notation/definition issues and figure inconsistencies.
+
+Recommendation
+Lean accept, contingent on clarifying the rate derivations (Theorem 1 vs Theorem 2), fixing Figure 3 inconsistencies, and making the experimental comparisons fair w.r.t. computational budget.

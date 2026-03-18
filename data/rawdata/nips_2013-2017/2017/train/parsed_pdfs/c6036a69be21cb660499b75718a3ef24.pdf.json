@@ -1,0 +1,618 @@
+{
+  "name" : "c6036a69be21cb660499b75718a3ef24.pdf",
+  "metadata" : {
+    "source" : "META",
+    "title" : "Deliberation Networks: Sequence Generation Beyond One-Pass Decoding",
+    "authors" : [ ],
+    "emails" : [ "yingce.xia@gmail.com,", "linjx@mail.ustc.edu.cn,", "ynh@ustc.edu.cn", "fetia@microsoft.com,", "taoqin@microsoft.com,", "tie-yan.liu@microsoft.com,", "wulijun3@mail2.sysu.edu.cn" ],
+    "sections" : [ {
+      "heading" : "1 Introduction",
+      "text" : "The neural network based encoder-decoder framework has been widely adopted for sequence generation tasks, including neural machine translation [1], text summarization [19], image captioning [27], etc. In such a framework, the encoder encodes the source input x with length m into a sequence of vectors {h1, h2, · · · , hm}. The decoder, which is typically an RNN, generates an output sequence word by word2 based on the source-side vector representations and previously generated words. The attention mechanism [1, 35], which dynamically attends to different parts of x while generating each target-side word, is integrated into the encoder-decoder framework to improve the quality of generating long sequences [1].\nAlthough the framework has achieved great success, one concern is that while generating one word, one can only leverage the generated words but not the future words un-generated so far. That is, when the decoder generates the t-th word yt, only y<t can be used, while the possible words y>t are not explicitly considered. In contrast, in real-word human cognitive processes, global information, including both the past and the future parts, is leveraged in an iterative polishing process. Here are two examples: (1) Consider the situation that we are reading a sentence and meet an unknown word\n∗This work was done when Yingce Xia, Lijun Wu and Jianxin Lin were interns at Microsoft Research. 2Throughout this work, a word refers to the basic unit in a sequence.\n31st Conference on Neural Information Processing Systems (NIPS 2017), Long Beach, CA, USA.\nin the middle of the sentence. We do not stop here. Instead, we move forward until the end of the sentence. Then we go back to the unknown word and try to understand it using its context, including the words both preceding and after it. (2) To write a good document (or paragraph, article), we usually first create a complete draft and then polish it based on global understanding of the whole draft. When polishing a specific part, we take the whole picture of the draft into consideration to evaluate how well the local element fits into the global environment rather than only looking back to the preceding parts.\nWe call such a polishing process as deliberation. Motivated by such human cognitive behaviors, we propose the deliberation networks, which leverage the global information with both looking back and forward in sequence decoding through a deliberation process. Concretely speaking, to integrate such a process into the sequence generation framework, we carefully design our architecture, which consists of two decoders, a first-pass decoder D1 and a second-pass/deliberation decoder D2, as well as an encoder E . Given a source input x, the E and D1 jointly works like the standard encoderdecoder model to generate a coarse sequence ŷ as a draft and the corresponding representations ŝ = {ŝ1, ŝ2, · · · , ŝTŷ} used to generate ŷ, where Tŷ is the length of ŷ. Afterwards, the deliberation decoder D2 takes x, ŷ and ŝ as inputs and outputs the refined sequence y. When D2 generates the t-th word yt, an additional attention model is used to assign an adaptive weight βj to each ŷj and ŝj for any j ∈ [Tŷ], and ∑ βj [ŷj ; ŝj ] is fed into D2.3 In this way, the global information of the target sequence can be utilized to refine the generation process. We propose a Monte Carlo based algorithm to overcome the difficulty brought by the discrete property of ŷ in optimizing the deliberation network.\nTo verify the effectiveness of our model, we work on two representative sequence generation tasks.\n(1) Neural machine translation refers to using neural networks to translate sentences from a source language to a target language [1, 33, 32, 34]. A standard NMT model consists of an encoder (used to encode source sentences) and a decoder (used to generate target sentences), and thus can be improved by our proposed deliberation network. Experimental results show that based on a widely used single-layer GRU model [1], on the WMT’14 [29] English→French dataset, we can improve the BLEU score [17], by 1.7 points compared to the model without deliberation. We also apply our model on Chinese→English translations and improve BLEU by an averaged 1.26 points on four different test sets. Furthermore, on the WMT’14 English→French translation task, by applying deliberation to a deep LSTM model, we achieve a BLEU score 41.50, setting a new record for this task.\n(2) Text summarization is a task that summarizes a long article into a short abstract. The encoderdecoder framework can also be used for such a task and thus could be refined by deliberation networks. Experimental results on Gigaword dataset [6] show that deliberation network can improve ROUGE-1, ROUGE-2, and ROUGE-L by 3.45, 1.70 and 3.02 points."
+    }, {
+      "heading" : "1.1 Related Work",
+      "text" : "Although there exist many works to improve the attention based encoder-decoder framework for sequence generation, such as changing the training loss [28, 18, 22] or the decoding objective [14, 7], not much attention has been paid to the structure of the encoder-decoder framework. Our work changes the structure of the framework by introducing the second-pass decoder into it.\nThe idea of deliberation/refinement is not well explored for sequence generation tasks, especially for the encoder-decoder based approaches [3, 23, 1] in neural machine translation. One related work is post-editing [16, 2]: a source sentence e is first translated to f ′, and then f ′ is refined by another model. Different from our deliberation network, the two processes (i.e., generating and refining) in post-editing are separated. As a comparison, what we build is a consistent model in which all the components are coupled together and jointly optimized in an end-to-end way. As a result, deliberation networks lead to better accuracies. Another related work is the review network [36]. The idea is to review all the information encoded by the encoder to obtain thought vectors that are more compact and abstractive. The thought vectors are then used in decoding. Different from our work, the review steps are added on the encoder side, while the decoder side is unchanged and still adopts one-pass decoding.\n3In this work, let [v1; v2; · · · ; vn] denote the long vector concatenated by the input vectors v1, · · · , vn. With a little bit confusion, [m] with a single integer input m denotes the set {1, 2, · · · ,m}.\nThe rest of our paper is organized as follows. Our proposed deliberation network is introduced in Section 2, including the model structure and the optimization process. Applications to neural machine translation and text summarization are introduced in Section 3 and Section 4 respectively. Section 5 concludes the paper and discusses possible future directions."
+    }, {
+      "heading" : "2 The Framework",
+      "text" : "In this section, we first introduce the overall architecture of deliberation networks, then the details of individual components, and finally propose an end-to-end Monte Carlo based algorithm to train the deliberation networks."
+    }, {
+      "heading" : "2.1 Structure of Deliberation Networks",
+      "text" : "As shown in Figure 1, a deliberation network consists of an encoder E , a first-pass decoder D1 and a second-pass decoder D2. Deliberation happens at the second-pass decoder, which is also called deliberation decoder alternatively. Briefly speaking, E is used to encode the source sequence into a sequence of vector representations. D1 reads the encoder representations and generates a first-pass target sequence as a draft, which is further provided as input to the deliberation decoder D2 for the second-pass decoding. In the rest of this section, for simplicity of description, we use RNN as the basic building block for both the encoder and decoders4. All the W ’s and v’s in this section with different superscripts or subscripts are the parameters to be learned. Besides, all the bias terms are omitted to increase readability."
+    }, {
+      "heading" : "2.2 Encoder and First-pass Decoder",
+      "text" : "When an input sequence x is fed into the encoder E , it is encoded into Tx hidden states H = {h1, h2, · · · , hTx} where Tx is the length of x. Specifically, hi = RNN(xi, hi−1), where xi acts as the representation (e.g., word embedding vector) for the i-th word in x and h0 is a zero vector.\nThe first-pass decoder D1 will generate a series of hidden states ŝj ∀j ∈ [Tŷ], and a first-pass sequence ŷj ∀j ∈ [Tŷ], where Tŷ is the length of the generated sequence. Next we show how they are generated in detail.\n4The proposed deliberation networks are independent to the specific implementation of the recurrent units and can be applied to simple RNN or its variants such as LSTM [11] or GRU [3].\nSimilar to the conventional encoder-decoder model, an attention model is included in D1. At step j, the attention model in D1 first generates a context ctxe defined as follows:\nctxe = ∑Tx i=1αihi; αi ∝ exp(vTα tanh(W catt,hhi +W catt,ŝŝj−1))∀i ∈ [Tx]; ∑Tx i=1αi = 1. (1)\nBased on ctxe, ŝj is calculated as ŝj = RNN([ŷj−1; ctxe], ŝj−1). After obtaining ŝj , another affine transformation is applied on the concatenated vector [ŝj ; ctxe; ŷj−1]. Finally, the results of the transformation are fed into a softmax layer, and the ŷj is sampled out from the obtained multinomial distribution."
+    }, {
+      "heading" : "2.3 Second-Pass Decoder",
+      "text" : "Once the first-pass target sequence ŷ is generated by the first-pass decoder D1, it is fed into the second-pass decoder D2 for further refinement. Based on the sequence ŷ and the hidden states ŝj ∀j ∈ [Tŷ] provided by D1, D2 eventually outputs the second-pass sequence y via the deliberation process.\nSpecifically, at step t, D2 takes the previous hidden state st−1 generated by itself, previously decoded word yt−1, the source contextual information ctx′e and the first-pass contextual information ctxc as inputs. Two detailed points are: (1) The computation of ctx′e is similar to that of ctxe shown in Eqn. (1) with two differences: First, ŝj−1 is replaced by st−1; second, the model parameters are different. (2) To obtain ctxc, D2 has an attention model (i.e., the Ac in Figure 1) that can map the words ŷj’s and the hidden states ŝj’s into a context vector. Mathematically speaking, in the refinement process at t-th time step, the first-pass contextual information vector ctxc is computed as:\nctxc= ∑Tŷ j=1βj [ŝj ; ŷj ]; βj∝exp(vTβ tanh(W datt,ŝy[ŝj ; ŷj ] +W datt,sst−1)) ∀j ∈ [Tŷ]; ∑Tŷ j=1 βj = 1.\nAs can be seen from the above computation, the deliberation process at time step t in the second-pass decoding uses the whole sequence generated by the first-pass decoder, including both the words preceding and after t-th step in the first-pass sequence. That is, the first-pass contextual vector ctxc aggregates the global information extracted from the first-pass sequence ŷ.\nAfter receiving ctxc, we calculate st as st = RNN([yt−1; ctx′e; ctxc], st−1). Similar to sampling ŷt in D1, [st; ctx′e; ctxc; yt−1] will be further transformed to generate yt."
+    }, {
+      "heading" : "2.4 Algorithm",
+      "text" : "Let DXY = {(x(i), y(i))}ni=1 denote the training corpus with n paired sequences5. Denote the parameters of E , D1 and D2 as θe, θ1 and θ2 respectively. The training of sequence-to-sequence learning is usually to maximize the data log likelihood (1/n) ∑n i=1 logP (yi|xi). Under our setting,\nthis rule can be specialized to maximize (1/n) ∑\n(x,y)∈DXY J (x, y; θe, θ1, θ2), where J (x, y; θe, θ1, θ2) = log ∑ y′∈Y P (y|y′, E(x; θe); θ2)P (y′|E(x; θe); θ1). (2)\nIn Eqn. (2), Y is the collection of all possible target sequences and E(x; θe) indicates a function that maps x to its corresponding hidden states given by the encoder. One can verify that the first-order derivative of J (x, y; θe, θ1, θ2) w.r.t θ1 is:\n∇θ1J (x, y; θe, θ1, θ2) = ∑ y′∈Y P (y|y′, E(x; θe); θ2)∇θ1P (y′|E(x; θe); θ1)∑ y′∈Y P (y|y′, E(x; θe); θ2)P (y′|E(x; θe); θ1) ,\nwhich is extremely hard to compute due to the large space of Y . Similarly, the gradients w.r.t. θe and θ2 are also computationally intractable. To overcome such difficulties, we propose a Monte Carlo based method to optimize the lower bound of J (x, y; θe, θ1, θ2). Note by the concavity of J w.r.t y′, one can verify that J (x, y; θe, θ1, θ2) ≥ J̃ (x, y; θe, θ1, θ2), with the right-hand side acting as a lower bound and defined as\nJ̃ (x, y; θe, θ1, θ2) = ∑ y′∈Y P (y′|E(x; θe); θ1) logP (y|y′, E(x; θe); θ2). (3)\n5Let x(i) and y(i) denote i’th source input and target output in the training data. Let xi and yi denote the i-th word in x and y.\nDenote J̃ (x, y; θe, θ1, θ2) as J̃ . The gradients of J̃ w.r.t its parameters are: ∇θ1J̃ = ∑ y′∈Y P (y′|E(x; θe); θ1) logP (y|y′, E(x; θe); θ2)∇θ1 logP (y′|E(x; θe); θ1)︸ ︷︷ ︸ G1 ;\n∇θ2J̃ = ∑ y′∈Y P (y′|E(x; θe); θ1)∇θ2 logP (y|y′, E(x; θe); θ2)︸ ︷︷ ︸ G2 ; (4)\n∇θeJ̃ = ∑ y′∈Y P (y′|E(x; θe); θ1)Ge(x, y, y′; θe, θ1, θ2), where Ge is defined as follows:\nGe = ∇θe logP (y|y′, E(x; θe); θ2) + logP (y|y′, E(x; θe); θ2)∇θe logP (y′|E(x; θe); θ1).\nLet Θ = [θ1; θ2; θe] andG(x, y, y′; Θ) = [G1;G2;Ge], whereG1, G2 andGe are defined in Eqn. (4). (For ease of reference, we assume that all the θ·’s and G·’s are flattened.) Obviously, if y′ is sampled from distribution P (y′|E(x; θe); θ1), G(x, y, y′; Θ) is an unbiased estimator of the gradient of J̃ w.r.t. all model parameters Θ. Based on that we propose our algorithm in Algorithm 1.\nAlgorithm 1: Algorithm to train the deliberation network Input: Training data corpus DXY ; minibatch size m; optimizer Opt(· · · ) with gradients as input ; while models not converged do\nRandomly sample a mini-batch of m sequence pairs {x(i), y(i)} ∀i ∈ [m] from DXY ; For any x(i) where i ∈ [m], sample y′(i) according to distribution P (·|E(x(i); θe); θ1); Perform parameter update: Θ← Θ + Opt( 1m ∑m i=1G(x (i), y(i), y′(i); Θ)).\nDiscussions (1) The choice of Opt(...) is quite flexible. One can choose different optimizers such as Adadelta [37], Adam [13], or SGD for different tasks, depending on common practice in the specific task. (2) The Y space is usually extremely large in sequence generation tasks. To obtain better sampled y′, we can use beam search instead of randomly sampling."
+    }, {
+      "heading" : "3 Application to Neural Machine Translation",
+      "text" : "We evaluate the deliberation networks with two different network structures: (1) the shallow model, which is based on a widely-used single-layer GRU model named RNNSearch [1, 12]; (2) the deep model, which is based on a deep LSTM model similar to GNMT [31]. Both of the two kinds of models are implemented in Theano [24]."
+    }, {
+      "heading" : "3.1 Shallow Models",
+      "text" : ""
+    }, {
+      "heading" : "3.1.1 Settings",
+      "text" : "Datasets We work on two translation tasks, English-to-French translation (denoted as En→Fr) and Chinese-to-English translation (denoted as Zh→En). For En→Fr, we employ the standard filtered WMT’14 dataset6, which is widely used in NMT literature [1, 12]. There are 12M bilingual sentence pairs in the dataset. We concatenate newstest2012 and newstest2013 together as the validation set and use newstest2014 as the test set. For Zh→En, we choose 1.25M bilingual sentence pairs from LDC dataset as training corpus, use NIST2003 as the validation set, and NIST2004, NIST2005, NIST2006, NIST2008 as the test sets. Following the common practice [1, 12], we remove the sentences with more than 50 words for both translation tasks. Furthermore, we limit the both the source words and target words as 30k most-frequent ones. The out-of-vocabulary words are replaced by a special token “UNK”.\nModel We choose the most widely adopted NMT model RNNSearch [1, 12, 25] as the basic structure to construct the deliberation network. To be specific, all of E , D1 and D2 are GRU networks [1] with one hidden layer of 1000 neurons. The word embedding dimension is set as 620. For Zh→En, we apply 0.5 dropout rate to the layer before softmax and no dropout is used in En→Fr translation.\n6http://www-lium.univ-lemans.fr/˜schwenk/cslm_joint_paper/data/bitexts.tgz\nOptimization All the models are trained on a single NVIDIA K40 GPU. We first pre-train two standard encoder-decoder based NMT models (i.e., RNNSearch) until convergence, which take about two weeks for En→Fr and one week for Zh→En using Adadelta [37]. For any deliberation network, (1) the encoder is initialized by the encoder of the pre-trained RNNSearch model; (2) both the first-pass and second-pass decoders are initialized by the decoder of the pre-trained RNNSearch model; (3) the attention model used to compute the first-pass context vector is randomly initialized from a uniform distribution on [−0.1, 0.1]. Then we train the deliberation networks by Algorithm 1 until convergence, which takes roughly 5 days for both tasks. The minibatch size is fixed as 80 throughout the optimization. Plain SGD is used as the optimizer in this process, with initial learning rate 0.2 and halving according to validation accuracy. To sample the intermediate translation output by the first decoder, we use beam search with beam size 2, considering the tradeoff between accuracy and efficiency.\nEvaluation We use BLEU [17] as the evaluation metric for translation qualities. BLEU is the geometric mean of n-gram precisions where n ∈ {1, 2, 3, 4}, weighted by sentence lengths. Following the common practice in NMT, we use multi-bleu.pl7 to calculate case-sensitive BLEU scores for En→Fr, while evaluating the translation qualities of Zh→En by case-insensitive BLEU scores. The larger the BLEU score is, the better the translation quality is. For the baselines and deliberation networks, we use beam search with beam size 12 to generate sentences.\nBaselines We compare our proposed algorithms with the following baselines: (i) The standard NMT algorithm RNNSearch [1, 12], denoted asMbase; (ii) The standard NMT model with two stacked decoding layers, denoted asMdec×2; (3) The review network proposed in [36]. We try both 4 and 8 reviewers and find the 4-reviewer model is slightly better. The review network in our experiment is therefore denoted asMreviewer×4. We refer to our proposed algorithm asMdelib."
+    }, {
+      "heading" : "3.1.2 Results",
+      "text" : "We compare our proposed algorithms with the following baselines: (i) The standard NMT algorithm, denoted as Mbase; (ii) The standard NMT model with two stacked decoding layers, denoted as Mdec×2; (3) The review network proposed in [36]. We try both 4 and 8 reviewers and find the 4-reviewer model is slightly better. The review network in our experiment is therefore denoted as Mreviewer×4. We refer to our proposed algorithm asMdelib. Table 1 shows the results of En→Fr translation. We have several observations:\n(1) Our proposed algorithm performs the best among all candidates, which validates the effectiveness of the deliberation process. (2) Our methodMdelib outperforms the baseline algorithmMbase. This shows that further polishing the raw output indeed leads to better sequences. (3) Applying an additional decoding layer, i.e., Mdec×2, increases the translation quality, but it is still far behind that ofMdelib. Clearly, the second decoder layer ofMdec×2 can still only leverage the previously generated words but not unseen and un-generated future words, while the second-pass decoder of Mdelib can leverage the richer information contained in all the words from the first-pass decoder. Such a refinement process from the global view significantly improves the translation results. (4)Mdelib outperformsMreviewer×4 by 0.91 point, which shows that reviewing the possible future contextual information from the source side is not enough. The “future” information from the decoder side is also very important, since it is directly related with the final output.\nThe translation results of Zh→En are summarized in Table 2. We have similar observations as those for En→Fr translations:Mdelib outperforms all the baseline methods, particularly with an average gain of 1.26 points overMbase. Apart from the quantitative analysis, we list two examples in Table 3 to better understand how a deliberation network works. Each example contains five sentences, which are the source sentence in Chinese, the reference sentence in English as ground truth translation, the translation generated\n7https://github.com/moses-smt/mosesdecoder/blob/master/scripts/generic/multi-bleu.perl\nbyMbase and the output translation by both the first-pass decoder and second-pass decoder (i.e., the final translation by deliberation networkMdelib).\nIn the first example, the translation from both base model and first-pass decoder contains the phrase egypt’s middle east peace agreement, which is odd and inaccurate, given that an agreement cannot belong to a single country as Egypt. As a comparison, the second-pass decoder refines such phrase into a more natural and accurate one. i.e., egypt says the middle east peace agreement, by looking forward to the future translation phrase “egypt said” output by the first-pass decoder. On the other hand, the second-pass decoder outputs a sentence with correct tense, i.e., egypt says ... is .... However, the two sentences output byMbase and the first-pass decoder are inconsistent in tense, whose structures are “... is ..., egypt said ”. This problem is well addressed by the deliberation network, since the second-pass decoder can access the global information contained in the draft sequence generated by the first-pass decoder, and therefore output a more consistent sentence.\nIn the second example, as shown in bold fonts, the phrase “conduct face-to-face talks on the basis of a high level of three years” from both base model and first-pass decoder carries all necessary information of its corresponding source segments, but apparently it is out-of-order and seems to be a simple combination of words. The second-pass decoder refines such translation into a correct, and more fluent one, by forwarding the sub phrase in three years to the position right after the first time.\nAt last we compare the decoding time of deliberation network with that of the RNNSearch. Based on the Theano implementation, to translate 3003 English sentences to French, RNNSearch takes 964 seconds while the deliberation network takes 1924 seconds. Indeed, the deliberation network takes roughly 2 times decoding time of RNNSearch, but can bring 1.7 points improvements in BLEU."
+    }, {
+      "heading" : "3.2 Deep Models",
+      "text" : "We work on a deep LSTM model to further evaluate deliberation networks through the WMT’14 En→Fr translation task. Compared to the shallow model, there are several different aspects: (1) We use 34M sentence pairs from WMT’14 as training data, apply the BPE [21] techniques to split the training sentences into sub-word units and restrict the source and target sentence lengths within 64 subwords. The encoder and decoder share a common vocabulary containing 36k subwords. (2) All of E , D1 and D2 are 4-layer LSTMs with residual connections [9, 10]. The word embedding dimension\nand hidden node dimension are 512 and 1024 respectively. The dropout rate is set as 0.1. (3) We train the standard encoder-decoder based deep model for about 25 days until convergence. Furthermore, we leverage our recently proposed dual learning techniques [8, 33] to improve the model, which takes another 7 days. We initialize the deliberation network in the same way in Section 3.1.1. Then, we train the deliberation network by Algorithm 1 for 10 days. When generating translations, we use beam search with beam size 8.\nThe experimental results of applying deliberation network to the deep LSTM model are shown in Table 4. On En→Fr translation task, the baseline of our implemented NMT system is 39.51. With dual learning, we achieve a 40.53 BLEU score. After applying deliberation techniques, the BLEU score can be further improved to 41.50, which as far as we know, is a new single-model state-of-the-art result for this task. This not only illustrates the effectiveness of deliberation network again, but also shows that even if a model is good enough, it can still benefit from the deliberation process."
+    }, {
+      "heading" : "4 Application to Text Summarization",
+      "text" : "We further verify the effectiveness of deliberation networks on text summarization, which is another real-world application that encoder-decoder framework succeeds to help [19]."
+    }, {
+      "heading" : "4.1 Settings",
+      "text" : "Text summarization refers to using a short and abstractive sentence to summarize the major points of a sentence or paragraph, which is typically much longer. The training, validation and test sets for the task are extracted from Gigaword Corpus [6]: For each selected article, the first sentence is used as source-side input and the title used as target-side output. We process the data in the same way as that proposed in [20, 30], and obtain training/validation/test sets with roughly 189k/18k/10k sentence pairs respectively. There are roughly 42k unique words in the source input and 19k unique words in the target output and we remain all of them as the vocabulary in the encoder-decoder models.\nThe model structure is the same as that used in Section 3.1 except that both word embedding dimension and hidden node size are reduced to 128. We use Adadelta algorithm with gradient clip value 5.0 to optimize deliberation network. The mini-batch size is fixed as 32.\nThe evaluation measures are chosen as ROUGE-1, ROUGE-2 and ROUGE-L, which are all widely adopted evaluation metric for text summarization [15]. ROUGE-N (N = 1, 2 in our setting) is an N-gram recall between a candidate summary and a set of reference summaries. ROUGE-L is a similar statistic like ROUGE-N but based on longest common subsequences. When generating the titles, we use beam search with beam size 10. For the thoroughness of comparison, similar to NMT, we add another two baselines apart from the basic encoder-decoder model: the stacked-decoder model with 2 layers (Mdec×2), as well as the review net with 4 reviewers (Mreviewer×4)."
+    }, {
+      "heading" : "4.2 Results",
+      "text" : "The experimental results of text summarization are listed in Table 5. Again, the deliberation network achieves clear improvements over all the baselines. For example, in terms of ROUGE-2, it is 1.12 and 0.96 points better compared with stacked decoder model and review net respectively. Furthermore, one may note that a significant difference between NMT and text summarization is that: In NMT, the lengths of input and output sequence are very close; but in text summarization, the input is extremely\nlong while the output is very short. The better results brought by deliberation networks shows that even if the output sentence is short, it is helpful to include the deliberation process which refines the low-level draft in the first-pass decoder."
+    }, {
+      "heading" : "5 Conclusions and Future Work",
+      "text" : "In this work, we have proposed deliberation networks for sequence generation tasks, in which the first-pass decoder is used for generating a raw sequence, and the second-pass decoder is used to polish the raw sequence. Experiments show that our method achieves much better results than several baseline methods in both machine translation and text summarization, and achieves a new single model state-of-the-art result on WMT’14 English to French translation.\nThere are multiple promising directions to explore in the future. First, we will study how to apply the idea of deliberation to tasks beyond sequence generation, such as improving the image qualities generated by GAN [5]. Second, we will study how to refine/polish different levels of a neural network, like the hidden states in an RNN, or feature maps in a CNN. Third, we are curious about whether better sequences can be generated with more passes of decoders, i.e., refining a generated sequence again and again. Fourth, we will study how to speed up the inference of deliberation networks and reduce their inference time."
+    }, {
+      "heading" : "Acknowledgments",
+      "text" : "The authors would like to thank Yang Fan and Kaitao Song for implementing the deep neural machine translation basic model. This work is partially supported by the National Natural Science Foundation of China (Grant No. 61371192)."
+    } ],
+    "references" : [ {
+      "title" : "Neural machine translation by jointly learning to align and translate",
+      "author" : [ "D. Bahdanau", "K. Cho", "Y. Bengio" ],
+      "venue" : "International Conference on Learning Representations,",
+      "citeRegEx" : "1",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "The fbk participation in the wmt 2016 automatic post-editing shared task",
+      "author" : [ "R. Chatterjee", "J.G. de Souza", "M. Negri", "M. Turchi" ],
+      "venue" : "In Proceedings of the First Conference on Machine Translation: Volume",
+      "citeRegEx" : "2",
+      "shortCiteRegEx" : "2",
+      "year" : 2016
+    }, {
+      "title" : "Learning phrase representations using rnn encoder–decoder for statistical machine translation",
+      "author" : [ "K. Cho", "B. van Merrienboer", "C. Gulcehre", "D. Bahdanau", "F. Bougares", "H. Schwenk", "Y. Bengio" ],
+      "venue" : "In EMNLP,",
+      "citeRegEx" : "3",
+      "shortCiteRegEx" : "3",
+      "year" : 2014
+    }, {
+      "title" : "Convolutional sequence to sequence learning",
+      "author" : [ "J. Gehring", "M. Auli", "D. Grangier", "D. Yarats", "Y.N. Dauphin" ],
+      "venue" : "ICML,",
+      "citeRegEx" : "4",
+      "shortCiteRegEx" : null,
+      "year" : 2017
+    }, {
+      "title" : "Generative adversarial nets",
+      "author" : [ "I. Goodfellow", "J. Pouget-Abadie", "M. Mirza", "B. Xu", "D. Warde-Farley", "S. Ozair", "A. Courville", "Y. Bengio" ],
+      "venue" : "NIPS, pages 2672–2680.",
+      "citeRegEx" : "5",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "English gigaword",
+      "author" : [ "D. Graff", "C. Cieri" ],
+      "venue" : "linguistic data consortium,",
+      "citeRegEx" : "6",
+      "shortCiteRegEx" : null,
+      "year" : 2003
+    }, {
+      "title" : "Decoding with value networks for neural machine translation",
+      "author" : [ "D. He", "H. Lu", "Y. Xia", "T. Qin", "L. Wang", "T. Liu" ],
+      "venue" : "31st Annual Conference on Neural Information Processing Systems (NIPS),",
+      "citeRegEx" : "7",
+      "shortCiteRegEx" : null,
+      "year" : 2017
+    }, {
+      "title" : "Dual learning for machine translation",
+      "author" : [ "D. He", "Y. Xia", "T. Qin", "L. Wang", "N. Yu", "T. Liu", "W.-Y. Ma" ],
+      "venue" : "Advances In Neural Information Processing Systems, pages 820–828,",
+      "citeRegEx" : "8",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Deep residual learning for image recognition",
+      "author" : [ "K. He", "X. Zhang", "S. Ren", "J. Sun" ],
+      "venue" : "CVPR,",
+      "citeRegEx" : "9",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Identity mappings in deep residual networks",
+      "author" : [ "K. He", "X. Zhang", "S. Ren", "J. Sun" ],
+      "venue" : "European Conference on Computer Vision, pages 630–645. Springer,",
+      "citeRegEx" : "10",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Long short-term memory",
+      "author" : [ "S. Hochreiter", "J. Schmidhuber" ],
+      "venue" : "Neural Comput., 9(8):1735–1780, Nov.",
+      "citeRegEx" : "11",
+      "shortCiteRegEx" : null,
+      "year" : 1997
+    }, {
+      "title" : "On using very large target vocabulary for neural machine translation",
+      "author" : [ "S. Jean", "K. Cho", "R. Memisevic", "Y. Bengio" ],
+      "venue" : "the annual meeting of the Association for Computational Linguistics,",
+      "citeRegEx" : "12",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Adam: A method for stochastic optimization",
+      "author" : [ "D. Kingma", "J. Ba" ],
+      "venue" : "arXiv preprint arXiv:1412.6980,",
+      "citeRegEx" : "13",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "A simple, fast diverse decoding algorithm for neural generation",
+      "author" : [ "J. Li", "W. Monroe", "D. Jurafsky" ],
+      "venue" : "arXiv preprint arXiv:1611.08562,",
+      "citeRegEx" : "14",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Rouge: A package for automatic evaluation of summaries",
+      "author" : [ "C.-Y. Lin" ],
+      "venue" : "Text summarization branches out: Proceedings of the ACL-04 workshop, volume 8,",
+      "citeRegEx" : "15",
+      "shortCiteRegEx" : null,
+      "year" : 2004
+    }, {
+      "title" : "Pre-translation for neural machine translation",
+      "author" : [ "J. Niehues", "E. Cho", "T.-L. Ha", "A. Waibel" ],
+      "venue" : "COLING,",
+      "citeRegEx" : "16",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Bleu: a method for automatic evaluation of machine translation",
+      "author" : [ "K. Papineni", "S. Roukos", "T. Ward", "W.-J. Zhu" ],
+      "venue" : "the annual meeting of the Association for Computational Linguistics, pages 311–318,",
+      "citeRegEx" : "17",
+      "shortCiteRegEx" : null,
+      "year" : 2002
+    }, {
+      "title" : "Sequence level training with recurrent neural networks",
+      "author" : [ "M. Ranzato", "S. Chopra", "M. Auli", "W. Zaremba" ],
+      "venue" : "arXiv preprint arXiv:1511.06732,",
+      "citeRegEx" : "18",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "A neural attention model for abstractive sentence summarization",
+      "author" : [ "A.M. Rush", "S. Chopra", "J. Weston" ],
+      "venue" : "EMNLP, pages 379–389,",
+      "citeRegEx" : "19",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "A neural attention model for abstractive sentence summarization",
+      "author" : [ "A.M. Rush", "S. Chopra", "J. Weston" ],
+      "venue" : "ACL,",
+      "citeRegEx" : "20",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Neural machine translation of rare words with subword units",
+      "author" : [ "R. Sennrich", "B. Haddow", "A. Birch" ],
+      "venue" : "the annual meeting of the Association for Computational Linguistics,",
+      "citeRegEx" : "21",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Minimum risk training for neural machine translation",
+      "author" : [ "S. Shen", "Y. Cheng", "Z. He", "W. He", "H. Wu", "M. Sun", "Y. Liu" ],
+      "venue" : "the annual meeting of the Association for Computational Linguistics,",
+      "citeRegEx" : "22",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Sequence to sequence learning with neural networks",
+      "author" : [ "I. Sutskever", "O. Vinyals", "Q.V. Le" ],
+      "venue" : "Advances in neural information processing systems, pages 3104–3112,",
+      "citeRegEx" : "23",
+      "shortCiteRegEx" : null,
+      "year" : 2014
+    }, {
+      "title" : "Theano: A Python framework for fast computation of mathematical expressions",
+      "author" : [ "T.D. Team" ],
+      "venue" : "arXiv preprint arXiv:1605.02688,",
+      "citeRegEx" : "24",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Neural machine translation with reconstruction",
+      "author" : [ "Z. Tu", "Y. Liu", "L. Shang", "X. Liu", "H. Li" ],
+      "venue" : "AAAI,",
+      "citeRegEx" : "25",
+      "shortCiteRegEx" : null,
+      "year" : 2017
+    }, {
+      "title" : "Attention is all you need",
+      "author" : [ "A. Vaswani", "N. Shazeer", "N. Parmar", "J. Uszkoreit", "L. Jones", "A.N. Gomez", "L. Kaiser", "I. Polosukhin" ],
+      "venue" : "NIPS,",
+      "citeRegEx" : "26",
+      "shortCiteRegEx" : null,
+      "year" : 2017
+    }, {
+      "title" : "Show and tell: A neural image caption generator",
+      "author" : [ "O. Vinyals", "A. Toshev", "S. Bengio", "D. Erhan" ],
+      "venue" : "IEEE Conference on Computer Vision and Pattern Recognition, pages 3156–3164,",
+      "citeRegEx" : "27",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Sequence-to-sequence learning as beam-search optimization",
+      "author" : [ "S. Wiseman", "A.M. Rush" ],
+      "venue" : "ACL,",
+      "citeRegEx" : "28",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Sequence prediction with unlabeled data by reward function learning",
+      "author" : [ "L. Wu", "L. Zhao", "T. Qin", "J. Lai", "T. Liu" ],
+      "venue" : "Proceedings of the Twenty-Sixth International Joint Conference on Artificial Intelligence (IJCAI), pages 3098–3104,",
+      "citeRegEx" : "30",
+      "shortCiteRegEx" : null,
+      "year" : 2017
+    }, {
+      "title" : "Google’s neural machine translation system: Bridging the gap between human and machine translation",
+      "author" : [ "Y. Wu", "M. Schuster", "Z. Chen", "Q.V. Le", "M. Norouzi", "W. Macherey", "M. Krikun", "Y. Cao", "Q. Gao", "K. Macherey" ],
+      "venue" : "arXiv preprint arXiv:1609.08144,",
+      "citeRegEx" : "31",
+      "shortCiteRegEx" : "31",
+      "year" : 2016
+    }, {
+      "title" : "Dual inference for machine learning",
+      "author" : [ "Y. Xia", "J. Bian", "T. Qin", "N. Yu", "L. Tie-Yan" ],
+      "venue" : "Proceedings of the Twenty-Sixth International Joint Conference on Artificial Intelligence (IJCAI), pages 3112–3118,",
+      "citeRegEx" : "32",
+      "shortCiteRegEx" : null,
+      "year" : 2017
+    }, {
+      "title" : "Dual supervised learning",
+      "author" : [ "Y. Xia", "T. Qin", "W. Chen", "J. Bian", "N. Yu", "T. Liu" ],
+      "venue" : "Proceedings of the 34th International Conference on Machine Learning (ICML), pages 3789–3798,",
+      "citeRegEx" : "33",
+      "shortCiteRegEx" : null,
+      "year" : 2017
+    }, {
+      "title" : "Sequence generation with target attention",
+      "author" : [ "Y. Xia", "F. Tian", "T. Qin", "N. Yu", "T. Liu" ],
+      "venue" : "The European Conference on Machine Learning and Principles and Practice of Knowledge Discovery in Databases (ECMLPKDD),",
+      "citeRegEx" : "34",
+      "shortCiteRegEx" : null,
+      "year" : 2017
+    }, {
+      "title" : "Show, attend and tell: Neural image caption generation with visual attention",
+      "author" : [ "K. Xu", "J. Ba", "R. Kiros", "K. Cho", "A.C. Courville", "R. Salakhutdinov", "R.S. Zemel", "Y. Bengio" ],
+      "venue" : "ICML,",
+      "citeRegEx" : "35",
+      "shortCiteRegEx" : null,
+      "year" : 2015
+    }, {
+      "title" : "Review networks for caption generation",
+      "author" : [ "Z. Yang", "Y. Yuan", "Y. Wu", "W.W. Cohen", "R.R. Salakhutdinov" ],
+      "venue" : "Advances in Neural Information Processing Systems, pages 2361–2369,",
+      "citeRegEx" : "36",
+      "shortCiteRegEx" : null,
+      "year" : 2016
+    }, {
+      "title" : "Adadelta: an adaptive learning rate method",
+      "author" : [ "M.D. Zeiler" ],
+      "venue" : "arXiv preprint arXiv:1212.5701,",
+      "citeRegEx" : "37",
+      "shortCiteRegEx" : null,
+      "year" : 2012
+    } ],
+    "referenceMentions" : [ {
+      "referenceID" : 0,
+      "context" : "The neural network based encoder-decoder framework has been widely adopted for sequence generation tasks, including neural machine translation [1], text summarization [19], image captioning [27], etc.",
+      "startOffset" : 143,
+      "endOffset" : 146
+    }, {
+      "referenceID" : 18,
+      "context" : "The neural network based encoder-decoder framework has been widely adopted for sequence generation tasks, including neural machine translation [1], text summarization [19], image captioning [27], etc.",
+      "startOffset" : 167,
+      "endOffset" : 171
+    }, {
+      "referenceID" : 26,
+      "context" : "The neural network based encoder-decoder framework has been widely adopted for sequence generation tasks, including neural machine translation [1], text summarization [19], image captioning [27], etc.",
+      "startOffset" : 190,
+      "endOffset" : 194
+    }, {
+      "referenceID" : 0,
+      "context" : "The attention mechanism [1, 35], which dynamically attends to different parts of x while generating each target-side word, is integrated into the encoder-decoder framework to improve the quality of generating long sequences [1].",
+      "startOffset" : 24,
+      "endOffset" : 31
+    }, {
+      "referenceID" : 33,
+      "context" : "The attention mechanism [1, 35], which dynamically attends to different parts of x while generating each target-side word, is integrated into the encoder-decoder framework to improve the quality of generating long sequences [1].",
+      "startOffset" : 24,
+      "endOffset" : 31
+    }, {
+      "referenceID" : 0,
+      "context" : "The attention mechanism [1, 35], which dynamically attends to different parts of x while generating each target-side word, is integrated into the encoder-decoder framework to improve the quality of generating long sequences [1].",
+      "startOffset" : 224,
+      "endOffset" : 227
+    }, {
+      "referenceID" : 0,
+      "context" : "(1) Neural machine translation refers to using neural networks to translate sentences from a source language to a target language [1, 33, 32, 34].",
+      "startOffset" : 130,
+      "endOffset" : 145
+    }, {
+      "referenceID" : 31,
+      "context" : "(1) Neural machine translation refers to using neural networks to translate sentences from a source language to a target language [1, 33, 32, 34].",
+      "startOffset" : 130,
+      "endOffset" : 145
+    }, {
+      "referenceID" : 30,
+      "context" : "(1) Neural machine translation refers to using neural networks to translate sentences from a source language to a target language [1, 33, 32, 34].",
+      "startOffset" : 130,
+      "endOffset" : 145
+    }, {
+      "referenceID" : 32,
+      "context" : "(1) Neural machine translation refers to using neural networks to translate sentences from a source language to a target language [1, 33, 32, 34].",
+      "startOffset" : 130,
+      "endOffset" : 145
+    }, {
+      "referenceID" : 0,
+      "context" : "Experimental results show that based on a widely used single-layer GRU model [1], on the WMT’14 [29] English→French dataset, we can improve the BLEU score [17], by 1.",
+      "startOffset" : 77,
+      "endOffset" : 80
+    }, {
+      "referenceID" : 16,
+      "context" : "Experimental results show that based on a widely used single-layer GRU model [1], on the WMT’14 [29] English→French dataset, we can improve the BLEU score [17], by 1.",
+      "startOffset" : 155,
+      "endOffset" : 159
+    }, {
+      "referenceID" : 5,
+      "context" : "Experimental results on Gigaword dataset [6] show that deliberation network can improve ROUGE-1, ROUGE-2, and ROUGE-L by 3.",
+      "startOffset" : 41,
+      "endOffset" : 44
+    }, {
+      "referenceID" : 27,
+      "context" : "Although there exist many works to improve the attention based encoder-decoder framework for sequence generation, such as changing the training loss [28, 18, 22] or the decoding objective [14, 7], not much attention has been paid to the structure of the encoder-decoder framework.",
+      "startOffset" : 149,
+      "endOffset" : 161
+    }, {
+      "referenceID" : 17,
+      "context" : "Although there exist many works to improve the attention based encoder-decoder framework for sequence generation, such as changing the training loss [28, 18, 22] or the decoding objective [14, 7], not much attention has been paid to the structure of the encoder-decoder framework.",
+      "startOffset" : 149,
+      "endOffset" : 161
+    }, {
+      "referenceID" : 21,
+      "context" : "Although there exist many works to improve the attention based encoder-decoder framework for sequence generation, such as changing the training loss [28, 18, 22] or the decoding objective [14, 7], not much attention has been paid to the structure of the encoder-decoder framework.",
+      "startOffset" : 149,
+      "endOffset" : 161
+    }, {
+      "referenceID" : 13,
+      "context" : "Although there exist many works to improve the attention based encoder-decoder framework for sequence generation, such as changing the training loss [28, 18, 22] or the decoding objective [14, 7], not much attention has been paid to the structure of the encoder-decoder framework.",
+      "startOffset" : 188,
+      "endOffset" : 195
+    }, {
+      "referenceID" : 6,
+      "context" : "Although there exist many works to improve the attention based encoder-decoder framework for sequence generation, such as changing the training loss [28, 18, 22] or the decoding objective [14, 7], not much attention has been paid to the structure of the encoder-decoder framework.",
+      "startOffset" : 188,
+      "endOffset" : 195
+    }, {
+      "referenceID" : 2,
+      "context" : "The idea of deliberation/refinement is not well explored for sequence generation tasks, especially for the encoder-decoder based approaches [3, 23, 1] in neural machine translation.",
+      "startOffset" : 140,
+      "endOffset" : 150
+    }, {
+      "referenceID" : 22,
+      "context" : "The idea of deliberation/refinement is not well explored for sequence generation tasks, especially for the encoder-decoder based approaches [3, 23, 1] in neural machine translation.",
+      "startOffset" : 140,
+      "endOffset" : 150
+    }, {
+      "referenceID" : 0,
+      "context" : "The idea of deliberation/refinement is not well explored for sequence generation tasks, especially for the encoder-decoder based approaches [3, 23, 1] in neural machine translation.",
+      "startOffset" : 140,
+      "endOffset" : 150
+    }, {
+      "referenceID" : 15,
+      "context" : "One related work is post-editing [16, 2]: a source sentence e is first translated to f ′, and then f ′ is refined by another model.",
+      "startOffset" : 33,
+      "endOffset" : 40
+    }, {
+      "referenceID" : 1,
+      "context" : "One related work is post-editing [16, 2]: a source sentence e is first translated to f ′, and then f ′ is refined by another model.",
+      "startOffset" : 33,
+      "endOffset" : 40
+    }, {
+      "referenceID" : 34,
+      "context" : "Another related work is the review network [36].",
+      "startOffset" : 43,
+      "endOffset" : 47
+    }, {
+      "referenceID" : 10,
+      "context" : "The proposed deliberation networks are independent to the specific implementation of the recurrent units and can be applied to simple RNN or its variants such as LSTM [11] or GRU [3].",
+      "startOffset" : 167,
+      "endOffset" : 171
+    }, {
+      "referenceID" : 2,
+      "context" : "The proposed deliberation networks are independent to the specific implementation of the recurrent units and can be applied to simple RNN or its variants such as LSTM [11] or GRU [3].",
+      "startOffset" : 179,
+      "endOffset" : 182
+    }, {
+      "referenceID" : 35,
+      "context" : "One can choose different optimizers such as Adadelta [37], Adam [13], or SGD for different tasks, depending on common practice in the specific task.",
+      "startOffset" : 53,
+      "endOffset" : 57
+    }, {
+      "referenceID" : 12,
+      "context" : "One can choose different optimizers such as Adadelta [37], Adam [13], or SGD for different tasks, depending on common practice in the specific task.",
+      "startOffset" : 64,
+      "endOffset" : 68
+    }, {
+      "referenceID" : 0,
+      "context" : "We evaluate the deliberation networks with two different network structures: (1) the shallow model, which is based on a widely-used single-layer GRU model named RNNSearch [1, 12]; (2) the deep model, which is based on a deep LSTM model similar to GNMT [31].",
+      "startOffset" : 171,
+      "endOffset" : 178
+    }, {
+      "referenceID" : 11,
+      "context" : "We evaluate the deliberation networks with two different network structures: (1) the shallow model, which is based on a widely-used single-layer GRU model named RNNSearch [1, 12]; (2) the deep model, which is based on a deep LSTM model similar to GNMT [31].",
+      "startOffset" : 171,
+      "endOffset" : 178
+    }, {
+      "referenceID" : 29,
+      "context" : "We evaluate the deliberation networks with two different network structures: (1) the shallow model, which is based on a widely-used single-layer GRU model named RNNSearch [1, 12]; (2) the deep model, which is based on a deep LSTM model similar to GNMT [31].",
+      "startOffset" : 252,
+      "endOffset" : 256
+    }, {
+      "referenceID" : 23,
+      "context" : "Both of the two kinds of models are implemented in Theano [24].",
+      "startOffset" : 58,
+      "endOffset" : 62
+    }, {
+      "referenceID" : 0,
+      "context" : "For En→Fr, we employ the standard filtered WMT’14 dataset6, which is widely used in NMT literature [1, 12].",
+      "startOffset" : 99,
+      "endOffset" : 106
+    }, {
+      "referenceID" : 11,
+      "context" : "For En→Fr, we employ the standard filtered WMT’14 dataset6, which is widely used in NMT literature [1, 12].",
+      "startOffset" : 99,
+      "endOffset" : 106
+    }, {
+      "referenceID" : 0,
+      "context" : "Following the common practice [1, 12], we remove the sentences with more than 50 words for both translation tasks.",
+      "startOffset" : 30,
+      "endOffset" : 37
+    }, {
+      "referenceID" : 11,
+      "context" : "Following the common practice [1, 12], we remove the sentences with more than 50 words for both translation tasks.",
+      "startOffset" : 30,
+      "endOffset" : 37
+    }, {
+      "referenceID" : 0,
+      "context" : "Model We choose the most widely adopted NMT model RNNSearch [1, 12, 25] as the basic structure to construct the deliberation network.",
+      "startOffset" : 60,
+      "endOffset" : 71
+    }, {
+      "referenceID" : 11,
+      "context" : "Model We choose the most widely adopted NMT model RNNSearch [1, 12, 25] as the basic structure to construct the deliberation network.",
+      "startOffset" : 60,
+      "endOffset" : 71
+    }, {
+      "referenceID" : 24,
+      "context" : "Model We choose the most widely adopted NMT model RNNSearch [1, 12, 25] as the basic structure to construct the deliberation network.",
+      "startOffset" : 60,
+      "endOffset" : 71
+    }, {
+      "referenceID" : 0,
+      "context" : "To be specific, all of E , D1 and D2 are GRU networks [1] with one hidden layer of 1000 neurons.",
+      "startOffset" : 54,
+      "endOffset" : 57
+    }, {
+      "referenceID" : 35,
+      "context" : ", RNNSearch) until convergence, which take about two weeks for En→Fr and one week for Zh→En using Adadelta [37].",
+      "startOffset" : 107,
+      "endOffset" : 111
+    }, {
+      "referenceID" : 16,
+      "context" : "Evaluation We use BLEU [17] as the evaluation metric for translation qualities.",
+      "startOffset" : 23,
+      "endOffset" : 27
+    }, {
+      "referenceID" : 0,
+      "context" : "Baselines We compare our proposed algorithms with the following baselines: (i) The standard NMT algorithm RNNSearch [1, 12], denoted asMbase; (ii) The standard NMT model with two stacked decoding layers, denoted asMdec×2; (3) The review network proposed in [36].",
+      "startOffset" : 116,
+      "endOffset" : 123
+    }, {
+      "referenceID" : 11,
+      "context" : "Baselines We compare our proposed algorithms with the following baselines: (i) The standard NMT algorithm RNNSearch [1, 12], denoted asMbase; (ii) The standard NMT model with two stacked decoding layers, denoted asMdec×2; (3) The review network proposed in [36].",
+      "startOffset" : 116,
+      "endOffset" : 123
+    }, {
+      "referenceID" : 34,
+      "context" : "Baselines We compare our proposed algorithms with the following baselines: (i) The standard NMT algorithm RNNSearch [1, 12], denoted asMbase; (ii) The standard NMT model with two stacked decoding layers, denoted asMdec×2; (3) The review network proposed in [36].",
+      "startOffset" : 257,
+      "endOffset" : 261
+    }, {
+      "referenceID" : 34,
+      "context" : "We compare our proposed algorithms with the following baselines: (i) The standard NMT algorithm, denoted as Mbase; (ii) The standard NMT model with two stacked decoding layers, denoted as Mdec×2; (3) The review network proposed in [36].",
+      "startOffset" : 231,
+      "endOffset" : 235
+    }, {
+      "referenceID" : 20,
+      "context" : "Compared to the shallow model, there are several different aspects: (1) We use 34M sentence pairs from WMT’14 as training data, apply the BPE [21] techniques to split the training sentences into sub-word units and restrict the source and target sentence lengths within 64 subwords.",
+      "startOffset" : 142,
+      "endOffset" : 146
+    }, {
+      "referenceID" : 8,
+      "context" : "(2) All of E , D1 and D2 are 4-layer LSTMs with residual connections [9, 10].",
+      "startOffset" : 69,
+      "endOffset" : 76
+    }, {
+      "referenceID" : 9,
+      "context" : "(2) All of E , D1 and D2 are 4-layer LSTMs with residual connections [9, 10].",
+      "startOffset" : 69,
+      "endOffset" : 76
+    }, {
+      "referenceID" : 29,
+      "context" : "System Configurations BLEU GNMT [31] Stacked LSTM (8-layer encoder + 8 layer decoder) + RL finetune 39.",
+      "startOffset" : 32,
+      "endOffset" : 36
+    }, {
+      "referenceID" : 3,
+      "context" : "92 FairSeq [4] Convolution (15-layer) encoder and (15-layer) decoder 40.",
+      "startOffset" : 11,
+      "endOffset" : 14
+    }, {
+      "referenceID" : 25,
+      "context" : "51 Transformer [26] Self-Attention + 6-layer encoder + 6-layer decoder 41.",
+      "startOffset" : 15,
+      "endOffset" : 19
+    }, {
+      "referenceID" : 7,
+      "context" : "Furthermore, we leverage our recently proposed dual learning techniques [8, 33] to improve the model, which takes another 7 days.",
+      "startOffset" : 72,
+      "endOffset" : 79
+    }, {
+      "referenceID" : 31,
+      "context" : "Furthermore, we leverage our recently proposed dual learning techniques [8, 33] to improve the model, which takes another 7 days.",
+      "startOffset" : 72,
+      "endOffset" : 79
+    }, {
+      "referenceID" : 18,
+      "context" : "We further verify the effectiveness of deliberation networks on text summarization, which is another real-world application that encoder-decoder framework succeeds to help [19].",
+      "startOffset" : 172,
+      "endOffset" : 176
+    }, {
+      "referenceID" : 5,
+      "context" : "The training, validation and test sets for the task are extracted from Gigaword Corpus [6]: For each selected article, the first sentence is used as source-side input and the title used as target-side output.",
+      "startOffset" : 87,
+      "endOffset" : 90
+    }, {
+      "referenceID" : 19,
+      "context" : "We process the data in the same way as that proposed in [20, 30], and obtain training/validation/test sets with roughly 189k/18k/10k sentence pairs respectively.",
+      "startOffset" : 56,
+      "endOffset" : 64
+    }, {
+      "referenceID" : 28,
+      "context" : "We process the data in the same way as that proposed in [20, 30], and obtain training/validation/test sets with roughly 189k/18k/10k sentence pairs respectively.",
+      "startOffset" : 56,
+      "endOffset" : 64
+    }, {
+      "referenceID" : 14,
+      "context" : "The evaluation measures are chosen as ROUGE-1, ROUGE-2 and ROUGE-L, which are all widely adopted evaluation metric for text summarization [15].",
+      "startOffset" : 138,
+      "endOffset" : 142
+    }, {
+      "referenceID" : 4,
+      "context" : "First, we will study how to apply the idea of deliberation to tasks beyond sequence generation, such as improving the image qualities generated by GAN [5].",
+      "startOffset" : 151,
+      "endOffset" : 154
+    } ],
+    "year" : 2017,
+    "abstractText" : "The encoder-decoder framework has achieved promising progress for many sequence generation tasks, including machine translation, text summarization, dialog system, image captioning, etc. Such a framework adopts an one-pass forward process while decoding and generating a sequence, but lacks the deliberation process: A generated sequence is directly used as final output without further polishing. However, deliberation is a common behavior in human’s daily life like reading news and writing papers/articles/books. In this work, we introduce the deliberation process into the encoder-decoder framework and propose deliberation networks for sequence generation. A deliberation network has two levels of decoders, where the first-pass decoder generates a raw sequence and the second-pass decoder polishes and refines the raw sentence with deliberation. Since the second-pass deliberation decoder has global information about what the sequence to be generated might be, it has the potential to generate a better sequence by looking into future words in the raw sentence. Experiments on neural machine translation and text summarization demonstrate the effectiveness of the proposed deliberation networks. On the WMT 2014 English-to-French translation task, our model establishes a new state-of-the-art BLEU score of 41.5.",
+    "creator" : null
+  }
+}

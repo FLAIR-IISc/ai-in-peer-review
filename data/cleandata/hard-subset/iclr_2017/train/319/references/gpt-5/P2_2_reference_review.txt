@@ -1,0 +1,50 @@
+1) Summary and claimed contributions
+The paper tackles the problem of how to define and transfer “attention” between CNNs to improve a student network using a teacher’s inductive biases. It defines spatial attention maps at multiple layers in two ways: activation-based (channel-wise reductions of absolute activations, with sum and max variants and a p-exponent) and gradient-based (input saliency). It proposes an attention transfer (AT) loss that aligns normalized attention maps across corresponding layers of teacher and student, optionally combined with knowledge distillation (KD). It also explores a gradient-based AT objective via double backprop and a symmetry regularizer on gradient attention. Empirically, the paper reports consistent gains on CIFAR with WRN/NIN, improvements in transfer learning on CUB and MIT Scenes with ResNet-18/34, and a positive ImageNet result (ResNet-18 student improved by 1.1% top-1 using ResNet-34 teacher). The paper argues activation-based AT is more effective than regressing full activations, is complementary to KD on small datasets, and is computationally cheap.
+
+2) Decision: Accept
+Key reasons:
+- Conceptual novelty and simplicity: framing knowledge transfer as alignment of spatial attention maps is clear, broadly applicable, and easy to implement.
+- Strong empirical signal: consistent improvements across multiple architectures and datasets, including a notable ImageNet-scale result where many distillation-style methods struggle.
+
+3) Supporting arguments
+What problem is tackled?
+- The paper asks whether teacher attention (where a network focuses spatially, across layers) can be used as transferable knowledge to improve a student’s performance, and how to define such attention operationally for CNNs. This is a well-scoped and relevant problem in model compression/transfer.
+
+Is the approach well motivated and placed in the literature?
+- Motivation is sound: attention maps capture spatially-discriminative cues aggregated over channels; aligning these should guide a student toward teacher-like internal representations without full activation matching. The authors connect to attention visualization (saliency, deconv, CAM/Grad-CAM) and to knowledge distillation/fitnets. The contrast with FitNets (full activation hints) and the argument for wider/shallower students is timely. The relation to double backprop for gradient-based AT and to group equivariance for the symmetry regularizer is appropriate. Overall, the positioning is adequate and the rationale for choosing simple channel-reduction maps (Fsum/Fpsum/Fpmax) is convincing.
+
+Does the paper support its claims?
+- Methodological soundness:
+  - The activation-based AT loss normalizes attention vectors, reducing scale issues and making cross-architecture alignment feasible. Layer pairing strategy (per block or per stage) is practical. The use of p-exponent and ablations over sum vs max help justify design choices. The gradient-based AT derivation via second-order mixed derivatives is correct and implementable with autodiff.
+- Empirical rigor:
+  - CIFAR: Several teacher/student pairs (WRN depths and widths) show consistent and non-trivial gains from AT, with ablations across attention mappings and per-layer placement. Clear evidence that AT outperforms full-activation matching, and that AT+KD can be complementary.
+  - Gradient-based: On CIFAR/NIN, double backprop, symmetry, and gradient AT show reasonable improvements, highlighting the generality of the attention idea. Authors are candid about BN complications.
+  - Transfer learning: On CUB and Scenes, AT closes much of the ResNet-18 vs ResNet-34 gap; the larger benefit on CUB aligns with the intuition that fine-grained tasks rely more on spatial attention in intermediate layers.
+  - ImageNet: ResNet-18 gains 1.1% top-1/0.8% top-5 from ResNet-34 teacher using just two AT losses, without hyperparameter tuning. This is a meaningful and practically relevant improvement and supports the “first successful knowledge transfer on ImageNet” claim in the context given.
+- Limitations in support:
+  - Some results lack variance reporting (medians occasionally shown; many single-run results), and compute/overhead details are sparse beyond qualitative statements. KD underperformance on ImageNet is reported but not deeply analyzed. Gradient-based AT is only demonstrated in a constrained setting without BN.
+
+Overall, the evidence is sufficient to substantiate the core claims, with clear, repeated improvements and ablations that isolate important choices (normalization, p, sum vs max, layer placement, AT vs full activations).
+
+4) Additional feedback (to help improve the paper)
+- Clarity and presentation:
+  - Clean up citation formatting and figure/table references; some parts of the appendix are hard to follow. Provide a compact schematic of the activation-based pipeline, normalization, and layer pairing rules.
+- Experimental reporting:
+  - Report mean±std over multiple runs for key results. Include training time and memory overhead from AT (per step and total), and teacher-forward reuse details to support the “low cost” claim.
+  - For ImageNet, provide learning curves and a brief sensitivity study on β and the number/placement of AT losses; try all 4 stages if possible.
+- Baselines:
+  - Add a stronger comparison to FitNets on CIFAR (with careful tuning), and, resources permitting, a small-scale ImageNet run. Compare to contemporary distillation variants (e.g., logit-margin, feature-based distillation) if feasible.
+- Gradient-based AT:
+  - Address batch norm explicitly (frozen vs updated in second pass), and provide at least a small-scale experiment with BN to demonstrate viability. Report the cost overhead of double backprop.
+- Analysis:
+  - Provide a quantitative similarity metric for attention maps (e.g., cosine similarity distributions pre/post training) beyond qualitative visuals. Show failure cases where AT may misguide the student (e.g., wrong teacher attention).
+  - Explore how AT affects robustness (e.g., to flips beyond the symmetry regularizer, to corruptions) and calibration, since attention alignment may regularize spatial sensitivities.
+
+Questions for the authors
+- How sensitive is performance to the choice of β and to l2 vs l1 normalization of attention maps? Did you try learning per-layer β or a schedule tied to training progress?
+- How do you select which layers to align when teacher and student depths differ? Did you try learned matching (e.g., attention map from teacher layer i to best student layer j)?
+- What is the incremental compute/memory overhead of AT per iteration on ImageNet? Is the teacher forward always required, or can attention be precomputed/approximated?
+- Why do max-based attention maps underperform sum-based in your experiments? Any insight from the attention similarity statistics?
+- For KD on ImageNet, did you sweep temperature and α and try label-smoothing baselines? Any evidence that KD interferes with AT when architectures differ?
+- For gradient-based AT, how do you handle batch normalization in the second backprop? Did you try freezing BN statistics and parameters during the second pass?
+- Does AT still help when the teacher is only modestly better than the student, or when teacher and student have the same capacity? Conversely, what happens if the teacher is poorly calibrated but accurate?

@@ -1,0 +1,55 @@
+Summary and relation to prior work
+The paper proposes a trainable saliency masking model that learns, in an amortized manner, to produce per-class saliency masks for a given image classifier in a single forward pass. The key idea is to train a U-Net–style network (with a ResNet-50 encoder) to output a smooth, sparse mask that both (i) preserves the classifier’s confidence when applied to the salient region (SSR) and (ii) reduces the classifier’s confidence when the salient region is removed (SDR). To reduce artifact-driven explanations, the masking operation blends the original image with either a heavy blur or random color+noise, and the loss includes a TV penalty and mask area penalty. The model is trained against fixed “black-box” classifiers (AlexNet, GoogLeNet, ResNet-50) and, once trained, can produce masks without further access to the classifier. The authors introduce a saliency metric based on the area of the tight crop containing the mask and the classifier’s probability on that crop, intended to reward small, faithful regions. They report strong weakly-supervised object localization results on ImageNet and a CIFAR-10 variant trained from scratch.
+
+This builds on gradient-based saliency (Simonyan et al., Guided Backprop, Excitation Backprop), iterative deletion/preservation methods (Zhou et al., Cao et al.), and especially Fong & Vedaldi’s “Meaningful Perturbations,” which optimizes masks per image via gradient descent. The contribution here is amortizing that optimization into a learned predictor that can deliver real-time saliency while incorporating both SSR and SDR objectives.
+
+Quality
+Strengths:
+- Clear problem formulation combining SSR and SDR in a single training objective; thoughtful discussion of “introduced evidence” and adversarial artifacts, with practical countermeasures (randomized alternative image A, TV, low-res masks).
+- Solid engineering: class-conditional gating at the top feature map, U-Net with skip connections to sharpen masks, a “fake class” training trick to force conditioning on the class input.
+- Empirical improvements: competitive weakly-supervised localization error on ImageNet (approaching fully supervised VGG) and better performance than several baselines and prior saliency methods; real-time throughput.
+- The proposed evaluation via cropping to combat artifact confounds is sensible.
+
+Weaknesses / concerns:
+- Objective sign consistency: In Eq. (4), the third term is written as + λ3 log(fc(Φ(X,M))) while the text says it “makes sure that the classifier is able to recognise” the class from the preserved region. Minimizing +log(fc) would do the opposite. This likely should be −log(fc(·)) (or equivalently maximize fc) and needs correction.
+- “Model-agnostic/black-box” claim: Training requires backprop through the classifier to optimize the masking network parameters (at least through fc and the masking blend), so the method is not black-box in the strict sense during training. It is model-agnostic in that it doesn’t use internal features of the classifier and doesn’t modify it, and it is black-box at inference time. This distinction should be clarified.
+- Saliency metric definition: s(a,p)=log(ã)·log(p) with “lower is better” appears inconsistent with the stated desiderata (small a, high p). As both logs are non-positive, their product can perversely favor larger areas (log(a) closer to 0) at fixed p. Please clarify whether you intended −log(p), a ratio/sum, or another form. Provide simple sanity checks (e.g., p fixed, varying a; a fixed, varying p).
+- Experimental details and rigor: Tables are referenced but not shown; it is unclear how competing methods were configured and whether they were re-implemented or taken from the literature, and which images/labels were used for evaluation. Hyperparameters (optimizer, LR, batch size, training schedule), GPU used for “100 images/s,” and thresholds (e.g., mask threshold at 0.5) should be spelled out to enable reproduction. Provide ablations for key design choices (randomized A vs fixed blur, with/without TV, with/without SDR term, fake-label probability).
+- Faithfulness tests: Beyond localization and the proposed metric, standard faithfulness-style evaluations (e.g., deletion/insertion curves removing/adding pixels ranked by saliency) would strengthen claims that masks capture evidence rather than context or priors. Your SDR/SSR objective suggests you could report both curves easily.
+- Generalization across classes/models: It would be informative to test conditioning fidelity (e.g., selecting non-ground-truth classes), and whether a model trained on one classifier transfers to another.
+
+Clarity
+The paper is generally well-written and motivates the design choices clearly. However:
+- Fix the sign in Eq. (4) and the “black-box” wording.
+- Clarify the saliency metric and provide intuition and numeric examples.
+- Provide missing experimental details and ensure all referenced figures/tables are present.
+- Minor notational/typo issues: repeated equation numbers, missing operators (e.g., Eq. (2) “(1 M)” should be “(1−M)”), and some grammar.
+
+Originality
+Amortizing meaningful-perturbation–style optimization into a conditional, feed-forward saliency predictor is a useful and, to my knowledge at the time, novel twist. Combining SSR and SDR in training and the class-embedding gating are nice ideas. The “introduced evidence” discussion and randomized A are pragmatic contributions. The metric idea is interesting, but needs correction/clarification.
+
+Significance
+If validated, a real-time, faithful saliency generator is valuable for interactive and video applications, and the empirical gains on weakly supervised localization are promising. The approach is likely to be adopted and built upon, particularly as an amortized alternative to iterative perturbation methods.
+
+Questions for the authors
+1) Please correct/clarify the sign in the third term of Eq. (4). Is it −log fc?
+2) Clarify the training-time requirements: do you need gradients through the classifier? If only logits are available, can you train with finite differences or score-function estimators?
+3) Clarify the saliency metric; provide sanity-check plots vs area/probability; why threshold a at 0.05?
+4) Provide ablations for: with/without SDR term (λ4=0), random A vs fixed blur vs zeroing, TV weight, resolution of the predicted mask, and the fake-label probability.
+5) Report deletion/insertion (or analogous) curves to support faithfulness.
+6) How sensitive are results to the threshold 0.5 when binarizing masks for localization?
+7) Evaluate conditioning by requesting non-ground-truth classes; how often does the model suppress the dominant object?
+
+Pros
+- Fast, amortized saliency with strong qualitative and quantitative results.
+- Thoughtful objective (SSR+SDR) and anti-artifact measures.
+- Clear gain over several baselines; close to fully supervised localization.
+- Practical training tricks; simple architecture that can be reproduced.
+
+Cons
+- Objective and metric contain likely sign/definition errors.
+- “Black-box/model-agnostic” claim is overstated unless clarified.
+- Missing experimental details and ablations; limited faithfulness evaluation.
+- Some results rely on thresholding choices; sensitivity not explored.
+
+Recommendation: Weak accept, conditional on clarifying/correcting the loss and metric and adding key experimental details/ablations. The core idea is promising and practically useful; resolving the clarity issues would make this a solid contribution.

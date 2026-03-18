@@ -1,0 +1,53 @@
+Summary
+The paper targets ultra–high-dimensional sparse precision matrix estimation via CLIME and proposes a distributed, block-parallel ADMM variant that scales to p ≈ 10^6. The core ideas are: (i) reformulate CLIME with a splitting variable and solve via an inexact/linearized ADMM where the X-step has a closed-form soft-threshold; (ii) operate on column-blocks (k columns at a time) to enable BLAS-3 matrix–matrix products and better cache use; (iii) exploit low-rank structure of C = AA′ (p ≫ n) to replace CX by A(A′X), reducing O(p^2k) to O(npk); and (iv) a block-cyclic data distribution for load balance across nodes. Theoretical results give O(1/T) rates for objective gap and residuals under η ≥ ρ λ_max^2(C). Experiments show strong speedups on shared and distributed memory and a 1e6-dimensional run in 11 hours on 400 cores; comparisons to TIGER, CLIME (flare), and DC-QUIC suggest better scalability.
+
+Relation to prior work
+There is extensive literature on statistical consistency of CLIME and related estimators (Cai et al.; Liu et al.), as well as scalable solvers for graphical lasso and QUIC (Hsieh et al.; Mazumder & Hastie). ADMM has been used broadly for constrained problems and distributed settings (Boyd et al.; Parikh & Boyd’s GPBS). The paper’s algorithmic core is a linearized ADMM/LADMM specialized to CLIME with block-column updates, and the systems aspects rely on standard HPC techniques (BLAS-3, block-cyclic distribution, parallel I/O). Compared to prior CLIME solvers that are column-wise and single-node, this work contributes a distributed, block-parallel realization and a convergence analysis tailored to their linearized updates.
+
+Strengths
+- Addresses a practically important scaling challenge (p up to 10^6), with a design that is compatible with both shared and distributed memory.
+- Sensible exploitation of low-rank structure via A(A′X), which is natural for p ≫ n and materially reduces complexity.
+- Clear separation of the expensive steps (matrix multiplies) from elementwise updates, enabling efficient blocking and good cache behavior.
+- Convergence analysis for the proposed linearized ADMM with O(1/T) rates, and a simple sufficient condition η ≥ ρ λ_max^2(C).
+- Comprehensive systems evaluation: strong speedups versus cores and versus column-block size, and a large-scale run.
+
+Weaknesses and detailed comments
+
+Quality
+- The augmented Lagrangian and scaled/unscaled ADMM notation are inconsistent. The given Lρ includes both a linear dual term and a quadratic term with factor ρ, but the updates correspond to the scaled form with (ρ/2)||CX − Z + Y||^2. Please fix the derivation for clarity and to match the implemented algorithm.
+- Theorem 1 bounds ||X̄_T||_1 − ||X||_1 ≤ η||X||_2^2/T for any feasible X. While taking X = X* implies an O(1/T) ergodic suboptimality bound, the current statement is unusual and would benefit from explicitly stating the bound on the optimal objective gap and the (ergodic) feasibility violation.
+- Theorem 2’s norm term ||XT − XT−1||^2_{(η/ρ)I − C^2} requires PSD weight; the condition η ≥ ρ λ_max^2(C) ensures that, but please state the weighted norm definition precisely and avoid mixing elementwise and operator/Frobenius norms (the paper defines ||·||_2 as squared Frobenius earlier).
+- The “perturbed covariance” result (Theorem 3) is problematic. As stated, letting Δ have i.i.d. sub-exponential entries with unspecified parameters is insufficient; and independence between Δ and C is assumed but not used appropriately. For deterministic thresholding (setting small C_ij to zero), a simple triangle inequality yields ||(C+Δ) − Σ0||_∞ ≤ ||C − Σ0||_∞ + ||Δ||_∞, so if ||Δ||_∞ ≤ c√(log p/n), deviation bounds hold up to a constant factor. Please either (a) present a precise, correct statement with parameters and proof, or (b) replace with the deterministic triangle-inequality argument and cite standard covariance thresholding results. As written, this is the least convincing part.
+- No discussion of symmetry/positive-definiteness post-processing. CLIME typically symmetrizes (e.g., min{|Ω_ij|,|Ω_ji|}) and may project to the PD cone if needed for downstream use. Please clarify the post-processing and its cost.
+
+Clarity
+- Several notational inconsistencies and typos: e.g., box(·) is defined with E but called in Algorithm 1 without E; “process grid q2 × 2” likely means r × c; numerous minor grammar errors. The norms section defines ||·||_2^2 as a sum of squares; later, operator norms and eigenvalues are used—be explicit when switching.
+- Parameter selection and stopping criteria are under-specified. Guidance on ρ, η (beyond the sufficient bound), λ, and practical stopping rules (primal/dual residual tolerances) would improve reproducibility.
+- Experimental comparisons mix single-core and multi-core runs; fairness would be improved by reporting time vs. hardware resources per method, and by parallelizing TIGER where possible.
+
+Originality
+- The linearized ADMM and block-column idea is a reasonable extension of known ADMM formulations. The distribution strategy (block-cyclic, parallel I/O, BLAS-3) follows standard HPC practices. The novelty lies more in an effective integration of these components for CLIME at extreme scales than in fundamentally new optimization theory or systems primitives.
+
+Significance
+- From a systems-for-statistics perspective, the contribution is valuable: enabling CLIME at scales far beyond prior single-node solvers, with near-linear scaling on hundreds of nodes. If released as code, practitioners could benefit.
+- The statistical angle is less developed: there is no analysis of how approximate optimization and/or covariance perturbations affect statistical error, nor experiments quantifying estimation error vs. iterations at large p.
+
+Suggestions for improvement
+- Fix the ADMM derivation and notation; add a brief proof sketch for Theorems 1–2 to highlight the key inequalities and the role of η ≥ ρ λ_max^2(C).
+- Replace Theorem 3 with a rigorous, parameterized statement or a simpler deterministic bound; explicitly justify hard-thresholding of C and its effect on CLIME’s guarantees.
+- Discuss and implement symmetrization and optional PD projection of Ω̂.
+- Provide guidance and an ablation on choosing k, ρ, η, and stopping tolerances; show sensitivity/robustness.
+- Report memory per node and communication costs; include a breakdown of time per step (multiplies vs. elementwise) and an ablation of low-rank vs. dense vs. sparse multiplies.
+- Ensure fair baselines: parallel TIGER, block-diagonal exploitation for your method when comparing to DC-QUIC, and report wall-clock vs. core counts consistently.
+
+Pros for acceptance
+- Tackles an important scalability bottleneck with a pragmatic, well-engineered solution.
+- Solid empirical scaling to very large p; clear wins in distributed settings.
+- Simple algorithmic building blocks that others can adopt.
+
+Cons for acceptance
+- Theoretical section has inconsistencies; Theorem 3 appears incorrect as stated.
+- Limited analysis of statistical accuracy under approximate solves/perturbations; experiments emphasize speed over estimation quality at scale.
+- Writing/notation issues hinder clarity and reproducibility.
+
+Overall: borderline accept. If the theoretical issues (especially Theorem 3) and clarity are addressed and comparisons are made fairer wrt parallelization, this would be a strong systems-paper contribution to scalable sparse precision estimation. My confidence is high.
