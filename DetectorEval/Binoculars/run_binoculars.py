@@ -57,12 +57,17 @@ def get_context_from_path(file_path):
         with open(context_path, "r") as f:
             context_data = json.load(f)
         sections = context_data.get("metadata", {}).get("sections", [])
+        abstract_text = ""
+        intro_text = ""
+        conclusion_text = ""
         for section in sections:
+            if "heading" in section and section["heading"] and "abstract" in section["heading"].lower():
+                abstract_text = section.get("text", "")
             if "heading" in section and section["heading"] and "introduction" in section["heading"].lower():
                 intro_text = section.get("text", "")
-            elif "heading" in section and section["heading"] and "conclusion" in section["heading"].lower():
+            if "heading" in section and section["heading"] and "conclusion" in section["heading"].lower():
                 conclusion_text = section.get("text", "")
-        context_text = intro_text + " " + conclusion_text
+        context_text = abstract_text + " " + intro_text + " " + conclusion_text
         return context_text
         
     except Exception as e:
